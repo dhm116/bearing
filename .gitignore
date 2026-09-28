@@ -1,0 +1,4 @@
+bin/
+*.ndjson
+!testdata/*.ndjson
+.env

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bearing.example/schema/observation.v1.schema.json",
+  "title": "Bearing observation v1",
+  "description": "A CloudEvents 1.0 envelope carrying one adapter's report about one entity.",
+  "type": "object",
+  "required": ["specversion", "id", "type", "source", "time", "data"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "dev.bearing.observation.v1" },
+    "source": { "type": "string", "minLength": 1, "examples": ["adapter/github"] },
+    "time": { "type": "string", "format": "date-time" },
+    "datacontenttype": { "const": "application/json" },
+    "data": {
+      "type": "object",
+      "required": ["entity"],
+      "properties": {
+        "entity": {
+          "type": "object",
+          "required": ["kind", "key"],
+          "properties": {
+            "kind": { "$ref": "#/$defs/kind" },
+            "key": { "$ref": "#/$defs/key" },
+            "attributes": { "type": "object" },
+            "deleted": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "to"],
+            "properties": {
+              "type": { "$ref": "#/$defs/relationType" },
+              "to": { "$ref": "#/$defs/key" },
+              "attributes": { "type": "object" },
+              "absent": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "ref": { "type": "string" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9_-]*/.+$",
+      "description": "<system>:<type>/<id>, scoped to one source system."
+    },
+    "kind": {
+      "enum": ["Person", "Team", "Repository", "Component", "Package", "Environment", "CloudResource", "Change", "Incident", "Schedule", "Document"]
+    },
+    "relationType": {
+      "enum": ["member_of", "owned_by", "depends_on", "publishes", "consumes", "deployed_to", "runs_on", "on_call_for", "affected_by", "documents", "changed_by", "defined_in"]
+    }
+  }
+}
