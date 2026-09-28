@@ -13,8 +13,19 @@ written in any language.
   JSON object per line, on the adapter's stdin (requests) and stdout
   (responses). This is the same pattern Terraform providers and MCP servers
   use.
-- The adapter MUST NOT write anything else to stdout. Logs go to stderr.
+- The adapter MUST NOT write anything else to stdout. Logs and other
+  telemetry go to stderr or an OpenTelemetry endpoint (see
+  [telemetry](../telemetry.md)).
 - Requests are sent one at a time; the core waits for each response.
+- Requests MAY carry a `_meta` object with W3C trace context
+  (`traceparent`, `tracestate`) and `baggage`. Adapters SHOULD continue that
+  trace so a sync shows up as one trace across processes. Adapters MUST
+  ignore `_meta` keys they don't understand.
+
+  ```json
+  {"jsonrpc":"2.0","id":3,"method":"bearing.sync","params":{"config":{"org":"acme"}},
+   "_meta":{"traceparent":"00-927f6d3e912a1212b0752ea99cac8388-b334571b6f44257b-01"}}
+  ```
 - An HTTP transport (the same JSON-RPC bodies over `POST /rpc`) is planned
   for adapters that run as long-lived services.
 

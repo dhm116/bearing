@@ -22,5 +22,5 @@ distribute and fits the cloud-native tools it integrates with.
   includes an explicit patent grant.
 - Go gives single static binaries, a strong standard library for HTTP and
   JSON, and familiarity for platform engineers.
-- The core uses only the Go standard library for now, which keeps the
-  dependency surface small.
+- The core keeps third-party dependencies to a minimum. OpenTelemetry is the
+  first (see ADR 4).

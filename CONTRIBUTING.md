@@ -11,6 +11,8 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
   suite.
 - Adapters need read-only access to their source and must verify webhook
   signatures when the source signs them.
+- Log with `telemetry.Logger`, report failures with `telemetry.Fail`, and
+  add new metrics to [docs/telemetry.md](docs/telemetry.md).
 - Run `make lint test` before sending a change.
 
 ## Writing an adapter

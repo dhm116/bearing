@@ -8,12 +8,14 @@
 //	bearing.handle    observations for one incoming webhook (optional)
 //
 // Adapters are stateless between calls: config travels with every sync and
-// handle request, and the cursor carries all paging state. Logs go to stderr.
+// handle request, and the cursor carries all paging state. Logs and other
+// telemetry go to stderr or OTLP, never stdout.
 package adapter
 
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"bearing.example/pkg/model"
 )
@@ -85,6 +87,9 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
+// ErrorType reports the JSON-RPC code as the OpenTelemetry error.type.
+func (e *Error) ErrorType() string { return strconv.Itoa(e.Code) }
+
 // Standard and protocol-specific error codes.
 const (
 	CodeParseError     = -32700
@@ -106,6 +111,9 @@ type request struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Meta carries W3C trace context ("traceparent", "tracestate") and
+	// baggage from the core so adapter spans join the caller's trace.
+	Meta map[string]string `json:"_meta,omitempty"`
 }
 
 type response struct {

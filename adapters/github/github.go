@@ -22,8 +22,13 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/telemetry"
 )
 
 // Source is the CloudEvents source for this adapter's observations.
@@ -92,7 +97,11 @@ var _ adapter.Adapter = (*Adapter)(nil)
 
 // New returns an adapter using the default HTTP client and environment.
 func New() *Adapter {
-	return &Adapter{HTTP: &http.Client{Timeout: 30 * time.Second}, Now: time.Now, Getenv: os.Getenv}
+	return &Adapter{
+		HTTP:   &http.Client{Timeout: 30 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		Now:    time.Now,
+		Getenv: os.Getenv,
+	}
 }
 
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
@@ -113,7 +122,7 @@ type cursor struct {
 	Page  int    `json:"page"`
 }
 
-func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (adapter.SyncResult, error) {
+func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.SyncResult, err error) {
 	cfg, err := parseConfig(p.Config)
 	if err != nil {
 		return adapter.SyncResult{}, err
@@ -124,6 +133,18 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (adapter.SyncR
 			return adapter.SyncResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: "bad cursor: " + err.Error()}
 		}
 	}
+	ctx, span := tracer.Start(ctx, "github.sync "+cur.Phase,
+		trace.WithAttributes(attrOrg.String(cfg.Org), attrPhase.String(cur.Phase), attrPage.Int(cur.Page)))
+	defer func() {
+		if err != nil {
+			telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "github sync page failed", err,
+				attrOrg.String(cfg.Org), attrPhase.String(cur.Phase), attrPage.Int(cur.Page))
+		} else {
+			telemetry.Logger(pkgName).DebugContext(ctx, "github sync page done", string(attrPhase), cur.Phase,
+				string(attrPage), cur.Page, "observations", len(res.Observations))
+		}
+		span.End()
+	}()
 	c := a.client(cfg)
 
 	var obs []model.Observation
@@ -225,8 +246,10 @@ func (a *Adapter) codeowners(ctx context.Context, c *client, r ghRepo) ([]model.
 		if err != nil {
 			return nil, "", err
 		}
+		codeownersLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String("found")))
 		return DefaultOwners(string(body), c.cfg.Org), p, nil
 	}
+	codeownersLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String("missing")))
 	return nil, "", nil
 }
 
@@ -338,7 +361,23 @@ func (a *Adapter) teamMembers(ctx context.Context, c *client, slug string) ([]gh
 // Handle turns "repository" and "membership" webhook deliveries into
 // observations. Other events are acknowledged with no observations; the next
 // scheduled sync picks up anything they changed.
-func (a *Adapter) Handle(_ context.Context, p adapter.HandleParams) (adapter.HandleResult, error) {
+func (a *Adapter) Handle(ctx context.Context, p adapter.HandleParams) (res adapter.HandleResult, err error) {
+	event := header(p.Headers, "X-GitHub-Event")
+	ctx, span := tracer.Start(ctx, "github.webhook "+event, trace.WithAttributes(attrEvent.String(event)))
+	result := "accepted"
+	defer func() {
+		if err != nil {
+			result = "rejected"
+			telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "github webhook rejected", err, attrEvent.String(event))
+		}
+		webhooks.Add(ctx, 1, metric.WithAttributes(attrEvent.String(event), attrResult.String(result)))
+		span.SetAttributes(attrResult.String(result))
+		span.End()
+	}()
+	return a.handle(ctx, event, p, &result)
+}
+
+func (a *Adapter) handle(_ context.Context, event string, p adapter.HandleParams, result *string) (adapter.HandleResult, error) {
 	cfg, err := parseConfig(p.Config)
 	if err != nil {
 		return adapter.HandleResult{}, err
@@ -352,7 +391,7 @@ func (a *Adapter) Handle(_ context.Context, p adapter.HandleParams) (adapter.Han
 		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: "webhook signature does not match"}
 	}
 
-	switch header(p.Headers, "X-GitHub-Event") {
+	switch event {
 	case "repository":
 		var ev struct {
 			Action     string `json:"action"`
@@ -383,6 +422,7 @@ func (a *Adapter) Handle(_ context.Context, p adapter.HandleParams) (adapter.Han
 		o := a.memberObservation(org, ev.Team.Slug, ev.Member, ev.Action == "removed")
 		return adapter.HandleResult{Observations: []model.Observation{o}}, nil
 	default:
+		*result = "ignored"
 		return adapter.HandleResult{}, nil
 	}
 }
@@ -443,6 +483,9 @@ func (c *client) do(ctx context.Context, path, accept string) ([]byte, error) {
 		return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
 	}
 	defer resp.Body.Close()
+	if left, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Remaining"), 10, 64); err == nil {
+		rateLimitRemaining.Record(ctx, left, metric.WithAttributes(attrRateLimit.String(resp.Header.Get("X-RateLimit-Resource"))))
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
 		return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
@@ -455,6 +498,8 @@ func (c *client) do(ctx context.Context, path, accept string) ([]byte, error) {
 		if len(msg) > 200 {
 			msg = msg[:200]
 		}
+		telemetry.Logger(pkgName).WarnContext(ctx, "github API returned an error", "path", path,
+			"status", resp.StatusCode, "ratelimit_remaining", resp.Header.Get("X-RateLimit-Remaining"))
 		return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: fmt.Sprintf("GET %s: %s: %s", path, resp.Status, msg)}
 	}
 	return body, nil

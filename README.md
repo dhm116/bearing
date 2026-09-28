@@ -17,10 +17,13 @@ keeps the adapters that fetch it small.
 | --- | --- |
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
+| [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
 | [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
 | [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
+| [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
+| [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
 | [`internal/memstore`](internal/memstore) | In-memory graph store, the reference implementation |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
@@ -28,7 +31,7 @@ keeps the adapters that fetch it small.
 
 ## Try it
 
-Requires Go 1.24 or later.
+Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make test          # vet and run every test
@@ -54,6 +57,15 @@ one entity, scores each relation's confidence, and stores the result as
 the graph for fuzzy search. Every component talks through an interface in
 [`pkg/contracts`](pkg/contracts) with one default backend, and any other
 backend that passes the conformance suite can replace it.
+
+## Telemetry
+
+Every binary emits OpenTelemetry logs, traces and metrics, configured with
+the standard `OTEL_*` variables. By default logs go to stderr and traces and
+metrics are off; set `OTEL_EXPORTER_OTLP_ENDPOINT` to send everything to a
+collector. One sync is one trace across the CLI, the adapter process and
+every upstream API call. See [docs/telemetry.md](docs/telemetry.md) for the
+span and metric catalog.
 
 ## First adapters
 

@@ -203,3 +203,16 @@ func TestHandleRepositoryDeleted(t *testing.T) {
 		t.Fatalf("entity = %+v", e)
 	}
 }
+
+func TestHandleIgnoresUnknownEvents(t *testing.T) {
+	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
+	body := []byte(`{"zen":"Keep it logically awesome."}`)
+	res, err := a.Handle(context.Background(), adapter.HandleParams{
+		Config:  json.RawMessage(`{"org":"acme"}`),
+		Headers: map[string][]string{"X-GitHub-Event": {"ping"}, "X-Hub-Signature-256": {sign("s3cret", body)}},
+		Body:    body,
+	})
+	if err != nil || len(res.Observations) != 0 {
+		t.Fatalf("got %v, %v; want no observations and no error", res, err)
+	}
+}

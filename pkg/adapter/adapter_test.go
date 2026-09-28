@@ -53,7 +53,7 @@ func connect(t *testing.T, a Adapter) *Client {
 			t.Errorf("serve: %v", err)
 		}
 	})
-	return NewClient(respR, reqW)
+	return NewClient("pager", respR, reqW)
 }
 
 func TestDescribeFillsProtocolVersion(t *testing.T) {
@@ -108,7 +108,7 @@ func TestHandleNotSupported(t *testing.T) {
 func TestUnknownMethod(t *testing.T) {
 	c := connect(t, pager{n: 1})
 	var out any
-	err := c.call("bearing.nope", nil, &out)
+	err := c.call(context.Background(), "bearing.nope", nil, &out)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeMethodNotFound {
 		t.Fatalf("got %v, want method not found", err)

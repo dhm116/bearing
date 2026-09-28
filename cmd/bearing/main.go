@@ -16,9 +16,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
+	"time"
 
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/telemetry"
 )
 
 const usage = `usage:
@@ -27,13 +30,47 @@ const usage = `usage:
   bearing validate [file.ndjson]
 `
 
+// version is the CLI version, set at build time with -ldflags.
+var version = "dev"
+
 func main() {
+	os.Exit(mainCode())
+}
+
+func mainCode() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "bearing:", err)
-		os.Exit(1)
+
+	shutdown, err := telemetry.Setup(ctx, telemetry.Config{ServiceName: "bearing-cli", ServiceVersion: version})
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		shutdown(ctx)
+	}()
+	if err != nil {
+		// Telemetry isn't available, so stderr is the only place to say why.
+		fmt.Fprintln(os.Stderr, "bearing: telemetry setup failed:", err)
+		return 1
 	}
+
+	// One span per invocation, named after the subcommand, e.g. "bearing adapter sync".
+	name := "bearing"
+	for _, a := range os.Args[1:] {
+		if strings.HasPrefix(a, "-") || len(strings.Fields(name)) == 3 {
+			break
+		}
+		name += " " + a
+	}
+	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, name)
+	defer span.End()
+	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
+		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+		return 1
+	}
+	return 0
 }
 
 var errUsage = errors.New("see usage above")
@@ -139,7 +176,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) error {
 		n++
 		return enc.Encode(o)
 	})
-	fmt.Fprintf(os.Stderr, "bearing: %d observations\n", n)
+	telemetry.Logger("cmd/bearing").InfoContext(ctx, "observations written", "count", n)
 	return err
 }
 
