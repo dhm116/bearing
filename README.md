@@ -1,4 +1,13 @@
-# Bearing
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/bearing-mark-dark.svg">
+    <img src="docs/brand/bearing-mark-light.svg" alt="Bearing logo: a lowercase b whose stem ends in a north arrow" width="96">
+  </picture>
+</p>
+
+<h1 align="center">Bearing</h1>
+
+<p align="center"><em>What is this, who owns it, what changed, and how do I safely change it?<br>One live answer for every engineer and every agent.</em></p>
 
 Bearing is an open-source foundation for a developer platform. It builds a
 live map of an engineering organization (services, owners, dependencies,
@@ -17,6 +26,7 @@ keeps the adapters that fetch it small.
 | --- | --- |
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
+| [`docs/brand/`](docs/brand/) | Logo, colors and type |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
 | [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
@@ -77,6 +87,14 @@ span and metric catalog.
 
 The Go module path `bearing.example` is a placeholder until the project has
 a home. Changing it later is a single find-and-replace.
+
+## Brand
+
+The Bearing mark is a lowercase b whose stem ends in a north arrow and whose
+bowl is a compass ring. The accent is a deep sea teal (`#1D5E74` on light
+backgrounds, `#7FC0D6` on dark), and the type is Bricolage Grotesque for
+display, IBM Plex Sans for text and IBM Plex Mono for code. The logo files,
+full palette, type scale and usage rules are in [docs/brand](docs/brand/).
 
 ## License
 
