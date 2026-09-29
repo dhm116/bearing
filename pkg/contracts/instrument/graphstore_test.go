@@ -38,6 +38,12 @@ func TestWrappedStoreConforms(t *testing.T) {
 	})
 }
 
+func TestWrappedIndexConforms(t *testing.T) {
+	conformance.VectorIndex(t, func(*testing.T) contracts.VectorIndex {
+		return instrument.VectorIndex(memstore.New(), "memory")
+	}, nil)
+}
+
 func TestNotFoundIsNotAnError(t *testing.T) {
 	s := instrument.GraphStore(memstore.New(), "memory")
 	if _, err := s.GetEntity(context.Background(), "missing"); !errors.Is(err, contracts.ErrNotFound) {

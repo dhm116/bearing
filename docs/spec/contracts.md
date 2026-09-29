@@ -7,13 +7,35 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Entities, aliases and facts with history. The source of truth. | PostgreSQL | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
-| `VectorIndex` | Semantic search over entities and documents, keyed by graph ID | Qdrant | pgvector, OpenSearch, Weaviate | Planned |
+| `GraphStore` | Entities, aliases and facts with history. The source of truth. | SurrealDB | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `VectorIndex` | Semantic search over entities and documents, keyed by graph ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | Any chat-completions style LLM API | Hosted or local models | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
 | `Executor` | Plan, apply, verify and roll back actions durably | Temporal | Postgres-backed job runner | Planned |
+
+## One database to start
+
+A backend can serve more than one interface. By default SurrealDB backs
+both `GraphStore` and `VectorIndex`, so a small install runs one database, or
+none with an embedded build ([ADR 5](../adr/0005-one-store-to-start.md)).
+[`pkg/store`](../../pkg/store) opens backends from URLs:
+
+| URL | Backend | Needs |
+| --- | --- | --- |
+| `mem://` | In-memory reference store | Nothing; data is lost on exit |
+| `surrealdb+ws://user@host:8000?ns=bearing&db=main` | SurrealDB server (also `wss`, `http`, `https`) | A running `surreal start` |
+| `surrealdb+mem://` | Embedded SurrealDB in memory | A `-tags surrealembed` build (CGO) |
+| `surrealkv:///var/lib/bearing` | Embedded SurrealDB on disk | A `-tags surrealembed` build (CGO) |
+
+`store.Config{Graph: url}` uses one backend for both. Setting
+`Config.Vectors` to a second URL splits them, for example a SurrealDB graph
+with Qdrant vectors, and nothing else changes. Passwords come from
+`BEARING_STORE_PASSWORD`, not the URL.
+
+In a vector index, a point's kind is its `kind` payload field, which
+`VectorQuery.Kinds` filters on.
 
 Beyond Go interfaces, components that run as separate services expose the
 same operations over a network protocol (gRPC or HTTP+JSON), so a backend can
@@ -47,5 +69,7 @@ be written in any language. Those wire definitions will live in `proto/`.
 
 3. Document any behavior the suite doesn't cover (consistency, limits).
 
-[`internal/memstore`](../../internal/memstore) is the reference
-`GraphStore` and shows the pattern.
+[`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
+and `VectorIndex` and shows the pattern.
+[`internal/surrealstore`](../../internal/surrealstore) shows one backend
+passing both suites.

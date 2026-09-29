@@ -23,3 +23,5 @@ exact, auditable facts.
 - A fuzzy match can never grant access or page the wrong team.
 - Two stores to run in production. For small installs, PostgreSQL with
   pgvector can back both interfaces.
+- Superseded in part by [ADR 5](0005-one-store-to-start.md): one SurrealDB
+  database backs both interfaces by default.

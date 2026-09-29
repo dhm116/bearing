@@ -47,6 +47,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore` | `db.system.name`, `db.operation.name` |
+| `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
 
 ## Metrics
 
@@ -66,6 +67,8 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.graph.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Graph backend latency per operation |
 | `bearing.graph.facts.written` | counter | {fact} | `bearing.fact.relation`, `bearing.fact.asserted` | Rate of new knowledge, and how much is only hedged |
 | `bearing.graph.facts.retracted` | counter | {fact} | `bearing.fact.relation` | Churn: facts sources say are gone |
+| `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
+| `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
 | `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.system` | High miss rates mean identity resolution is falling behind |
 
 Attributes are deliberately low-cardinality: no entity IDs, keys or

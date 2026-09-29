@@ -1,5 +1,5 @@
-// Package memstore is an in-memory GraphStore for tests and local trials.
-// It is the reference implementation of the GraphStore contract.
+// Package memstore is an in-memory GraphStore and VectorIndex for tests and
+// local trials. It is the reference implementation of both contracts.
 package memstore
 
 import (
@@ -19,13 +19,14 @@ type factKey struct {
 	object   contracts.EntityID
 }
 
-// Store is a concurrency-safe in-memory GraphStore.
+// Store is a concurrency-safe in-memory GraphStore and VectorIndex.
 type Store struct {
 	mu       sync.RWMutex
 	entities map[contracts.EntityID]contracts.Entity
 	aliases  map[model.Key]contracts.EntityID
 	facts    map[factKey]contracts.Fact
 	history  map[contracts.EntityID][]contracts.FactVersion
+	vectors  map[string]contracts.VectorPoint
 	now      func() time.Time
 }
 
@@ -38,6 +39,7 @@ func New() *Store {
 		aliases:  map[model.Key]contracts.EntityID{},
 		facts:    map[factKey]contracts.Fact{},
 		history:  map[contracts.EntityID][]contracts.FactVersion{},
+		vectors:  map[string]contracts.VectorPoint{},
 		now:      time.Now,
 	}
 }

@@ -35,7 +35,9 @@ keeps the adapters that fetch it small.
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
-| [`internal/memstore`](internal/memstore) | In-memory graph store, the reference implementation |
+| [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
+| [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation |
+| [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
 
@@ -45,6 +47,7 @@ Requires Go 1.27.1 or later (the `go` command downloads it automatically if need
 
 ```sh
 make test          # vet and run every test
+make test-surrealdb SURREALDB=ws://127.0.0.1:8000   # also run the SurrealDB conformance suites
 make build         # builds bin/bearing and bin/bearing-adapter-github
 
 # What does the GitHub adapter emit and need?
@@ -67,6 +70,21 @@ one entity, scores each relation's confidence, and stores the result as
 the graph for fuzzy search. Every component talks through an interface in
 [`pkg/contracts`](pkg/contracts) with one default backend, and any other
 backend that passes the conformance suite can replace it.
+
+## One database to start
+
+The graph and the semantic index are separate contracts, but by default one
+SurrealDB database serves both, so there is one thing to run, or nothing.
+[`pkg/store`](pkg/store) opens a store from a URL:
+
+| Store URL | What runs |
+| --- | --- |
+| `mem://` | Nothing; in-memory, for tests and demos |
+| `surrealdb+ws://root@localhost:8000` | One `surreal start` process |
+| `surrealkv:///var/lib/bearing` | SurrealDB inside Bearing (`go build -tags surrealembed`, needs CGO) |
+
+Larger installs can move vectors to a dedicated engine later by giving the
+vector index its own URL. See [ADR 5](docs/adr/0005-one-store-to-start.md).
 
 ## Telemetry
 
