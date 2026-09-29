@@ -83,6 +83,50 @@ credential handling.
 - **The stdio JSON-RPC transport is retired.** Existing adapters (GitHub)
   are ported to WASM.
 
+## Shape
+
+An adapter module sees one function, `bearing_call`. Everything behind it is
+Bearing's, and every call is checked against the grant.
+
+```mermaid
+flowchart TB
+  subgraph host["Bearing worker (Go)"]
+    subgraph sandbox["WASM sandbox (Extism on wazero)"]
+      MOD["Adapter module<br/>github.wasm"]
+    end
+    MOD -->|"bearing_call(capability, method, proto bytes)"| GATE{"Grant check<br/>manifest ∩ Source"}
+    GATE -->|denied| ERR["permission error"]
+    GATE --> HTTP["http<br/>allowlist · creds injected · span"]
+    GATE --> LOGC["log / trace / metrics<br/>to pkg/telemetry"]
+    GATE --> CFG["config<br/>typed Source settings"]
+    GATE --> KV["kv<br/>per-Source cache"]
+    GATE --> CLK["clock"]
+  end
+  HTTP --> API["api.github.com"]
+  SEC["Secret resolver (ADR 10)"] -. "token, never shown to module" .-> HTTP
+  KV --> ST[("Main store")]
+```
+
+The same interfaces work standalone and distributed. Only where a capability
+runs changes.
+
+```mermaid
+flowchart LR
+  subgraph standalone["Standalone: one binary"]
+    direction TB
+    A1["Adapter"] --> C1["Capabilities<br/>in-process"]
+  end
+  subgraph distributed["Distributed"]
+    direction TB
+    A2["Adapter on worker N"] --> C2["Local: log, trace, config, clock"]
+    A2 --> R1["Remote provider (Connect)<br/>http egress with fixed IPs"]
+    A2 --> R2["Remote provider (Connect)<br/>shared kv cache"]
+  end
+  subgraph remote["Remote adapter runtime (fallback)"]
+    RA["Adapter service<br/>same AdapterService proto"]
+  end
+```
+
 ## Consequences
 
 - **Spike first:** build the GitHub adapter as a WASM module, and check the

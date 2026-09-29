@@ -42,6 +42,33 @@ of who changed what.
 - **Defaults and overlays.** An `Adapter` can carry default settings that each
   `Source` overrides, so a hundred GitHub orgs share one definition.
 
+## Shape
+
+```mermaid
+flowchart LR
+  subgraph authoring["Two ways in"]
+    GIT["config/*.yaml in a repo<br/>bearing diff / bearing apply"]
+    API["API / UI"]
+  end
+  authoring --> VAL{"Validate<br/>proto types · protovalidate ·<br/>adapter's settings descriptor ·<br/>capability grant ⊆ manifest"}
+  VAL -->|"rejected at apply time"| ERR["error with the field to fix"]
+  VAL --> CS[("Config tables<br/>versioned")]
+  VAL --> AU[("Audit log (ADR 8)")]
+  CS --> SVR["Every server instance<br/>scheduler · workers · ingest"]
+  SVR -->|"env:, file:, vault:, aws-sm:"| SR["Secret resolver<br/>values never stored or logged"]
+```
+
+How the resources relate:
+
+```mermaid
+flowchart LR
+  AD["Adapter: github<br/>module sha256:ab12...<br/>capabilities: http[api.github.com], kv, log<br/>default settings"]
+  S1["Source: github-acme<br/>org: acme<br/>token: vault:kv/bearing#acme<br/>schedule: every 6h"]
+  S2["Source: github-acme-labs<br/>org: acme-labs<br/>kv: disabled"]
+  S1 -->|uses, may narrow| AD
+  S2 -->|uses, may narrow| AD
+```
+
 ## Consequences
 
 - One new CLI verb family (`apply`, `diff`, `get`) that talks to the
