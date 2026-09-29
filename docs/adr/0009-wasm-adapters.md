@@ -1,4 +1,4 @@
-# 9. Adapters run as sandboxed WebAssembly modules
+# 9. Adapters run as sandboxed WebAssembly modules with granted capabilities
 
 Date: 2026-09-29 · Status: proposed
 
@@ -21,6 +21,14 @@ language, but:
 | WASM via Extism (wazero, pure Go) | Sandbox by default; one portable `.wasm` per adapter; runs in-process, so any worker can run any adapter; no CGO | Network only through host functions; some SDKs don't compile to WASM yet; Go adapters need TinyGo or Go's `wasip1` target |
 | WASM via wasmtime (component model, WASI 0.2) | Richest standard (`wasi:http`) | CGO; the Go tooling for components is immature |
 | Remote adapters over gRPC | Any language, any library, scales separately | The operator runs and secures another service |
+| Adopt wasmCloud | Mature capability-provider model; WIT interfaces; distributed "lattice" over NATS | Its own runtime (Rust, wasmtime), scheduler and deployment model to operate; hard to fit a single Bearing binary; less control over what adapters can reach |
+
+wasmCloud's central idea is worth keeping even without wasmCloud itself: the
+sandbox exposes nothing but a small set of standard **capabilities**, each a
+narrow interface, and an operator grants them per component. That gives
+adapters a consistent surface to build against and gives Bearing one place
+to implement shared behavior such as logging, tracing, caching and
+credential handling.
 
 ## Decision
 
@@ -29,12 +37,43 @@ language, but:
   boundary as Protobuf bytes.
 - **The default runtime is WASM, hosted with Extism** on wazero (pure Go, no
   CGO). An adapter ships as one `.wasm` module plus a manifest.
-- **The sandbox is the permission model.** The manifest declares the hosts
-  the adapter may call (`api.github.com`) and the secrets it needs by name.
-  The host enforces both. An adapter has no filesystem, no clock beyond what
-  the host gives it, and no other network access. Outbound HTTP goes
-  through a host function that applies the allowlist, injects credentials
-  and records an `otelhttp` span.
+- **Adapters reach the world only through host capabilities.** Bearing
+  defines a small, versioned set of capabilities. Each one is a Protobuf
+  service (ADR 6) in `proto/bearing/capability/<name>/v1/`:
+
+  | Capability | What it gives an adapter | What the host adds |
+  | --- | --- | --- |
+  | `http` | Outbound HTTP requests | Host allowlist; credentials injected from secret references, so the adapter never sees tokens; an `otelhttp` span; rate-limit handling |
+  | `log` | Structured logs | Routed to `pkg/telemetry` with the adapter, source and trace attached |
+  | `trace` | Child spans and attributes | Spans parented to the sync or webhook trace |
+  | `metrics` | Counters and gauges declared in the manifest | Prefixed and labelled per adapter and source |
+  | `config` | This source's typed settings (ADR 10) | Already validated at apply time |
+  | `kv` | A small key-value cache (ETags, lookups) with TTLs | Scoped to one source; stored in the main store |
+  | `clock` | Current time | Controllable in tests |
+
+  An adapter calls every capability through one host function,
+  `bearing_call(capability, method, request_bytes) -> response_bytes`. New
+  capabilities need no new ABI.
+- **Capabilities are granted, not assumed.** Access is deny-by-default at
+  two levels:
+  - The adapter's manifest declares which capabilities it needs and their
+    scope, for example `http: [api.github.com]`, `kv`, `log`. A module that
+    calls anything else gets a permission error.
+  - Each `Source` (ADR 10) can narrow that further, but never widen it. For
+    example, a source could use a GitHub Enterprise host or turn off `kv`.
+
+  Bearing shows the effective grant before a source is applied, so an
+  operator reviews exactly what an adapter will be able to do.
+- **Local or remote, same interface.** In a single binary, capabilities are
+  in-process host functions. In a distributed install, a capability can be
+  served by a separate provider service over Connect, for example a shared
+  HTTP egress proxy with fixed IPs or a shared cache. Adapters can't tell the
+  difference, which keeps standalone and distributed installs one design.
+- **Stay close to WASI.** Where a WASI 0.2 interface exists (`wasi:http`,
+  `wasi:logging`, `wasi:keyvalue`, `wasi:config`), our capability follows its
+  shape and names. If Go's component-model tooling matures, we can move to
+  WIT components, and wasmCloud interoperability stays possible, without
+  redesigning the capabilities.
 - **Modules are pinned by digest** (sha256) in configuration (ADR 10), and
   can be signed and verified (Sigstore) before loading.
 - **A second runtime for what WASM can't do yet.** Remote adapters implement
@@ -53,10 +92,16 @@ language, but:
 - WASM doesn't make Bearing scale by itself. It helps because adapters
   become cheap, stateless functions that any worker can run, so scale comes
   from the event log and worker pool (ADR 7).
-- Transports narrow rather than widen: adapters can use only what the host
-  offers (HTTP at first). New transports are added once, in the host, for
-  every adapter.
-- Adapter authors in Rust, Go (TinyGo or `wasip1`), JavaScript, Python and
-  other languages use the Extism PDKs.
+- Transports narrow rather than widen: adapters can use only the capabilities
+  the host offers. A new transport or feature is added once, as a capability,
+  and every adapter that is granted it can use it.
+- Shared behavior lives in capabilities, not in each adapter: retries,
+  rate limiting, caching, credentials and telemetry are written once in Go
+  and behave the same for every adapter in every language.
+- Bearing publishes a small SDK per language (Go and Rust first) that wraps
+  `bearing_call` with typed clients generated from the capability protos,
+  built on the Extism PDKs.
+- Each capability gets a conformance suite, so a remote provider behaves the
+  same as the in-process one.
 - Supersedes [ADR 3](0003-adapter-protocol.md) and
   `docs/spec/adapter-protocol.md` once accepted.
