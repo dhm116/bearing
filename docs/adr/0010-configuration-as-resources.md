@@ -15,10 +15,11 @@ of who changed what.
 - **Configuration is a set of typed resources** in the familiar
   `apiVersion` / `kind` / `metadata` / `spec` shape, each defined as a
   Protobuf message (ADR 6):
-  - `Adapter`: a module (ADR 9), pinned by digest, with its declared hosts
-    and secret names.
+  - `Adapter`: a module (ADR 9), pinned by digest, with the capabilities
+    it declares and the secret names it needs.
   - `Source`: one configured instance of an adapter, with its settings,
-    secret references and schedule. For example, `github-acme` uses the
+    secret references, schedule and any narrowing of the adapter's
+    capability grant. For example, `github-acme` uses the
     GitHub adapter for the `acme` org.
   - `Schedule`, `Policy` and `Retention` resources follow the same pattern
     as they are needed.
