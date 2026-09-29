@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -75,5 +76,44 @@ func TestOpenSurrealServer(t *testing.T) {
 	}
 	if _, err := s.Graph.GetEntity(ctx, "missing"); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+}
+
+// In surrealembed builds, a surrealkv:// store keeps its data across process
+// restarts. Each phase runs in its own process because the embedded engine
+// doesn't release its file lock on Close (surrealdb.c.go v0.1.0).
+func TestOpenEmbeddedOnDisk(t *testing.T) {
+	if !surrealstore.EmbeddedAvailable {
+		t.Skip("needs -tags surrealembed")
+	}
+	if phase := os.Getenv("BEARING_ONDISK_PHASE"); phase != "" {
+		onDiskPhase(t, phase, os.Getenv("BEARING_ONDISK_URL"))
+		return
+	}
+	url := "surrealkv://" + t.TempDir() + "/bearing"
+	for _, phase := range []string{"write", "read"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOpenEmbeddedOnDisk$", "-test.count=1")
+		cmd.Env = append(os.Environ(), "BEARING_ONDISK_PHASE="+phase, "BEARING_ONDISK_URL="+url)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s phase: %v\n%s", phase, err, out)
+		}
+	}
+}
+
+func onDiskPhase(t *testing.T, phase, url string) {
+	ctx := context.Background()
+	s, err := Open(ctx, Config{Graph: url})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if phase == "write" {
+		if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "t", Kind: "Team"}); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if _, err := s.Graph.GetEntity(ctx, "t"); err != nil {
+		t.Fatalf("entity lost after restart: %v", err)
 	}
 }

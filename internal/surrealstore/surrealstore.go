@@ -400,7 +400,7 @@ func (s *Store) Search(ctx context.Context, q contracts.VectorQuery) ([]contract
 	// K and EF must be literals; both are ints.
 	sql := fmt.Sprintf(`SELECT record::id(id) AS id, record::id(entity) AS entity_id, vector, text, payload,
 	vector::similarity::cosine(vector, $v) AS score
-FROM vector WHERE vector <|%d,%d|> $v%s ORDER BY score DESC`, limit, max(limit*4, 40), filter)
+FROM vector WHERE vector <|%d,%d|> $v%s ORDER BY score DESC LIMIT %d`, limit, max(limit*4, 40), filter, limit)
 	res, err := s.query(ctx, sql, map[string]any{"v": q.Vector, "kinds": kinds})
 	if err != nil {
 		return nil, err

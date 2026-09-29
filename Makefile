@@ -1,4 +1,4 @@
-.PHONY: all build test test-surrealdb fmt lint clean
+.PHONY: all build test test-surrealdb test-embedded fmt lint clean
 
 all: fmt test build
 
@@ -14,6 +14,12 @@ test:
 #   make test-surrealdb SURREALDB=ws://127.0.0.1:8000
 test-surrealdb:
 	BEARING_TEST_SURREALDB=$(SURREALDB) go test -count=1 ./internal/surrealstore/
+
+# Runs the same suites against embedded SurrealDB. Build libsurrealdb_c.a from
+# github.com/surrealdb/surrealdb.c first (cargo build --release), then:
+#   make test-embedded SURREALDB_LIB=/path/to/dir/with/libsurrealdb_c.a
+test-embedded:
+	CGO_ENABLED=1 CGO_LDFLAGS="-L$(SURREALDB_LIB)" go test -count=1 -tags surrealembed ./internal/surrealstore/ ./pkg/store/
 
 fmt:
 	gofmt -w .

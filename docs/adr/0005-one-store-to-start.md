@@ -2,6 +2,10 @@
 
 Date: 2026-09-29 · Status: proposed
 
+Tested: both conformance suites pass against SurrealDB 3.3.0 over
+WebSocket and HTTP (`make test-surrealdb`) and embedded in memory and on
+disk (`make test-embedded`).
+
 ## Context
 
 ADR 2 keeps the graph (`GraphStore`) and the semantic index (`VectorIndex`)
@@ -60,7 +64,12 @@ Options considered:
 - **Embedded bindings are young.** `surrealdb.c.go` is at v0.1.0 (March 2026)
   and its module has no LICENSE file (the C library it wraps is
   Apache-2.0). This must be resolved with SurrealDB before Bearing ships
-  embedded binaries. Server mode is not affected.
+  embedded binaries. Server mode is not affected. Two quirks found in
+  testing, both worked around: the embedded driver can't pass arrays of
+  objects as query variables (Bearing inlines them as literals), and it
+  doesn't release a `surrealkv://` file lock on Close, so reopening the same
+  path needs a new process. `go mod tidy` also fails on the module's test
+  dependencies.
 - Building embedded binaries needs a Rust toolchain for `libsurrealdb_c.a`,
   which rules out plain `go install` and easy cross-compiling for that
   variant.
