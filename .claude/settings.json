@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make lint)",
+      "Bash(make test)",
+      "Bash(make build)",
+      "Bash(make fmt)",
+      "Bash(make lint test)",
+      "Bash(make test-surrealdb:*)",
+      "Bash(make test-embedded:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
+      "Bash(gofmt:*)",
+      "Bash(bin/bearing:*)"
+    ],
+    "deny": [
+      "Bash(go mod tidy:*)"
+    ]
+  }
+}
