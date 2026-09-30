@@ -163,3 +163,25 @@ keyframes and no scripts.
 The animation follows the viewer's light or dark system setting. With
 reduced motion turned on, it shows the finished mark straight away. Use it
 once per page, never as a loading spinner.
+
+## Diagrams
+
+Diagrams for docs, ADRs and talks use the
+[diagram-design](https://github.com/cathrynlavery/diagram-design) skill with
+the Bearing profile in [`diagram-design/bearing.md`](diagram-design/bearing.md).
+The profile maps the colors and type above onto the skill's semantic roles
+and adds a few motifs from the logo concepts: the fix (three bearings
+meeting at a ringed point) marks the focal node, a 40° angle for any
+diagonal, and a dotted arc for measured ranges and replays.
+
+The repository root has a `.diagram-design` file that selects the profile,
+so the skill picks it up in this repo without changing its installed style
+guide. Copy the profile into the skill's profile library once per machine:
+
+```sh
+mkdir -p ~/.diagram-design/profiles
+cp docs/brand/diagram-design/bearing.md ~/.diagram-design/profiles/bearing.md
+```
+
+When the colors or type above change, update the profile in the same
+change.
