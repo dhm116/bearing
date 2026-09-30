@@ -2,6 +2,9 @@
 
 Date: 2026-09-28 · Status: accepted
 
+> Proposed replacement: [ADR 6](0006-protobuf-contracts.md) (message
+> format) and [ADR 9](0009-wasm-adapters.md) (runtime).
+
 ## Context
 
 Bearing should not replace existing tools. It should make it easy to write
