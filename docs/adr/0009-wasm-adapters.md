@@ -88,44 +88,12 @@ credential handling.
 An adapter module sees one function, `bearing_call`. Everything behind it is
 Bearing's, and every call is checked against the grant.
 
-```mermaid
-flowchart TB
-  subgraph host["Bearing worker (Go)"]
-    subgraph sandbox["WASM sandbox (Extism on wazero)"]
-      MOD["Adapter module<br/>github.wasm"]
-    end
-    MOD -->|"bearing_call(capability, method, proto bytes)"| GATE{"Grant check<br/>manifest ∩ Source"}
-    GATE -->|denied| ERR["permission error"]
-    GATE --> HTTP["http<br/>allowlist · creds injected · span"]
-    GATE --> LOGC["log / trace / metrics<br/>to pkg/telemetry"]
-    GATE --> CFG["config<br/>typed Source settings"]
-    GATE --> KV["kv<br/>per-Source cache"]
-    GATE --> CLK["clock"]
-  end
-  HTTP --> API["api.github.com"]
-  SEC["Secret resolver (ADR 10)"] -. "token, never shown to module" .-> HTTP
-  KV --> ST[("Main store")]
-```
+![An adapter module in the WASM sandbox calls one host function; a grant check allows http, local capabilities and kv, or returns a permission error; secrets are injected into http outside the module.](diagrams/adr9-sandbox.svg)
 
 The same interfaces work standalone and distributed. Only where a capability
 runs changes.
 
-```mermaid
-flowchart LR
-  subgraph standalone["Standalone: one binary"]
-    direction TB
-    A1["Adapter"] --> C1["Capabilities<br/>in-process"]
-  end
-  subgraph distributed["Distributed"]
-    direction TB
-    A2["Adapter on worker N"] --> C2["Local: log, trace, config, clock"]
-    A2 --> R1["Remote provider (Connect)<br/>http egress with fixed IPs"]
-    A2 --> R2["Remote provider (Connect)<br/>shared kv cache"]
-  end
-  subgraph remote["Remote adapter runtime (fallback)"]
-    RA["Adapter service<br/>same AdapterService proto"]
-  end
-```
+![Standalone, capabilities run in-process; distributed, local capabilities stay on the worker while http egress and the kv cache can be remote providers over Connect; a remote adapter service is the fallback runtime.](diagrams/adr9-topology.svg)
 
 ## Consequences
 
