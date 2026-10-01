@@ -183,5 +183,8 @@ mkdir -p ~/.diagram-design/profiles
 cp docs/brand/diagram-design/bearing.md ~/.diagram-design/profiles/bearing.md
 ```
 
+The ADR diagrams are built this way; their generator and export steps are in
+[`docs/adr/diagrams/`](../adr/diagrams/README.md).
+
 When the colors or type above change, update the profile in the same
 change.

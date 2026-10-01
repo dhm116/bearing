@@ -141,6 +141,9 @@ new ADR.
 - **Contracts:** update `docs/spec/contracts.md`, `pkg/contracts`, the
   conformance suite, the instrument wrapper, and every backend
   (`memstore`, `surrealstore`) together.
+- **ADR diagrams** are SVGs generated from `docs/adr/diagrams/src/`; edit
+  the Python there and re-export (see `docs/adr/diagrams/README.md`), never
+  the SVGs by hand.
 - **Significant decisions** get an ADR: copy `docs/adr/template.md` to the
   next number, and mark older ADRs "Superseded in part by" when relevant.
 - Keep `README.md`'s "What's here" table current when adding top-level

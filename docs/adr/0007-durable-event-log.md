@@ -52,51 +52,13 @@ the graph quietly.
 Every input takes the same path. Nothing is acknowledged until it is in the
 log, and nothing is applied twice.
 
-```mermaid
-flowchart LR
-  WH["Webhook<br/>(GitHub, PagerDuty, ...)"] --> ING
-  SCH["Scheduler"] -->|SyncRequested| ING
-  CLI["CLI / API<br/>'sync now'"] -->|SyncRequested| ING
-  ING["Ingest<br/>validate · assign event ID"] -->|append| LOG[("Event log (WAL)<br/>partitioned by entity key")]
-  LOG --> W["Workers<br/>(consumer group)"]
-  W -->|"run adapter (ADR 9)"| AD["Adapter<br/>Sync / Handle"]
-  AD -->|ObservationsEmitted| LOG
-  W -->|"Apply(ChangeSet)"| TX
-  subgraph TX["One store transaction"]
-    G[("Graph<br/>entities · facts · history")]
-    P[("Processed event IDs")]
-    AU[("Audit log (ADR 8)")]
-  end
-  LOG -. "replay from offset" .-> W
-```
+![Webhooks and sync requests are appended to a durable event log; workers run adapters, whose observations go back to the log, and apply changes in one store transaction.](diagrams/adr7-flow.svg)
 
 A webhook delivery, end to end:
 
-```mermaid
-sequenceDiagram
-  participant S as GitHub
-  participant I as Ingest
-  participant L as Event log
-  participant W as Worker
-  participant A as Adapter (WASM)
-  participant DB as Store
-  S->>I: POST /hooks/github-acme
-  I->>L: Append WebhookReceived (id = X-GitHub-Delivery)
-  L-->>I: offset 1042
-  I-->>S: 202 Accepted
-  L->>W: deliver offset 1042
-  W->>A: Handle(delivery)
-  A-->>W: observations (signature verified)
-  W->>DB: BEGIN
-  W->>DB: already processed this event ID?
-  alt new event
-    W->>DB: upsert entities and facts, audit records
-    W->>DB: mark event ID processed
-  end
-  W->>DB: COMMIT
-  W->>L: commit offset 1042
-  Note over W,L: A crash before commit means redelivery,<br/>and the processed-ID check makes it a no-op
-```
+![GitHub posts a webhook; ingest appends it to the event log keyed by the delivery ID and only then answers 202 Accepted.](diagrams/adr7-seq-ingest.svg)
+
+![A worker takes an event from the log, runs the adapter, and in one transaction checks the processed-ID table, writes facts and audit records, and marks the event done before committing its offset.](diagrams/adr7-seq-apply.svg)
 
 ## Consequences
 

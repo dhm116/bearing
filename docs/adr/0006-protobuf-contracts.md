@@ -48,28 +48,7 @@ it.
 One set of `.proto` files produces every type and client. Validation runs
 wherever data enters Bearing.
 
-```mermaid
-flowchart LR
-  subgraph src["proto/bearing/.../v1 (source of truth)"]
-    M["model.proto<br/>Entity, Relation, Observation"]
-    E["events.proto<br/>SyncRequested, WebhookReceived, ..."]
-    A["adapter.proto<br/>AdapterService"]
-    C["config.proto<br/>Adapter, Source"]
-    U["audit.proto<br/>AuditRecord"]
-    K["capability/*.proto<br/>http, log, kv, ..."]
-  end
-  src --> BUF["buf<br/>lint · breaking · generate"]
-  BUF --> GO["gen/go<br/>core, CLI, Go adapters"]
-  BUF --> RS["Rust / TS / Python<br/>adapter SDKs and API clients"]
-  BUF --> CI["CI: buf breaking<br/>against main"]
-
-  subgraph edges["protovalidate runs at every way in"]
-    V1["event ingest"]
-    V2["adapter output"]
-    V3["config apply"]
-  end
-  GO --> edges
-```
+![The Protobuf schemas feed buf, which generates Go code and SDKs and blocks breaking changes; protovalidate checks messages at every way in.](diagrams/adr6-protobuf.svg)
 
 People still see JSON: the same messages render as ProtoJSON in config
 files, the CLI and logs.

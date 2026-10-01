@@ -44,27 +44,9 @@ record that can't be lost or quietly edited.
 Audit records are written by the things that change state, in the same
 transaction as the change, and form a hash chain.
 
-```mermaid
-flowchart LR
-  subgraph writers["What writes audit records"]
-    W["Workers<br/>fact asserted / changed / retracted"]
-    H["People<br/>confirm / override a fact"]
-    CF["Config apply (ADR 10)"]
-    PD["Policy decisions"]
-    EX["Executor actions"]
-  end
-  writers -->|"same transaction as the change"| AL[("Audit log<br/>append-only")]
-  AL --> Q["Query API<br/>who changed this, and why?"]
-  AL --> VF["bearing audit verify<br/>checks the hash chain"]
-  AL -. optional .-> EXP["Exporter<br/>object storage / SIEM"]
-  AL -. "trace_id link" .-> OT["OpenTelemetry<br/>(best effort, may be gone)"]
-```
+![Workers, people, config apply, policy and executor actions write audit records in the same transaction as their change; a query API and a verify command read them, with optional export and a trace link to OpenTelemetry.](diagrams/adr8-writers.svg)
 
-```mermaid
-flowchart LR
-  R1["#1<br/>owner set<br/>hash h1"] --> R2["#2<br/>prev = h1<br/>hash h2"] --> R3["#3<br/>prev = h2<br/>hash h3"]
-  R2 -. "editing #2 changes h2,<br/>so #3's prev no longer matches" .-> R3
-```
+![Each audit record stores the previous record's hash; editing record 2 changes its hash, so record 3's stored prev no longer matches.](diagrams/adr8-chain.svg)
 
 ## Consequences
 

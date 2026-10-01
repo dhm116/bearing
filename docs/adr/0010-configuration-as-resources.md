@@ -44,30 +44,11 @@ of who changed what.
 
 ## Shape
 
-```mermaid
-flowchart LR
-  subgraph authoring["Two ways in"]
-    GIT["config/*.yaml in a repo<br/>bearing diff / bearing apply"]
-    API["API / UI"]
-  end
-  authoring --> VAL{"Validate<br/>proto types · protovalidate ·<br/>adapter's settings descriptor ·<br/>capability grant ⊆ manifest"}
-  VAL -->|"rejected at apply time"| ERR["error with the field to fix"]
-  VAL --> CS[("Config tables<br/>versioned")]
-  VAL --> AU[("Audit log (ADR 8)")]
-  CS --> SVR["Every server instance<br/>scheduler · workers · ingest"]
-  SVR -->|"env:, file:, vault:, aws-sm:"| SR["Secret resolver<br/>values never stored or logged"]
-```
+![Config from Git or the API is validated against proto types, protovalidate rules, the adapter's settings and its capability grant, then stored with an audit record; servers load it and resolve secret references at runtime.](diagrams/adr10-apply.svg)
 
 How the resources relate:
 
-```mermaid
-flowchart LR
-  AD["Adapter: github<br/>module sha256:ab12...<br/>capabilities: http[api.github.com], kv, log<br/>default settings"]
-  S1["Source: github-acme<br/>org: acme<br/>token: vault:kv/bearing#acme<br/>schedule: every 6h"]
-  S2["Source: github-acme-labs<br/>org: acme-labs<br/>kv: disabled"]
-  S1 -->|uses, may narrow| AD
-  S2 -->|uses, may narrow| AD
-```
+![One github Adapter resource, pinned by digest with its capability grant, is used by two Sources that set their own org, token and schedule and may narrow the grant.](diagrams/adr10-resources.svg)
 
 ## Consequences
 
