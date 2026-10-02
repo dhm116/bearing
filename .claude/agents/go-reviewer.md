@@ -17,8 +17,10 @@ rules" 4 to 6 constrain dependencies and layering.
 - **Dependencies.** New third-party modules are justified in the commit
   message (significant ones need an ADR), Apache-2.0 compatible, added with
   `go get`, and `go.mod` edits are minimal (no `go mod tidy`).
-- **Scope.** Rules that `gofmt` and `go vet` enforce are not findings
-  here; CI catches them. Code that predates a style rule is not a finding
+- **Scope.** golangci-lint (`make lint`) enforces formatting and
+  mechanical naming and error rules (initialisms, stutter, lower-case error
+  strings, `errors.Is`, `ctx` first); this list is what it doesn't catch.
+  Until it lands, reviewers apply those rules by hand. Code that predates a style rule is not a finding
   unless the PR changes it. Generated code under `gen/go/` is not
   style-reviewed.
 - **Naming** per the style guide: packages named for what they provide,

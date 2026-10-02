@@ -123,9 +123,12 @@ new ADR.
 ## Style guide
 
 Codifies what the existing code does and sets rules for patterns it doesn't
-have yet (`NewID`, golden files). Code that predates a rule is not a finding
-unless the PR changes it. `gofmt` and `go vet` cover formatting and the
-mechanical rules; this list is what they don't catch. `go-reviewer` checks it.
+have yet (`NewID`, `internal/testkit`, golden files). Code that predates a
+rule is not a finding unless the PR changes it. golangci-lint (`make lint`)
+enforces formatting and mechanical naming and error rules (initialisms,
+stutter, lower-case error strings, `errors.Is`, `ctx` first); this list is
+what it doesn't catch. Until it lands, reviewers apply those rules by hand.
+`go-reviewer` checks it.
 
 **Naming**
 
@@ -174,9 +177,11 @@ mechanical rules; this list is what they don't catch. `go-reviewer` checks it.
 **Dependency injection**
 
 - Inject time, environment, HTTP and ID generation as fields: `Now func()
-  time.Time`, `Getenv func(string) string`, `HTTP *http.Client`,
-  `NewID func() string` (see `adapters/github`). Constructors fill real
+  time.Time`, `Getenv func(string) string`, `HTTP *http.Client` (see
+  `adapters/github`), `NewID func() string`. Constructors fill real
   defaults (`time.Now`, `os.Getenv`, an `otelhttp` client); tests set fakes.
+  Code that needs timers takes a `clock.Clock` from `pkg/clock` (`Now`,
+  `After`, `NewTimer`, `NewTicker`); `testkit.FakeClock` implements it.
 - Code under test never calls `time.Now`, `os.Getenv`, `rand` or the
   network directly. Measuring a duration for a metric is the exception.
 
