@@ -64,6 +64,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
+| `spikes/` | Spike code, each in its own Go module(s) so the root module stays untouched; results in `docs/spikes/`. |
 
 The Go module path is the placeholder `bearing.example`. Import packages as
 `bearing.example/pkg/...`; don't rename the module unless asked.

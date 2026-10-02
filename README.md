@@ -28,6 +28,7 @@ keeps the adapters that fetch it small.
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
+| [`docs/spikes/`](docs/spikes/) | Time-boxed technical spikes and their results (e.g. WASM adapters) |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
 | [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
@@ -41,6 +42,7 @@ keeps the adapters that fetch it small.
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
+| [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
 
 ## Try it
 
