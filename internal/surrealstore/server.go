@@ -29,14 +29,12 @@ func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
 	}
 	if o.Username != "" {
 		if _, err := db.SignIn(ctx, surrealdb.Auth{Username: o.Username, Password: o.Password}); err != nil {
-			db.Close(ctx)
-			return nil, fmt.Errorf("surrealstore: sign in as %s: %w", o.Username, err)
+			return nil, errors.Join(fmt.Errorf("surrealstore: sign in as %s: %w", o.Username, err), db.Close(ctx))
 		}
 	}
 	q := &serverQuerier{db: db}
 	if err := useDatabase(ctx, q, o.Namespace, o.Database, db.Use); err != nil {
-		db.Close(ctx)
-		return nil, err
+		return nil, errors.Join(err, db.Close(ctx))
 	}
 	return New(ctx, q)
 }

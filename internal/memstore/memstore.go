@@ -44,6 +44,7 @@ func New() *Store {
 	}
 }
 
+// UpsertEntity implements contracts.GraphStore.
 func (s *Store) UpsertEntity(_ context.Context, e contracts.Entity) error {
 	if e.ID == "" {
 		return fmt.Errorf("entity id is required")
@@ -68,6 +69,7 @@ func (s *Store) UpsertEntity(_ context.Context, e contracts.Entity) error {
 	return nil
 }
 
+// GetEntity implements contracts.GraphStore.
 func (s *Store) GetEntity(_ context.Context, id contracts.EntityID) (contracts.Entity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -78,6 +80,7 @@ func (s *Store) GetEntity(_ context.Context, id contracts.EntityID) (contracts.E
 	return e, nil
 }
 
+// ResolveKey implements contracts.GraphStore.
 func (s *Store) ResolveKey(_ context.Context, key model.Key) (contracts.Entity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -88,6 +91,7 @@ func (s *Store) ResolveKey(_ context.Context, key model.Key) (contracts.Entity, 
 	return s.entities[id], nil
 }
 
+// UpsertFact implements contracts.GraphStore.
 func (s *Store) UpsertFact(_ context.Context, f contracts.Fact) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,6 +109,7 @@ func (s *Store) UpsertFact(_ context.Context, f contracts.Fact) error {
 	return nil
 }
 
+// RetractFact implements contracts.GraphStore.
 func (s *Store) RetractFact(_ context.Context, subject contracts.EntityID, rel model.RelationType, object contracts.EntityID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,6 +123,7 @@ func (s *Store) RetractFact(_ context.Context, subject contracts.EntityID, rel m
 	return nil
 }
 
+// Facts implements contracts.GraphStore.
 func (s *Store) Facts(_ context.Context, q contracts.FactQuery) ([]contracts.Fact, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -145,6 +151,7 @@ func (s *Store) Facts(_ context.Context, q contracts.FactQuery) ([]contracts.Fac
 	return out, nil
 }
 
+// History implements contracts.GraphStore.
 func (s *Store) History(_ context.Context, subject contracts.EntityID) ([]contracts.FactVersion, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

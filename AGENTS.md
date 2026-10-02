@@ -24,11 +24,15 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 
 | Command | What it does |
 | --- | --- |
-| `make lint` | Fails if `gofmt -l .` lists anything, then `go vet ./...` |
+| `make check` | Exactly what CI runs: `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `vuln`, `build` |
+| `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
+| `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
+| `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded; passes when nothing changed) |
+| `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
 | `make build` | Builds `bin/bearing` and `bin/bearing-adapter-github` |
-| `make fmt` | `gofmt -w .` |
-| `make test-surrealdb SURREALDB=ws://127.0.0.1:8000` | SurrealDB conformance suites against a running server |
+| `make fmt` | gofumpt and goimports via `golangci-lint fmt` |
+| `make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root` | SurrealDB suites against a running server (`surreal start --user root --pass root memory`) |
 | `make test-embedded SURREALDB_LIB=<dir>` | Same suites against embedded SurrealDB (CGO, needs `libsurrealdb_c.a`) |
 
 Run `make lint test` before every commit. A single package:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,8 +15,10 @@ import (
 
 // The conformance suites need a SurrealDB to talk to. Set
 // BEARING_TEST_SURREALDB to a server URL (for example ws://127.0.0.1:8000,
-// started with `surreal start --unauthenticated memory`), or build with
-// -tags surrealembed to use an embedded engine. Otherwise the tests skip.
+// started with `surreal start --user root --pass root memory`) and
+// BEARING_TEST_SURREALDB_USER and BEARING_TEST_SURREALDB_PASS to sign in, or
+// build with -tags surrealembed to use an embedded engine. Otherwise the
+// tests skip.
 var dbSeq atomic.Int64
 
 func newTestStore(t *testing.T) *Store {
@@ -30,8 +33,10 @@ func newTestStore(t *testing.T) *Store {
 	)
 	switch url := os.Getenv("BEARING_TEST_SURREALDB"); {
 	case url != "":
-		s, err = Dial(ctx, ServerOptions{URL: url, Namespace: "bearing_test", Database: db,
-			Username: os.Getenv("BEARING_TEST_SURREALDB_USER"), Password: os.Getenv("BEARING_TEST_SURREALDB_PASS")})
+		s, err = Dial(ctx, ServerOptions{
+			URL: url, Namespace: "bearing_test", Database: db,
+			Username: os.Getenv("BEARING_TEST_SURREALDB_USER"), Password: os.Getenv("BEARING_TEST_SURREALDB_PASS"),
+		})
 	case EmbeddedAvailable:
 		s, err = OpenEmbedded(ctx, "mem://", "bearing_test", db)
 	default:
@@ -40,8 +45,32 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := s.Close(context.Background()); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
 	return s
+}
+
+func TestDialRejectsBadCredentials(t *testing.T) {
+	url, user := os.Getenv("BEARING_TEST_SURREALDB"), os.Getenv("BEARING_TEST_SURREALDB_USER")
+	if url == "" || user == "" {
+		t.Skip("set BEARING_TEST_SURREALDB and BEARING_TEST_SURREALDB_USER")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Dial(ctx, ServerOptions{
+		URL: url, Namespace: "bearing_test", Database: "bad_credentials",
+		Username: user, Password: os.Getenv("BEARING_TEST_SURREALDB_PASS") + "-wrong",
+	})
+	if err == nil {
+		_ = s.Close(ctx)
+		t.Fatal("signed in with the wrong password")
+	}
+	if !strings.Contains(err.Error(), "sign in as "+user) {
+		t.Fatalf("got %v, want a sign-in error", err)
+	}
 }
 
 func TestGraphConformance(t *testing.T) {

@@ -50,7 +50,8 @@ func NewClient(name string, r io.Reader, w io.Writer) *Client {
 // to this process's stderr. The adapter inherits this process's environment,
 // including OTEL_* settings.
 func Start(ctx context.Context, name string, args ...string) (*Client, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	// Running the adapter the caller names is this function's job.
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: the adapter command is the caller's choice
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -67,8 +68,9 @@ func Start(ctx context.Context, name string, args ...string) (*Client, error) {
 		string(attrAdapter), filepath.Base(name), "pid", cmd.Process.Pid)
 	c := NewClient(filepath.Base(name), stdout, stdin)
 	c.close = func() error {
-		stdin.Close()
-		return cmd.Wait()
+		// Closing stdin tells the adapter to exit; Wait reports how it did.
+		closeErr := stdin.Close()
+		return errors.Join(cmd.Wait(), closeErr)
 	}
 	return c, nil
 }

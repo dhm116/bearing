@@ -82,20 +82,17 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	}
 	s.closers = append(s.closers, g.close)
 	if g.graph == nil {
-		s.Close(ctx)
-		return nil, fmt.Errorf("store: %s can't be a graph store", redact(c.Graph))
+		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
 	v := g
 	if c.Vectors != c.Graph {
 		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {
-			s.Close(ctx)
-			return nil, err
+			return nil, errors.Join(err, s.Close(ctx))
 		}
 		s.closers = append(s.closers, v.close)
 	}
 	if v.vector == nil {
-		s.Close(ctx)
-		return nil, fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors))
+		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name)
 	s.Vectors = instrument.VectorIndex(v.vector, v.name)

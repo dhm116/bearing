@@ -54,7 +54,7 @@ its shape.
 ## Verify
 
 ```sh
-make lint test build
+make check
 bin/bearing adapter describe -- bin/bearing-adapter-<name>
 # with real read-only credentials, if available:
 bin/bearing adapter sync --config cfg.json -- bin/bearing-adapter-<name> > obs.ndjson

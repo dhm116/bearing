@@ -39,7 +39,7 @@ func TestConsoleTelemetryGoesToStderrWriter(t *testing.T) {
 	log := Logger("test")
 	log.DebugContext(ctx, "too quiet to see")
 	log.InfoContext(ctx, "hello from bearing")
-	Fail(ctx, span, log, "it broke", fmt.Errorf("wrapped: %w", errors.New("boom")))
+	_ = Fail(ctx, span, log, "it broke", fmt.Errorf("wrapped: %w", errors.New("boom")))
 	span.End()
 	otel.Handle(errors.New("exporter hiccup"))
 	if err := shutdown(context.Background()); err != nil {

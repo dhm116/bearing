@@ -126,6 +126,7 @@ func (r entityRow) entity() contracts.Entity {
 
 const entityFields = `record::id(id) AS id, kind, aliases, attributes, updated_at`
 
+// UpsertEntity implements contracts.GraphStore.
 func (s *Store) UpsertEntity(ctx context.Context, e contracts.Entity) error {
 	if e.ID == "" {
 		return fmt.Errorf("entity id is required")
@@ -149,6 +150,7 @@ COMMIT TRANSACTION;`, map[string]any{
 	return err
 }
 
+// GetEntity implements contracts.GraphStore.
 func (s *Store) GetEntity(ctx context.Context, id contracts.EntityID) (contracts.Entity, error) {
 	res, err := s.query(ctx, `SELECT `+entityFields+` FROM type::record('entity', $id)`, map[string]any{"id": string(id)})
 	if err != nil {
@@ -157,6 +159,7 @@ func (s *Store) GetEntity(ctx context.Context, id contracts.EntityID) (contracts
 	return oneEntity(res[0], "entity "+string(id))
 }
 
+// ResolveKey implements contracts.GraphStore.
 func (s *Store) ResolveKey(ctx context.Context, key model.Key) (contracts.Entity, error) {
 	res, err := s.query(ctx, `SELECT `+entityFields+` FROM (SELECT VALUE entity FROM type::record('alias', $key))`,
 		map[string]any{"key": string(key)})
@@ -190,8 +193,10 @@ type factRow struct {
 }
 
 func (r factRow) fact() contracts.Fact {
-	return contracts.Fact{Subject: r.Subject, Relation: r.Relation, Object: r.Object, Confidence: r.Confidence,
-		Asserted: r.Asserted, Sources: r.Sources, UpdatedAt: r.UpdatedAt}
+	return contracts.Fact{
+		Subject: r.Subject, Relation: r.Relation, Object: r.Object, Confidence: r.Confidence,
+		Asserted: r.Asserted, Sources: r.Sources, UpdatedAt: r.UpdatedAt,
+	}
 }
 
 const factFields = `record::id(in) AS subject, relation, record::id(out) AS object, confidence, asserted, sources, updated_at`
@@ -214,6 +219,7 @@ func factVars(f contracts.Fact) (map[string]any, error) {
 	}, nil
 }
 
+// UpsertFact implements contracts.GraphStore.
 func (s *Store) UpsertFact(ctx context.Context, f contracts.Fact) error {
 	if f.UpdatedAt.IsZero() {
 		f.UpdatedAt = s.now()
@@ -241,6 +247,7 @@ COMMIT TRANSACTION;`, vars)
 	return err
 }
 
+// RetractFact implements contracts.GraphStore.
 func (s *Store) RetractFact(ctx context.Context, subject contracts.EntityID, rel model.RelationType, object contracts.EntityID) error {
 	_, err := s.query(ctx, `
 BEGIN TRANSACTION;
@@ -256,6 +263,7 @@ COMMIT TRANSACTION;`, map[string]any{
 	return err
 }
 
+// Facts implements contracts.GraphStore.
 func (s *Store) Facts(ctx context.Context, q contracts.FactQuery) ([]contracts.Fact, error) {
 	var where []string
 	vars := map[string]any{}
@@ -298,6 +306,7 @@ func (s *Store) Facts(ctx context.Context, q contracts.FactQuery) ([]contracts.F
 	return facts, nil
 }
 
+// History implements contracts.GraphStore.
 func (s *Store) History(ctx context.Context, subject contracts.EntityID) ([]contracts.FactVersion, error) {
 	res, err := s.query(ctx, `SELECT fact, retracted, at, seq FROM fact_version WHERE subject = $subject ORDER BY seq`,
 		map[string]any{"subject": string(subject)})
@@ -338,6 +347,7 @@ func (s *Store) ensureIndex(ctx context.Context, dim int) error {
 	return nil
 }
 
+// Upsert implements contracts.VectorIndex.
 func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) error {
 	if len(points) == 0 {
 		return nil
@@ -412,11 +422,13 @@ FROM vector WHERE vector <|%d,%d|> $v%s ORDER BY score DESC LIMIT %d`, limit, ma
 	hits := make([]contracts.VectorHit, len(rows))
 	for i, r := range rows {
 		hits[i] = contracts.VectorHit{Score: r.Score, Point: contracts.VectorPoint{
-			ID: r.ID, EntityID: r.EntityID, Vector: r.Vector, Text: r.Text, Payload: r.Payload}}
+			ID: r.ID, EntityID: r.EntityID, Vector: r.Vector, Text: r.Text, Payload: r.Payload,
+		}}
 	}
 	return hits, nil
 }
 
+// DeleteByEntity implements contracts.VectorIndex.
 func (s *Store) DeleteByEntity(ctx context.Context, id contracts.EntityID) error {
 	_, err := s.query(ctx, `DELETE vector WHERE entity = type::record('entity', $id)`, map[string]any{"id": string(id)})
 	return err

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -19,7 +20,7 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close(ctx)
+	defer closeStore(t, s)
 	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "a", Kind: "Team"}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +40,13 @@ func TestOpenRejectsUnknownSchemes(t *testing.T) {
 	}
 }
 
+func TestOpenClosesTheGraphWhenVectorsFail(t *testing.T) {
+	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "qdrant://localhost"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported URL scheme") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 	if surrealstore.EmbeddedAvailable {
 		t.Skip("built with surrealembed")
@@ -50,21 +58,38 @@ func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 }
 
 // Set BEARING_TEST_SURREALDB (for example ws://127.0.0.1:8000) to check that
-// a surrealdb+ URL reaches a server.
+// a surrealdb+ URL reaches a server. BEARING_TEST_SURREALDB_USER and
+// BEARING_TEST_SURREALDB_PASS sign in, the password through
+// BEARING_STORE_PASSWORD.
 func TestOpenSurrealServer(t *testing.T) {
 	addr := os.Getenv("BEARING_TEST_SURREALDB")
 	if addr == "" {
 		t.Skip("set BEARING_TEST_SURREALDB")
 	}
-	ctx := context.Background()
-	s, err := Open(ctx, Config{Graph: "surrealdb+" + addr + "?ns=bearing_test&db=store_open"})
+	u, err := url.Parse("surrealdb+" + addr + "?ns=bearing_test&db=store_open")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close(ctx)
+	if user := os.Getenv("BEARING_TEST_SURREALDB_USER"); user != "" {
+		u.User = url.User(user)
+	}
+	getenv := func(k string) string {
+		if k == "BEARING_STORE_PASSWORD" {
+			return os.Getenv("BEARING_TEST_SURREALDB_PASS")
+		}
+		return ""
+	}
+	ctx := context.Background()
+	s, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
 	at := time.Date(2026, 9, 29, 1, 2, 3, 456000000, time.UTC)
-	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "t", Kind: "Team", UpdatedAt: at,
-		Attributes: map[string]any{"name": "Payments"}}); err != nil {
+	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{
+		ID: "t", Kind: "Team", UpdatedAt: at,
+		Attributes: map[string]any{"name": "Payments"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	e, err := s.Graph.GetEntity(ctx, "t")
@@ -92,7 +117,7 @@ func TestOpenEmbeddedOnDisk(t *testing.T) {
 	}
 	url := "surrealkv://" + t.TempDir() + "/bearing"
 	for _, phase := range []string{"write", "read"} {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestOpenEmbeddedOnDisk$", "-test.count=1")
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOpenEmbeddedOnDisk$", "-test.count=1") //nolint:gosec // G204: re-runs this test binary
 		cmd.Env = append(os.Environ(), "BEARING_ONDISK_PHASE="+phase, "BEARING_ONDISK_URL="+url)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s phase: %v\n%s", phase, err, out)
@@ -106,7 +131,7 @@ func onDiskPhase(t *testing.T, phase, url string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close(ctx)
+	defer closeStore(t, s)
 	if phase == "write" {
 		if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "t", Kind: "Team"}); err != nil {
 			t.Fatal(err)
@@ -115,5 +140,13 @@ func onDiskPhase(t *testing.T, phase, url string) {
 	}
 	if _, err := s.Graph.GetEntity(ctx, "t"); err != nil {
 		t.Fatalf("entity lost after restart: %v", err)
+	}
+}
+
+// closeStore closes s and fails the test if that fails.
+func closeStore(t *testing.T, s *Store) {
+	t.Helper()
+	if err := s.Close(context.Background()); err != nil {
+		t.Errorf("close store: %v", err)
 	}
 }

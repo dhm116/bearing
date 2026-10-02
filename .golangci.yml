@@ -1,0 +1,152 @@
+# golangci-lint v2 configuration. The linter version is pinned in
+# tools/go.mod; run it with `make lint` rather than a globally installed copy.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - gosec
+    - govet
+    - ineffassign
+    - nolintlint
+    - revive
+    - staticcheck
+    - unused
+
+  settings:
+    depguard:
+      rules:
+        # Code outside a backend depends on pkg/contracts only (AGENTS.md,
+        # architecture rule 4). pkg/store is where backends are wired up.
+        backends:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/memstore/**"
+            - "!**/internal/surrealstore/**"
+            - "!**/pkg/store/**"
+          deny:
+            - pkg: bearing.example/internal/memstore
+              desc: depend on pkg/contracts; open backends through pkg/store
+            - pkg: bearing.example/internal/surrealstore
+              desc: depend on pkg/contracts; open backends through pkg/store
+            - pkg: github.com/surrealdb
+              desc: only internal/surrealstore talks to SurrealDB
+        # Tests may use the in-memory reference backend as a fake, but not
+        # SurrealDB.
+        backends-in-tests:
+          files:
+            - $test
+            - "!**/internal/surrealstore/**"
+            - "!**/pkg/store/**"
+          deny:
+            - pkg: bearing.example/internal/surrealstore
+              desc: test against memstore or a contracts fake
+            - pkg: github.com/surrealdb
+              desc: only internal/surrealstore talks to SurrealDB
+
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        # Fail returns its err argument unchanged so it can be used in a
+        # return statement; the report itself cannot fail.
+        - bearing.example/pkg/telemetry.Fail
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Log through telemetry.Logger (AGENTS.md, Telemetry).
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: log with telemetry.Logger; write program output to an injected io.Writer
+        - pattern: ^(print|println)$
+          msg: log with telemetry.Logger
+        - pattern: ^log\..*$
+          pkg: ^log$
+          msg: log with telemetry.Logger, not the standard log package
+        # stdout carries the adapter protocol and CLI NDJSON output; only the
+        # command entry points and the stdio protocol server may touch it.
+        - pattern: ^os\.Stdout$
+          msg: stdout is reserved for protocol and CLI output; take an io.Writer
+        # stderr is for the documented fallback when telemetry setup fails,
+        # CLI usage text, and passing an adapter's stderr through.
+        - pattern: ^os\.Stderr$
+          msg: log with telemetry.Logger; stderr is reserved for the telemetry-setup fallback
+
+    gosec:
+      excludes:
+        # G104 (unhandled errors) duplicates errcheck, which is configured
+        # above with the same exceptions.
+        - G104
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: increment-decrement
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    generated: strict
+    paths:
+      - gen/
+    rules:
+      # Command entry points own stdout and stderr.
+      - path: ^cmd/
+        linters: [forbidigo]
+        text: os\.(Stdout|Stderr)
+      # The stdio protocol server speaks on stdout.
+      - path: ^pkg/adapter/server\.go$
+        linters: [forbidigo]
+        text: os\.Stdout
+      # An adapter's stderr (its console telemetry) passes through.
+      - path: ^pkg/adapter/client\.go$
+        linters: [forbidigo]
+        text: os\.Stderr
+      # Console exporters default to stderr.
+      - path: ^pkg/telemetry/
+        linters: [forbidigo]
+        text: os\.Stderr
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - bearing.example
+  exclusions:
+    generated: strict
+    paths:
+      - gen/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

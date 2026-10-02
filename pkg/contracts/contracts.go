@@ -159,6 +159,7 @@ type Extractor interface {
 // QuestionType is the shape of a judgment question.
 type QuestionType string
 
+// The question types a Judge answers.
 const (
 	QuestionChoice QuestionType = "choice"
 	QuestionYesNo  QuestionType = "yes_no"
