@@ -41,7 +41,9 @@ means unchanged *source*, not an identical dependency graph.
 
 Run it with `make -C spikes/wasm TINYGO=… WASM_OPT=…` (targets: `modules`,
 `opt`, `bench`). For the limits run:
-`cd spikes/wasm/host && go run . -limits -only 'github-lean.go.wasm,raw-github-lean.go.wasm'`.
+`cd spikes/wasm/host && go run . -limits -runs 9 -limit-mode both -only 'github-lean.go.wasm,raw-github-lean.go.wasm'`
+(use `-limit-mode mem` or `close` for the single-limit columns; each run
+overwrites `out/results-limits.md`).
 
 **Fixtures.** Neither api.github.com nor github.com is reachable from the
 spike environment (the egress proxy returns 403), so the "recording" is
@@ -289,8 +291,9 @@ by sha256 digest (C-ADAPTER-9).
 
 Verified in the spike:
 
-- Requests to a host or method outside the grant were refused with
-  "permission denied" in every variant (host mismatch only).
+- A request to a host outside the grant was refused with "permission
+  denied" in every variant. Method denial was not tested (see the
+  hostile-guest module below).
 - The guest never received the GitHub token; the host injected it.
 - Observations were validated on the host. The guest linked no validator.
 - A 128 MiB `MaxPages` cap and a smaller 10 MiB cap were enforced: the
@@ -338,7 +341,9 @@ Not verified:
      only through the `clock` capability, and a real monotonic clock for
      the Go runtime. Verify Go's runtime and GC under that choice.
    - Refuse to start if `EXTISM_ENABLE_WASI_OUTPUT` is set.
-   - Any import outside the profile fails the load.
+   - Any import outside the profile fails the load. TinyGo's `sock_send`
+     and `sock_recv` are linked as stubs that return an error, as wazero
+     does with no listeners.
 2. **Concrete C-ADAPTER-3 limits.**
    - Every call runs under a deadline with `CloseOnContextDone`, and a
      `MaxPages` cap of 64–128 MiB. Budget for the ~2× CPU cost measured
@@ -369,7 +374,11 @@ Not verified:
    - It is local only, never shared or on the network.
    - Its directory is owned by the Bearing user with mode 0700, checked at
      start-up.
-   - It is keyed by module digest and wazero version.
+   - It relies on wazero's own cache key (module bytes, listener and
+     termination-check flags, CPU features) plus the wazero version, and
+     never substitutes a bare module digest, so code compiled without
+     termination checks is never reused with `CloseOnContextDone` on. The
+     hostile-guest loop case also runs against a warm cache.
 7. **A hostile-guest conformance module.** It tries `environ_get`,
    `path_open`, an unknown capability, an ungranted method, its own
    `Authorization`, a cross-host redirect, an infinite loop, memory growth
