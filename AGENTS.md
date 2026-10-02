@@ -90,14 +90,17 @@ new ADR.
    processes speaking JSON-RPC 2.0 over stdio, one message per line
    ([ADR 3](docs/adr/0003-adapter-protocol.md)). Methods:
    `bearing.describe`, `bearing.sync` (cursor paged), optional
-   `bearing.handle` for webhooks. Once M4 lands, sandboxed WASM modules
+   `bearing.handle` for webhooks. Once
+   [M4](https://github.com/dhm116/bearing/milestone/5) lands, sandboxed WASM modules
    reaching the world only through granted host capabilities are the
    default runtime ([ADR 9](docs/adr/0009-wasm-adapters.md)); stdio stays
    supported for transition and development. Adapters are stateless and
-   read-only against their source. For WASM adapters, from M4, the host
-   holds credentials and verifies webhook signatures before parsing; stdio
-   adapters keep verifying until then (ADR 9 A15). Adapters never resolve
-   identities across systems. That is the core's job.
+   read-only against their source. WASM adapters never hold credentials;
+   the host injects them. The host verifies webhook signatures before a
+   delivery is logged, and ingest stays off until that verifier exists;
+   until then a stdio adapter's own verification is the check (ADR 9 A15).
+   Adapters never resolve identities across systems. That is the core's
+   job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and
    focused on useful data types.

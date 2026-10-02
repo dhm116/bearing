@@ -41,6 +41,7 @@ credential handling.
 - **The adapter interface is a Protobuf service** (ADR 6): `Describe`,
   `Sync` (cursor paged) and `Handle` (webhook). Messages cross every
   boundary as Protobuf bytes.
+  *Amended (A13): except the stdio transport, which stays JSON-RPC 0.x.*
 - **The default runtime is WASM, hosted with Extism** on wazero (pure Go, no
   CGO). An adapter ships as one `.wasm` module plus a manifest.
   *Amended (A4): wazero stays; Extism versus a thin wazero ABI is decided on
@@ -220,15 +221,19 @@ still unproven. Control IDs refer to the
   ADR 6's Protobuf rule. A stdio adapter is an unsandboxed process: the
   sandbox controls in threat model B2 don't apply to it, but output
   validation, grants, tagging and Source scoping do. Whether to retire
-  stdio is revisited after M4. *The owner is to confirm this scope.*
+  stdio is revisited after M4.
 - **A14. AWS.** The AWS SDK for Go v2 works in a Go module over the `http`
   capability (STS: 13.5 MiB). The remote runtime stays as a fallback, but
   AWS does not need it on technical grounds.
-- **A15. Transition rule for webhooks and secrets.** Until M4, the core
-  does not verify deliveries, and stdio adapters MUST keep verifying them
-  as the adapter protocol spec says. From M4, the host verifies deliveries
-  for every runtime (A6); a stdio adapter may still verify as defense in
-  depth, after the host. stdio adapters still receive their own Source's
+- **A15. Transition rule for webhooks and secrets.** Host verification is
+  tied to ingest, not to M4. Ingest stays off (C-INGEST-1) until the host
+  verifier exists; the host verifier ships with the first ingest
+  transport, whichever milestone that is. Until then a stdio adapter's
+  `Handle` is reached only through local or test paths, and the adapter's
+  own verification, as the adapter protocol spec requires, is the check.
+  Once ingest is on, the host verifies every delivery before it is logged
+  (ADR 7), for every runtime (A6); a stdio adapter may still verify as
+  defense in depth. stdio adapters still receive their own Source's
   credentials, an exception to C-SECRET-3 that holds only for stdio, and
   only for the secret references that Source names. Updating
   `docs/spec/adapter-protocol.md` and bumping `adapter.ProtocolVersion`
@@ -258,8 +263,9 @@ still unproven. Control IDs refer to the
 - Supersedes [ADR 3](0003-adapter-protocol.md) and
   `docs/spec/adapter-protocol.md` once accepted. *Amended (A6, A13):
   supersedes them in part. WASM becomes the default runtime and webhook
-  verification moves to the host from M4; the stdio transport stays as a
-  transitional and development transport (A15).*
+  verification moves to the host with the first ingest transport; the
+  stdio transport stays as a transitional and development transport
+  (A13, A15).*
 - Per sync, WASM costs 3–5× the stdio process's wall time in the spike, and
   6.5–8.5× with `CloseOnContextDone` on, mostly guest CPU. Against real
   APIs, request latency still dominates.

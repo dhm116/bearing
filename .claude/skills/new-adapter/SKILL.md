@@ -40,8 +40,10 @@ its shape.
       claim (the spec says SHOULD).
 - [ ] `Handle` (optional): verify the webhook signature when the source
       signs, reject bad signatures, ignore unknown event types. (Under
-      ADR 9 A6 the host verifies from M4; stdio adapters keep verifying
-      until then, see A15.)
+      ADR 9 A6 and A15 the host verifies before a delivery is logged;
+      ingest stays off until that verifier exists, so until then this
+      check is the only one. The spec changes in
+      [M4](https://github.com/dhm116/bearing/milestone/5).)
 - [ ] `adapters/<name>/telemetry.go` for spans and metrics; log with
       `telemetry.Logger`, fail with `telemetry.Fail`, never write to stdout.
 - [ ] `cmd/bearing-adapter-<name>/main.go`, copied from

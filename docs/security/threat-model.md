@@ -7,7 +7,8 @@ what can go wrong at each trust boundary, and the control that answers each
 threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
 [WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
-default adapter runtime once M4 lands; ADR 3's stdio processes stay as a
+default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands;
+ADR 3's stdio processes stay as a
 transitional and development transport, with the exceptions in B2. Where
 an ADR says otherwise, this document records the decision and the ADR is
 to be amended: in particular the host, not the adapter, authenticates
@@ -166,8 +167,10 @@ Assets: A1, A7, the event log.
   verify deliveries or see webhook secrets: `Handle` receives only
   deliveries the host has authenticated, and there is no HMAC capability
   (ADR 9 A6). A stdio adapter may also verify, as defense in depth, but the
-  host authenticates first. Until M4 the core does not verify, and stdio
-  adapters MUST verify as the adapter protocol spec says (ADR 9 A15).
+  host authenticates first. Ingest stays off (C-INGEST-1) until the host
+  verifier exists; it ships with the first ingest transport. Until then a
+  stdio adapter's `Handle` is reached only through local or test paths,
+  and the adapter's own verification is the check (ADR 9 A15).
 - **C-INGEST-3** Each request is routed to exactly one Source by its
   configured route and checked with that Source's credential. The Source
   recorded on the event comes from the route, never from the payload.
@@ -205,13 +208,16 @@ internal network, cloud metadata endpoints and the compilation cache.
 
 **stdio process adapters** (ADR 3, kept by ADR 9 A13 for transition and
 development) are not sandboxed. Only the sandbox controls are waived for
-them: C-ADAPTER-1, 3, 4, 5, 6, 8 and 12. C-GEN-3 and C-ADAPTER-2, 7, 10
-and 11 still apply, because the core enforces them on what the adapter
-returns. A stdio adapter is started with a minimal environment holding
-only the secret references its Source names. Today `pkg/adapter` sets no
+them: C-ADAPTER-1, 3, 4, 5, 6, 8 and 12. C-GEN-3, C-ADAPTER-7 and
+C-ADAPTER-11 apply to what the adapter returns. C-ADAPTER-2 applies to the
+declared kinds, relations and key prefixes of its grant, enforced on
+output. C-ADAPTER-10 is a requirement on the code: today the adapter's
+stderr passes through untagged. A stdio adapter is started with a minimal
+environment holding only the secret references its Source names, before
+any always-on server (M3) runs stdio adapters. Today `pkg/adapter` sets no
 environment, so the adapter inherits the server's, including
-`BEARING_STORE_PASSWORD` and OIDC settings; this is a requirement on the
-code.
+`BEARING_STORE_PASSWORD` and OIDC settings
+([#25](https://github.com/dhm116/bearing/issues/25)).
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |

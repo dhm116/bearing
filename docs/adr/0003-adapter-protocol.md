@@ -3,11 +3,13 @@
 Date: 2026-09-28 · Status: accepted · Superseded in part by [ADR 9](0009-wasm-adapters.md)
 
 > Superseded in part by [ADR 9](0009-wasm-adapters.md) (accepted
-> 2026-10-02): WASM becomes the default runtime when M4 lands, and the
-> stdio transport stays as a transitional and development transport (A13).
-> From M4 the host verifies webhook deliveries before any parsing; until
-> then stdio adapters keep verifying them (A15). Proposed replacement for
-> the message format: [ADR 6](0006-protobuf-contracts.md).
+> 2026-10-02): WASM becomes the default runtime when
+> [M4](https://github.com/dhm116/bearing/milestone/5) lands, and the stdio
+> transport stays as a transitional and development transport (A13). The
+> host verifies webhook deliveries before they are logged; ingest stays off
+> until that verifier ships with the first ingest transport, and until
+> then a stdio adapter's own verification is the check (A15). Proposed
+> replacement for the message format: [ADR 6](0006-protobuf-contracts.md).
 
 ## Context
 

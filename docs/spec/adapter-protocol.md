@@ -105,9 +105,11 @@ Result:
 
 - The adapter MUST verify the delivery's signature when the source signs
   webhooks. It knows the source's signing scheme; the core does not.
-  (Under [ADR 9](../adr/0009-wasm-adapters.md) A6 the host verifies from
-  M4; until then stdio adapters keep verifying. This spec changes in M4,
-  see A15.)
+  (Under [ADR 9](../adr/0009-wasm-adapters.md) A6 and A15 the host
+  verifies every delivery before it is logged; ingest stays off until that
+  verifier ships with the first ingest transport, and until then this
+  check is the only one. This spec changes in
+  [M4](https://github.com/dhm116/bearing/milestone/5).)
 - Events the adapter doesn't understand return an empty list, not an error.
 - Adapters without webhook support return error `-32001`.
 
