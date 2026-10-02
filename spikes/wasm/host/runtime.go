@@ -170,12 +170,46 @@ func (h *host) hostFunction() extism.HostFunction {
 	return f
 }
 
+// Resource limits (C-ADAPTER-3), off unless -limits: limitPages caps each
+// linear memory (64 KiB pages; 0 = wazero's 4 GiB default) and syncDeadline
+// bounds each full sync. With limits on, the runtime closes a module when
+// its context is done, so a guest stuck in a loop is interrupted.
+// limitMode ("both", "mem" or "close") isolates the cost of each limit.
+var (
+	limitPages   uint32
+	syncDeadline time.Duration
+	limitMode    = "both"
+)
+
+func runtimeConfig(cache wazero.CompilationCache, pages uint32) wazero.RuntimeConfig {
+	rc := wazero.NewRuntimeConfig().WithCompilationCache(cache)
+	if pages > 0 && limitMode != "close" {
+		rc = rc.WithMemoryLimitPages(pages)
+	}
+	if pages > 0 && limitMode != "mem" {
+		rc = rc.WithCloseOnContextDone(true)
+	}
+	return rc
+}
+
+// withDeadline applies syncDeadline, if set, to ctx.
+func withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if syncDeadline <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, syncDeadline)
+}
+
 // compile builds a CompiledPlugin for module with the given compilation cache.
 func compile(ctx context.Context, module []byte, cache wazero.CompilationCache, h *host) (*extism.CompiledPlugin, error) {
+	return compileLimited(ctx, module, cache, h, limitPages)
+}
+
+func compileLimited(ctx context.Context, module []byte, cache wazero.CompilationCache, h *host, pages uint32) (*extism.CompiledPlugin, error) {
 	manifest := extism.Manifest{Wasm: []extism.Wasm{extism.WasmData{Data: module}}}
 	cfg := extism.PluginConfig{
 		EnableWasi:    true,
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+		RuntimeConfig: runtimeConfig(cache, pages),
 	}
 	return extism.NewCompiledPlugin(ctx, manifest, cfg, []extism.HostFunction{h.hostFunction()})
 }

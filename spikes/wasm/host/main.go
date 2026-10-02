@@ -43,6 +43,9 @@ var (
 	runs     = flag.Int("runs", 7, "repetitions for timing medians")
 	fixtures = flag.String("fixtures", "testdata/github-fixtures.json.gz", "recorded GitHub API fixtures")
 	record   = flag.Bool("record", false, "regenerate the fixtures file and exit")
+	limits   = flag.Bool("limits", false, "bench each module twice: without, then with a 128 MiB memory cap, CloseOnContextDone and a 30 s per-sync deadline")
+	mode     = flag.String("limit-mode", "both", "with -limits: both, mem (memory cap only) or close (CloseOnContextDone and deadline only)")
+	only     = flag.String("only", "", "comma-separated globs of module file names to bench; skips the AWS and binary-size sections")
 	embed    = flag.String("embed", "github-lean.tinygo.opt.wasm,github.go.wasm", "modules to embed for the binary size check")
 )
 
@@ -51,6 +54,7 @@ var guestNow = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
 func main() {
 	flag.Parse()
+	limitMode = *mode
 	if *record {
 		if err := generateFixtures().save(*fixtures); err != nil {
 			fatal(err)
@@ -108,33 +112,24 @@ func main() {
 	raws, _ := filepath.Glob(filepath.Join(*outDir, "raw-github*.wasm"))
 	sort.Strings(mods)
 	sort.Strings(raws)
+	modes := []bool{false}
+	if *limits {
+		modes = []bool{false, true}
+	}
 	for _, m := range append(mods, raws...) {
-		kind := "Extism"
-		var r *moduleResult
-		var err error
-		if strings.HasPrefix(filepath.Base(m), "raw-") {
-			kind = "raw wazero"
-			var module []byte
-			if module, err = os.ReadFile(m); err == nil {
-				r, err = benchRaw(ctx, module, cfg, newHost(strings.TrimPrefix(srv.URL, "http://")))
-			}
-		} else {
-			r, err = benchModule(ctx, m, cfg, srv)
-		}
-		if err != nil {
-			fmt.Fprintf(w, "| %s | `%s` | %s | failed: %v | | | | | | |\n", kind, filepath.Base(m), mib(fileSize(m)), oneLine(err))
+		if *only != "" && !slices.ContainsFunc(strings.Split(*only, ","), func(g string) bool {
+			ok, _ := filepath.Match(g, filepath.Base(m))
+			return ok
+		}) {
 			continue
 		}
-		match := "yes"
-		if diff := compareObs(ref, r.obs); diff != "" {
-			match = "NO: " + diff
+		for _, limited := range modes {
+			benchRow(ctx, w, m, cfg, srv, ref, limited)
 		}
-		if !r.denied {
-			match += "; allowlist NOT enforced"
-		}
-		fmt.Fprintf(w, "| %s | `%s` | %s | %s | %s | %s | %s | %s | %d calls, %s in / %s out; %s in host fn, of which %s in capabilities | %s |\n",
-			kind, filepath.Base(m), mib(fileSize(m)), ms(r.cold), ms(r.warm), ms(r.first), ms(median(r.syncs)),
-			mib(int64(r.memPeak)), r.calls, mib(r.bytesIn), mib(r.bytesOut), ms(r.hostTime), ms(r.capTime), match)
+	}
+	if *only != "" {
+		must(os.WriteFile(filepath.Join(*outDir, "results-limits.md"), report.Bytes(), 0o644))
+		return
 	}
 
 	fmt.Fprintln(w, "\nAWS SDK for Go v2, sts:GetCallerIdentity through bearing_call against a stub:")
@@ -165,6 +160,7 @@ type moduleResult struct {
 	bytesIn, bytesOut int64
 	obs               []model.Observation
 	denied            bool
+	limitChecks       string
 }
 
 func containsDenied(err error) bool {
@@ -260,11 +256,15 @@ func benchModule(ctx context.Context, path string, cfg json.RawMessage, srv *htt
 	// a worker would run them.
 	for i := 0; i < *runs; i++ {
 		start := time.Now()
-		p, err := cp.Instance(ctx, instanceConfig())
+		sctx, cancel := withDeadline(ctx)
+		p, err := cp.Instance(sctx, instanceConfig())
 		if err != nil {
+			cancel()
 			return nil, err
 		}
-		if _, err := syncWASM(ctx, p, cfg); err != nil {
+		_, err = syncWASM(sctx, p, cfg)
+		cancel()
+		if err != nil {
 			return nil, err
 		}
 		r.syncs = append(r.syncs, time.Since(start))
@@ -279,7 +279,51 @@ func benchModule(ctx context.Context, path string, cfg json.RawMessage, srv *htt
 	_, err = syncWASM(ctx, p, json.RawMessage(`{"org":"acme","api_url":"https://api.evil.example"}`))
 	r.denied = containsDenied(err)
 	p.Close(ctx)
+
+	if limitPages > 0 {
+		r.limitChecks = checkLimits(func(pages uint32, deadline time.Duration) error {
+			ctx := context.Background()
+			c := cache
+			if pages != limitPages {
+				c = wazero.NewCompilationCache()
+				defer c.Close(ctx)
+			}
+			cp, err := compileLimited(ctx, module, c, h, pages)
+			if err != nil {
+				return err
+			}
+			defer cp.Close(ctx)
+			sctx, cancel := context.WithTimeout(ctx, deadline)
+			defer cancel()
+			p, err := cp.Instance(sctx, instanceConfig())
+			if err != nil {
+				return err
+			}
+			defer p.Close(ctx)
+			_, err = syncWASM(sctx, p, cfg)
+			return err
+		})
+	}
 	return r, nil
+}
+
+// checkLimits shows the limits bite: a sync (instance + pages, after
+// compile) under a 50 ms deadline must be interrupted, and one under a
+// 10 MiB memory cap (the lean modules peak at 14 MiB or more) must fail
+// rather than grow.
+func checkLimits(sync func(pages uint32, deadline time.Duration) error) string {
+	start := time.Now()
+	err := sync(limitPages, 50*time.Millisecond)
+	deadline := "50 ms deadline: NOT enforced"
+	if err != nil {
+		deadline = fmt.Sprintf("50 ms deadline: stopped; call returned after %s including warm compile (%s)", ms(time.Since(start)), oneLine(err))
+	}
+	err = sync(160, time.Minute)
+	mem := "10 MiB cap: NOT enforced"
+	if err != nil {
+		mem = "10 MiB cap: failed as expected (" + oneLine(err) + ")"
+	}
+	return deadline + "; " + mem
 }
 
 // syncWASM pages through a full sync and validates every observation on the
@@ -531,4 +575,46 @@ func must(err error) {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "host:", err)
 	os.Exit(1)
+}
+
+// benchRow benches one module and prints its table row. With limited, the
+// module runs under C-ADAPTER-3-style limits (see runtimeConfig) and the
+// row reports whether a tiny deadline and a small memory cap were enforced.
+func benchRow(ctx context.Context, w io.Writer, m string, cfg json.RawMessage, srv *httptest.Server, ref []model.Observation, limited bool) {
+	limitPages, syncDeadline = 0, 0
+	if limited {
+		limitPages, syncDeadline = 2048, 30*time.Second // 2048 pages = 128 MiB
+	}
+	kind := "Extism"
+	if limited {
+		kind = "Extism + limits"
+	}
+	var r *moduleResult
+	var err error
+	if strings.HasPrefix(filepath.Base(m), "raw-") {
+		kind = strings.Replace(kind, "Extism", "raw wazero", 1)
+		var module []byte
+		if module, err = os.ReadFile(m); err == nil {
+			r, err = benchRaw(ctx, module, cfg, newHost(strings.TrimPrefix(srv.URL, "http://")))
+		}
+	} else {
+		r, err = benchModule(ctx, m, cfg, srv)
+	}
+	if err != nil {
+		fmt.Fprintf(w, "| %s | `%s` | %s | failed: %v | | | | | | |\n", kind, filepath.Base(m), mib(fileSize(m)), oneLine(err))
+		return
+	}
+	match := "yes"
+	if diff := compareObs(ref, r.obs); diff != "" {
+		match = "NO: " + diff
+	}
+	if !r.denied {
+		match += "; allowlist NOT enforced"
+	}
+	fmt.Fprintf(w, "| %s | `%s` | %s | %s | %s | %s | %s | %s | %d calls, %s in / %s out; %s in host fn, of which %s in capabilities | %s |\n",
+		kind, filepath.Base(m), mib(fileSize(m)), ms(r.cold), ms(r.warm), ms(r.first), ms(median(r.syncs)),
+		mib(int64(r.memPeak)), r.calls, mib(r.bytesIn), mib(r.bytesOut), ms(r.hostTime), ms(r.capTime), match)
+	if limited {
+		fmt.Fprintf(w, "| %s | `%s` | checks: %s |\n", kind, filepath.Base(m), r.limitChecks)
+	}
 }

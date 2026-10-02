@@ -32,7 +32,11 @@ type rawRuntime struct {
 }
 
 func compileRaw(ctx context.Context, module []byte, cache wazero.CompilationCache, h *host) (*rawRuntime, error) {
-	rt := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCompilationCache(cache))
+	return compileRawLimited(ctx, module, cache, h, limitPages)
+}
+
+func compileRawLimited(ctx context.Context, module []byte, cache wazero.CompilationCache, h *host, pages uint32) (*rawRuntime, error) {
+	rt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig(cache, pages))
 	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
 	_, err := rt.NewHostModuleBuilder("bearing").
 		NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
@@ -206,11 +210,15 @@ func benchRaw(ctx context.Context, module []byte, cfg json.RawMessage, h *host) 
 
 	for i := 0; i < *runs; i++ {
 		start := time.Now()
-		inst, err := rr.instance(ctx)
+		sctx, cancel := withDeadline(ctx)
+		inst, err := rr.instance(sctx)
 		if err != nil {
+			cancel()
 			return nil, err
 		}
-		if _, err := syncRaw(ctx, inst, cfg); err != nil {
+		_, err = syncRaw(sctx, inst, cfg)
+		cancel()
+		if err != nil {
 			return nil, err
 		}
 		r.syncs = append(r.syncs, time.Since(start))
@@ -224,5 +232,30 @@ func benchRaw(ctx context.Context, module []byte, cfg json.RawMessage, h *host) 
 	_, err = syncRaw(ctx, inst, json.RawMessage(`{"org":"acme","api_url":"https://api.evil.example"}`))
 	r.denied = containsDenied(err)
 	inst.mod.Close(ctx)
+
+	if limitPages > 0 {
+		r.limitChecks = checkLimits(func(pages uint32, deadline time.Duration) error {
+			ctx := context.Background()
+			c := cache
+			if pages != limitPages {
+				c = wazero.NewCompilationCache()
+				defer c.Close(ctx)
+			}
+			rr, err := compileRawLimited(ctx, module, c, h, pages)
+			if err != nil {
+				return err
+			}
+			defer rr.Close(ctx)
+			sctx, cancel := context.WithTimeout(ctx, deadline)
+			defer cancel()
+			inst, err := rr.instance(sctx)
+			if err != nil {
+				return err
+			}
+			defer inst.mod.Close(ctx)
+			_, err = syncRaw(sctx, inst, cfg)
+			return err
+		})
+	}
 	return r, nil
 }
