@@ -50,6 +50,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `docs/spec/` | The specification: data model, adapter protocol, component contracts. The spec is the product; code implements it. |
 | `docs/adr/` | Architecture decision records, numbered. [`template.md`](docs/adr/template.md) for new ones. |
 | `docs/telemetry.md` | Catalog of spans, metrics and telemetry config. Keep it current. |
+| `docs/security/threat-model.md` | Trust boundaries, threats and controls (`C-<AREA>-<n>` IDs). Update it when adding an input, a boundary or an `insecure_*` setting. |
 | `schema/observation.v1.schema.json` | JSON Schema for observations; must list every kind and relation in `pkg/model` (a test checks). |
 | `testdata/observations.ndjson` | Example observations; decoded and validated by tests. |
 | `pkg/model` | Entity kinds, relation types, keys, the observation envelope and its validation. |
@@ -59,8 +60,10 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
 | `pkg/store` | Opens graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, `surrealkv://`, …). |
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
+| `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
 | `internal/memstore` | In-memory reference backend for both contracts. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
+| `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
