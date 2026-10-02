@@ -60,8 +60,10 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
 | `pkg/store` | Opens graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, `surrealkv://`, …). |
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
+| `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
 | `internal/memstore` | In-memory reference backend for both contracts. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
+| `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
@@ -118,6 +120,10 @@ new ADR.
 - **Testability:** time, environment and HTTP are injected (`Now`,
   `Getenv`, `HTTP` fields; see `adapters/github`). Tests use `httptest`
   servers, never the real network, and table-driven cases where they help.
+  New code that needs time beyond `Now` (timers, tickers) takes a
+  `pkg/clock.Clock`. Reach for `internal/testkit` fakes first; production
+  code never imports testkit, and declares its own small interfaces (IDs,
+  secret resolution) that the fakes satisfy.
 - **Secrets** come from environment variables named in config (for example
   `TokenEnv`, `BEARING_STORE_PASSWORD`), never from config values, URLs or
   logs.
