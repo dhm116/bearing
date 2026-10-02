@@ -4,12 +4,16 @@ Status: draft for the MVP · Last reviewed: 2026-10-02
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
-threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 3's
-process runtime is replaced by ADR 9. Where an ADR says otherwise, this
-document records the decision and the ADR is to be amended: in particular
-the host, not the adapter, authenticates webhook deliveries (C-INGEST-2),
-overriding ADR 7's `WebhookReceived` wording and AGENTS.md rule 2. Where
-today's code differs, the control is a requirement on the code.
+threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 9,
+accepted with conditions after the
+[WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
+default adapter runtime once M4 lands; ADR 3's stdio processes stay
+supported but are outside B2 (see the end of this document). Where an ADR
+says otherwise, this document records the decision and the ADR is to be
+amended: in particular the host, not the adapter, authenticates webhook
+deliveries (C-INGEST-2, ADR 9 A6), overriding ADR 7's `WebhookReceived`
+wording. Where today's code differs, the control is a requirement on the
+code.
 
 To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
@@ -157,7 +161,10 @@ Assets: A1, A7, the event log.
   whose client ID or group is mapped to `ingest` for this Source (C-API-4).
   Comparisons are constant
   time. A Source with no method configured cannot receive events. Failures
-  return 401, store nothing and increment a metric.
+  return 401, store nothing and increment a metric. Adapters never verify
+  deliveries or see webhook secrets: an adapter's `Handle` receives only
+  deliveries the host has authenticated, and there is no HMAC capability
+  (ADR 9 A6).
 - **C-INGEST-3** Each request is routed to exactly one Source by its
   configured route and checked with that Source's credential. The Source
   recorded on the event comes from the route, never from the payload.
@@ -191,7 +198,7 @@ first-party ones, because they parse attacker-influenced data. The module
 runs inside the host process, so the sandbox is the boundary.
 
 Assets: A2, A3, A1 (through emitted observations), the host process, the
-internal network and cloud metadata endpoints.
+internal network, cloud metadata endpoints and the compilation cache.
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
@@ -206,49 +213,91 @@ internal network and cloud metadata endpoints.
 | T-ADAPTER-9 | I, T | Module reads or poisons another Source's `kv` cache | C-ADAPTER-8 |
 | T-ADAPTER-10 | T | Module file swapped on disk or in a registry | C-ADAPTER-9, C-SUPPLY-6 |
 | T-ADAPTER-11 | R | Module logs pretend to come from the host | C-ADAPTER-10 |
+| T-ADAPTER-12 | T, E | Native code in the compilation cache is replaced or shared, or code compiled without termination checks is reused with them required, so a module runs outside its limits | C-ADAPTER-12 |
 
-- **C-ADAPTER-1** Modules run under Extism on wazero with no WASI
-  filesystem, sockets, environment, process or clock access. The only host
-  functions are Extism's memory kernel and `bearing_call`. Extism's own
-  HTTP, config, var and path functions are off (`allowed_hosts` and
-  `allowed_paths` empty). A module importing anything else fails to load.
+- **C-ADAPTER-1** Modules run on wazero with a fixed WASI preview1 profile
+  (ADR 9 A8), because every Go-built module imports preview1:
+  - Empty args and environment, no filesystem preopens, no sockets or
+    listeners. TinyGo's `sock_send`/`sock_recv` are stubs that return an
+    error.
+  - The host owns stdout and stderr: output is discarded, or bounded and
+    rate-limited. It is never the host's own stdout or stderr.
+  - The random source is `crypto/rand`. The wall clock is fake, so real time
+    comes only through the `clock` capability; the monotonic clock is real.
+  - The only other host functions are `bearing_call` and its ABI's read
+    helper (or, if Extism is chosen, Extism's memory kernel with its HTTP,
+    config, var and path functions off: `allowed_hosts` and
+    `allowed_paths` empty). Bearing refuses to start if
+    `EXTISM_ENABLE_WASI_OUTPUT` is set.
+  - A module importing anything outside the profile fails to load.
 - **C-ADAPTER-2** The effective grant is the manifest's declaration narrowed
   by the Source; a Source can narrow but never widen it. Config apply rejects
   a widening. A call outside the grant returns a permission error, is logged
   and is counted. `bearing diff` shows the effective grant before apply.
-- **C-ADAPTER-3** Per-call limits: memory, wall time, response size, number
-  and size of observations, `kv` keys and bytes, and log records. A call that
-  exceeds a limit is aborted and the module instance discarded.
+- **C-ADAPTER-3** Per-call limits (ADR 9 A9):
+  - Wall time: every guest call runs under a deadline with wazero's
+    `CloseOnContextDone`, so a pure CPU loop is stopped too.
+  - Memory: a `MaxPages` cap of 64–128 MiB.
+  - Size caps on every capability request and response field, on the
+    number and size of observations, on `kv` keys and bytes, and on log
+    records and guest output. An oversize response is an error, never a
+    truncation.
+
+  A call that exceeds a limit is aborted and the module instance
+  discarded. The hostile-guest conformance module (ADR 9 A12) exercises each
+  limit, and every runtime must pass it before any adapter is enabled by
+  default.
 - **C-ADAPTER-4** The `http` capability allows only HTTPS to hosts on the
-  effective allowlist (exact hostnames), and only GET and HEAD unless the
-  manifest declares other methods and the Source grants them.
+  effective allowlist, and only GET and HEAD unless the manifest declares
+  other methods and the Source grants them. `http://` URLs are refused,
+  including as redirect targets. Hostnames are canonicalized (lowercase,
+  no trailing dot) and must match an allowlist entry exactly; no globs.
 - **C-ADAPTER-5** After DNS resolution the host refuses loopback, private
   (RFC 1918, `fc00::/7`), link-local (`169.254.0.0/16` including
   `169.254.169.254`, `fe80::/10`), CGNAT (`100.64.0.0/10`), `0.0.0.0/8`,
   `198.18.0.0/15`, `64:ff9b::/96`, `2002::/16`, `fec0::/10`, `::/128`,
-  multicast and broadcast addresses, including IPv4-mapped IPv6 forms. It
-  dials the address it checked, so DNS rebinding cannot swap it. Each
-  redirect is re-checked against the allowlist and these rules; at most 5
-  redirects. Environment proxy settings are ignored for the `http`
-  capability. A Source may allow named private CIDRs (for example a GitHub
+  multicast and broadcast addresses, including IPv4-mapped IPv6 forms. The
+  check runs in the dialer on every resolved address, and the dialer dials
+  the address it checked, so DNS rebinding cannot swap it. `CheckRedirect`
+  re-checks every hop's scheme, host and resolved address against
+  C-ADAPTER-4 and these rules; at most 5 redirects. The capability's
+  transport sets `Proxy: nil`, so `HTTPS_PROXY`, `HTTP_PROXY` and
+  `NO_PROXY` are ignored; a shared egress proxy is a capability provider
+  (ADR 9), not an environment setting. A Source may allow named private CIDRs (for example a GitHub
   Enterprise server) only with `insecure_allow_private_networks`.
 - **C-ADAPTER-6** The host injects credentials only for the host the secret
   is bound to, and drops them on a cross-host redirect. It strips
-  `Authorization`, `Cookie`, `Proxy-*` and `Host` headers set by the module.
+  `Authorization`, `Cookie`, `Proxy-*`, `Host` and `X-Amz-*` headers set by
+  the module. Credential modes are host-side only: bearer injection and AWS
+  SigV4, where the host computes the payload hash itself (ADR 9 A6).
 - **C-ADAPTER-7** Adapter output is validated (C-GEN-3). Keys must use the
   system prefixes in the effective grant, and kinds and relations must be in
   the manifest's declared set. Only the core links keys across systems.
 - **C-ADAPTER-8** `kv` is scoped to one Source by the host; a module names
   keys only inside its own scope. Values read back are treated as untrusted.
-- **C-ADAPTER-9** First-party adapters are built into the binary. External
-  modules load only by sha256 digest from config; a mismatch refuses the
-  load.
+- **C-ADAPTER-9** First-party adapters are built into the binary,
+  gzip-compressed, with their sha256 recorded at build time and checked
+  before compile. External modules load only by sha256 digest from config;
+  a mismatch refuses the load.
 - **C-ADAPTER-10** Adapter logs and spans are tagged with adapter and Source,
   their attributes are prefixed `adapter.`, and they are rate-limited.
 - **C-ADAPTER-11** Every fact assertion records the Source that made it.
   Applying a Source's observations can create, change or retract only that
   Source's assertions, never another Source's. The key prefixes a module may
   use are part of its effective grant and appear in `bearing diff`.
+- **C-ADAPTER-12** Modules are compiled when a Source is applied, or at
+  first start for embedded modules, never on the sync path. The compilation
+  cache holds native code and is protected:
+  - It is local only, never shared between hosts or on a network
+    filesystem.
+  - Its directory is owned by the Bearing user with mode 0700; start-up
+    checks this and refuses to use a cache that fails.
+  - Entries are keyed by wazero's own cache key (module bytes,
+    listener and termination-check flags, CPU features) plus the wazero
+    version. Bearing never substitutes a bare module digest, so code
+    compiled without termination checks is never reused with
+    `CloseOnContextDone` on.
+  - The hostile-guest CPU-loop case also runs against a warm cache.
 
 ### B3. Data from source systems
 
@@ -558,6 +607,10 @@ provider API keys.
   30 days by default (ADR 7), so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
+- **stdio process adapters.** ADR 3's stdio transport stays supported
+  (ADR 9 A13). A stdio adapter is a process with the service user's access;
+  none of B2's controls apply to it. Operators run only stdio adapters they
+  trust fully.
 - **WASM side channels** (timing, speculative execution) between modules in
   one process are not addressed.
 - **Encryption at rest** is left to the disk or volume.

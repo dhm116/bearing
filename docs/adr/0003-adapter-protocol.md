@@ -1,9 +1,12 @@
 # 3. Adapters are processes speaking JSON-RPC over stdio
 
-Date: 2026-09-28 · Status: accepted
+Date: 2026-09-28 · Status: accepted · Superseded in part by [ADR 9](0009-wasm-adapters.md)
 
-> Proposed replacement: [ADR 6](0006-protobuf-contracts.md) (message
-> format) and [ADR 9](0009-wasm-adapters.md) (runtime).
+> Superseded in part by [ADR 9](0009-wasm-adapters.md) (accepted
+> 2026-10-02): WASM becomes the default runtime when M4 lands, and the
+> stdio transport stays supported. Webhook deliveries are verified by the
+> host before any parsing, not by the adapter. Proposed replacement for the
+> message format: [ADR 6](0006-protobuf-contracts.md).
 
 ## Context
 
@@ -31,3 +34,6 @@ an upgrade burden.
 - Process start-up cost per adapter; negligible next to network calls to the
   source systems.
 - An HTTP transport can be added later without changing the method contract.
+- Superseded in part by [ADR 9](0009-wasm-adapters.md): the host, not the
+  adapter, verifies webhook signatures (A6), and WASM modules become the
+  default runtime (A13).

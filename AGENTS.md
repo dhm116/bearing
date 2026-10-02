@@ -86,11 +86,16 @@ new ADR.
    Every vector points at a graph entity and the index can be rebuilt from
    the graph. Ownership and policy answers read only asserted facts; results
    from semantic search are verified in the graph.
-2. **Adapters are separate processes** speaking JSON-RPC 2.0 over stdio, one
-   message per line ([ADR 3](docs/adr/0003-adapter-protocol.md)). Methods:
+2. **Adapters are isolated from the core.** Today they are separate
+   processes speaking JSON-RPC 2.0 over stdio, one message per line
+   ([ADR 3](docs/adr/0003-adapter-protocol.md)). Methods:
    `bearing.describe`, `bearing.sync` (cursor paged), optional
-   `bearing.handle` for webhooks. Adapters are stateless, read-only against
-   their source, verify webhook signatures, and never resolve identities
+   `bearing.handle` for webhooks. Once M4 lands, sandboxed WASM modules
+   reaching the world only through granted host capabilities are the
+   default runtime ([ADR 9](docs/adr/0009-wasm-adapters.md)); stdio stays
+   supported. Adapters are stateless and read-only against their source.
+   Under ADR 9 the host, not the adapter, holds credentials and verifies
+   webhook signatures before parsing. Adapters never resolve identities
    across systems. That is the core's job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and

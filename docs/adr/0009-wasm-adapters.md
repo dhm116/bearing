@@ -1,6 +1,12 @@
 # 9. Adapters run as sandboxed WebAssembly modules with granted capabilities
 
-Date: 2026-09-29 · Status: proposed
+Date: 2026-09-29 · Status: accepted (2026-10-02), with the conditions in
+[Amendment: accepted with conditions](#amendment-accepted-with-conditions-2026-10-02)
+
+> Proposed 2026-09-29. Accepted 2026-10-02 after the
+> [WASM adapters spike](../spikes/wasm-adapters.md) (PR #24). Context,
+> Decision, Shape and Consequences are the original proposal; where the
+> amendment differs, the amendment wins, and the changed bullets say so.
 
 ## Context
 
@@ -37,6 +43,8 @@ credential handling.
   boundary as Protobuf bytes.
 - **The default runtime is WASM, hosted with Extism** on wazero (pure Go, no
   CGO). An adapter ships as one `.wasm` module plus a manifest.
+  *Amended (A4): wazero stays; Extism versus a thin wazero ABI is decided on
+  copy cost and attack surface.*
 - **Adapters reach the world only through host capabilities.** Bearing
   defines a small, versioned set of capabilities. Each one is a Protobuf
   service (ADR 6) in `proto/bearing/capability/<name>/v1/`:
@@ -76,12 +84,15 @@ credential handling.
   redesigning the capabilities.
 - **Modules are pinned by digest** (sha256) in configuration (ADR 10), and
   can be signed and verified (Sigstore) before loading.
+  *Amended (A11): first-party modules are embedded in the binary instead.*
 - **A second runtime for what WASM can't do yet.** Remote adapters implement
   the same Protobuf service over Connect/gRPC and run as their own service.
   The core can't tell the difference. This covers adapters that need
   libraries that don't compile to WASM, or special network access.
 - **The stdio JSON-RPC transport is retired.** Existing adapters (GitHub)
   are ported to WASM.
+  *Amended (A13): stdio stays supported; WASM becomes the default runtime
+  when M4 lands.*
 
 ## Shape
 
@@ -95,9 +106,107 @@ runs changes.
 
 ![Standalone, capabilities run in-process; distributed, local capabilities stay on the worker while http egress and the kv cache can be remote providers over Connect; a remote adapter service is the fallback runtime.](diagrams/adr9-topology.svg)
 
+## Amendment: accepted with conditions (2026-10-02)
+
+The [spike](../spikes/wasm-adapters.md) ran the GitHub adapter's unchanged
+source as a WASM module with output identical to the stdio adapter, and ran
+the AWS SDK for Go v2 over the host `http` capability. It also found costs
+the proposal did not assume. ADR 9 is accepted with these conditions; the
+spike's "Security properties verified / not verified" section lists what is
+still unproven. Control IDs refer to the
+[threat model](../security/threat-model.md).
+
+- **A1. Toolchain.** Upstream Go (`GOOS=wasip1`, `//go:wasmexport`,
+  `-buildmode=c-shared`) is the supported Go toolchain. TinyGo is an
+  optional size optimization: an adapter may ship a TinyGo build only if
+  that build passes the adapter conformance suite and the hostile-guest
+  module (A12). TinyGo could not build the unmodified adapter or the AWS
+  SDK, and crashed at init with cel-go linked.
+- **A2. Module size.** `pkg/telemetry` splits into an API part and a setup
+  part (SDK, exporters). Adapters and `pkg/adapter` import only the API
+  part, or the protocol types move to their own package. That alone took
+  the Go module from 25.5 to 12.5 MiB. CI enforces a size budget per
+  module.
+- **A3. Precompile and cache.** A module is compiled when its Source is
+  applied, or at first start for embedded modules, never on the sync path
+  (cold compile is 7–14 s per upstream Go module). The persistent
+  compilation cache holds native code, so it is protected under
+  C-ADAPTER-12: local only, owned by the Bearing user with mode 0700, and
+  keyed by wazero's own cache key plus the wazero version, never by a bare
+  module digest.
+- **A4. ABI.** The ABI is chosen on copy cost **and** attack surface before
+  the guest SDK is frozen: Extism with caller-memory or bulk-copy access
+  added upstream, or a thin wazero ABI. Extism's go-pdk copies 8 bytes per
+  host call (about 0.1–0.19 s per MiB crossed; the lean adapter synced in
+  ~850 ms on Extism against ~600 ms on the raw ABI), and Extism adds its own
+  kernel imports, dependencies and glob host matching. The thin ABI imports
+  only `bearing_call`, a read helper and the WASI profile (A8). Either way
+  the shape `bearing_call(capability, method, request_bytes) ->
+  response_bytes` stays, and the SDKs hide the choice from adapter code.
+- **A5. Messages.** Capability and adapter messages are Protobuf, with HTTP
+  bodies as `bytes` fields, never base64 inside JSON. protobuf-go adds a
+  measured +3.6 MiB (+29%) to the lean Go module; its CPU cost on `wasip1`
+  is measured before the guest SDK is frozen.
+- **A6. Credentials stay on the host.** No credential enters a guest
+  (C-SECRET-3, C-ADAPTER-6):
+  - Bearer tokens are injected by the host, bound to one host.
+  - AWS SigV4 is signed by the host, which strips any guest
+    `Authorization` and `X-Amz-*` headers and computes the payload hash
+    itself.
+  - Webhook deliveries are verified by the host, before any parsing
+    (C-INGEST-2, C-INGEST-9). `Handle` receives only authenticated
+    deliveries. There is no HMAC capability. This supersedes in part
+    [ADR 3](0003-adapter-protocol.md) and the adapter protocol spec, which
+    put verification in the adapter.
+- **A7. Validation on the host.** The host validates every observation
+  (C-GEN-3, C-ADAPTER-7). Guests link no protovalidate or cel-go, which
+  added 13.8 MiB to the Go module.
+- **A8. WASI preview1 profile.** Every Go-built module imports WASI
+  preview1, so "no WASI" (the original C-ADAPTER-1) cannot be met. Modules
+  get a fixed profile instead: empty args and env, no preopens, no sockets
+  (TinyGo's `sock_*` imports are stubs that return an error), stdout and
+  stderr owned by the host and discarded or bounded and rate-limited,
+  `crypto/rand` as the random source, a fake wall clock (real time comes
+  only through `clock`) and a real monotonic clock. Any import outside the
+  profile fails the load. If Extism is used, Bearing refuses to start with
+  `EXTISM_ENABLE_WASI_OUTPUT` set.
+- **A9. Limits.** Every guest call runs under a deadline with wazero's
+  `CloseOnContextDone` and a `MaxPages` cap of 64–128 MiB, plus size caps on
+  capability requests, responses and observations. Any breach aborts the
+  call and discards the instance (C-ADAPTER-3). The memory cap cost nothing
+  measurable; `CloseOnContextDone` roughly doubles sync time (about 2× guest
+  CPU; 1.3–1.6 s for the spike's 456-request sync). Worker pools are sized
+  for that and re-measured under load with realistic API latency.
+- **A10. `http` capability rules** (C-ADAPTER-4, C-ADAPTER-5, C-ADAPTER-6):
+  HTTPS only, exact hostnames, GET and HEAD unless granted; a dialer that
+  checks the resolved IP and dials the address it checked; every redirect
+  re-checked, at most 5; `Proxy: nil`, so environment proxy settings are
+  ignored; guest-set `Authorization`, `Cookie`, `Proxy-*`, `Host` and
+  `X-Amz-*` stripped; an oversize response is an error, not a truncation.
+- **A11. Packaging** (C-SUPPLY-6, C-ADAPTER-9). First-party modules are
+  built from this repository in the same build and embedded
+  gzip-compressed in the one `bearing` binary, with the sha256 recorded at
+  build time and checked before compile. They are never downloaded. A
+  `noadapters` build tag exists from the start, so a `bearing-core` package
+  costs one CI job when it is needed. External modules load only by sha256
+  digest. Three upstream Go adapters put the binary at about 38–42 MiB.
+- **A12. Hostile-guest conformance module.** A test module tries
+  `environ_get`, `path_open`, an unknown capability, an ungranted method,
+  its own `Authorization`, a cross-host redirect, a pure CPU loop (also
+  against a warm compile cache), memory growth and an output flood. Every
+  runtime and capability provider must pass it before any adapter is
+  enabled by default.
+- **A13. stdio stays.** The stdio JSON-RPC transport (ADR 3) stays
+  supported. WASM becomes the default runtime when M4 lands. A stdio
+  adapter is an unsandboxed process with the service user's access; the
+  controls for adapter modules (threat model B2) do not apply to it.
+- **A14. AWS.** The AWS SDK for Go v2 works in a Go module over the `http`
+  capability (STS: 13.5 MiB). The remote runtime stays as a fallback, but
+  AWS does not need it on technical grounds.
+
 ## Consequences
 
-- **Spike first:** build the GitHub adapter as a WASM module, and check the
+- **Spike first** (done, see the amendment): build the GitHub adapter as a WASM module, and check the
   AWS SDK for Go v2 against the host HTTP function (a custom
   `http.RoundTripper`). If the AWS SDK can't be made to work, the AWS
   adapter uses the remote runtime. The decision doesn't depend on it.
@@ -112,8 +221,13 @@ runs changes.
   and behave the same for every adapter in every language.
 - Bearing publishes a small SDK per language (Go and Rust first) that wraps
   `bearing_call` with typed clients generated from the capability protos,
-  built on the Extism PDKs.
+  built on the Extism PDKs. *Amended (A4): on whichever ABI is chosen.*
 - Each capability gets a conformance suite, so a remote provider behaves the
   same as the in-process one.
 - Supersedes [ADR 3](0003-adapter-protocol.md) and
-  `docs/spec/adapter-protocol.md` once accepted.
+  `docs/spec/adapter-protocol.md` once accepted. *Amended (A6, A13):
+  supersedes them in part. WASM becomes the default runtime and webhook
+  verification moves to the host; the stdio transport stays supported.*
+- Per sync, WASM costs 3–5× the stdio process's wall time in the spike, and
+  6.5–8.5× with `CloseOnContextDone` on, mostly guest CPU. Against real
+  APIs, request latency still dominates.
