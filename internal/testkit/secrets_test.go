@@ -53,7 +53,7 @@ func TestSecretsResolve(t *testing.T) {
 		t.Run(tt.ref, func(t *testing.T) {
 			got, err := s.Resolve(context.Background(), tt.ref)
 			switch {
-			case tt.wantErr == errMalformed:
+			case errors.Is(tt.wantErr, errMalformed):
 				if err == nil || !strings.Contains(err.Error(), "malformed") {
 					t.Fatalf("err = %v, want malformed", err)
 				}

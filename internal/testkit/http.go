@@ -247,7 +247,7 @@ func readInRoot(dir, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only: a close error carries no information
 	return io.ReadAll(f)
 }
 
@@ -266,7 +266,7 @@ func parseFixture(raw []byte) (int, http.Header, []byte, error) {
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // an in-memory body; closing cannot fail
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, nil, nil, err

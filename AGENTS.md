@@ -35,7 +35,7 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 | `make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root` | SurrealDB suites against a running server (`surreal start --user root --pass root memory`) |
 | `make test-embedded SURREALDB_LIB=<dir>` | Same suites against embedded SurrealDB (CGO, needs `libsurrealdb_c.a`) |
 
-Run `make lint test` before every commit. A single package:
+Run `make check` before every commit. A single package:
 `go test ./pkg/model/ -run TestSchema`.
 
 SurrealDB tests skip unless `BEARING_TEST_SURREALDB` is set or the binary is
@@ -71,6 +71,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
+| `tools/` | Separate Go module: pinned golangci-lint and govulncheck, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
 
 The Go module path is the placeholder `bearing.example`. Import packages as
 `bearing.example/pkg/...`; don't rename the module unless asked.
@@ -106,7 +107,11 @@ new ADR.
 6. **Few dependencies** ([ADR 1](docs/adr/0001-license-and-language.md)).
    Prefer the standard library. A new third-party dependency needs a reason
    in the commit message, and a significant one needs an ADR. Everything
-   must be Apache-2.0 compatible.
+   compiled into or shipped with Bearing's artifacts must be Apache-2.0
+   compatible. Developer tools pinned in `tools/` (a separate module that
+   Bearing code never imports, links or distributes) need an OSI-approved
+   licence and a note in [`tools/README.md`](tools/README.md); golangci-lint
+   is GPL-3.0 on those terms.
 
 ## Code conventions
 
@@ -134,7 +139,7 @@ have yet (`NewID`, `internal/testkit`, golden files). Code that predates a
 rule is not a finding unless the PR changes it. golangci-lint (`make lint`)
 enforces formatting and mechanical naming and error rules (initialisms,
 stutter, lower-case error strings, `errors.Is`, `ctx` first); this list is
-what it doesn't catch. Until it lands, reviewers apply those rules by hand.
+what it doesn't catch.
 `go-reviewer` checks it.
 
 **Naming**
@@ -166,8 +171,9 @@ what it doesn't catch. Until it lands, reviewers apply those rules by hand.
 
 - Every package has a `// Package x …` comment (`// Command x …` for
   `main`) that says its role and where it fits.
-- Every exported identifier has a doc comment. Methods that implement a
-  `pkg/contracts` interface may omit it; the interface documents them.
+- Every exported identifier has a doc comment, including methods that
+  implement an interface (revive enforces it). For those one line is
+  enough: `// UpsertEntity implements contracts.GraphStore.`
 - Short. Say why, a constraint, or a non-obvious default, not what the code
   already says: `// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.`
   Match the surrounding comment density.
@@ -248,7 +254,7 @@ Both are plain Markdown checklists; any agent can follow them.
   should know (untested paths, new dependencies, spec changes).
 - Keep changes focused. Spec, code and tests for one change land together.
 - PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
-- CI (`.github/workflows/ci.yml`) runs `make lint test build`.
+- CI (`.github/workflows/ci.yml`) runs `make check`.
 
 ## Review and merge process
 

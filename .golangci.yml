@@ -23,35 +23,64 @@ linters:
 
   settings:
     depguard:
+      # When a package matches both an allow and a deny entry, the longer
+      # (more specific) match wins.
       rules:
-        # Code outside a backend depends on pkg/contracts only (AGENTS.md,
-        # architecture rule 4). pkg/store is where backends are wired up.
-        backends:
+        # Code outside internal/ depends on pkg/contracts, not on backends or
+        # other internal packages (AGENTS.md, architecture rule 4). pkg/store
+        # is where backends are wired up. Denying the whole internal/ tree
+        # means a new backend is covered without editing this file.
+        internal-packages:
           files:
             - $all
             - "!$test"
-            - "!**/internal/memstore/**"
-            - "!**/internal/surrealstore/**"
+            - "!**/internal/**"
             - "!**/pkg/store/**"
           deny:
-            - pkg: bearing.example/internal/memstore
+            - pkg: bearing.example/internal
               desc: depend on pkg/contracts; open backends through pkg/store
-            - pkg: bearing.example/internal/surrealstore
-              desc: depend on pkg/contracts; open backends through pkg/store
-            - pkg: github.com/surrealdb
-              desc: only internal/surrealstore talks to SurrealDB
-        # Tests may use the in-memory reference backend as a fake, but not
-        # SurrealDB.
-        backends-in-tests:
+        # Tests outside internal/ may use the in-memory reference backend
+        # and the testkit fakes, nothing else from internal/.
+        internal-packages-in-tests:
+          list-mode: lax
           files:
             - $test
-            - "!**/internal/surrealstore/**"
+            - "!**/internal/**"
             - "!**/pkg/store/**"
+          allow:
+            - bearing.example/internal/memstore
+            - bearing.example/internal/testkit
           deny:
-            - pkg: bearing.example/internal/surrealstore
-              desc: test against memstore or a contracts fake
+            - pkg: bearing.example/internal
+              desc: test against memstore, internal/testkit or a contracts fake
+        # Production code never imports testkit (AGENTS.md, Style guide).
+        testkit:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/testkit/**"
+          deny:
+            - pkg: bearing.example/internal/testkit
+              desc: testkit is for tests only
+        # Only internal/surrealstore talks to SurrealDB.
+        surrealdb:
+          files:
+            - $all
+            - "!**/internal/surrealstore/**"
+          deny:
             - pkg: github.com/surrealdb
               desc: only internal/surrealstore talks to SurrealDB
+        # Log through telemetry.Logger (slog), not another logging library.
+        logging:
+          files:
+            - $all
+          deny:
+            - pkg: go.uber.org/zap
+              desc: log with telemetry.Logger
+            - pkg: github.com/sirupsen/logrus
+              desc: log with telemetry.Logger
+            - pkg: github.com/rs/zerolog
+              desc: log with telemetry.Logger
 
     errcheck:
       check-type-assertions: true
@@ -71,6 +100,14 @@ linters:
         - pattern: ^log\..*$
           pkg: ^log$
           msg: log with telemetry.Logger, not the standard log package
+        # slog's package-level functions log through the default logger,
+        # which carries no package name; pkg/telemetry installs it.
+        - pattern: ^slog\.(Debug|Info|Warn|Error|Log|LogAttrs)(Context)?$
+          pkg: ^log/slog$
+          msg: log with telemetry.Logger("<pkg path>"), not slog's default logger
+        - pattern: ^slog\.(Default|SetDefault)$
+          pkg: ^log/slog$
+          msg: log with telemetry.Logger("<pkg path>"); only pkg/telemetry configures slog's default
         # stdout carries the adapter protocol and CLI NDJSON output; only the
         # command entry points and the stdio protocol server may touch it.
         - pattern: ^os\.Stdout$
@@ -93,12 +130,18 @@ linters:
 
     revive:
       rules:
+        # Doc comments on exported identifiers, and names that stutter
+        # (store.StoreConfig).
         - name: exported
+        # Initialisms (ID, URL, HTTP) and no underscores in names.
+        - name: var-naming
         - name: package-comments
         - name: blank-imports
+        # ctx comes first.
         - name: context-as-argument
         - name: dot-imports
         - name: error-return
+        # Error strings start lower case and don't end in punctuation.
         - name: error-strings
         - name: error-naming
         - name: errorf
@@ -115,12 +158,21 @@ linters:
   exclusions:
     generated: strict
     paths:
-      - gen/
+      - ^gen/
     rules:
-      # Command entry points own stdout and stderr.
-      - path: ^cmd/
+      # Command entry points own stdout and stderr, as do the developer
+      # commands in tools/ (`make lint` runs this file over that module too).
+      - path: ^(cmd|tools)/
         linters: [forbidigo]
         text: os\.(Stdout|Stderr)
+      # The developer tools run git and read repository files by design.
+      - path: ^tools/
+        linters: [gosec]
+        text: G(204|304)
+      # Fake secrets in tests exist to be caught.
+      - path: _test\.go$
+        linters: [gosec]
+        text: G101
       # The stdio protocol server speaks on stdout.
       - path: ^pkg/adapter/server\.go$
         linters: [forbidigo]
@@ -129,10 +181,11 @@ linters:
       - path: ^pkg/adapter/client\.go$
         linters: [forbidigo]
         text: os\.Stderr
-      # Console exporters default to stderr.
+      # Console exporters default to stderr, and Setup installs slog's
+      # default logger.
       - path: ^pkg/telemetry/
         linters: [forbidigo]
-        text: os\.Stderr
+        text: (os\.Stderr|slog\.)
 
 formatters:
   enable:
@@ -145,7 +198,7 @@ formatters:
   exclusions:
     generated: strict
     paths:
-      - gen/
+      - ^gen/
 
 issues:
   max-issues-per-linter: 0
