@@ -29,6 +29,8 @@ keeps the adapters that fetch it small.
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
+| [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
+| [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
 | [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
 | [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
