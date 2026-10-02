@@ -61,6 +61,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
 | `internal/memstore` | In-memory reference backend for both contracts. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
+| `internal/testkit` | Test fakes: `FakeClock`, `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
@@ -117,6 +118,8 @@ new ADR.
 - **Testability:** time, environment and HTTP are injected (`Now`,
   `Getenv`, `HTTP` fields; see `adapters/github`). Tests use `httptest`
   servers, never the real network, and table-driven cases where they help.
+  Reach for `internal/testkit` fakes first; production code declares its own
+  small interfaces and never imports testkit.
 - **Secrets** come from environment variables named in config (for example
   `TokenEnv`, `BEARING_STORE_PASSWORD`), never from config values, URLs or
   logs.

@@ -39,6 +39,7 @@ keeps the adapters that fetch it small.
 | [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
 | [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation |
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
+| [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
 
