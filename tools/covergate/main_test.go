@@ -23,9 +23,18 @@ deleted file mode 100644
 +++ /dev/null
 @@ -1,3 +0,0 @@
 -package pkg
+diff --git "a/pkg/caf\303\251.go" "b/pkg/caf\303\251.go"
+new file mode 100644
+--- /dev/null
++++ "b/pkg/caf\303\251.go"
+@@ -0,0 +1 @@
++package pkg
 `
-	got := parseDiff(diff)
-	want := map[string]map[int]bool{"pkg/a.go": {4: true, 5: true, 12: true}}
+	got, err := parseDiff(diff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[int]bool{"pkg/a.go": {4: true, 5: true, 12: true}, "pkg/café.go": {1: true}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -87,7 +96,8 @@ func TestMeasured(t *testing.T) {
 		"pkg/store/store_test.go": false,
 		"cmd/bearing/main.go":     false,
 		"gen/proto/x.pb.go":       false,
-		"pkg/api/gen/types.go":    false,
+		"pkg/api/gen/types.go":    true, // only the root gen/ is excluded
+		"pkg/cmd/thing.go":        true,
 		"tools/covergate/main.go": false,
 		"docs/README.md":          false,
 	} {
@@ -97,8 +107,13 @@ func TestMeasured(t *testing.T) {
 	}
 }
 
-func TestRound1(t *testing.T) {
-	if round1(80.04999) != 80.0 || round1(79.96) != 80.0 {
-		t.Fatal("round1 rounds to one decimal place")
+func TestParseDiffRejectsBadInput(t *testing.T) {
+	for _, diff := range []string{
+		"+++ b/a.go\n@@ nonsense @@\n",
+		"+++ \"b/unterminated\n",
+	} {
+		if _, err := parseDiff(diff); err == nil {
+			t.Errorf("parseDiff(%q) succeeded, want an error", diff)
+		}
 	}
 }

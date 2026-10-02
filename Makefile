@@ -11,11 +11,15 @@ COVERGATE := $(TOOLS)/covergate
 COVER_BASE ?= origin/$(or $(GITHUB_BASE_REF),main)
 COVER_MIN ?= 80
 COVER_TEST := go test -count=1 -coverpkg=./... -coverprofile
+# In CI a missing base or an unmeasurable baseline fails the gate instead of
+# skipping it.
+COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)
 
 all: fmt test build
 
-# check is exactly what CI runs.
-check: lint vet tools-test cover covergate vuln build
+# check is exactly what CI runs. vuln goes last because it needs the
+# network (vuln.go.dev).
+check: lint vet tools-test cover covergate build vuln
 
 build:
 	go build -o bin/ ./cmd/...
@@ -38,13 +42,15 @@ test-surrealdb:
 test-embedded:
 	CGO_ENABLED=1 CGO_LDFLAGS="-L$(SURREALDB_LIB)" go test -count=1 -tags surrealembed ./internal/surrealstore/ ./pkg/store/
 
+# The tools module is separate, so ./... does not reach it; lint it with the
+# same config from inside it.
 fmt: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) fmt ./...
-	gofmt -w tools
+	cd tools && ../$(GOLANGCI_LINT) fmt --config ../.golangci.yml ./...
 
 lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
-	@test -z "$$(gofmt -l tools)" || (gofmt -l tools && echo "run make fmt" && exit 1)
+	cd tools && ../$(GOLANGCI_LINT) run --config ../.golangci.yml ./...
 
 vet:
 	go vet ./...
@@ -57,8 +63,8 @@ tools-test:
 cover:
 	$(COVER_TEST)=cover.out ./...
 
-covergate: $(COVERGATE)
-	$(COVERGATE) -profile cover.out -base $(COVER_BASE) -min $(COVER_MIN) -test '$(COVER_TEST)={profile} ./...'
+covergate: cover $(COVERGATE)
+	$(COVERGATE) -profile cover.out -base $(COVER_BASE) -min $(COVER_MIN) $(COVER_FLAGS) -test '$(COVER_TEST)={profile} ./...'
 
 vuln: $(GOVULNCHECK)
 	$(GOVULNCHECK) ./...

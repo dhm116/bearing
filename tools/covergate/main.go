@@ -2,17 +2,20 @@
 //
 //   - less than -min percent of the Go lines changed since the merge base
 //     with -base are covered by tests, or
-//   - the module's total statement coverage is lower than it is at the merge
-//     base.
+//   - the module's total statement coverage is more than 0.05 points lower
+//     than it is at the merge base.
 //
 // It reads the coverage profile `go test -coverprofile` wrote for the
 // working tree, and measures the merge base by exporting it with git archive
 // into a temporary directory and running -test there. Main packages (cmd/),
-// generated code (gen/ and files marked "Code generated ... DO NOT EDIT.")
-// and test files are left out of both measures.
+// generated code (gen/ and files marked "Code generated ... DO NOT EDIT."),
+// the tools/ module and test files are left out of both measures.
 //
-// When the base ref does not exist, or nothing has changed since the merge
-// base (a push to main, for example), the gate reports that and passes.
+// When nothing has changed since the merge base (a push to main, for
+// example) the gate skips. It also skips when the base ref does not exist,
+// unless -require-base is set, and skips the total comparison when the
+// baseline cannot be measured, unless -require-baseline is set. CI sets both.
+// Every skip is reported, as a ::warning:: annotation under GitHub Actions.
 //
 // Usage, from the module root:
 //
@@ -36,25 +39,44 @@ import (
 	"strings"
 )
 
+// tolerance is how far, in percentage points, total coverage may fall below
+// the baseline before the gate fails. It absorbs float noise, not real drops.
+const tolerance = 0.05
+
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+// config is what the flags set.
+type config struct {
+	profile, base, test string
+	min                 float64
+	requireBase         bool
+	requireBaseline     bool
+}
+
+func run(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	fs := flag.NewFlagSet("covergate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	profile := fs.String("profile", "cover.out", "coverage profile of the working tree")
-	base := fs.String("base", "origin/main", "git ref whose merge base with HEAD is the baseline")
-	minPct := fs.Float64("min", 80, "minimum percent of changed lines that must be covered")
-	test := fs.String("test", "go test -count=1 -coverpkg=./... -coverprofile={profile} ./...",
+	var c config
+	fs.StringVar(&c.profile, "profile", "cover.out", "coverage profile of the working tree")
+	fs.StringVar(&c.base, "base", "origin/main", "git ref whose merge base with HEAD is the baseline")
+	fs.Float64Var(&c.min, "min", 80, "minimum percent of changed lines that must be covered")
+	fs.StringVar(&c.test, "test", "go test -count=1 -coverpkg=./... -coverprofile={profile} ./...",
 		"command that writes the baseline's profile to {profile}, run in the exported merge base")
+	fs.BoolVar(&c.requireBase, "require-base", false, "fail, rather than skip, when the base ref is missing")
+	fs.BoolVar(&c.requireBaseline, "require-baseline", false, "fail, rather than skip the total comparison, when the baseline can't be measured")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	g := gate{root: ".", stdout: stdout, stderr: stderr}
-	ok, err := g.check(*profile, *base, *minPct, *test)
+	out := &printer{w: stdout, actions: getenv("GITHUB_ACTIONS") == "true"}
+	g := gate{root: ".", out: out, stderr: stderr}
+	ok, err := g.check(c)
 	if err != nil {
-		fmt.Fprintf(stderr, "covergate: %v\n", err)
+		out.printf("covergate: %v\n", err)
+		return 2
+	}
+	if out.err != nil {
 		return 2
 	}
 	if !ok {
@@ -63,17 +85,45 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-type gate struct {
-	root           string
-	stdout, stderr io.Writer
+// printer writes the report and remembers the first write error, so callers
+// need not check each line.
+type printer struct {
+	w       io.Writer
+	actions bool // running under GitHub Actions
+	err     error
 }
 
-func (g gate) check(profilePath, baseRef string, minPct float64, testCmd string) (bool, error) {
-	if _, err := g.git("rev-parse", "--verify", "--quiet", baseRef+"^{commit}"); err != nil {
-		fmt.Fprintf(g.stdout, "covergate: base %s not found; skipping\n", baseRef)
+func (p *printer) printf(format string, args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintf(p.w, format, args...)
+	}
+}
+
+// skip reports that part of the gate did not run, as an annotation under
+// GitHub Actions so it shows on the pull request.
+func (p *printer) skip(format string, args ...any) {
+	msg := "covergate: " + fmt.Sprintf(format, args...)
+	if p.actions {
+		msg = "::warning title=coverage gate skipped::" + msg
+	}
+	p.printf("%s\n", msg)
+}
+
+type gate struct {
+	root   string
+	out    *printer
+	stderr io.Writer // baseline test output, when it fails
+}
+
+func (g gate) check(c config) (bool, error) {
+	if _, err := g.git("rev-parse", "--verify", "--quiet", c.base+"^{commit}"); err != nil {
+		if c.requireBase {
+			return false, fmt.Errorf("base %s not found; fetch it (actions/checkout needs fetch-depth: 0)", c.base)
+		}
+		g.out.skip("base %s not found; skipping", c.base)
 		return true, nil
 	}
-	mergeBase, err := g.git("merge-base", "HEAD", baseRef)
+	mergeBase, err := g.git("merge-base", "HEAD", c.base)
 	if err != nil {
 		return false, err
 	}
@@ -84,7 +134,7 @@ func (g gate) check(profilePath, baseRef string, minPct float64, testCmd string)
 		return false, err
 	}
 	if len(changed) == 0 {
-		fmt.Fprintf(g.stdout, "covergate: no Go changes since merge base %.12s; skipping\n", mergeBase)
+		g.out.skip("no measured Go changes since merge base %.12s; skipping", mergeBase)
 		return true, nil
 	}
 
@@ -92,7 +142,11 @@ func (g gate) check(profilePath, baseRef string, minPct float64, testCmd string)
 	if err != nil {
 		return false, err
 	}
-	head, err := readProfile(profilePath, module)
+	profile := c.profile
+	if !filepath.IsAbs(profile) {
+		profile = filepath.Join(g.root, profile)
+	}
+	head, err := readProfile(profile, module)
 	if err != nil {
 		return false, err
 	}
@@ -102,38 +156,40 @@ func (g gate) check(profilePath, baseRef string, minPct float64, testCmd string)
 	// Changed lines.
 	covered, total, missed := changedCoverage(head, changed)
 	if total == 0 {
-		fmt.Fprintln(g.stdout, "covergate: changed lines: none are statements; nothing to measure")
+		g.out.printf("covergate: changed lines: none are statements; nothing to measure\n")
 	} else {
 		pct := percent(covered, total)
-		fmt.Fprintf(g.stdout, "covergate: changed lines: %d of %d covered (%.1f%%, minimum %.0f%%)\n", covered, total, pct, minPct)
-		if pct < minPct {
+		g.out.printf("covergate: changed lines: %d of %d covered (%.1f%%, minimum %.0f%%)\n", covered, total, pct, c.min)
+		if pct < c.min {
 			ok = false
-			fmt.Fprintln(g.stdout, "covergate: uncovered changed lines:")
+			g.out.printf("covergate: uncovered changed lines:\n")
 			for _, m := range missed {
-				fmt.Fprintf(g.stdout, "  %s\n", m)
+				g.out.printf("  %s\n", m)
 			}
 		}
 	}
 
 	// Total against the merge base.
 	headPct := totalCoverage(head)
-	basePct, err := g.baseCoverage(mergeBase, module, testCmd)
-	if err != nil {
+	basePct, err := g.baseCoverage(mergeBase, module, c.test)
+	switch {
+	case err != nil && c.requireBaseline:
+		return false, fmt.Errorf("measure merge base %.12s: %w", mergeBase, err)
+	case err != nil:
 		// A broken baseline should not block the change that fixes it.
-		fmt.Fprintf(g.stdout, "covergate: total: %.1f%%; baseline unavailable (%v), not compared\n", headPct, err)
-		return ok, nil
-	}
-	// Compare at the precision reported, so float noise can't fail a build.
-	h, b := round1(headPct), round1(basePct)
-	fmt.Fprintf(g.stdout, "covergate: total: %.1f%% (merge base %.12s: %.1f%%)\n", h, mergeBase, b)
-	if h < b {
-		ok = false
-		fmt.Fprintf(g.stdout, "covergate: total coverage dropped by %.1f points\n", b-h)
+		g.out.printf("covergate: total: %.2f%%\n", headPct)
+		g.out.skip("baseline unavailable (%v); total not compared", err)
+	default:
+		g.out.printf("covergate: total: %.2f%% (merge base %.12s: %.2f%%)\n", headPct, mergeBase, basePct)
+		if headPct < basePct-tolerance {
+			ok = false
+			g.out.printf("covergate: total coverage dropped by %.2f points\n", basePct-headPct)
+		}
 	}
 	if ok {
-		fmt.Fprintln(g.stdout, "covergate: pass")
+		g.out.printf("covergate: pass\n")
 	} else {
-		fmt.Fprintln(g.stdout, "covergate: FAIL")
+		g.out.printf("covergate: FAIL\n")
 	}
 	return ok, nil
 }
@@ -141,16 +197,25 @@ func (g gate) check(profilePath, baseRef string, minPct float64, testCmd string)
 // changedLines lists the added or modified lines of each measured Go file
 // between mergeBase and the working tree, including untracked files.
 func (g gate) changedLines(mergeBase string) (map[string]map[int]bool, error) {
-	diff, err := g.git("diff", "--no-color", "--no-ext-diff", "-U0", mergeBase, "--", "*.go")
+	// Fixed prefixes and repo-root paths whatever the user's git config
+	// says (diff.noprefix, diff.relative, external diff drivers, color).
+	diff, err := g.git("diff", "--no-color", "--no-ext-diff", "--no-relative",
+		"--src-prefix=a/", "--dst-prefix=b/", "-U0", mergeBase, "--", "*.go")
 	if err != nil {
 		return nil, err
 	}
-	changed := parseDiff(diff)
-	untracked, err := g.git("ls-files", "--others", "--exclude-standard", "--", "*.go")
+	changed, err := parseDiff(diff)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range strings.Fields(untracked) {
+	untracked, err := g.git("ls-files", "-z", "--others", "--exclude-standard", "--", "*.go")
+	if err != nil {
+		return nil, err
+	}
+	for f := range strings.SplitSeq(untracked, "\x00") {
+		if f == "" {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join(g.root, f))
 		if err != nil {
 			return nil, err
@@ -193,7 +258,7 @@ func (g gate) baseCoverage(mergeBase, module, testCmd string) (float64, error) {
 		return 0, fmt.Errorf("extract %s: %w", mergeBase, err)
 	}
 	profile := filepath.Join(dir, "covergate-base.out")
-	fmt.Fprintf(g.stdout, "covergate: measuring merge base %.12s\n", mergeBase)
+	g.out.printf("covergate: measuring merge base %.12s\n", mergeBase)
 	cmd := exec.Command("sh", "-c", strings.ReplaceAll(testCmd, "{profile}", profile))
 	cmd.Dir = dir
 	var out bytes.Buffer
@@ -206,7 +271,7 @@ func (g gate) baseCoverage(mergeBase, module, testCmd string) (float64, error) {
 		// go test still writes the profile when tests fail. Failing tests
 		// can only lower the baseline, so comparing with it stays fair to
 		// this change.
-		fmt.Fprintf(g.stdout, "covergate: baseline tests failed (%v); using the coverage they reported\n", err)
+		g.out.printf("covergate: baseline tests failed (%v); using the coverage they reported\n", err)
 	}
 	blocks, err := readProfile(profile, module)
 	if err != nil {
@@ -234,7 +299,7 @@ func measured(path string) bool {
 		return false
 	}
 	for _, dir := range []string{"cmd/", "gen/", "tools/"} {
-		if strings.HasPrefix(path, dir) || strings.Contains(path, "/"+dir) {
+		if strings.HasPrefix(path, dir) {
 			return false
 		}
 	}
@@ -254,27 +319,37 @@ func generated(path string) bool {
 
 var hunkRE = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
 
-// parseDiff returns the new-side line numbers of each file in a unified diff.
-func parseDiff(diff string) map[string]map[int]bool {
+// parseDiff returns the new-side line numbers of each file in a unified diff
+// made with the a/ and b/ prefixes.
+func parseDiff(diff string) (map[string]map[int]bool, error) {
 	changed := map[string]map[int]bool{}
 	var file string
 	for line := range strings.Lines(diff) {
-		line = strings.TrimRight(line, "\n")
+		line = strings.TrimSuffix(line, "\n")
 		switch {
 		case strings.HasPrefix(line, "+++ "):
+			name, err := diffPath(strings.TrimPrefix(line, "+++ "))
+			if err != nil {
+				return nil, err
+			}
 			file = ""
-			if p, ok := strings.CutPrefix(line, "+++ b/"); ok {
+			if p, ok := strings.CutPrefix(name, "b/"); ok {
 				file = p
 			}
 		case strings.HasPrefix(line, "@@ ") && file != "":
 			m := hunkRE.FindStringSubmatch(line)
 			if m == nil {
-				continue
+				return nil, fmt.Errorf("malformed hunk header %q", line)
 			}
-			start, _ := strconv.Atoi(m[1])
+			start, err := strconv.Atoi(m[1])
+			if err != nil {
+				return nil, err
+			}
 			n := 1
 			if m[2] != "" {
-				n, _ = strconv.Atoi(m[2])
+				if n, err = strconv.Atoi(m[2]); err != nil {
+					return nil, err
+				}
 			}
 			if changed[file] == nil {
 				changed[file] = map[int]bool{}
@@ -284,7 +359,21 @@ func parseDiff(diff string) map[string]map[int]bool {
 			}
 		}
 	}
-	return changed
+	return changed, nil
+}
+
+// diffPath decodes a path from a diff header. git C-quotes paths with
+// unusual bytes ("b/caf\303\251.go"), using escapes Go's own string literals
+// share.
+func diffPath(s string) (string, error) {
+	if !strings.HasPrefix(s, `"`) {
+		return s, nil
+	}
+	p, err := strconv.Unquote(s)
+	if err != nil {
+		return "", fmt.Errorf("decode diff path %s: %w", s, err)
+	}
+	return p, nil
 }
 
 // block is one statement block of a coverage profile.
@@ -378,54 +467,39 @@ func filterBlocks(blocks []block, root string) []block {
 // changedCoverage counts the changed lines that hold statements and how many
 // of them ran. A line is covered when any block that spans it ran.
 func changedCoverage(blocks []block, changed map[string]map[int]bool) (covered, total int, missed []string) {
-	type state struct{ any, ran bool }
-	lines := map[string]map[int]*state{}
+	type loc struct {
+		file string
+		line int
+	}
+	ran := map[loc]bool{}
 	for _, b := range blocks {
 		ch := changed[b.file]
-		if ch == nil {
-			continue
-		}
 		for l := b.startLine; l <= b.endLine; l++ {
-			if !ch[l] {
-				continue
-			}
-			if lines[b.file] == nil {
-				lines[b.file] = map[int]*state{}
-			}
-			s := lines[b.file][l]
-			if s == nil {
-				s = &state{}
-				lines[b.file][l] = s
-			}
-			s.any = true
-			s.ran = s.ran || b.covered
-		}
-	}
-	for file, ls := range lines {
-		for l, s := range ls {
-			total++
-			if s.ran {
-				covered++
-			} else {
-				missed = append(missed, fmt.Sprintf("%s:%d", file, l))
+			if ch[l] {
+				k := loc{b.file, l}
+				ran[k] = ran[k] || b.covered
 			}
 		}
 	}
-	sort.Slice(missed, func(i, j int) bool {
-		fi, li := splitLoc(missed[i])
-		fj, lj := splitLoc(missed[j])
-		if fi != fj {
-			return fi < fj
+	locs := make([]loc, 0, len(ran))
+	for k := range ran {
+		locs = append(locs, k)
+	}
+	sort.Slice(locs, func(i, j int) bool {
+		if locs[i].file != locs[j].file {
+			return locs[i].file < locs[j].file
 		}
-		return li < lj
+		return locs[i].line < locs[j].line
 	})
+	for _, k := range locs {
+		total++
+		if ran[k] {
+			covered++
+		} else {
+			missed = append(missed, fmt.Sprintf("%s:%d", k.file, k.line))
+		}
+	}
 	return covered, total, missed
-}
-
-func splitLoc(s string) (string, int) {
-	i := strings.LastIndex(s, ":")
-	n, _ := strconv.Atoi(s[i+1:])
-	return s[:i], n
 }
 
 // totalCoverage is the percentage of statements that ran.
@@ -445,11 +519,6 @@ func percent(n, of int) float64 {
 		return 100
 	}
 	return 100 * float64(n) / float64(of)
-}
-
-func round1(f float64) float64 {
-	v, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'f', 1, 64), 64)
-	return v
 }
 
 // modulePath reads the module directive of a go.mod file.
