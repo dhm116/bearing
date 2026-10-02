@@ -91,10 +91,20 @@ func (s *Secrets) Resolve(ctx context.Context, ref string) (string, error) {
 	return v, nil
 }
 
-// Getenv resolves "env:"+name and returns "" if that fails, so a Secrets
-// can stand in for os.Getenv in components that take a Getenv field.
+// Getenv stands in for os.Getenv in components that take a Getenv field.
+// Unlike [Secrets.Resolve], it does not default to a canary: it returns ""
+// for a name whose "env:" reference was never [Secrets.Set] (or was
+// [Secrets.Unset]), as a real environment would for an unset variable, and
+// otherwise resolves and records it like Resolve.
 func (s *Secrets) Getenv(name string) string {
-	v, _ := s.Resolve(context.Background(), "env:"+name)
+	ref := "env:" + name
+	s.mu.Lock()
+	_, set := s.values[ref]
+	s.mu.Unlock()
+	if !set {
+		return ""
+	}
+	v, _ := s.Resolve(context.Background(), ref)
 	return v
 }
 

@@ -109,7 +109,8 @@ func Redirect(status int, location string) Response {
 
 // Route scripts the replies to one endpoint.
 type Route struct {
-	// Method and Path must match the request exactly.
+	// Method and Path are required and must match the request exactly; an
+	// empty Method matches no request.
 	Method string
 	Path   string
 	// Query, if set, must be present in the request with exactly these
@@ -218,7 +219,7 @@ func NewFixtureServer(t testing.TB, dir string) *Server {
 	t.Helper()
 	return newServer(t, func(s *Server, w http.ResponseWriter, r *http.Request) {
 		name := FixtureName(r.Method, r.URL)
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+		raw, err := readInRoot(dir, name)
 		if errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("testkit: no fixture %s for %s %s", name, r.Method, r.URL)
 			http.NotFound(w, r)
@@ -237,6 +238,17 @@ func NewFixtureServer(t testing.TB, dir string) *Server {
 		}
 		s.write(w, status, header, body)
 	})
+}
+
+// readInRoot reads name inside dir, refusing paths that escape it through
+// "..", symlinks or, on Windows, backslashes in the URL path.
+func readInRoot(dir, name string) ([]byte, error) {
+	f, err := os.OpenInRoot(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
 }
 
 // parseFixture splits a fixture file into status, headers and body.

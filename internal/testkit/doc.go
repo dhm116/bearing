@@ -2,7 +2,8 @@
 // directly in tests: wall-clock time, randomness in identifiers, the network
 // and secrets.
 //
-//   - [FakeClock] is a controllable [Clock] with timers and tickers.
+//   - [FakeClock] implements [clock.Clock], with timers and tickers, and only
+//     moves when the test moves it.
 //   - [SeqIDs] mints deterministic identifiers behind [IDs].
 //   - [NewScriptServer] and [NewFixtureServer] wrap httptest servers that
 //     serve scripted or recorded responses and record every request.
@@ -10,9 +11,9 @@
 //     [FindLeaks] / [AssertNoLeaks] look for those canaries, raw or encoded,
 //     in logs, spans, errors and responses.
 //
-// The interfaces declared here ([Clock], [IDs], [SecretResolver]) document
-// what the fakes provide. Production packages do not import testkit: each
-// declares its own small interface (often a single method such as
-// Now() time.Time) or function field, and these fakes satisfy it. Keep that
-// direction, so test helpers never become production dependencies.
+// Production packages never import testkit. Time goes through
+// [clock.Clock] in pkg/clock, which FakeClock implements. [IDs] and
+// [SecretResolver] are declared here only to document what the fakes
+// provide: a production package declares its own small interface with the
+// same method (or a function field), and the fake satisfies it.
 package testkit

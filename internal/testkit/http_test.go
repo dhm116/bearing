@@ -276,6 +276,23 @@ func TestFixtureServerUnreadable(t *testing.T) {
 	}
 }
 
+func TestFixtureServerStaysInRoot(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	writeFixture(t, outside, "GET.http", "secret")
+	if err := os.Symlink(outside, filepath.Join(dir, "esc")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	f := &fakeTB{TB: t}
+	s := NewFixtureServer(f, dir)
+	status, _, body := get(t, s.Client(), "GET", s.URL+"/esc", nil)
+	if status != 500 || body == "secret" {
+		t.Fatalf("symlink escape served: %d %q", status, body)
+	}
+	if errs := f.errors(); len(errs) != 1 || !strings.Contains(errs[0], "read fixture") {
+		t.Fatalf("errors = %q", errs)
+	}
+}
+
 func TestServerClosesWithTest(t *testing.T) {
 	var s *Server
 	t.Run("inner", func(t *testing.T) {

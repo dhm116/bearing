@@ -1,13 +1,16 @@
 package testkit
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -75,11 +78,20 @@ var errMalformed = errors.New("malformed")
 func TestSecretsRecordsResolution(t *testing.T) {
 	s := NewSecrets()
 	s.Set("file:/b", "bee")
+	s.Set("env:A", Canary("env:A"))
 	_ = s.Getenv("A")
 	_ = s.Getenv("A")
 	_, _ = s.Resolve(context.Background(), "file:/b")
-	if got := s.Getenv(""); got != "" {
-		t.Fatalf("Getenv(\"\") = %q", got)
+	// Getenv, unlike Resolve, returns "" for names never Set.
+	for _, name := range []string{"", "NEVER_SET"} {
+		if got := s.Getenv(name); got != "" {
+			t.Fatalf("Getenv(%q) = %q, want \"\"", name, got)
+		}
+	}
+	s.Set("env:GONE", "x")
+	s.Unset("env:GONE")
+	if got := s.Getenv("GONE"); got != "" {
+		t.Fatalf("Getenv of unset name = %q", got)
 	}
 
 	if got, want := s.Resolved(), []string{"env:A", "env:A", "file:/b"}; !slices.Equal(got, want) {
@@ -126,26 +138,46 @@ func TestSecretsConcurrent(t *testing.T) {
 func TestFindLeaks(t *testing.T) {
 	const secret = "s3cr3t/t0ken+v>?alue" // base64 contains "+"
 	b64 := base64.StdEncoding.EncodeToString([]byte(secret))
+	lower := strings.NewReplacer("%2F", "%2f", "%2B", "%2b", "%3E", "%3e", "%3F", "%3f").Replace
+	const jsonSecret = `pa"ss\word<1>&`
+	const quoteSecret = "tok\x01ené-1234" // JSON writes \u0001, Go quoting \x01
+	jsonNoHTML := func(s string) string {
+		var b strings.Builder
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(s)
+		return strings.TrimSpace(b.String())
+	}
+	jsonHTML, _ := json.Marshal(jsonSecret)
 	tests := []struct {
 		name     string
+		secret   string // defaults to secret
 		data     string
 		wantForm string // "" for no leak
 	}{
-		{"clean", "nothing to see", ""},
-		{"raw", "token=" + secret, "raw"},
-		{"query escaped", "GET /x?token=" + url.QueryEscape(secret), "url-query"},
-		{"path escaped", "GET /x/" + url.PathEscape(secret), "url-path"},
-		{"base64", "auth: " + b64, "base64"},
-		{"base64 unpadded", "auth: " + strings.TrimRight(b64, "="), "base64"},
-		{"base64url", "jwt." + base64.RawURLEncoding.EncodeToString([]byte(secret)), "base64url"},
-		{"base64 shift 1", "Basic " + base64.StdEncoding.EncodeToString([]byte("u:"+secret)), "base64"},
-		{"base64 shift 2", base64.StdEncoding.EncodeToString([]byte("ab:" + secret + "!")), "base64"},
-		{"base64 shift 0 inside", base64.StdEncoding.EncodeToString([]byte("abc" + secret)), "base64"},
-		{"hex", "0x" + hex.EncodeToString([]byte(secret)), "hex"},
-		{"HEX", strings.ToUpper(hex.EncodeToString([]byte(secret))), "HEX"},
+		{"clean", "", "nothing to see", ""},
+		{"raw", "", "token=" + secret, "raw"},
+		{"query escaped", "", "GET /x?token=" + url.QueryEscape(secret), "url-query"},
+		{"query escaped lower-case", "", "GET /x?token=" + lower(url.QueryEscape(secret)), "url-query"},
+		{"path escaped", "", "GET /x/" + url.PathEscape(secret), "url-path"},
+		{"path escaped lower-case", "", "GET /x/" + lower(url.PathEscape(secret)), "url-path"},
+		{"url.full escaped path", "", "url.full=" + (&url.URL{Scheme: "https", Host: "h", Path: "/x/" + secret}).String(), "url-escaped-path"},
+		{"escaped path lower-case", "", "/x/" + lower((&url.URL{Path: secret}).EscapedPath()), "url-escaped-path"},
+		{"json html-escaped", jsonSecret, `{"token":` + string(jsonHTML) + `}`, "json"},
+		{"json slog handler", jsonSecret, `{"token":` + jsonNoHTML(jsonSecret) + `}`, "json"},
+		{"go quoted slog text", quoteSecret, "token=" + strconv.Quote(quoteSecret), "quoted"},
+		{"base64", "", "auth: " + b64, "base64"},
+		{"base64 unpadded", "", "auth: " + strings.TrimRight(b64, "="), "base64"},
+		{"base64url", "", "jwt." + base64.RawURLEncoding.EncodeToString([]byte(secret)), "base64url"},
+		{"base64 shift 1", "", "Basic " + base64.StdEncoding.EncodeToString([]byte("u:"+secret)), "base64"},
+		{"base64 shift 2", "", base64.StdEncoding.EncodeToString([]byte("ab:" + secret + "!")), "base64"},
+		{"base64 shift 0 inside", "", base64.StdEncoding.EncodeToString([]byte("abc" + secret)), "base64"},
+		{"hex", "", "0x" + hex.EncodeToString([]byte(secret)), "hex"},
+		{"HEX", "", strings.ToUpper(hex.EncodeToString([]byte(secret))), "HEX"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			secret := cmp.Or(tt.secret, secret)
 			leaks := FindLeaks(tt.data, secret)
 			if tt.wantForm == "" {
 				if len(leaks) != 0 {
@@ -204,6 +236,7 @@ func (f *fakeTB) errors() []string {
 func TestAssertNoLeaks(t *testing.T) {
 	canary := Canary("env:TOKEN")
 	AssertNoLeaks(t, []byte("all clear"), canary)
+	AssertNoLeaks(t, "short secrets are logged, not failed", "ab")
 
 	f := &fakeTB{TB: t}
 	AssertNoLeaks(f, `level=INFO msg="calling upstream" auth="Bearer `+canary+`"`, canary)

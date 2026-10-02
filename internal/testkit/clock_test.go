@@ -3,16 +3,18 @@ package testkit
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"bearing.example/pkg/clock"
 )
 
 var t0 = time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 
 // Compile-time checks that the fakes satisfy their interfaces.
 var (
-	_ Clock          = (*FakeClock)(nil)
 	_ IDs            = (*SeqIDs)(nil)
 	_ SecretResolver = (*Secrets)(nil)
 )
@@ -63,7 +65,7 @@ func TestTimer(t *testing.T) {
 			for _, d := range tt.advance {
 				c.Advance(d)
 			}
-			got, fired := recv(t, tm.C)
+			got, fired := recv(t, tm.C())
 			if fired != tt.wantFired || !got.Equal(tt.wantAt) {
 				t.Fatalf("fired=%v at %v, want fired=%v at %v", fired, got, tt.wantFired, tt.wantAt)
 			}
@@ -84,7 +86,7 @@ func TestTimerStopAndReset(t *testing.T) {
 		t.Fatal("second Stop = true")
 	}
 	c.Advance(time.Hour)
-	if _, fired := recv(t, tm.C); fired {
+	if _, fired := recv(t, tm.C()); fired {
 		t.Fatal("stopped timer fired")
 	}
 
@@ -95,11 +97,11 @@ func TestTimerStopAndReset(t *testing.T) {
 		t.Fatal("Reset of pending timer reported inactive")
 	}
 	c.Advance(time.Minute)
-	if _, fired := recv(t, tm.C); fired {
+	if _, fired := recv(t, tm.C()); fired {
 		t.Fatal("timer fired at old deadline")
 	}
 	c.Advance(time.Minute)
-	if got, fired := recv(t, tm.C); !fired || !got.Equal(t0.Add(time.Hour+2*time.Minute)) {
+	if got, fired := recv(t, tm.C()); !fired || !got.Equal(t0.Add(time.Hour+2*time.Minute)) {
 		t.Fatalf("got %v, %v", got, fired)
 	}
 
@@ -107,8 +109,73 @@ func TestTimerStopAndReset(t *testing.T) {
 	tm.Reset(time.Second)
 	c.Advance(time.Second)
 	tm.Reset(time.Second)
-	if _, fired := recv(t, tm.C); fired {
+	if _, fired := recv(t, tm.C()); fired {
 		t.Fatal("Reset left a stale value in C")
+	}
+}
+
+// TestTimerFiredNotReceived checks Stop and Reset report true for a timer
+// that fired but whose value was not received, as time.Timer does since Go
+// 1.23, and that the value is drained.
+func TestTimerFiredNotReceived(t *testing.T) {
+	tests := []struct {
+		name string
+		make func(c *FakeClock) clock.Timer
+		op   func(tm clock.Timer) bool
+	}{
+		{"zero then Stop", func(c *FakeClock) clock.Timer { return c.NewTimer(0) },
+			func(tm clock.Timer) bool { return tm.Stop() }},
+		{"fired then Stop", func(c *FakeClock) clock.Timer {
+			tm := c.NewTimer(time.Second)
+			c.Advance(time.Second)
+			return tm
+		}, func(tm clock.Timer) bool { return tm.Stop() }},
+		{"fired then Reset", func(c *FakeClock) clock.Timer {
+			tm := c.NewTimer(time.Second)
+			c.Advance(time.Second)
+			return tm
+		}, func(tm clock.Timer) bool { return tm.Reset(time.Minute) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tm := tt.make(NewClock(t0))
+			if !tt.op(tm) {
+				t.Fatal("got false, want true")
+			}
+			if _, ok := recv(t, tm.C()); ok {
+				t.Fatal("value not drained")
+			}
+			if tm.Stop() != strings.Contains(tt.name, "Reset") {
+				t.Fatal("second Stop reported the wrong state")
+			}
+		})
+	}
+}
+
+// TestAdvanceStepwise shows the pattern documented on Advance: a loop that
+// re-arms a timer after each firing needs one Advance per step.
+func TestAdvanceStepwise(t *testing.T) {
+	c := NewClock(t0)
+	ctx := context.Background()
+	fired := make(chan time.Time, 10)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 3 {
+			fired <- <-c.After(time.Second)
+		}
+	}()
+	for range 3 {
+		if err := c.BlockUntilWaiters(ctx, 1); err != nil {
+			t.Fatal(err)
+		}
+		c.Advance(time.Second)
+	}
+	<-done
+	for i := range 3 {
+		if got, want := <-fired, t0.Add(time.Duration(i+1)*time.Second); !got.Equal(want) {
+			t.Fatalf("firing %d at %v, want %v", i, got, want)
+		}
 	}
 }
 
@@ -150,35 +217,35 @@ func TestTicker(t *testing.T) {
 	c := NewClock(t0)
 	tk := c.NewTicker(10 * time.Second)
 	c.Advance(9 * time.Second)
-	if _, ok := recv(t, tk.C); ok {
+	if _, ok := recv(t, tk.C()); ok {
 		t.Fatal("ticked early")
 	}
 	c.Advance(time.Second)
-	if got, ok := recv(t, tk.C); !ok || !got.Equal(t0.Add(10*time.Second)) {
+	if got, ok := recv(t, tk.C()); !ok || !got.Equal(t0.Add(10*time.Second)) {
 		t.Fatalf("first tick %v, %v", got, ok)
 	}
 	// A long jump delivers one tick and drops the rest, like time.Ticker.
 	c.Advance(time.Minute)
-	if got, ok := recv(t, tk.C); !ok || !got.Equal(t0.Add(20*time.Second)) {
+	if got, ok := recv(t, tk.C()); !ok || !got.Equal(t0.Add(20*time.Second)) {
 		t.Fatalf("tick after jump %v, %v", got, ok)
 	}
-	if _, ok := recv(t, tk.C); ok {
+	if _, ok := recv(t, tk.C()); ok {
 		t.Fatal("more than one tick buffered")
 	}
 	// The next deadline stays on the original grid.
 	c.Advance(10 * time.Second) // now t0+80s
-	if got, ok := recv(t, tk.C); !ok || !got.Equal(t0.Add(80*time.Second)) {
+	if got, ok := recv(t, tk.C()); !ok || !got.Equal(t0.Add(80*time.Second)) {
 		t.Fatalf("tick on grid %v, %v", got, ok)
 	}
 
 	tk.Reset(time.Second)
 	c.Advance(time.Second)
-	if got, ok := recv(t, tk.C); !ok || !got.Equal(t0.Add(81*time.Second)) {
+	if got, ok := recv(t, tk.C()); !ok || !got.Equal(t0.Add(81*time.Second)) {
 		t.Fatalf("tick after Reset %v, %v", got, ok)
 	}
 	tk.Stop()
 	c.Advance(time.Hour)
-	if _, ok := recv(t, tk.C); ok {
+	if _, ok := recv(t, tk.C()); ok {
 		t.Fatal("stopped ticker ticked")
 	}
 	if n := c.Waiters(); n != 0 {
@@ -240,7 +307,7 @@ func TestClockConcurrent(t *testing.T) {
 		defer wg.Done()
 		for {
 			select {
-			case v := <-tk.C:
+			case v := <-tk.C():
 				ticks <- v
 			case <-stop:
 				return

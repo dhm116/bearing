@@ -137,6 +137,11 @@ func TestSyncRequiresOrg(t *testing.T) {
 }
 
 func TestSyncReportsUpstreamErrors(t *testing.T) {
+	// The token is a canary, so the error can be checked for leaks.
+	secrets := testkit.NewSecrets()
+	token := testkit.Canary("env:GITHUB_TOKEN")
+	secrets.Set("env:GITHUB_TOKEN", token)
+
 	// The script asserts the adapter sends the configured token and the
 	// GitHub API headers, then rejects the token the way GitHub does.
 	srv := testkit.NewScriptServer(t, testkit.Route{
@@ -144,7 +149,7 @@ func TestSyncReportsUpstreamErrors(t *testing.T) {
 		Path:   "/orgs/acme/repos",
 		Query:  url.Values{"page": {"1"}},
 		Header: http.Header{
-			"Authorization":        {"Bearer wrong"},
+			"Authorization":        {"Bearer " + token},
 			"Accept":               {"application/vnd.github+json"},
 			"X-Github-Api-Version": {"2022-11-28"},
 		},
@@ -153,13 +158,15 @@ func TestSyncReportsUpstreamErrors(t *testing.T) {
 			Body:   `{"message":"Bad credentials"}`,
 		}},
 	})
-	a := testAdapter(map[string]string{"GITHUB_TOKEN": "wrong"})
+	a := testAdapter(nil)
+	a.Getenv = secrets.Getenv
 	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL})
 	_, err := a.Sync(context.Background(), adapter.SyncParams{Config: cfg})
 	var rpcErr *adapter.Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeUpstream || !strings.Contains(rpcErr.Message, "401") {
 		t.Fatalf("got %v, want upstream 401", err)
 	}
+	testkit.AssertNoLeaks(t, err.Error(), secrets.Values()...)
 	if n := len(srv.Requests()); n != 1 {
 		t.Fatalf("got %d requests, want 1 (no retry on 401)", n)
 	}

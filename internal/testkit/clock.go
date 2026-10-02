@@ -4,23 +4,22 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"bearing.example/pkg/clock"
 )
 
-// Clock is a source of the current time. time.Now satisfies it as a
-// function; [FakeClock] satisfies it as a value.
-type Clock interface {
-	Now() time.Time
-}
-
-// FakeClock is a [Clock] that only moves when a test calls [FakeClock.Set]
-// or [FakeClock.Advance]. Timers and tickers created from it fire when the
-// clock reaches their deadline. It is safe for concurrent use.
+// FakeClock is a [clock.Clock] that only moves when a test calls
+// [FakeClock.Set] or [FakeClock.Advance]. Timers and tickers created from it
+// fire when the clock reaches their deadline, and send that deadline (not
+// the time the clock was moved to). It is safe for concurrent use.
 type FakeClock struct {
 	mu      sync.Mutex
 	now     time.Time
 	waiters []*waiter
 	changed chan struct{} // closed and replaced whenever waiters change
 }
+
+var _ clock.Clock = (*FakeClock)(nil)
 
 // waiter is a pending timer (period 0) or ticker deadline.
 type waiter struct {
@@ -43,6 +42,16 @@ func (c *FakeClock) Now() time.Time {
 
 // Advance moves the clock forward by d and fires every timer and ticker
 // whose deadline has been reached, earliest first.
+//
+// It moves the clock in one jump: a timer that the code under test creates
+// in response to a tick does not fire within the same Advance, even if its
+// deadline is before the new time. To run such a loop, advance in steps and
+// wait for the code to start waiting again between them:
+//
+//	for range n {
+//		c.Advance(step)
+//		c.BlockUntilWaiters(ctx, 1)
+//	}
 func (c *FakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -51,6 +60,7 @@ func (c *FakeClock) Advance(d time.Duration) {
 
 // Set moves the clock to t and fires every timer and ticker whose deadline
 // is at or before t, earliest first. Setting an earlier time fires nothing.
+// Like [FakeClock.Advance], it moves in one jump.
 func (c *FakeClock) Set(t time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -88,58 +98,23 @@ func (c *FakeClock) setLocked(t time.Time) {
 // After returns a channel that receives the deadline once the clock has
 // advanced by d.
 func (c *FakeClock) After(d time.Duration) <-chan time.Time {
-	return c.NewTimer(d).C
-}
-
-// Timer is a one-shot timer driven by a [FakeClock].
-type Timer struct {
-	// C receives the deadline when the timer fires.
-	C <-chan time.Time
-	c *FakeClock
-	w *waiter
+	return c.NewTimer(d).C()
 }
 
 // NewTimer returns a timer that fires once the clock has advanced by d. A
 // timer with d <= 0 fires immediately.
-func (c *FakeClock) NewTimer(d time.Duration) *Timer {
+func (c *FakeClock) NewTimer(d time.Duration) clock.Timer {
 	w := &waiter{ch: make(chan time.Time, 1)}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.startLocked(w, d)
-	return &Timer{C: w.ch, c: c, w: w}
+	return &fakeTimer{c: c, w: w}
 }
 
-// Stop prevents the timer from firing and drains any undelivered value from
-// C, matching time.Timer since Go 1.23. It reports whether the timer was
-// pending.
-func (t *Timer) Stop() bool {
-	t.c.mu.Lock()
-	defer t.c.mu.Unlock()
-	return t.c.stopLocked(t.w)
-}
-
-// Reset stops the timer and restarts it to fire after d. It reports whether
-// the timer was pending.
-func (t *Timer) Reset(d time.Duration) bool {
-	t.c.mu.Lock()
-	defer t.c.mu.Unlock()
-	active := t.c.stopLocked(t.w)
-	t.c.startLocked(t.w, d)
-	return active
-}
-
-// Ticker delivers ticks at a fixed period of [FakeClock] time.
-type Ticker struct {
-	// C receives the deadline of each tick. Like time.Ticker it buffers one
-	// tick and drops ticks the receiver is too slow for.
-	C <-chan time.Time
-	c *FakeClock
-	w *waiter
-}
-
-// NewTicker returns a ticker with period d. It panics if d <= 0, like
-// time.NewTicker.
-func (c *FakeClock) NewTicker(d time.Duration) *Ticker {
+// NewTicker returns a ticker with period d that sends each tick's scheduled
+// deadline. It buffers one tick and drops ticks the receiver is too slow
+// for, like time.Ticker. It panics if d <= 0.
+func (c *FakeClock) NewTicker(d time.Duration) clock.Ticker {
 	if d <= 0 {
 		panic("testkit: non-positive interval for NewTicker")
 	}
@@ -147,11 +122,46 @@ func (c *FakeClock) NewTicker(d time.Duration) *Ticker {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.startLocked(w, d)
-	return &Ticker{C: w.ch, c: c, w: w}
+	return &fakeTicker{c: c, w: w}
 }
 
+// fakeTimer is a one-shot [clock.Timer] driven by a FakeClock.
+type fakeTimer struct {
+	c *FakeClock
+	w *waiter
+}
+
+func (t *fakeTimer) C() <-chan time.Time { return t.w.ch }
+
+// Stop prevents the timer from firing and drains any undelivered value,
+// matching time.Timer since Go 1.23: it reports true if the timer was
+// pending or had fired without its value being received.
+func (t *fakeTimer) Stop() bool {
+	t.c.mu.Lock()
+	defer t.c.mu.Unlock()
+	return t.c.stopLocked(t.w)
+}
+
+// Reset stops the timer and restarts it to fire after d, reporting what
+// Stop would have.
+func (t *fakeTimer) Reset(d time.Duration) bool {
+	t.c.mu.Lock()
+	defer t.c.mu.Unlock()
+	active := t.c.stopLocked(t.w)
+	t.c.startLocked(t.w, d)
+	return active
+}
+
+// fakeTicker is a [clock.Ticker] driven by a FakeClock.
+type fakeTicker struct {
+	c *FakeClock
+	w *waiter
+}
+
+func (t *fakeTicker) C() <-chan time.Time { return t.w.ch }
+
 // Stop turns off the ticker and drains any undelivered tick.
-func (t *Ticker) Stop() {
+func (t *fakeTicker) Stop() {
 	t.c.mu.Lock()
 	defer t.c.mu.Unlock()
 	t.c.stopLocked(t.w)
@@ -159,7 +169,7 @@ func (t *Ticker) Stop() {
 
 // Reset stops the ticker and restarts it with period d, the first tick d
 // after the current time. It panics if d <= 0.
-func (t *Ticker) Reset(d time.Duration) {
+func (t *fakeTicker) Reset(d time.Duration) {
 	if d <= 0 {
 		panic("testkit: non-positive interval for Ticker.Reset")
 	}
@@ -208,18 +218,20 @@ func (c *FakeClock) startLocked(w *waiter, d time.Duration) {
 	c.notifyLocked()
 }
 
-// stopLocked unschedules w, drains its channel and reports whether it was
-// pending.
+// stopLocked unschedules w and drains its channel. It reports whether w was
+// pending, or was a timer that fired without its value being received.
 func (c *FakeClock) stopLocked(w *waiter) bool {
+	drained := false
 	select {
 	case <-w.ch:
+		drained = true
 	default:
 	}
-	if c.removeLocked(w) {
+	removed := c.removeLocked(w)
+	if removed {
 		c.notifyLocked()
-		return true
 	}
-	return false
+	return removed || (drained && w.period == 0)
 }
 
 func (c *FakeClock) removeLocked(w *waiter) bool {
