@@ -29,9 +29,9 @@ alone.
 - The specification as a whole has a draft version (0.1, 0.2, …) that
   changes whenever its rules change. Rules that change what the core builds
   from the same observations (resolution, ordering, confidence) change the
-  spec version even when the observation format does not. 0.2 only adds
-  optional observation fields, so the observation type stays
-  `dev.bearing.observation.v1`; the Protobuf model (issue #11) starts at
-  `v1alpha1` and follows this document.
+  spec version even when the observation format does not. 0.2 keeps the
+  observation type `dev.bearing.observation.v1` despite a few listed
+  incompatibilities (see the data model's "Compatibility"), which pre-1.0
+  allows; the Protobuf model (issue #11) follows this document.
 - The adapter protocol has its own version (`0.1`), reported by adapters in
   `bearing.describe`. Until `1.0`, minor versions may break compatibility.
