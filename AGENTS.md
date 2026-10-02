@@ -128,6 +128,86 @@ new ADR.
 - Spec conventions: RFC 2119 keywords, `snake_case` JSON (CloudEvents
   envelope fields excepted), RFC 3339 UTC times.
 
+## Style guide
+
+Codifies what the existing code does. Reviewers (`go-reviewer`) check it.
+
+**Naming**
+
+- Packages: short, lower case, one word, no underscores; name them for
+  what they provide (`memstore`, `telemetry`), never `util` or `common`.
+- Don't repeat the package in identifiers: `store.Open`, not
+  `store.OpenStore`; `memstore.New` returns `*memstore.Store`.
+- Initialisms keep one case: `APIURL`, `EntityID`, `HTTP`, `TokenEnv`.
+- Typed strings for domain values: `model.Kind`, `model.Key`,
+  `contracts.EntityID`, with `Kind…`/`Rel…` constants.
+- Assert interface satisfaction at compile time:
+  `var _ contracts.GraphStore = (*Store)(nil)`.
+
+**Errors**
+
+- Wrap with the package as prefix, then the action, then `%w`:
+  `fmt.Errorf("store: parse URL: %w", err)`. One prefix per package
+  boundary; inner helpers add only the action (`"decode facts: %w"`).
+- Sentinels are package-level `ErrX` values built with `errors.New`
+  (`contracts.ErrNotFound`, `adapter.ErrTooManyPages`); callers test with
+  `errors.Is`/`errors.As`, never by comparing strings.
+- Wrap sentinels with the subject so the message says what was missing:
+  `fmt.Errorf("entity %s: %w", id, contracts.ErrNotFound)`.
+- Don't log and return the same error; return it, and let the caller with
+  the span report it via `telemetry.Fail`.
+- Error text is lower case, no trailing punctuation, and never contains
+  secrets (use `redact` for URLs).
+
+**Doc comments**
+
+- Every package has a `// Package x …` comment (`// Command x …` for
+  `main`) that says its role and where it fits.
+- Every exported identifier has a comment starting with its name, methods
+  that implement an interface included.
+- Short. Say why, a constraint, or a non-obvious default, not what the code
+  already says: `// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.`
+
+**Functions and interfaces**
+
+- `ctx context.Context` is the first parameter of anything that does I/O or
+  may block; never store a context in a struct.
+- Keep interfaces small and define them where they are used, as
+  `surrealstore`'s unexported `conn` does. `pkg/contracts` is the deliberate
+  exception: component boundaries live there.
+- Accept interfaces, return concrete types (`memstore.New() *Store`).
+- Configuration is a struct with defaults applied in one place
+  (`parseConfig`, `store.Config`), not functional options.
+
+**Dependency injection**
+
+- Inject time, environment, HTTP and ID generation as fields: `Now func()
+  time.Time`, `Getenv func(string) string`, `HTTP *http.Client`,
+  `NewID func() string`. Constructors fill real defaults (`time.Now`,
+  `os.Getenv`, an `otelhttp` client); tests set fakes.
+- Code under test never calls `time.Now`, `os.Getenv`, `rand` or the
+  network directly. Measuring a duration for a metric is the exception.
+
+**Tests**
+
+- Name tests `Test<Subject><Behavior>` as a sentence:
+  `TestSyncAllStopsRunawayAdapters`, `TestHandleRejectsBadSignature`.
+- Table-driven when cases share a shape (`TestKeyParse`), with `t.Run` named
+  by the case.
+- Failure messages say got and want: `t.Fatalf("got %v, want %v", got, want)`.
+- Fakes over mocks: hand-written fakes (`httptest` servers, in-memory
+  implementations, small structs like `pager`) live in the test file or, when
+  shared, in `internal/testkit`. No mock frameworks.
+- Assert on behavior the code under test produced. A test that only checks
+  what a fake was told to return proves nothing.
+- Golden files live under the package's `testdata/` and are rewritten with
+  `go test ./pkg/x -update` (a package-level `var update = flag.Bool("update",
+  false, …)`); review golden diffs like code.
+- Backends prove themselves with `pkg/contracts/conformance`, not their own
+  ad hoc copies of it.
+- Tests needing an external service skip unless an env var
+  (`BEARING_TEST_<NAME>`) is set; `make test` stays hermetic.
+
 ## Changing the design
 
 - **Data model** (kinds, relations, observation fields): update
@@ -164,6 +244,28 @@ Both are plain Markdown checklists; any agent can follow them.
 - Keep changes focused. Spec, code and tests for one change land together.
 - PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
 - CI (`.github/workflows/ci.yml`) runs `make lint test build`.
+
+## Review and merge process
+
+- **Reviewers.** Each PR gets one or two domain reviewers, chosen from
+  [`.github/reviewers.yml`](.github/reviewers.yml) by the paths it touches.
+  If more than two match, the lead picks the two most relevant and says why
+  in the PR. `go` is used only when no other two apply, or as the second.
+  Reviewer definitions live in [`.claude/agents/`](.claude/agents/).
+- **Findings.** Every finding states severity, effort to fix now, how hard
+  it is to change later, and whether leaving it opens an important gap
+  against the project's goals. Only findings that are hard to change later
+  or leave an important gap block; the rest become follow-up issues.
+- **Rounds.** Up to five revision rounds per PR. If reviewers still request
+  changes after the fifth, pause and escalate to Doug (the maintainer).
+- **Merge.** The lead merges once CI passes (or the change needs no tests)
+  and the assigned reviewers approve.
+- **Milestones** close only with Doug's review and approval.
+- **Shared files** are owned by the lead: `proto/`, `gen/go`,
+  `pkg/contracts`, `go.mod`/`go.sum`, `Makefile`, `AGENTS.md`,
+  `docs/telemetry.md`. Other contributors propose changes to them through
+  the lead. Contract changes land first, in their own PR, before code that
+  depends on them.
 
 ## Brand
 

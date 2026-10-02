@@ -1,0 +1,95 @@
+# Path-to-reviewer map. Each PR gets one or two reviewers from this file,
+# chosen by the paths it changes (see "Review and merge process" in
+# AGENTS.md). Each name maps to the agent .claude/agents/<name>-reviewer.md.
+#
+# Globs follow CODEOWNERS syntax: "*" matches within one path segment, "**"
+# across segments, and a trailing "/" matches everything under a directory.
+# Unlike CODEOWNERS, every matching rule counts, not just the last one; when
+# more than two reviewers match, the lead picks the two most relevant and
+# says why in the PR. `go` is used only when no other two apply, or as the
+# second reviewer.
+#
+# Some paths do not exist yet; they are listed so routing is settled before
+# the code lands.
+
+reviewers:
+  security:
+    # Authentication, authorization and secrets.
+    - "**/auth/"
+    - "**/authz/"
+    - "**/*auth*.go"
+    - "**/secrets/"
+    - "**/*secret*.go"
+    # Ingest: everything that accepts data from outside the process.
+    - "**/ingest/"
+    - "**/webhook*/"
+    - "**/*webhook*.go"
+    # Adapter host and capabilities granted to adapters.
+    - "pkg/adapter/"
+    - "**/adapterhost/"
+    - "**/capabilities/"
+    - "**/*capabilit*.go"
+    - "adapters/"
+    # Deployment and supply chain.
+    - "**/compose*.y*ml"
+    - "deploy/"
+    - "**/Dockerfile*"
+    - ".github/workflows/"
+    - "internal/surrealstore/"
+    - "pkg/store/"
+    - "docs/security/"
+
+  data:
+    # Resolution, apply, logs and the graph contract.
+    - "**/resolver/"
+    - "**/resolve/"
+    - "**/*resolve*.go"
+    - "**/apply/"
+    - "**/*apply*.go"
+    - "**/eventlog/"
+    - "**/events/"
+    - "**/audit/"
+    - "pkg/contracts/"
+    - "pkg/model/"
+    - "internal/memstore/"
+    - "internal/surrealstore/"
+    - "docs/spec/data-model.md"
+    - "schema/"
+    - "proto/"
+    - "docs/adr/0002-*"
+    - "docs/adr/0007-*"
+    - "docs/adr/0008-*"
+
+  spec:
+    # Wire shapes and every surface users or agents call.
+    - "proto/"
+    - "gen/go/"
+    - "docs/spec/"
+    - "schema/"
+    - "cmd/"
+    - "**/mcp/"
+    - "**/*mcp*.go"
+    - "**/api/"
+    - "pkg/adapter/protocol.go"
+
+  search:
+    # Semantic index, embeddings and retrieval quality.
+    - "**/search/"
+    - "**/*search*.go"
+    - "**/embedding*/"
+    - "**/*embedding*.go"  # not *embed*: that matches embedded SurrealDB
+    - "**/vector*/"
+    - "**/*vector*.go"
+    - "pkg/contracts/conformance/vectorindex.go"
+    - "pkg/contracts/instrument/vectorindex.go"
+    - "internal/memstore/vectors.go"
+    - "**/evals/"
+    - "testdata/evals/"
+
+  go:
+    # Any Go change. Lowest priority: only when no other two reviewers
+    # apply, or as the second.
+    - "**/*.go"
+    - "go.mod"
+    - "go.sum"
+    - "Makefile"
