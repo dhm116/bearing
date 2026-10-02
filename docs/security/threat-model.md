@@ -92,7 +92,7 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   `BEARING_SECRET_*`) and `file:` paths must be inside a configured secrets
   directory (default `/run/secrets/bearing/`). `file:` paths are checked
   after resolving symlinks and `..`. Bearing's own settings (store password,
-  OIDC) cannot be referenced by a Source.
+  OIDC) cannot be referenced by a Source or Adapter resource.
 - **C-SECRET-2** Resolved secret values are never stored, logged, traced,
   put in errors, returned by the API or MCP, or written to audit records.
 - **C-SECRET-3** Adapter code never sees secret values. The host injects
@@ -337,8 +337,8 @@ Assets: A3, A5, A4, A7.
 
   A client-credentials token (no user subject) is identified by its
   `azp`/`client_id` and gets only the roles its client ID is mapped to; an
-  unmapped client is denied. An **agent** is a client mapped to `read` for
-  queries and MCP. A client may also be mapped to `ingest` for named Sources
+  unmapped client is denied. An **agent** is a client whose only role is
+  `read`, for queries and MCP. A client may also be mapped to `ingest` for named Sources
   only. A mapping that gives a client `admin` is rejected at config apply.
 - **C-API-5** Each API method declares its required role in one table. A
   test fails if a method has no entry, so new methods are denied until
