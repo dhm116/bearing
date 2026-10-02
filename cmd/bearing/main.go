@@ -45,7 +45,8 @@ func mainCode() int {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		shutdown(ctx)
+		// Telemetry is what failed to flush, so there is nowhere left to report it.
+		_ = shutdown(ctx)
 	}()
 	if err != nil {
 		// Telemetry isn't available, so stderr is the only place to say why.
@@ -95,19 +96,19 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 	case "validate":
 		in := stdin
 		if len(args) > 1 {
-			f, err := os.Open(args[1])
+			f, err := os.Open(args[1]) //nolint:gosec // G703: the CLI reads the file its user names
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }() // read-only: a close error carries no information
 			in = f
 		}
 		n, err := validate(in)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "%d observations valid\n", n)
-		return nil
+		_, err = fmt.Fprintf(stdout, "%d observations valid\n", n)
+		return err
 	}
 	fmt.Fprint(os.Stderr, usage)
 	return errUsage
@@ -125,7 +126,7 @@ func splitCommand(args []string) ([]string, []string, error) {
 	return nil, nil, errors.New("put the adapter command after --")
 }
 
-func describe(ctx context.Context, args []string, stdout io.Writer) error {
+func describe(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	_, cmd, err := splitCommand(args)
 	if err != nil {
 		return err
@@ -134,7 +135,7 @@ func describe(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { err = errors.Join(err, c.Close()) }()
 	d, err := c.Describe(ctx)
 	if err != nil {
 		return err
@@ -144,7 +145,7 @@ func describe(ctx context.Context, args []string, stdout io.Writer) error {
 	return enc.Encode(d)
 }
 
-func syncCmd(ctx context.Context, args []string, stdout io.Writer) error {
+func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	flagArgs, cmd, err := splitCommand(args)
 	if err != nil {
 		return err
@@ -167,9 +168,9 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { err = errors.Join(err, c.Close()) }()
 	w := bufio.NewWriter(stdout)
-	defer w.Flush()
+	defer func() { err = errors.Join(err, w.Flush()) }()
 	enc := json.NewEncoder(w)
 	n := 0
 	err = adapter.SyncAll(ctx, c, config, *maxPages, func(o model.Observation) error {

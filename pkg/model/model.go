@@ -22,6 +22,7 @@ const ObservationType = "dev.bearing.observation.v1"
 // Kind is an entity kind in the Bearing schema.
 type Kind string
 
+// The v1 entity kinds. docs/spec/data-model.md defines each one.
 const (
 	KindPerson        Kind = "Person"
 	KindTeam          Kind = "Team"
@@ -56,6 +57,7 @@ func (k Kind) Valid() bool {
 // RelationType is a directed relation from the observed entity to another.
 type RelationType string
 
+// The v1 relation types. docs/spec/data-model.md defines each one.
 const (
 	RelMemberOf   RelationType = "member_of"
 	RelOwnedBy    RelationType = "owned_by"

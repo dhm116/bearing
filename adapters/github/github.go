@@ -104,6 +104,8 @@ func New() *Adapter {
 	}
 }
 
+// Describe implements adapter.Adapter: it reports what the GitHub adapter
+// emits and the configuration it accepts.
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 	return adapter.DescribeResult{
 		Name:            "github",
@@ -122,6 +124,8 @@ type cursor struct {
 	Page  int    `json:"page"`
 }
 
+// Sync implements adapter.Adapter: it reads one page of repositories or
+// teams and returns the cursor for the next.
 func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.SyncResult, err error) {
 	cfg, err := parseConfig(p.Config)
 	if err != nil {
@@ -226,8 +230,10 @@ func (a *Adapter) syncRepos(ctx context.Context, c *client, page int) ([]model.O
 		}
 		var rels []model.Relation
 		for _, o := range owners {
-			rels = append(rels, model.Relation{Type: model.RelOwnedBy, To: o,
-				Attributes: map[string]any{"pattern": "*", "file": file}})
+			rels = append(rels, model.Relation{
+				Type: model.RelOwnedBy, To: o,
+				Attributes: map[string]any{"pattern": "*", "file": file},
+			})
 		}
 		obs = append(obs, a.repoObservation(r, rels, nil))
 	}
@@ -384,8 +390,10 @@ func (a *Adapter) handle(_ context.Context, event string, p adapter.HandleParams
 	}
 	secret := a.Getenv(cfg.WebhookSecretEnv)
 	if secret == "" {
-		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams,
-			Message: "webhook secret is not set in " + cfg.WebhookSecretEnv}
+		return adapter.HandleResult{}, &adapter.Error{
+			Code:    adapter.CodeInvalidParams,
+			Message: "webhook secret is not set in " + cfg.WebhookSecretEnv,
+		}
 	}
 	if !validSignature(secret, header(p.Headers, "X-Hub-Signature-256"), p.Body) {
 		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: "webhook signature does not match"}
@@ -482,7 +490,8 @@ func (c *client) do(ctx context.Context, path, accept string) ([]byte, error) {
 	if err != nil {
 		return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
 	}
-	defer resp.Body.Close()
+	// The body is only read, so a close error carries no information.
+	defer func() { _ = resp.Body.Close() }()
 	if left, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Remaining"), 10, 64); err == nil {
 		rateLimitRemaining.Record(ctx, left, metric.WithAttributes(attrRateLimit.String(resp.Header.Get("X-RateLimit-Resource"))))
 	}

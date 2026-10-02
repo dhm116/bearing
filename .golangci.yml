@@ -1,0 +1,205 @@
+# golangci-lint v2 configuration. The linter version is pinned in
+# tools/go.mod; run it with `make lint` rather than a globally installed copy.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - gosec
+    - govet
+    - ineffassign
+    - nolintlint
+    - revive
+    - staticcheck
+    - unused
+
+  settings:
+    depguard:
+      # When a package matches both an allow and a deny entry, the longer
+      # (more specific) match wins.
+      rules:
+        # Code depends on pkg/contracts, not on backends or other internal
+        # packages (AGENTS.md, architecture rule 4). Only the backends
+        # themselves (internal/<name>store) and testkit are exempt, and
+        # pkg/store, where backends are wired up. Denying the whole
+        # internal/ tree means a new backend is covered without editing
+        # this file, and so is a new non-backend internal package.
+        internal-packages:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/*store/**"
+            - "!**/internal/testkit/**"
+            - "!**/pkg/store/**"
+          deny:
+            - pkg: bearing.example/internal
+              desc: depend on pkg/contracts; open backends through pkg/store
+        # Other tests may use the in-memory reference backend and the
+        # testkit fakes, nothing else from internal/.
+        internal-packages-in-tests:
+          list-mode: lax
+          files:
+            - $test
+            - "!**/internal/*store/**"
+            - "!**/internal/testkit/**"
+            - "!**/pkg/store/**"
+          allow:
+            - bearing.example/internal/memstore
+            - bearing.example/internal/testkit
+          deny:
+            - pkg: bearing.example/internal
+              desc: test against memstore, internal/testkit or a contracts fake
+        # Production code never imports testkit (AGENTS.md, Style guide).
+        testkit:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/testkit/**"
+          deny:
+            - pkg: bearing.example/internal/testkit
+              desc: testkit is for tests only
+        # Only internal/surrealstore talks to SurrealDB.
+        surrealdb:
+          files:
+            - $all
+            - "!**/internal/surrealstore/**"
+          deny:
+            - pkg: github.com/surrealdb
+              desc: only internal/surrealstore talks to SurrealDB
+        # Log through telemetry.Logger (slog), not another logging library.
+        logging:
+          files:
+            - $all
+          deny:
+            - pkg: go.uber.org/zap
+              desc: log with telemetry.Logger
+            - pkg: github.com/sirupsen/logrus
+              desc: log with telemetry.Logger
+            - pkg: github.com/rs/zerolog
+              desc: log with telemetry.Logger
+
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        # Fail returns its err argument unchanged so it can be used in a
+        # return statement; the report itself cannot fail.
+        - bearing.example/pkg/telemetry.Fail
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Log through telemetry.Logger (AGENTS.md, Telemetry).
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: log with telemetry.Logger; write program output to an injected io.Writer
+        - pattern: ^(print|println)$
+          msg: log with telemetry.Logger
+        - pattern: ^log\..*$
+          pkg: ^log$
+          msg: log with telemetry.Logger, not the standard log package
+        # slog's package-level functions log through the default logger,
+        # which carries no package name; pkg/telemetry installs it.
+        - pattern: ^slog\.(Debug|Info|Warn|Error|Log|LogAttrs)(Context)?$
+          pkg: ^log/slog$
+          msg: log with telemetry.Logger("<pkg path>"), not slog's default logger
+        - pattern: ^slog\.(Default|SetDefault)$
+          pkg: ^log/slog$
+          msg: log with telemetry.Logger("<pkg path>"); only pkg/telemetry configures slog's default
+        # stdout carries the adapter protocol and CLI NDJSON output; only the
+        # command entry points and the stdio protocol server may touch it.
+        - pattern: ^os\.Stdout$
+          msg: stdout is reserved for protocol and CLI output; take an io.Writer
+        # stderr is for the documented fallback when telemetry setup fails,
+        # CLI usage text, and passing an adapter's stderr through.
+        - pattern: ^os\.Stderr$
+          msg: log with telemetry.Logger; stderr is reserved for the telemetry-setup fallback
+
+    gosec:
+      excludes:
+        # G104 (unhandled errors) duplicates errcheck, which is configured
+        # above with the same exceptions.
+        - G104
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    revive:
+      rules:
+        # Doc comments on exported identifiers, and names that stutter
+        # (store.StoreConfig).
+        - name: exported
+        # Initialisms (ID, URL, HTTP) and no underscores in names.
+        - name: var-naming
+        - name: package-comments
+        - name: blank-imports
+        # ctx comes first.
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        # Error strings start lower case and don't end in punctuation.
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: increment-decrement
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+    rules:
+      # Command entry points own stdout and stderr, as do the developer
+      # commands in tools/ (`make lint` runs this file over that module too).
+      - path: ^(cmd|tools)/
+        linters: [forbidigo]
+        text: os\.(Stdout|Stderr)
+      # The developer tools run git and read repository files by design.
+      - path: ^tools/
+        linters: [gosec]
+        text: G(204|304)
+      # The stdio protocol server speaks on stdout.
+      - path: ^pkg/adapter/server\.go$
+        linters: [forbidigo]
+        text: os\.Stdout
+      # An adapter's stderr (its console telemetry) passes through.
+      - path: ^pkg/adapter/client\.go$
+        linters: [forbidigo]
+        text: os\.Stderr
+      # Console exporters default to stderr, and Setup installs slog's
+      # default logger.
+      - path: ^pkg/telemetry/
+        linters: [forbidigo]
+        text: (os\.Stderr|slog\.)
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - bearing.example
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

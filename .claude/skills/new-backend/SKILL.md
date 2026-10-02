@@ -47,6 +47,6 @@ existing backend.
 ## Verify
 
 ```sh
-make lint test
-make test-surrealdb SURREALDB=ws://127.0.0.1:8000   # if surrealstore changed
+make check
+make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # if surrealstore changed
 ```

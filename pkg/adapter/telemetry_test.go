@@ -22,7 +22,18 @@ var (
 	metrics = sdkmetric.NewManualReader()
 )
 
+// childEnv makes the test binary serve pager on stdio instead of running
+// tests, so the Start tests have a real process to start. "serve" exits 0
+// when stdin closes; "fail" serves the same way, then exits 1.
+const childEnv = "BEARING_ADAPTER_TEST_CHILD"
+
 func TestMain(m *testing.M) {
+	if mode := os.Getenv(childEnv); mode != "" {
+		if err := ServeStdio(context.Background(), pager{n: 1}); err != nil || mode == "fail" {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	// The package's tracer and meter come from the global providers, which
 	// delegate to the first providers installed. Install test ones once.
 	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)))

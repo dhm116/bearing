@@ -30,6 +30,8 @@ keeps the adapters that fetch it small.
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
 | [`docs/spikes/`](docs/spikes/) | Time-boxed technical spikes and their results (e.g. WASM adapters) |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
+| [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
+| [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
 | [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
 | [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
@@ -38,19 +40,23 @@ keeps the adapters that fetch it small.
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
 | [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
+| [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
 | [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation |
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
+| [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
 | [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
+| [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck) and the coverage gate, in their own Go module |
 
 ## Try it
 
 Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
 
 ```sh
+make check         # everything CI runs: lint, tests with the coverage gate, govulncheck, build
 make test          # vet and run every test
-make test-surrealdb SURREALDB=ws://127.0.0.1:8000   # also run the SurrealDB conformance suites
+make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # also run the SurrealDB suites
 make build         # builds bin/bearing and bin/bearing-adapter-github
 
 # What does the GitHub adapter emit and need?

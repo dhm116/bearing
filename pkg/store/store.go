@@ -13,7 +13,8 @@
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main).
-// Put the password in BEARING_STORE_PASSWORD rather than in the URL.
+// The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
+// carries one, so it never ends up in config files, process lists or logs.
 package store
 
 import (
@@ -30,11 +31,15 @@ import (
 	"bearing.example/pkg/contracts/instrument"
 )
 
+// PasswordEnv is the environment variable that holds the password for the
+// user named in a store URL.
+const PasswordEnv = "BEARING_STORE_PASSWORD"
+
 // Config names the backends. Vectors defaults to Graph.
 type Config struct {
 	Graph   string
 	Vectors string
-	// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.
+	// Getenv reads PasswordEnv; nil means os.Getenv.
 	Getenv func(string) string
 }
 
@@ -82,20 +87,17 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	}
 	s.closers = append(s.closers, g.close)
 	if g.graph == nil {
-		s.Close(ctx)
-		return nil, fmt.Errorf("store: %s can't be a graph store", redact(c.Graph))
+		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
 	v := g
 	if c.Vectors != c.Graph {
 		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {
-			s.Close(ctx)
-			return nil, err
+			return nil, errors.Join(err, s.Close(ctx))
 		}
 		s.closers = append(s.closers, v.close)
 	}
 	if v.vector == nil {
-		s.Close(ctx)
-		return nil, fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors))
+		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name)
 	s.Vectors = instrument.VectorIndex(v.vector, v.name)
@@ -103,9 +105,9 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 }
 
 func open(ctx context.Context, raw string, getenv func(string) string) (backend, error) {
-	u, err := url.Parse(raw)
+	u, err := parseURL(raw)
 	if err != nil {
-		return backend{}, fmt.Errorf("store: parse URL: %w", err)
+		return backend{}, err
 	}
 	ns, db := "bearing", "main"
 	if v := u.Query().Get("ns"); v != "" {
@@ -135,13 +137,13 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		return surreal(st), nil
 
 	case strings.HasPrefix(scheme, "surrealdb+"):
+		if u.Host == "" {
+			return backend{}, fmt.Errorf("store: %s URL names no server host", u.Scheme)
+		}
 		o := surrealstore.ServerOptions{Namespace: ns, Database: db}
 		if u.User != nil {
 			o.Username = u.User.Username()
-			o.Password, _ = u.User.Password()
-			if o.Password == "" {
-				o.Password = getenv("BEARING_STORE_PASSWORD")
-			}
+			o.Password = getenv(PasswordEnv)
 		}
 		server := url.URL{Scheme: strings.TrimPrefix(scheme, "surrealdb+"), Host: u.Host, Path: u.Path}
 		o.URL = server.String()
@@ -154,11 +156,44 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://, surrealdb+ws://, surrealdb+mem:// or surrealkv://", u.Scheme)
 }
 
-// redact hides a password in a URL for error messages.
+// parseURL parses a store URL and rejects one with a password in it. Its
+// errors never repeat the URL, which may hold a secret.
+func parseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, fmt.Errorf("store: parse URL: %w", err)
+	}
+	if _, ok := u.User.Password(); ok {
+		return nil, fmt.Errorf("store: %s URL has a password in it; remove it and set %s instead", safeName(u), PasswordEnv)
+	}
+	if u.Opaque != "" {
+		// "surrealdb+ws:host:8000" parses with no host; say what's wrong
+		// rather than dialing somewhere unexpected. The opaque part may hold
+		// "user:password@", which Redacted does not hide, so only the
+		// scheme is named.
+		return nil, fmt.Errorf("store: %s: URL has no // after the scheme; use %s://host", u.Scheme, u.Scheme)
+	}
+	return u, nil
+}
+
+// redact names a URL in error messages without anything that may be secret.
 func redact(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "the URL"
 	}
-	return u.Redacted()
+	return safeName(u)
+}
+
+// safeName is a URL's scheme and host. User info, path and query can hold
+// secrets, and URL.Redacted hides nothing in an opaque URL.
+func safeName(u *url.URL) string {
+	if u.Host == "" {
+		return u.Scheme + ":"
+	}
+	return u.Scheme + "://" + u.Host
 }

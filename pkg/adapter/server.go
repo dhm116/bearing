@@ -52,8 +52,10 @@ func Serve(ctx context.Context, a Adapter, r io.Reader, w io.Writer) error {
 		var req request
 		if err := json.Unmarshal(line, &req); err != nil {
 			log.WarnContext(ctx, "adapter received an unparseable request", "error", err.Error(), string(attrAdapter), name)
-			if err := enc.Encode(response{JSONRPC: "2.0", ID: json.RawMessage("null"),
-				Error: &Error{Code: CodeParseError, Message: err.Error()}}); err != nil {
+			if err := enc.Encode(response{
+				JSONRPC: "2.0", ID: json.RawMessage("null"),
+				Error: &Error{Code: CodeParseError, Message: err.Error()},
+			}); err != nil {
 				return err
 			}
 			continue

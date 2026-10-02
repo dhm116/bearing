@@ -55,6 +55,7 @@ func (s *Store) Search(_ context.Context, q contracts.VectorQuery) ([]contracts.
 	return hits, nil
 }
 
+// DeleteByEntity implements contracts.VectorIndex.
 func (s *Store) DeleteByEntity(_ context.Context, id contracts.EntityID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
