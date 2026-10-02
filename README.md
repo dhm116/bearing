@@ -28,6 +28,7 @@ keeps the adapters that fetch it small.
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
+| [`docs/spikes/`](docs/spikes/) | Time-boxed technical spikes and their results (e.g. WASM adapters) |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
@@ -45,6 +46,7 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
+| [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck) and the coverage gate, in their own Go module |
 
 ## Try it
