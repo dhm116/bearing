@@ -16,6 +16,11 @@ and choose **Report a vulnerability**, or open
 [a new draft advisory](https://github.com/dhm116/bearing/security/advisories/new)
 directly.
 
+If the **Report a vulnerability** button is missing, contact the maintainer
+through the contact listed on their GitHub profile
+([@dhm116](https://github.com/dhm116)) and ask for a private channel; do
+not include details.
+
 Include what you can:
 
 - the affected component and commit
@@ -26,17 +31,17 @@ Include what you can:
 
 ## What to expect
 
-- We acknowledge the report within 5 working days.
-- We confirm or rule out the issue and tell you our assessment within
-  14 days of acknowledging it.
-- We agree a disclosure date with you. The default is when a fix is on
-  `main`, and no later than 90 days after the report.
-- We publish a GitHub security advisory for confirmed issues and credit you
-  unless you ask us not to.
+- The maintainer acknowledges the report within 5 working days.
+- The maintainer confirms or rules out the issue and shares an assessment
+  within 14 days of acknowledging it.
+- The default disclosure date is when a fix is on `main`. If there is no
+  fix after 90 days, the maintainer agrees a date with you.
+- Confirmed issues get a GitHub security advisory, crediting you unless you
+  ask otherwise.
 
-Bearing is maintained by volunteers, so these are targets, not guarantees.
-If you have heard nothing after 5 working days, add a comment to your
-advisory.
+These are targets, not guarantees. If you have heard nothing after 5
+working days, add a comment to your advisory or follow up on the private
+channel.
 
 ## Scope
 
@@ -46,7 +51,8 @@ compose file).
 
 Out of scope: vulnerabilities in source systems, identity providers or
 SurrealDB themselves (report those upstream), and the risks the threat model
-lists as accepted.
+lists as accepted. Settings named `insecure_*` are out of scope when
+enabled.
 
 ## Threat model
 
