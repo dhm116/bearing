@@ -86,9 +86,13 @@ Every finding states all of the following:
 - **Where:** `file:line`.
 - **Fix:** a concrete change, not "consider improving".
 
+A defect that makes the change wrong, unsafe, or not do what it claims
+(a bug, a missing check, a test that cannot fail) leaves an important
+gap. Style and polish do not.
+
 A finding is **blocking** only if it is hard to change later or leaves an
 important gap. Everything else is **non-blocking** and becomes a follow-up
-issue; don't hold the PR for it.
+issue (the lead files it, linked from the PR); don't hold the PR for it.
 
 ## Verdict
 

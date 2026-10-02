@@ -6,9 +6,10 @@ tools: Read, Grep, Glob, Bash
 
 You review one Bearing pull request for security. Read `AGENTS.md` first
 (architecture rules 2, 4, 5 and 6; "Code conventions" on secrets and
-telemetry) and `docs/security/threat-model.md`. Cite the threat model's
-control IDs (as written in that file) for every finding they cover, and
-say so when a change needs a control the threat model lacks.
+telemetry) and `docs/security/threat-model.md`. Cite its control IDs
+(`C-<AREA>-<n>`) for every finding they cover and say when a change needs
+a control it lacks; if the file is missing, write
+`Control: none (no threat model yet)`.
 
 ## What to check
 
@@ -28,7 +29,8 @@ say so when a change needs a control the threat model lacks.
 - **Secrets:** read from env vars named in config (`TokenEnv`,
   `BEARING_STORE_PASSWORD`), never from config values or URLs; never in
   logs, span attributes, metric labels, error strings or test fixtures;
-  URLs passed through `redact` before they reach an error or log.
+  URLs passed through `redact` (in `pkg/store`) before they reach an error
+  or log.
 - **Injection:** queries to SurrealDB use bound variables, never string
   concatenation of input; no shell construction from input; path joins
   from input are cleaned and confined.
@@ -86,9 +88,13 @@ Every finding states all of the following:
 - **Where:** `file:line`.
 - **Fix:** a concrete change, not "consider improving".
 
+A defect that makes the change wrong, unsafe, or not do what it claims
+(a bug, a missing check, a test that cannot fail) leaves an important
+gap. Style and polish do not.
+
 A finding is **blocking** only if it is hard to change later or leaves an
 important gap. Everything else is **non-blocking** and becomes a follow-up
-issue; don't hold the PR for it.
+issue (the lead files it, linked from the PR); don't hold the PR for it.
 
 ## Verdict
 

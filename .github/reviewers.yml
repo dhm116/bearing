@@ -1,16 +1,26 @@
-# Path-to-reviewer map. Each PR gets one or two reviewers from this file,
-# chosen by the paths it changes (see "Review and merge process" in
-# AGENTS.md). Each name maps to the agent .claude/agents/<name>-reviewer.md.
+# Path-to-reviewer map (see "Review and merge process" in AGENTS.md). Each
+# name maps to the agent .claude/agents/<name>-reviewer.md.
+#
+# Each PR gets one or two reviewers, chosen from this file by the paths it
+# touches. If `security` matches, it always takes one of the two slots. If
+# more than two domain reviewers match, the lead picks the two most relevant
+# and says why in the PR. `go` takes the second slot when only one domain
+# reviewer matches and the PR changes Go, and is the only reviewer when no
+# domain reviewer matches. A PR that matches no rule gets `default`.
 #
 # Globs follow CODEOWNERS syntax: "*" matches within one path segment, "**"
 # across segments, and a trailing "/" matches everything under a directory.
-# Unlike CODEOWNERS, every matching rule counts, not just the last one; when
-# more than two reviewers match, the lead picks the two most relevant and
-# says why in the PR. `go` is used only when no other two apply, or as the
-# second reviewer.
+# Unlike CODEOWNERS, every matching rule counts, not just the last one.
+#
+# Generated code under gen/go/ is not style-reviewed; `spec` checks that it
+# was regenerated from proto/ rather than edited.
 #
 # Some paths do not exist yet; they are listed so routing is settled before
 # the code lands.
+
+# A PR that matches no rule (docs-only, ADRs, process files) gets this
+# reviewer.
+default: spec
 
 reviewers:
   security:
@@ -22,12 +32,15 @@ reviewers:
     - "**/*secret*.go"
     # Ingest: everything that accepts data from outside the process.
     - "**/ingest/"
+    - "**/*ingest*.go"
     - "**/webhook*/"
     - "**/*webhook*.go"
     # Adapter host and capabilities granted to adapters.
     - "pkg/adapter/"
     - "**/adapterhost/"
     - "**/capabilities/"
+    - "**/capability/"
+    - "**/wasm*/"
     - "**/*capabilit*.go"
     - "adapters/"
     # Deployment and supply chain.
@@ -38,6 +51,8 @@ reviewers:
     - "internal/surrealstore/"
     - "pkg/store/"
     - "docs/security/"
+    - "go.mod"
+    - "go.sum"
 
   data:
     # Resolution, apply, logs and the graph contract.
@@ -71,6 +86,14 @@ reviewers:
     - "**/*mcp*.go"
     - "**/api/"
     - "pkg/adapter/protocol.go"
+    # Process and design docs, which otherwise match no rule.
+    - "docs/adr/"
+    - "AGENTS.md"
+    - "README.md"
+    - "CONTRIBUTING.md"
+    - ".github/reviewers.yml"
+    - ".claude/agents/"
+    - "testdata/*.ndjson"
 
   search:
     # Semantic index, embeddings and retrieval quality.
@@ -87,8 +110,8 @@ reviewers:
     - "testdata/evals/"
 
   go:
-    # Any Go change. Lowest priority: only when no other two reviewers
-    # apply, or as the second.
+    # Any Go change. Second slot when only one domain reviewer matches;
+    # sole reviewer when none does.
     - "**/*.go"
     - "go.mod"
     - "go.sum"

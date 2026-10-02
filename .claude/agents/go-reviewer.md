@@ -17,17 +17,23 @@ rules" 4 to 6 constrain dependencies and layering.
 - **Dependencies.** New third-party modules are justified in the commit
   message (significant ones need an ADR), Apache-2.0 compatible, added with
   `go get`, and `go.mod` edits are minimal (no `go mod tidy`).
-- **Naming** per the style guide: package names, no stutter, initialisms,
+- **Scope.** Rules that `gofmt` and `go vet` enforce are not findings
+  here; CI catches them. Code that predates a style rule is not a finding
+  unless the PR changes it. Generated code under `gen/go/` is not
+  style-reviewed.
+- **Naming** per the style guide: packages named for what they provide,
   typed strings for domain values, compile-time interface assertions.
-- **Errors.** `pkg: action: %w` wrapping, `ErrX` sentinels tested with
-  `errors.Is`/`errors.As`, no log-and-return, no secrets in messages,
+- **Errors.** Package prefix on entry-point errors (`Open`, `New`,
+  `Setup`), action and subject only in contract methods and helpers; `ErrX`
+  sentinels; no log-and-return; no secrets in messages;
   `contracts.ErrNotFound` for misses.
-- **Doc comments.** Every package and exported identifier has one, starting
-  with the name; short; says why or a constraint, not a restatement.
-  Comment density matches the surrounding code.
-- **Context and DI.** `ctx` first; no context in structs; time, env, HTTP
-  and IDs injected; no direct `time.Now`, `os.Getenv`, `rand` or network in
-  code under test (durations for metrics excepted).
+- **Doc comments.** Every package and exported identifier has one (methods
+  implementing a `pkg/contracts` interface may omit it); short; says why or
+  a constraint, not a restatement. Comment density matches the surrounding
+  code.
+- **Context and DI.** No context in structs; time, env, HTTP and IDs
+  injected; no direct `time.Now`, `os.Getenv`, `rand` or network in code
+  under test (durations for metrics excepted).
 - **Telemetry.** Logging only through `telemetry.Logger`; errors through
   `telemetry.Fail`; nothing on stdout; new spans and metrics listed in
   `docs/telemetry.md`; outbound HTTP via `otelhttp`.
@@ -39,8 +45,8 @@ rules" 4 to 6 constrain dependencies and layering.
   - No assertions that only check what a fake was told to return.
   - Table-driven where cases share a shape; `t.Run` names; got/want
     messages; `t.Helper` in helpers; `t.Cleanup` over `defer` in helpers.
-  - Fakes over mocks; shared fakes in `internal/testkit`; no mock
-    frameworks; `httptest`, never the real network.
+  - `internal/testkit` fakes first; production code never imports
+    testkit; no mock frameworks; `httptest`, never the real network.
   - Golden files under `testdata/` with an `-update` flag, and the golden
     diff is reviewed.
   - Error paths and edge cases covered, not only the happy path.
@@ -58,8 +64,10 @@ works.
   contexts, concurrent use, errors from every dependency.
 - Run `make lint test`, `go test -race` on the changed packages, and
   `go build ./...`. Where a test looks weak, break the code in a scratch
-  worktree (`git worktree add`, never `git stash`) and show the test still
-  passes. If you could not run something, say so.
+  worktree created outside the repository (`git worktree add
+  "$(mktemp -d)/wt" HEAD`, never `git stash`), show the test still passes,
+  then remove it (`git worktree remove --force <path>`). If you could not
+  run something, say so.
 - Stay read-only in the PR's tree. Bash is for `git`, `go test`, `go vet`,
   `go build`, `make lint test` and reading files; never edit, commit or
   push the PR branch.
@@ -79,6 +87,10 @@ Every finding states all of the following:
   goals (AGENTS.md "What Bearing is" and "Architecture rules"), and which.
 - **Where:** `file:line`.
 - **Fix:** a concrete change, not "consider improving".
+
+A defect that makes the change wrong, unsafe, or not do what it claims
+(a bug, a missing check, a test that cannot fail) leaves an important
+gap. Style and polish do not.
 
 A finding is **blocking** only if it is hard to change later or leaves an
 important gap. Style nits are almost never blocking. Everything else is
