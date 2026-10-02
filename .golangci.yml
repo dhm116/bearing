@@ -26,26 +26,30 @@ linters:
       # When a package matches both an allow and a deny entry, the longer
       # (more specific) match wins.
       rules:
-        # Code outside internal/ depends on pkg/contracts, not on backends or
-        # other internal packages (AGENTS.md, architecture rule 4). pkg/store
-        # is where backends are wired up. Denying the whole internal/ tree
-        # means a new backend is covered without editing this file.
+        # Code depends on pkg/contracts, not on backends or other internal
+        # packages (AGENTS.md, architecture rule 4). Only the backends
+        # themselves (internal/<name>store) and testkit are exempt, and
+        # pkg/store, where backends are wired up. Denying the whole
+        # internal/ tree means a new backend is covered without editing
+        # this file, and so is a new non-backend internal package.
         internal-packages:
           files:
             - $all
             - "!$test"
-            - "!**/internal/**"
+            - "!**/internal/*store/**"
+            - "!**/internal/testkit/**"
             - "!**/pkg/store/**"
           deny:
             - pkg: bearing.example/internal
               desc: depend on pkg/contracts; open backends through pkg/store
-        # Tests outside internal/ may use the in-memory reference backend
-        # and the testkit fakes, nothing else from internal/.
+        # Other tests may use the in-memory reference backend and the
+        # testkit fakes, nothing else from internal/.
         internal-packages-in-tests:
           list-mode: lax
           files:
             - $test
-            - "!**/internal/**"
+            - "!**/internal/*store/**"
+            - "!**/internal/testkit/**"
             - "!**/pkg/store/**"
           allow:
             - bearing.example/internal/memstore
@@ -169,10 +173,6 @@ linters:
       - path: ^tools/
         linters: [gosec]
         text: G(204|304)
-      # Fake secrets in tests exist to be caught.
-      - path: _test\.go$
-        linters: [gosec]
-        text: G101
       # The stdio protocol server speaks on stdout.
       - path: ^pkg/adapter/server\.go$
         linters: [forbidigo]

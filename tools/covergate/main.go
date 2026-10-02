@@ -73,7 +73,8 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	g := gate{root: ".", out: out, stderr: stderr}
 	ok, err := g.check(c)
 	if err != nil {
-		out.printf("covergate: %v\n", err)
+		// Exit status 2 reports the failure even if stderr is gone.
+		_, _ = fmt.Fprintf(stderr, "covergate: %v\n", err)
 		return 2
 	}
 	if out.err != nil {
@@ -104,10 +105,14 @@ func (p *printer) printf(format string, args ...any) {
 func (p *printer) skip(format string, args ...any) {
 	msg := "covergate: " + fmt.Sprintf(format, args...)
 	if p.actions {
-		msg = "::warning title=coverage gate skipped::" + msg
+		msg = "::warning title=coverage gate skipped::" + escapeData(msg)
 	}
 	p.printf("%s\n", msg)
 }
+
+// escapeData escapes a workflow command's message, so text such as a git
+// error can't end the annotation early or inject another command.
+var escapeData = strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace
 
 type gate struct {
 	root   string

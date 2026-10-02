@@ -138,7 +138,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 
 	case strings.HasPrefix(scheme, "surrealdb+"):
 		if u.Host == "" {
-			return backend{}, fmt.Errorf("store: %s names no server host", u.Redacted())
+			return backend{}, fmt.Errorf("store: %s URL names no server host", u.Scheme)
 		}
 		o := surrealstore.ServerOptions{Namespace: ns, Database: db}
 		if u.User != nil {
@@ -168,21 +168,32 @@ func parseURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("store: parse URL: %w", err)
 	}
 	if _, ok := u.User.Password(); ok {
-		return nil, fmt.Errorf("store: %s has a password in it; remove it and set %s instead", u.Redacted(), PasswordEnv)
+		return nil, fmt.Errorf("store: %s URL has a password in it; remove it and set %s instead", safeName(u), PasswordEnv)
 	}
 	if u.Opaque != "" {
 		// "surrealdb+ws:host:8000" parses with no host; say what's wrong
-		// rather than dialing somewhere unexpected.
-		return nil, fmt.Errorf("store: %s: put // after the scheme, as in %s://host", u.Redacted(), u.Scheme)
+		// rather than dialing somewhere unexpected. The opaque part may hold
+		// "user:password@", which Redacted does not hide, so only the
+		// scheme is named.
+		return nil, fmt.Errorf("store: %s: URL has no // after the scheme; use %s://host", u.Scheme, u.Scheme)
 	}
 	return u, nil
 }
 
-// redact hides a password in a URL for error messages.
+// redact names a URL in error messages without anything that may be secret.
 func redact(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "the URL"
 	}
-	return u.Redacted()
+	return safeName(u)
+}
+
+// safeName is a URL's scheme and host. User info, path and query can hold
+// secrets, and URL.Redacted hides nothing in an opaque URL.
+func safeName(u *url.URL) string {
+	if u.Host == "" {
+		return u.Scheme + ":"
+	}
+	return u.Scheme + "://" + u.Host
 }

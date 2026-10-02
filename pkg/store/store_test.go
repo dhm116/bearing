@@ -49,7 +49,7 @@ func TestOpenRejectsPasswordsInURLs(t *testing.T) {
 		{"server with query", Config{Graph: "surrealdb+wss://root:hunter2@db.example.com?ns=prod&db=main"}},
 		{"empty password", Config{Graph: "surrealdb+ws://root:@localhost:8000"}},
 		{"memory", Config{Graph: "mem://root:hunter2@"}},
-		{"vectors", Config{Graph: "mem://", Vectors: "surrealdb+http://root:hunter2@localhost:8000"}},
+		{"vectors", Config{Graph: "mem://", Vectors: "surrealdb+http://root:hunter2@localhost:8000"}}, //nolint:gosec // G101: fake secret for leak tests
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			getenv := func(string) string {
@@ -115,21 +115,36 @@ func TestOpenRejectsMalformedServerURLs(t *testing.T) {
 	for _, tc := range []struct {
 		name, url, want string
 	}{
-		{"opaque", "surrealdb+ws:localhost:8000", "put // after the scheme"},
-		{"opaque with user", "surrealdb+wss:root@db.example.com", "put // after the scheme"},
-		{"opaque mem", "mem:x", "put // after the scheme"},
+		{"opaque", "surrealdb+ws:localhost:8000", "no // after the scheme"},
+		{"opaque with user", "surrealdb+wss:root@db.example.com", "no // after the scheme"},
+		{"opaque mem", "mem:x", "no // after the scheme"},
+		// Redacted hides nothing in an opaque URL, so these would leak.
+		{"opaque with password", "surrealdb+ws:root:hunter2@host", "no // after the scheme"},
+		{"opaque mem with password", "mem:root:hunter2@x", "no // after the scheme"},
+		{"opaque surrealkv with password", "surrealkv:root:hunter2@x", "no // after the scheme"},
 		{"no host", "surrealdb+ws://", "names no server host"},
 		{"no host with path", "surrealdb+http:///rpc", "names no server host"},
 		{"no host with user", "surrealdb+https://root@", "names no server host"},
+		{"no host with path secret", "surrealdb+ws:///hunter2?token=hunter2", "names no server host"},
+		{"no host with password", "surrealdb+ws://root:hunter2@", "has a password in it"},
+		{"unknown scheme with secrets", "neo4j://root@db/hunter2?pass=hunter2", "unsupported URL scheme"},
+		{"vectors unknown scheme", "", "unsupported URL scheme"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := Open(context.Background(), Config{Graph: tc.url, Getenv: func(string) string { return "" }})
+			cfg := Config{Graph: tc.url, Getenv: func(string) string { return "" }}
+			if tc.url == "" {
+				cfg.Graph, cfg.Vectors = "mem://", "qdrant://root@db/hunter2?key=hunter2"
+			}
+			s, err := Open(context.Background(), cfg)
 			if err == nil {
 				closeStore(t, s)
 				t.Fatalf("opened %s", tc.url)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want an error containing %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Errorf("error %q repeats a secret from the URL", err)
 			}
 		})
 	}

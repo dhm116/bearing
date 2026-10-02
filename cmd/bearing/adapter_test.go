@@ -113,3 +113,20 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		}
 	}
 }
+
+// failingWriter fails every write, like a closed stdout.
+type failingWriter struct{}
+
+var errClosedStdout = errors.New("stdout closed")
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errClosedStdout }
+
+func TestSyncReportsOutputFlushErrors(t *testing.T) {
+	t.Setenv(childEnv, "serve")
+	// One small observation fits in sync's buffer, so the failure surfaces
+	// at the deferred Flush.
+	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, nil, failingWriter{})
+	if !errors.Is(err, errClosedStdout) {
+		t.Fatalf("got %v, want the flush error %v", err, errClosedStdout)
+	}
+}

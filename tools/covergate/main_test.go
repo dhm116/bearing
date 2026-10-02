@@ -117,3 +117,19 @@ func TestParseDiffRejectsBadInput(t *testing.T) {
 		}
 	}
 }
+
+func TestSkipEscapesWorkflowCommands(t *testing.T) {
+	var out strings.Builder
+	p := &printer{w: &out, actions: true}
+	p.skip("base %s not found", "100%\r\n::error::injected")
+	want := "::warning title=coverage gate skipped::covergate: base 100%25%0D%0A::error::injected not found\n"
+	if out.String() != want {
+		t.Fatalf("got %q, want %q", out.String(), want)
+	}
+	out.Reset()
+	p.actions = false
+	p.skip("100%% done")
+	if out.String() != "covergate: 100% done\n" {
+		t.Fatalf("got %q without Actions, want it unescaped", out.String())
+	}
+}

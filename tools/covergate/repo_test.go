@@ -215,4 +215,10 @@ func TestRunExitCodes(t *testing.T) {
 			t.Errorf("run %v = %d, want %d\n%s", tc.args, got, tc.want, out.String())
 		}
 	}
+	// Errors go to stderr, the report to stdout.
+	var out, errOut bytes.Buffer
+	run([]string{"-base", "origin/nope", "-require-base"}, &out, &errOut, func(string) string { return "" })
+	if !strings.Contains(errOut.String(), "covergate: base origin/nope not found") || out.Len() != 0 {
+		t.Fatalf("stdout %q, stderr %q; want the error on stderr only", out.String(), errOut.String())
+	}
 }

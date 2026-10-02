@@ -139,8 +139,8 @@ func TestFindLeaks(t *testing.T) {
 	const secret = "s3cr3t/t0ken+v>?alue" // base64 contains "+"
 	b64 := base64.StdEncoding.EncodeToString([]byte(secret))
 	lower := strings.NewReplacer("%2F", "%2f", "%2B", "%2b", "%3E", "%3e", "%3F", "%3f").Replace
-	const jsonSecret = `pa"ss\word<1>&`
-	const quoteSecret = "tok\x01ené-1234" // JSON writes \u0001, Go quoting \x01
+	const jsonSecret = `pa"ss\word<1>&`   //nolint:gosec // G101: fake secret for leak tests
+	const quoteSecret = "tok\x01ené-1234" //nolint:gosec // G101: fake secret for leak tests; JSON writes \u0001, Go quoting \x01
 	jsonNoHTML := func(s string) string {
 		var b strings.Builder
 		enc := json.NewEncoder(&b)
