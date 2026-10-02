@@ -25,7 +25,8 @@ alone.
 - The data model is versioned by observation type
   (`dev.bearing.observation.v1`). Adding kinds, relation types or optional
   fields is backwards compatible. Removing or changing the meaning of
-  anything requires `v2`.
+  anything requires `v2`, except that before spec 1.0 a draft may make
+  listed incompatible changes within `v1` (as 0.2 does, below).
 - The specification as a whole has a draft version (0.1, 0.2, …) that
   changes whenever its rules change. Rules that change what the core builds
   from the same observations (resolution, ordering, confidence) change the

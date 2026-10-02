@@ -1,14 +1,14 @@
 # Data model
 
-Version 0.2 (draft). The rules in this document are normative. Statements
-written in the imperative or present tense ("is", "becomes", "writes") are
-requirements, as if they said MUST.
+Version 0.2 (draft). The rule sections (from [State](#state-determinism-and-apply)
+to [Wire mapping](#wire-mapping)) are normative: statements there in the
+imperative or present tense ("is", "becomes", "writes") are requirements,
+as if they said MUST. Worked examples and open questions are not.
 
 ## Changes in this revision
 
-v0.1 named entities, keys and facts but left open how keys become entities,
-how history works and what wins when sources disagree. v0.2 makes those
-rules exact.
+v0.2 makes exact what v0.1 left open: how keys become things, how history
+works and what wins when sources disagree.
 
 | Change | Why |
 | --- | --- |
@@ -21,19 +21,13 @@ rules exact.
 | Person identity across GitHub and the directory. | The MVP sources are GitHub and Authentik. |
 
 **Compatibility.** The observation type stays `dev.bearing.observation.v1`
-and the new fields are optional, but v0.2 is additive **except**:
-
-- a reference whose key type is unregistered and whose predicate's range
-  has more than one kind is rejected (for example `on_call_for` to
-  `pagerduty:service/…` in `testdata/`);
-- attribute `null` now ends a claim, and an attribute array is the complete
-  set for that predicate;
-- unregistered attributes are renamed `<namespace>.<attribute>`;
-- a relation may carry `from` instead of `to`;
-- `Change.author` and `Schedule.on_call_now` are dropped.
-
-This is accepted because the spec is pre-1.0 and the only consumers are in
-this repository.
+and the new fields are optional, but v0.2 is additive **except**: a
+reference with an unregistered key type and a multi-kind range is rejected
+(`on_call_for` to `pagerduty:service/…` in `testdata/`); attribute `null`
+ends a claim and an array is the complete set; unregistered attributes are
+renamed `<namespace>.<attribute>`; a relation may carry `from` instead of
+`to`; `Change.author` and `Schedule.on_call_now` are dropped. Accepted
+because the spec is pre-1.0 and the only consumers are in this repository.
 
 ## Terms
 
@@ -47,12 +41,11 @@ this repository.
 | Source | A configured adapter instance ([ADR 10](../adr/0010-configuration-as-resources.md)), for example `github-acme`. The unit of provenance. |
 | Source system | The namespace a source reads. Sources of one system are not independent. |
 | Observation | One source's report about one entity at one `observed_at`. |
-| Claim | One statement in an observation (or a manual event) about one fact. |
-| Support | One source's claims about one fact, evaluated over valid time. |
 | Valid time | When something is true in the world, `[valid_from, valid_to)`. |
 | Record time | When Bearing held it, `[recorded_at, retracted_at)`. |
 
-Intervals are half-open; `null` at either end means unbounded. Times are
+Intervals are half-open. In stored and reported intervals, `null` at either
+end means unbounded (claims default differently, see [Claims](#claims)). Times are
 RFC 3339 UTC with `Z`, stored and compared at microsecond precision
 (finer digits are truncated).
 
@@ -69,11 +62,12 @@ Bearing's state has two parts:
 
 Guarantees:
 
-1. Given the same identity store and the same set of events, conforming
-   implementations produce the same valid-time state: supports, fact
-   statuses, confidence and conflicts at every valid time, **regardless of
-   the order** the events are applied in. (The event log orders events only
-   within a partition.)
+1. Given the same identity decisions (the same mints, bindings, merges and
+   rejections, for example by replaying against the final identity store)
+   and the same set of events, conforming implementations produce the same
+   valid-time state: supports, fact statuses, confidence and conflicts at
+   every valid time, **regardless of the order** the events are applied in.
+   (The event log orders events only within a partition.)
 2. Applying the same events in the same order from the same identity store,
    they make the same identity decisions, up to a one-to-one renaming of
    newly minted subject IDs.
@@ -86,12 +80,8 @@ Guarantees:
 - `recorded_at` comes from a store sequence: a single clock record, read
   and advanced in each apply transaction to `max(now, previous + 1 µs)`.
   Every apply therefore has a unique, strictly increasing `recorded_at`.
-- Because every apply writes the clock record, applies are serialized. A
-  backend that allocates `recorded_at` outside the transaction MUST instead
-  serialize applies that touch the same alias, `(source, fact)`, snapshot
-  scope or `(subject, predicate)`, by writing a conflict record with a
-  deterministic ID per touched key, so that under snapshot isolation two
-  overlapping transactions conflict and one retries.
+- Because every apply writes the clock record, applies are serialized.
+  This is the only isolation model in v0.2.
 
 ## Subjects
 
@@ -137,6 +127,10 @@ Namespaces come from source configuration:
 | `issues` | Other namespaces the source is the issuer for: `[{ "namespace": "authentik-saml", "issuer_type": "saml", "nameid_format": "persistent" }]`. |
 | `links` | Namespaces the source reports `linked_ids` in, with their issuer types. |
 
+An adapter declares its issuer type, which is the default `namespace`. A key
+in a namespace the source neither reads, issues nor links is rejected
+(`namespace_not_allowed`).
+
 Every configured use of a namespace MUST name the same issuer type;
 configuration apply rejects a disagreement. Key types are looked up by the
 namespace's issuer type.
@@ -164,7 +158,7 @@ namespace's issuer type.
 | authentik | `username` | Person | name | one | no | insensitive | |
 | authentik | `group` | Team | id | | | sensitive | |
 | authentik | `group_name` | Team | name | one | no | sensitive | |
-| saml | `name_id` | Person | `id` if the namespace's `nameid_format` is `persistent`, else `name` | one | no | sensitive | `saml_name_id` |
+| saml | `name_id` | Person | `id` if the namespace's `nameid_format` is `persistent`, else `name` | one (if `name`) | no | sensitive | `saml_name_id` |
 
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted. Node
@@ -174,29 +168,28 @@ namespace's issuer type.
   the entity's `kind` when used as an entity key or alias, or the
   predicate's range when used in a reference and the range is one kind.
   Otherwise the claim is rejected (`unknown_key_type`). The first use fixes
-  the kind; a later use with another kind is rejected (`kind_mismatch`).
+  the kind, recorded in the identity store; a later use with another kind is
+  rejected (`kind_mismatch`).
 
 ### Bindings
 
 - An **`id` alias** is bound to one subject for all valid time.
   Resolution ignores time for `id` aliases. Only an un-merge moves one.
 - A **`name` alias** maps valid time to a subject (or to "released"). Each
-  binding is a write like a fact claim ([Claims](#claims)): an observation
-  binding name `N` to `S` at `t` writes `S` on `[t, ∞)`; a release writes
-  "released" on `[t, ∞)`. At each valid time the write with the greatest
-  [ordering key](#ordering-and-idempotency) wins. Before the earliest
-  write, the name maps to the subject of the earliest write: the first
-  binding extends to the beginning of valid time.
+  observed binding is a write like a fact claim ([Claims](#claims)): an
+  observation binding name `N` to `S` at `t` writes `S` on `[t, ∞)`; a
+  release (`entity.deleted`) writes "released" on `[t, ∞)`. At each valid
+  time the covering write with the greatest
+  [ordering key](#ordering-and-idempotency) wins. Before the name's earliest
+  observed binding, it maps to that binding's subject (back-extension).
+- **`per_subject: one`** is a read-time rule: at each valid time, a subject
+  holds, per key type, only the name whose covering write to it has the
+  greatest key; other names that would map to it there are released.
+  Back-extension never releases a name, and a back-extended mapping is
+  dropped where the subject holds another name by a covering write.
 - A binding written by a reference (when minting a placeholder) is
-  **tentative**: it counts only where no observed binding covers.
-- A `per_subject: one` binding of `N2` to `S` at `t` also releases, on
-  `[t, ∞)`, every other name of that key type mapped to `S` at `t`.
-
-```json
-{ "key": "github:repo/acme/payments-api", "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e",
-  "valid_from": null, "valid_to": "2026-10-01T12:00:00Z", "tentative": false,
-  "recorded_at": "2026-10-01T12:00:01Z", "retracted_at": null }
-```
+  **tentative**. It counts wherever the name is unbound or released without
+  redirect; an observed binding to a subject overrides it.
 
 ### Resolution
 
@@ -207,25 +200,29 @@ An observed entity is resolved from its `key`, `aliases` and `observed_at`
    differs from `entity.kind`: reject the observation (`kind_mismatch`).
    One subject: use it. Several: they are one thing; merge them (rule
    `co_reported_ids`), unless a `distinct_from` between them is live, in
-   which case reject the observation (`identity_conflict`).
+   which case reject the observation (`identity_conflict`) and open a
+   conflict on `(subject, same_as)`.
 2. **Name match.** Else look up its `name` aliases at `t`. For a subject
    `S` found:
    - If `S` holds an `id` alias of a key type the observation also carries,
      with a different value, the name was reused: skip `S`.
    - Otherwise use `S`; it adopts the observation's `id` aliases. If names
-     give two subjects, use the lower `subject_id` and record an identity
-     conflict; do not merge.
+     give two subjects, use the lower `subject_id` and open a conflict on
+     `(subject, same_as)`; do not merge.
 3. **Mint** a subject of `entity.kind` (rule `observation`).
 
-Then write bindings for every alias at `t`. If a tentative binding of the
-same name to a placeholder `P` covers the time `P` was referenced, `P`
+Then write bindings for every alias at `t`. If the observed binding just
+written maps the name to the chosen subject at a valid time at which a
+reference resolved it to placeholder `P` through a tentative binding, `P`
 merges into the chosen subject (rule `placeholder`). The outcome is the
 same whichever of the reference and the observation is applied first.
 
 A **reference** (a relation's `to` or `from`, or a `linked_id`) resolves to
-the subject its alias maps to at `t`. A released name resolves to its last
-subject if the key type `redirects`. Otherwise, and for an unbound key, a
-placeholder is minted (rule `reference`) with a tentative binding.
+the subject its alias maps to at `t`, tentative bindings included. A
+released name resolves to the subject it last mapped to if the key type
+`redirects`. Otherwise, and for an unbound key, a placeholder is minted
+(rule `reference`) with a tentative binding, so later references to the
+same name reuse it.
 
 Each claim records `via`: the set of aliases the observation's entity
 carried, and the reference key for the other end.
@@ -248,7 +245,6 @@ Nothing else mints. Every mint is audited.
 | GitHub team slug renamed | Same subject. The old slug is released; references to it mint a placeholder. |
 | GitHub login changed | Same subject. |
 | Name reused by a new repository, user or group | Different `id`, so a new subject. The old subject keeps the name before `t`. |
-| A placeholder's name later observed | The placeholder adopts the `id`, or merges in (rule `placeholder`). |
 
 ### Merge
 
@@ -257,7 +253,7 @@ Nothing else mints. Every mint is audited.
 | `co_reported_ids` | Resolution rule 1. | 1.0 |
 | `placeholder` | An observed binding covers a placeholder's tentative one. | 1.0 |
 | `identity` | `same_as` between them becomes `asserted`. | computed |
-| `manual` | A `MergeRequested` event. | 1.0 |
+| `manual` | A `MergeRequested` event. Rejected (`identity_conflict`) while a `distinct_from` between them is live, unless the request also clears it. | 1.0 |
 
 Only subjects of the same kind merge. At record time `r`:
 
@@ -267,13 +263,16 @@ Only subjects of the same kind merge. At record time `r`:
 3. Stored claims keep their subject IDs. From `r`, reads canonicalize
    subject and object through `merged_into`, so the merged subject's
    supports count for the survivor's facts. Fact IDs are computed from the
-   canonical IDs. Same-source supports combine by the ordering rule, and a
-   `one` predicate keeps at most one object per source
+   canonical IDs. Snapshot scopes and watermarks match facts after
+   canonicalization. Same-source supports combine by the ordering rule, and
+   a `one` predicate keeps at most one object per source
    ([Supports](#supports)).
 4. `same_as` and `distinct_from` facts between the two move to the merge
-   record and keep being evaluated. If an `identity` merge's evidence falls
-   below threshold, or any merge gets a live `distinct_from`, the core opens an
-   identity conflict for review. It never un-merges by itself.
+   record and keep being evaluated. A later `same_as`/`distinct_from` claim
+   whose ends canonicalize to one subject counts as evidence for the merge
+   records joining the subjects its `via` aliases were bound to. If an
+   `identity` merge's evidence falls below threshold, the core opens a
+   conflict on `(subject, same_as)` for review. It never un-merges by itself.
 5. Reads as recorded before `r` still show two subjects.
 6. An audit record holds the rule, confidence, evidence, both alias sets and
    the event ID.
@@ -286,9 +285,11 @@ and a non-empty proper subset `D` of `A`'s aliases. At record time `r`:
 1. If `D` is the alias set some `B` had when it merged into `A`, `B` becomes
    `active` again; subjects earlier merged into `B` stay merged into `B`.
    Otherwise mint a subject (rule `split`).
-2. The bindings of `D` move to it for all valid time.
-3. A claim moves with it if its `via` set is within `D`. Claims whose `via`
-   spans both sides, or that have none (manual, core), stay with `A` and are
+2. Binding writes of aliases in `D` that map them to `A` are re-pointed to
+   it, for all valid time.
+3. A claim whose `via` set is within `D` gets a re-pointing record (stored
+   claims are not rewritten) and counts for it. Claims whose `via` spans
+   both sides, or that have none (manual, core), stay with `A` and are
    listed in the audit record for review.
 4. A `distinct_from` between the two is set (source `manual`).
 
@@ -433,8 +434,9 @@ There is no integer type until a predicate needs one.
 
 ### observed_at
 
-- **Sync:** the time the adapter **sent** the request that read the state
-  (before the read), so a concurrent change is never shadowed.
+- **Sync:** the earliest send time among the requests whose responses the
+  observation reports (taken before the read), so a concurrent change is
+  never shadowed.
 - **Webhook:** the event time the source's **server** assigned, if the
   payload has one. Never a time an author can set (commit timestamps).
   Otherwise the adapter treats the delivery as a trigger and re-reads the
@@ -468,8 +470,9 @@ Within one observation:
 
 - A fact claimed more than once (two CODEOWNERS lines naming one team) is
   one claim. Its qualifiers are the de-duplicated array of the claims'
-  `attributes` objects, sorted by JCS bytes. The duplicates MUST agree on
-  `valid_from`, `valid_to`, `confidence_ppm` and `absent`.
+  `attributes` objects, sorted by JCS bytes. Duplicates that disagree on
+  `valid_from`, `valid_to`, `confidence_ppm` or `absent` reject the
+  observation (`duplicate_claim`).
 - Asserting and ending the same fact, or giving one predicate in both
   `attributes` and `attribute_claims`, rejects the observation
   (`duplicate_claim`). An array for a `one` predicate rejects it
@@ -483,7 +486,7 @@ claims in a scope `(source, E, direction, predicates)`:
 | Field | Meaning |
 | --- | --- |
 | `direction` | `out`: `E` is the subject. `in`: `E` is the object. |
-| `predicates` | Names, or `["*"]` for all in that direction (attributes only `out`). |
+| `predicates` | Names, or `["*"]` for all in that direction (attributes only `out`). `["*"]` ends every fact the source didn't repeat, so use it only when the observation carries everything the source knows about `E`. |
 
 The observation's ordering key becomes the scope's **watermark**: an
 ending on `[t, ∞)`, with that key, for every fact in the scope that the
@@ -499,12 +502,21 @@ permission error or a file it couldn't parse).
 
 The last page of a sync (`done: true`) MAY declare
 `complete_sync: { "kinds": ["Repository"] }`: the sync visited every entity
-of those kinds the source can see. The core then treats each subject of
-those kinds that had a live `exists` support from this source at the first
-page's `observed_at` `t0`, and that no page of this sync observed, as
-`entity.deleted` at `t0`. The watermark key is `t0`, the sync ID and the
-last page's log position. It is not applied if any page failed or the
-cursor was reset.
+of those kinds the source can see. An adapter MUST declare it only when its
+listing is stable under concurrent change (keyset or cursor pagination, or
+a snapshot read); offset paging can skip items.
+
+- The **sync** is identified by its `SyncRequested` event ID; `t0` is that
+  event's time, earlier than every request the sync sends.
+- A sync is **complete** when every page succeeded. If the core restarts
+  it with an empty cursor ("reset"), that is a new sync and the earlier one
+  is never complete.
+- A subject of a declared kind that had a live `exists` support from this
+  source and is missing from **two consecutive** complete syncs is treated
+  as `entity.deleted` at the first missing sync's `t0`, with watermark key
+  `(t0, <sync ID>, <sync ID>, "")`.
+- The core MAY append one derived deletion event per subject rather than
+  apply them all in one transaction.
 
 ## Facts and supports
 
@@ -538,7 +550,7 @@ A claim writes a state onto valid time, with its ordering key:
 
 | Claim | Writes |
 | --- | --- |
-| assert with `valid_from` `a` (default `observed_at`), `valid_to` `b` (default `null`), `confidence_ppm` `c` (default 1000000) | `asserted(c)` on `[a, b)`, and `ended` on `[b, ∞)` if `b` is set |
+| assert with `valid_from` `a` (absent or `null`: `observed_at`), `valid_to` `b` (absent or `null`: open), `confidence_ppm` `c` (absent: 1000000) | `asserted(c)` on `[a, b)`, and `ended` on `[b, ∞)` if `b` is set |
 | assert with only `valid_to` `b` ≤ `observed_at` | `ended` on `[b, ∞)` (it says the fact ended at `b`) |
 | end (`absent`) at `t` = `valid_to` if given, else `observed_at` | `ended` on `[t, ∞)` |
 | watermark of a scope at `t` | `ended` on `[t, ∞)` for each fact in scope not claimed |
@@ -555,9 +567,10 @@ A source's support for a fact at valid time `v`, as recorded at `r`, is the
 state written at `v` by that source's greatest-key write about the fact
 that covers `v` and was recorded at or before `r` (watermarks included). If
 it is `asserted(c)`, the support is **live** with confidence `c`. For a
-`one` predicate, at each `v` only the source's greatest-key live write
-among all objects of `(subject, predicate)` counts, after canonicalizing
-through merges.
+`one` predicate, at each `v` only the source's greatest-key write (asserted
+or ended) among all objects of `(subject, predicate)` counts, after
+canonicalizing through merges; its object is supported only if that write
+is asserted.
 
 Implementations MAY evaluate writes on read or materialize **support
 versions**:
@@ -601,14 +614,14 @@ earlier still show it.
 Every write has an **ordering key**, compared left to right:
 
 ```
-(observed_at, observation_id, log_position, content_hash)
+(observed_at, observation_id, event_id, content_hash)
 ```
 
-`observation_id` by UTF-8 bytes; `log_position` = the event's (partition,
-offset) in the event log, partition by UTF-8 bytes then offset numerically;
-`content_hash` = SHA-256 of the JCS form of the observation's `data`. For
-manual events, `observed_at` is the ingest time and `observation_id` the
-event ID.
+`observation_id` and `event_id` (which includes the source) by UTF-8 bytes;
+`content_hash` = SHA-256 of the JCS form of the observation's `data`. All
+four are fixed by the event, so the key doesn't depend on apply order. For
+manual events, `observed_at` is the ingest time, `observation_id` the event
+ID and `content_hash` that of the payload.
 
 - **Latest wins per source, fact and valid time.** Different sources never
   override each other; they combine ([Confidence](#confidence)).
@@ -626,15 +639,14 @@ detect that; the next sync corrects it.
 All confidence is integer **parts per million** (ppm). At `(v, r)`:
 
 1. Group the fact's live supports by **source system**. `manual` is one
-   group; each `core/identity/<rule>` is one group.
+   group; each `core/identity/<rule>` is one group. Systems listed together
+   in the configuration field `confidence_groups` (systems that copy each
+   other) form one group.
 2. Within a group, take the maximum: `g_k`.
 3. Across `n` groups, exact integer noisy-OR:
    `P = ∏ₖ (1000000 − g_k)`, then
-   `C = 1000000 − round_half_even(P / 1000000^(n−1))`.
-
-Max within a system stops a second GitHub source, or a re-sync, from
-counting twice. Noisy-OR lets independent systems corroborate. Systems that
-copy each other can be configured as one group.
+   `C = 1000000 − round_half_even(P / 1000000^(n−1))`, in arbitrary-precision
+   integers (`P` exceeds 64 bits from `n = 4`).
 
 | Live supports (system: ppm) | `C` | At 900000 |
 | --- | --- | --- |
@@ -692,10 +704,12 @@ Objects every system agrees on stay asserted. Resolution:
 
 Conflicts are derived, but implementations MUST expose them by query and
 emit `ConflictOpened` / `ConflictResolved` events, with audit records.
-When an open or close comes from valid time passing a known boundary (a
-`valid_to` reached), not from an apply, a scheduled check of upcoming
-boundaries emits the event when the time passes; status changes caused only
-by the passing of valid time are not audited.
+When valid time passes a known boundary (a `valid_to` reached), a
+scheduler appends a `ValidTimeBoundaryReached` event for it. Applying that
+event, like any other, recomputes conflicts for the affected
+`(subject, predicate)`, emits the events and writes the audit records, so it
+has a `recorded_at` and replays. Other status changes caused only by time
+passing are not audited.
 
 When any non-manual support of `(subject, predicate)` changes after an
 override was recorded, the core flags the override `override_stale` for
@@ -736,7 +750,8 @@ and merges when `same_as` is asserted.
 - `same_as` combines as in [Confidence](#confidence); **if no strong rule
   is live, it is capped at 850000**, below the default threshold. Weak
   evidence never merges; it yields a `candidate` for a person to confirm.
-- A live `distinct_from` blocks the merge and opens an identity conflict.
+- A live `distinct_from` blocks the merge and opens a conflict on
+  `(subject, same_as)` (the [conflict shape](#conflicts), `ConflictOpened`).
 - Teams and groups are not matched automatically.
 
 ## Manual operations
@@ -746,11 +761,11 @@ reason, applied and audited like any other event. Their source is `manual`.
 
 | Event | Payload | Effect |
 | --- | --- | --- |
-| `MergeRequested` | `subject_ids` (two) | [Merge](#merge), rule `manual` |
+| `MergeRequested` | `subject_ids` (two), optional `clear_distinct_from` | [Merge](#merge), rule `manual` |
 | `UnmergeRequested` | `subject_id`, `aliases` | [Un-merge](#un-merge) |
 | `DistinctFromSet` / `DistinctFromCleared` | `subject_ids` (two) | Asserts or ends `distinct_from` |
 | `ClaimWithdrawn` | `source`, `subject_id`, `predicate`, `object` | Withdraws that source's claims on the fact |
-| `OverrideSet` | `subject_id`, `predicate`, `objects`, optional `valid_from`, `valid_to` | A `manual` snapshot of `(subject, predicate)` that decides status (step 2) |
+| `OverrideSet` | `subject_id`, `predicate`, `objects` (fact objects: `{ "subject_id" }` or `{ "type", "value" }`), optional `valid_from`, `valid_to` | A `manual` snapshot of `(subject, predicate)` that decides status (step 2) |
 | `OverrideCleared` | `subject_id`, `predicate` | Ends the override at `observed_at` |
 
 ## Queries
@@ -786,7 +801,8 @@ between.
 | `record` | `(t1, t1)` and `(t2, t2)` | How Bearing's answers changed, including late and corrected data. |
 
 Facts at both points are matched after canonicalizing subject IDs through
-merges as recorded at the later point.
+merges as recorded at the later point. With `axis: record`, `from` is
+therefore the supports recorded by `t1`, combined under `t2`'s merges.
 
 ```json
 { "fact_id": "041d6c02…", "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e",
@@ -804,7 +820,8 @@ change caused by an apply; a conflict opened or closed; an override set,
 cleared or flagged stale; and every rejection (`kind_mismatch`,
 `type_mismatch`, `domain_mismatch`, `unknown_key_type`, `unknown_rule`,
 `duplicate_claim`, `cardinality_mismatch`, `invalid_interval`,
-`identity_conflict`, `already_merged`, `observed_at_in_future`).
+`identity_conflict`, `already_merged`, `namespace_not_allowed`,
+`observed_at_in_future`).
 
 ## Wire mapping
 
@@ -815,12 +832,14 @@ proto field names, so JSON matches the examples here.
   strings checked by protovalidate `in` rules, not proto enums, so they
   appear exactly as written here (`"Person"`, `"asserted"`) and v1 JSON
   stays valid.
-- A typed value is a `oneof` of `string_value`, `bool_value`,
-  `float_value`, `time_value` (Timestamp) and `json_value` (Struct). Its
-  JSON form in facts and queries is `{ "type", "value" }`.
+- A typed value is `TypedValue { string type; google.protobuf.Value value; }`,
+  so its ProtoJSON is `{ "type", "value" }`. A protovalidate CEL rule ties
+  `type` to the value's JSON kind: `string` and `time` are strings (`time`
+  in the canonical form), `float` a number, `bool` a boolean, `json` an
+  object. With no integer type, `Value` loses nothing.
 - Observation attributes are `google.protobuf.Value`, where an explicit
   `null` is meaningful. Everywhere else an absent field equals `null`.
-- Confidence is `uint32 confidence_ppm`.
+- Confidence is an optional `uint32 confidence_ppm`; absent means 1000000.
 
 ## Worked examples
 
@@ -837,21 +856,24 @@ Illustrative IDs; hashes and event IDs shortened.
 ### 1. A repository with a CODEOWNERS team owner
 
 The [observation above](#observations), from `github-acme`,
-`observed_at` 2026-09-28T01:30:00Z, nothing bound yet:
+`observed_at` 2026-09-28T01:30:00Z, nothing bound yet. The same full sync
+requested the teams page at 01:29 and observed the team (key
+`github:team_node/T_kwDOAB12cd`, alias `github:team/acme/payments`).
 
 1. Both repo keys are unbound: mint R, bind them.
-2. `github:team/acme/payments` is unbound: mint placeholder P with a
-   tentative binding.
+2. The team: if its observation is applied first, it mints P and the repo's
+   reference resolves to P. If the repo is applied first, the reference
+   mints placeholder P with a tentative binding, and the team observation
+   then resolves by name to P, which adopts the node ID. Either way P has
+   `exists` from 01:29.
 3. Claims: `(R, exists, true)`, `name`, `default_branch`, `language`, and
    `(R, owned_by, P)`. `topics: []` and `description: null` record that R
    has none.
-4. `(R, owned_by, P)` is `candidate` (`unobserved_object`): P has no
-   `exists` support.
-5. The team's own observation (key `github:team_node/T_kwDOAB12cd`, alias
-   `github:team/acme/payments`) resolves by name to P, which adopts the node
-   ID and gets `exists`. `(R, owned_by, P)` becomes `asserted`.
-6. The scope `(github-acme, R, out, [owned_by])` has watermark key
-   `(2026-09-28T01:30:00Z, "github:repo_node/R_kgDOH1a2b3@…", <log position>, <hash>)`.
+4. `(R, owned_by, P)` is `asserted` from 01:30. Until the team observation
+   is applied, reads give `candidate` (`unobserved_object`); the final
+   valid-time state doesn't depend on the order.
+5. The scope `(github-acme, R, out, [owned_by])` has watermark key
+   `(2026-09-28T01:30:00Z, "github:repo_node/R_kgDOH1a2b3@…", "github-acme/…", <hash>)`.
 
 ### 2. Repository rename
 
@@ -951,7 +973,8 @@ After examples 1–3, at 2026-10-02T12:00:00Z:
                     "observed_at": "2026-09-28T01:30:00Z",
                     "valid_from": "2026-09-28T01:30:00Z", "valid_to": "2026-10-02T09:00:00Z",
                     "recorded_at": "2026-10-02T09:00:03Z", "retracted_at": null,
-                    "qualifiers": [ { "file": ".github/CODEOWNERS", "pattern": "*" } ] } ] } ] }
+                    "qualifiers": [ { "file": ".github/CODEOWNERS", "pattern": "*" } ],
+                    "evidence": { "url": "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS" } } ] } ] }
 ```
 
 With `valid_at` now it returns L. With both times 2026-10-01T00:00:00Z it
@@ -1015,7 +1038,12 @@ To change once this is approved, in the M1 implementation:
   superseded by ADR 7's `EventLog`, with a home for the new event types;
   conformance tests for every rule here, including apply-order independence.
 - ADR 6 says `v1` packages, issue #11 says `v1alpha1`: reconcile.
-- ADR 7: partition key (`(source, key)` vs subject) and event IDs that
-  include the source; ADR 2: subject/fact terminology and open question 1.
+- ADR 7: partition key (`(source, key)` vs subject), event IDs that
+  include the source, and the new event types (manual operations,
+  `ValidTimeBoundaryReached`, derived deletions); ADR 2: subject/fact
+  terminology and open question 1.
+- ADR 10: `namespace`, `issues`, `links` and `confidence_groups` as
+  `Source.spec` and configuration fields; adapters declare their issuer
+  type in `Describe` for the `namespace` default.
 - `AGENTS.md`, `README.md` and the `new-adapter` skill: keys, aliases,
   snapshots and the "send `null` for empty" rule in the adapter checklist.
