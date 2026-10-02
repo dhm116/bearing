@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,9 +48,9 @@ func connect(t *testing.T, a Adapter) *Client {
 	respR, respW := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, a, reqR, respW); respW.Close() }()
+	go func() { done <- Serve(ctx, a, reqR, respW); _ = respW.Close() }()
 	t.Cleanup(func() {
-		reqW.Close()
+		_ = reqW.Close() // io.PipeWriter.Close always returns nil
 		cancel()
 		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("serve: %v", err)
@@ -102,6 +105,76 @@ func TestHandleNotSupported(t *testing.T) {
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeNotSupported {
 		t.Fatalf("got %v, want not supported", err)
+	}
+}
+
+func TestServeAnswersUnparseableRequests(t *testing.T) {
+	reqR, reqW := io.Pipe()
+	respR, respW := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- Serve(context.Background(), pager{n: 1}, reqR, respW); _ = respW.Close() }()
+	go func() {
+		_, _ = io.WriteString(reqW, "{not json\n")
+		_ = reqW.Close()
+	}()
+	var resp struct {
+		ID    json.RawMessage `json:"id"`
+		Error *Error          `json:"error"`
+	}
+	if err := json.NewDecoder(respR).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if string(resp.ID) != "null" || resp.Error == nil || resp.Error.Code != CodeParseError {
+		t.Fatalf("got id %s, error %+v; want a parse error for id null", resp.ID, resp.Error)
+	}
+	_, _ = io.Copy(io.Discard, respR)
+	if err := <-done; err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+}
+
+func TestStartRunsAnAdapterProcess(t *testing.T) {
+	// The child is this test binary; TestMain serves pager when it sees
+	// childEnv.
+	t.Setenv(childEnv, "serve")
+	ctx := context.Background()
+	c, err := Start(ctx, os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := c.Describe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "pager" {
+		t.Fatalf("described %q, want pager", d.Name)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestCloseReportsAdapterExitStatus(t *testing.T) {
+	t.Setenv(childEnv, "fail")
+	ctx := context.Background()
+	c, err := Start(ctx, os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Describe(ctx); err != nil {
+		t.Fatal(err)
+	}
+	err = c.Close()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("got %v, want an *exec.ExitError with code 1", err)
+	}
+}
+
+func TestStartReportsMissingExecutables(t *testing.T) {
+	_, err := Start(context.Background(), "/nonexistent/bearing-adapter")
+	if err == nil || !strings.Contains(err.Error(), "start adapter") {
+		t.Fatalf("got %v, want a start error", err)
 	}
 }
 

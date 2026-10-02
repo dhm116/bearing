@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -123,8 +124,10 @@ func TestTimerFiredNotReceived(t *testing.T) {
 		make func(c *FakeClock) clock.Timer
 		op   func(tm clock.Timer) bool
 	}{
-		{"zero then Stop", func(c *FakeClock) clock.Timer { return c.NewTimer(0) },
-			func(tm clock.Timer) bool { return tm.Stop() }},
+		{
+			"zero then Stop", func(c *FakeClock) clock.Timer { return c.NewTimer(0) },
+			func(tm clock.Timer) bool { return tm.Stop() },
+		},
 		{"fired then Stop", func(c *FakeClock) clock.Timer {
 			tm := c.NewTimer(time.Second)
 			c.Advance(time.Second)
@@ -286,7 +289,7 @@ func TestBlockUntilWaiters(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := c.BlockUntilWaiters(ctx, 1); err != context.Canceled {
+	if err := c.BlockUntilWaiters(ctx, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }

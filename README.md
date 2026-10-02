@@ -45,14 +45,16 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
+| [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck) and the coverage gate, in their own Go module |
 
 ## Try it
 
 Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
 
 ```sh
+make check         # everything CI runs: lint, tests with the coverage gate, govulncheck, build
 make test          # vet and run every test
-make test-surrealdb SURREALDB=ws://127.0.0.1:8000   # also run the SurrealDB conformance suites
+make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # also run the SurrealDB suites
 make build         # builds bin/bearing and bin/bearing-adapter-github
 
 # What does the GitHub adapter emit and need?

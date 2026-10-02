@@ -9,13 +9,43 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # internal/surrealstore and pkg/store run their SurrealDB suites against
+      # the container started below. The credentials only guard a throwaway
+      # in-memory database on the runner.
+      BEARING_TEST_SURREALDB: ws://127.0.0.1:8000
+      BEARING_TEST_SURREALDB_USER: root
+      BEARING_TEST_SURREALDB_PASS: root
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The coverage gate needs history back to the merge base with the
+          # pull request's base branch.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: make lint
-      - run: make test
-      - run: make build
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      # A step rather than a `services:` container because services can't
+      # pass arguments to the image, and SurrealDB needs `start`.
+      - name: Start SurrealDB
+        run: |
+          docker run --detach --name surrealdb --publish 127.0.0.1:8000:8000 \
+            surrealdb/surrealdb:v3.3.0@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20 \
+            start --bind 0.0.0.0:8000 --user "$BEARING_TEST_SURREALDB_USER" --pass "$BEARING_TEST_SURREALDB_PASS" memory
+          for i in $(seq 30); do
+            curl --silent --fail http://127.0.0.1:8000/health && exit 0
+            sleep 1
+          done
+          docker logs surrealdb
+          exit 1
+
+      - run: make check

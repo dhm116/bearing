@@ -61,7 +61,7 @@ func fakeGitHub(t *testing.T) *httptest.Server {
 				http.Error(w, "want raw", http.StatusBadRequest)
 				return
 			}
-			fmt.Fprint(w, "* @acme/payments\n")
+			_, _ = fmt.Fprint(w, "* @acme/payments\n")
 			return
 		}
 		if strings.Contains(r.URL.Path, "/contents/") {
@@ -74,7 +74,7 @@ func fakeGitHub(t *testing.T) *httptest.Server {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 }
 
@@ -198,6 +198,19 @@ func TestHandleMembershipRemoved(t *testing.T) {
 	}
 	if rel := o.Data.Relations[0]; rel.To != "github:team/acme/payments" || !rel.Absent {
 		t.Fatalf("relation = %+v, want absent membership", rel)
+	}
+}
+
+func TestHandleNeedsWebhookSecret(t *testing.T) {
+	a := testAdapter(map[string]string{})
+	_, err := a.Handle(context.Background(), adapter.HandleParams{
+		Config:  json.RawMessage(`{"org":"acme"}`),
+		Headers: map[string][]string{"X-GitHub-Event": {"repository"}},
+		Body:    []byte(`{}`),
+	})
+	var rpcErr *adapter.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeInvalidParams || !strings.Contains(err.Error(), "GITHUB_WEBHOOK_SECRET") {
+		t.Fatalf("got %v, want an invalid-params error naming GITHUB_WEBHOOK_SECRET", err)
 	}
 }
 
