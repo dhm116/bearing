@@ -87,10 +87,12 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 - **C-SECRET-1** Secrets are configured only as references: `env:NAME` or
   `file:/path` in the MVP. A config field that takes a secret rejects
-  anything that is not a reference. `env:` names must match a configured
-  allowlist (default `BEARING_SECRET_*`) and `file:` paths must be inside a
-  configured secrets directory (default `/run/secrets/bearing/`). Bearing's
-  own settings (store password, OIDC) cannot be referenced by a Source.
+  anything that is not a reference. For Source and Adapter resources,
+  `env:` names must match a configured allowlist (default
+  `BEARING_SECRET_*`) and `file:` paths must be inside a configured secrets
+  directory (default `/run/secrets/bearing/`). `file:` paths are checked
+  after resolving symlinks and `..`. Bearing's own settings (store password,
+  OIDC) cannot be referenced by a Source.
 - **C-SECRET-2** Resolved secret values are never stored, logged, traced,
   put in errors, returned by the API or MCP, or written to audit records.
 - **C-SECRET-3** Adapter code never sees secret values. The host injects
@@ -152,7 +154,8 @@ Assets: A1, A7, the event log.
   configures: an HMAC signature over the raw body; a client certificate
   chaining to the Source's CA bundle, with its SAN or SHA-256 fingerprint
   pinned in the Source; a static token by reference; or an OIDC access token
-  from a caller with the `ingest` role (C-API-4). Comparisons are constant
+  whose client ID or group is mapped to `ingest` for this Source (C-API-4).
+  Comparisons are constant
   time. A Source with no method configured cannot receive events. Failures
   return 401, store nothing and increment a metric.
 - **C-INGEST-3** Each request is routed to exactly one Source by its
@@ -166,7 +169,8 @@ Assets: A1, A7, the event log.
   the authenticated body. Where the sender signs a timestamp, events outside
   a configured window (default 5 minutes) are rejected. Webhook payloads are
   change hints. Facts carry the source's own update time, and an older
-  observation never replaces a newer assertion.
+  observation never replaces a newer assertion. Where the source gives no
+  update time, event-log order decides.
 - **C-INGEST-6** Transports bind TLS 1.2 or later. Plain HTTP on a
   non-loopback address requires `insecure_ingest_plaintext` (for example
   behind a TLS-terminating proxy).
@@ -321,18 +325,21 @@ Assets: A3, A5, A4, A7.
 - **C-API-3** The TCP listener uses TLS 1.2 or later. Plaintext on a
   non-loopback address requires `insecure_api_plaintext`.
 - **C-API-4** Every request is checked by the `Authorizer` contract. The MVP
-  backend maps IdP groups to roles and denies callers in no mapped group:
+  backend maps IdP groups and client IDs to roles and denies callers with no
+  mapping:
   - `read`: queries and MCP.
-  - `ingest`: request syncs (`SyncRequested`) and push CloudEvents with an
-    OIDC bearer token to a Source configured for OIDC.
-  - `admin`: configuration, audit queries and everything `read` and
-    `ingest` can do.
+  - `ingest`, always granted for named Sources: request syncs
+    (`SyncRequested`) of those Sources, and push CloudEvents with an OIDC
+    access token to those Sources when they are configured for OIDC
+    (C-INGEST-2).
+  - `admin`: configuration, audit queries, and `read` and `ingest` for every
+    Source.
 
-  An agent is a token without a user subject (client-credentials flow),
-  identified by its `azp`/`client_id`. Agents get at most `read`, and only
-  when their client ID or group is mapped; an unmapped agent is denied. A
-  mapping that gives an agent `ingest` or `admin` is rejected at config
-  apply.
+  A client-credentials token (no user subject) is identified by its
+  `azp`/`client_id` and gets only the roles its client ID is mapped to; an
+  unmapped client is denied. An **agent** is a client mapped to `read` for
+  queries and MCP. A client may also be mapped to `ingest` for named Sources
+  only. A mapping that gives a client `admin` is rejected at config apply.
 - **C-API-5** Each API method declares its required role in one table. A
   test fails if a method has no entry, so new methods are denied until
   classified.
@@ -342,8 +349,9 @@ Assets: A3, A5, A4, A7.
   request ID. Details go to logs, not responses.
 - **C-MCP-1** MCP is read-only. It exposes only query tools that need the
   `read` role: no config, sync, ingest or action tools.
-- **C-MCP-2** Source text in MCP results is returned only as structured
-  `{"untrusted_text", "source", "entity_key"}` objects, never in tool prose.
+- **C-MCP-2** Source text in MCP results is returned only as objects
+  with the fields `untrusted_text`, `source` and `entity_key`, never in tool
+  prose.
   Tool names and descriptions are static strings in the binary.
 - **C-MCP-3** The HTTP transport checks `Host` and `Origin` against
   configured values and rejects others, and requires OIDC like the API.
@@ -371,9 +379,10 @@ Assets: caller identity, role mapping, A7 (API availability).
   exact `iss`, `aud` containing Bearing's configured audience, `exp` and
   `nbf` with at most 60 seconds of skew. Allowed algorithms: RS256, PS256,
   ES256, EdDSA. `none` and HMAC algorithms are rejected. Only access tokens
-  are accepted: `typ` must be `at+jwt` where set, otherwise `azp` must be
-  on a configured allowlist. Tokens are read only from the `Authorization`
-  header.
+  are accepted. If the issuer is configured as issuing RFC 9068 tokens,
+  `typ` must be `at+jwt`. Otherwise `azp` must be on a configured allowlist,
+  and tokens with `nonce` or `at_hash` (ID tokens) are rejected. Tokens are
+  read only from the `Authorization` header.
 - **C-IDP-2** The JWKS URL comes from the issuer's HTTPS discovery document,
   whose `issuer` must equal the configured issuer exactly. Fetches have
   timeouts and size limits. Keys are cached; an unknown `kid` triggers at
@@ -381,7 +390,7 @@ Assets: caller identity, role mapping, A7 (API availability).
   dropped. With no valid keys, verification fails closed. The Unix socket
   keeps working while the IdP is down.
 - **C-IDP-3** Roles come only from the configured groups claim (and, for
-  agents, client ID) through the configured mapping. Other claims never
+  clients, client ID) through the configured mapping. Other claims never
   grant a role.
 - **C-IDP-4** Bearing never mints, issues, refreshes or stores credentials.
   There are no local users, passwords or API keys. Agents use the client
@@ -412,7 +421,8 @@ Assets: A1, A3, A4, A5, A6.
   namespace user.
 - **C-STORE-3** The compose deployment generates a random SurrealDB password
   on first start into a secrets file (mode 0600), passes it as a Docker
-  secret, and does not publish the SurrealDB port.
+  secret, and does not publish the SurrealDB port. The store secret is
+  mounted outside the Source secrets directory.
 - **C-STORE-4** SurrealDB runs with network access from functions and
   embedded scripting denied, and with guest access off.
 - **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
@@ -439,9 +449,9 @@ Assets: A5, A2, A6, the container and host.
 | T-OPS-2 | I | Secret values committed to Git, or left in files other users can read | C-SECRET-1, C-SECRET-5 |
 | T-OPS-3 | I | Secrets leak through logs, traces or errors | C-SECRET-2, C-SECRET-4 |
 | T-OPS-4 | E | A config change widens an adapter's grant unnoticed | C-ADAPTER-2, C-OPS-1 |
-| T-OPS-6 | T | Startup config directory writable by others | C-OPS-3 |
-| T-OPS-7 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
-| T-OPS-8 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
+| T-OPS-5 | T | Startup config directory writable by others | C-OPS-3 |
+| T-OPS-6 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
+| T-OPS-7 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
 
 - **C-OPS-1** Config apply validates types, protovalidate rules, adapter
   settings and grants (ADR 10). `bearing diff` shows grant changes

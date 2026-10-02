@@ -51,8 +51,9 @@ compose file).
 
 Out of scope: vulnerabilities in source systems, identity providers or
 SurrealDB themselves (report those upstream), and the risks the threat model
-lists as accepted. Settings named `insecure_*` are out of scope when
-enabled.
+lists as accepted. Risks that an `insecure_*` setting knowingly
+accepts are out of scope; a setting that fails to warn or audit (C-GEN-1)
+is in scope.
 
 ## Threat model
 
