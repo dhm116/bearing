@@ -49,7 +49,7 @@ func TestOpenRejectsPasswordsInURLs(t *testing.T) {
 		{"server with query", Config{Graph: "surrealdb+wss://root:hunter2@db.example.com?ns=prod&db=main"}},
 		{"empty password", Config{Graph: "surrealdb+ws://root:@localhost:8000"}},
 		{"memory", Config{Graph: "mem://root:hunter2@"}},
-		{"vectors", Config{Graph: "mem://", Vectors: "surrealdb+http://root:hunter2@localhost:8000"}}, //nolint:gosec // G101: a fake password the test expects Open to reject
+		{"vectors", Config{Graph: "mem://", Vectors: "surrealdb+http://root:hunter2@localhost:8000"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			getenv := func(string) string {
@@ -104,10 +104,34 @@ func TestOpenReadsPasswordFromEnvironment(t *testing.T) {
 	}
 }
 
-func TestOpenClosesTheGraphWhenVectorsFail(t *testing.T) {
+func TestOpenRejectsUnknownVectorSchemes(t *testing.T) {
 	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "qdrant://localhost"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported URL scheme") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOpenRejectsMalformedServerURLs(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, want string
+	}{
+		{"opaque", "surrealdb+ws:localhost:8000", "put // after the scheme"},
+		{"opaque with user", "surrealdb+wss:root@db.example.com", "put // after the scheme"},
+		{"opaque mem", "mem:x", "put // after the scheme"},
+		{"no host", "surrealdb+ws://", "names no server host"},
+		{"no host with path", "surrealdb+http:///rpc", "names no server host"},
+		{"no host with user", "surrealdb+https://root@", "names no server host"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := Open(context.Background(), Config{Graph: tc.url, Getenv: func(string) string { return "" }})
+			if err == nil {
+				closeStore(t, s)
+				t.Fatalf("opened %s", tc.url)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want an error containing %q", err, tc.want)
+			}
+		})
 	}
 }
 

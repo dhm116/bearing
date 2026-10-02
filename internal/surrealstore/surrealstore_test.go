@@ -68,8 +68,8 @@ func TestDialRejectsBadCredentials(t *testing.T) {
 		_ = s.Close(ctx)
 		t.Fatal("signed in with the wrong password")
 	}
-	if !strings.Contains(err.Error(), "sign in as "+user) {
-		t.Fatalf("got %v, want a sign-in error", err)
+	if !strings.Contains(err.Error(), "surrealstore: sign in: ") || strings.Contains(err.Error(), user) {
+		t.Fatalf("got %v, want a sign-in error that does not name the user", err)
 	}
 }
 

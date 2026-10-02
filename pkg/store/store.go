@@ -137,6 +137,9 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		return surreal(st), nil
 
 	case strings.HasPrefix(scheme, "surrealdb+"):
+		if u.Host == "" {
+			return backend{}, fmt.Errorf("store: %s names no server host", u.Redacted())
+		}
 		o := surrealstore.ServerOptions{Namespace: ns, Database: db}
 		if u.User != nil {
 			o.Username = u.User.Username()
@@ -166,6 +169,11 @@ func parseURL(raw string) (*url.URL, error) {
 	}
 	if _, ok := u.User.Password(); ok {
 		return nil, fmt.Errorf("store: %s has a password in it; remove it and set %s instead", u.Redacted(), PasswordEnv)
+	}
+	if u.Opaque != "" {
+		// "surrealdb+ws:host:8000" parses with no host; say what's wrong
+		// rather than dialing somewhere unexpected.
+		return nil, fmt.Errorf("store: %s: put // after the scheme, as in %s://host", u.Redacted(), u.Scheme)
 	}
 	return u, nil
 }

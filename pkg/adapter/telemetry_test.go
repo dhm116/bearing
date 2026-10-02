@@ -23,12 +23,13 @@ var (
 )
 
 // childEnv makes the test binary serve pager on stdio instead of running
-// tests, so TestStartRunsAnAdapterProcess has a real process to start.
+// tests, so the Start tests have a real process to start. "serve" exits 0
+// when stdin closes; "fail" serves the same way, then exits 1.
 const childEnv = "BEARING_ADAPTER_TEST_CHILD"
 
 func TestMain(m *testing.M) {
-	if os.Getenv(childEnv) == "1" {
-		if err := ServeStdio(context.Background(), pager{n: 1}); err != nil {
+	if mode := os.Getenv(childEnv); mode != "" {
+		if err := ServeStdio(context.Background(), pager{n: 1}); err != nil || mode == "fail" {
 			os.Exit(1)
 		}
 		os.Exit(0)

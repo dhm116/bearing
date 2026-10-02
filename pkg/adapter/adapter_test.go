@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestServeAnswersUnparseableRequests(t *testing.T) {
 func TestStartRunsAnAdapterProcess(t *testing.T) {
 	// The child is this test binary; TestMain serves pager when it sees
 	// childEnv.
-	t.Setenv(childEnv, "1")
+	t.Setenv(childEnv, "serve")
 	ctx := context.Background()
 	c, err := Start(ctx, os.Args[0])
 	if err != nil {
@@ -150,6 +151,23 @@ func TestStartRunsAnAdapterProcess(t *testing.T) {
 	}
 	if err := c.Close(); err != nil {
 		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestCloseReportsAdapterExitStatus(t *testing.T) {
+	t.Setenv(childEnv, "fail")
+	ctx := context.Background()
+	c, err := Start(ctx, os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Describe(ctx); err != nil {
+		t.Fatal(err)
+	}
+	err = c.Close()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("got %v, want an *exec.ExitError with code 1", err)
 	}
 }
 
