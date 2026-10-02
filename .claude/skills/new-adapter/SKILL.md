@@ -39,7 +39,9 @@ its shape.
       Observations carry `evidence` pointing where a person can check the
       claim (the spec says SHOULD).
 - [ ] `Handle` (optional): verify the webhook signature when the source
-      signs, reject bad signatures, ignore unknown event types.
+      signs, reject bad signatures, ignore unknown event types. (Under
+      ADR 9 A6 the host verifies from M4; stdio adapters keep verifying
+      until then, see A15.)
 - [ ] `adapters/<name>/telemetry.go` for spans and metrics; log with
       `telemetry.Logger`, fail with `telemetry.Fail`, never write to stdout.
 - [ ] `cmd/bearing-adapter-<name>/main.go`, copied from

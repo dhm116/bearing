@@ -2,7 +2,8 @@
 
 Date: YYYY-MM-DD · Status: proposed
 
-<!-- Status is one of: proposed, accepted, superseded by ADR N. Copy this
+<!-- Status is one of: proposed, accepted, accepted (with amendment),
+superseded by ADR N, superseded in part by ADR N. Copy this
 file to the next free number, e.g. 0006-short-slug.md. -->
 
 ## Context

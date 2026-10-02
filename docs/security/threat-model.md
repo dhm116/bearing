@@ -7,13 +7,12 @@ what can go wrong at each trust boundary, and the control that answers each
 threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
 [WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
-default adapter runtime once M4 lands; ADR 3's stdio processes stay
-supported but are outside B2 (see the end of this document). Where an ADR
-says otherwise, this document records the decision and the ADR is to be
-amended: in particular the host, not the adapter, authenticates webhook
-deliveries (C-INGEST-2, ADR 9 A6), overriding ADR 7's `WebhookReceived`
-wording. Where today's code differs, the control is a requirement on the
-code.
+default adapter runtime once M4 lands; ADR 3's stdio processes stay as a
+transitional and development transport, with the exceptions in B2. Where
+an ADR says otherwise, this document records the decision and the ADR is
+to be amended: in particular the host, not the adapter, authenticates
+webhook deliveries (C-INGEST-2, ADR 9 A6). Where today's code differs, the
+control is a requirement on the code.
 
 To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
@@ -101,6 +100,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   put in errors, returned by the API or MCP, or written to audit records.
 - **C-SECRET-3** Adapter code never sees secret values. The host injects
   them into outbound requests (C-ADAPTER-6) and webhook checks (C-INGEST-2).
+  Exception: a stdio adapter receives the secrets its own Source names, and
+  no others (see "stdio process adapters" in B2; ADR 9 A15).
 - **C-SECRET-4** Resolved values are registered with the logger and tracer,
   which replace any occurrence with `[redacted]`. This is a backstop, not the
   primary control; tests assert that a known secret never appears in log or
@@ -161,10 +162,12 @@ Assets: A1, A7, the event log.
   whose client ID or group is mapped to `ingest` for this Source (C-API-4).
   Comparisons are constant
   time. A Source with no method configured cannot receive events. Failures
-  return 401, store nothing and increment a metric. Adapters never verify
-  deliveries or see webhook secrets: an adapter's `Handle` receives only
+  return 401, store nothing and increment a metric. WASM modules never
+  verify deliveries or see webhook secrets: `Handle` receives only
   deliveries the host has authenticated, and there is no HMAC capability
-  (ADR 9 A6).
+  (ADR 9 A6). A stdio adapter may also verify, as defense in depth, but the
+  host authenticates first. Until M4 the core does not verify, and stdio
+  adapters MUST verify as the adapter protocol spec says (ADR 9 A15).
 - **C-INGEST-3** Each request is routed to exactly one Source by its
   configured route and checked with that Source's credential. The Source
   recorded on the event comes from the route, never from the payload.
@@ -200,6 +203,16 @@ runs inside the host process, so the sandbox is the boundary.
 Assets: A2, A3, A1 (through emitted observations), the host process, the
 internal network, cloud metadata endpoints and the compilation cache.
 
+**stdio process adapters** (ADR 3, kept by ADR 9 A13 for transition and
+development) are not sandboxed. Only the sandbox controls are waived for
+them: C-ADAPTER-1, 3, 4, 5, 6, 8 and 12. C-GEN-3 and C-ADAPTER-2, 7, 10
+and 11 still apply, because the core enforces them on what the adapter
+returns. A stdio adapter is started with a minimal environment holding
+only the secret references its Source names. Today `pkg/adapter` sets no
+environment, so the adapter inherits the server's, including
+`BEARING_STORE_PASSWORD` and OIDC settings; this is a requirement on the
+code.
+
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
 | T-ADAPTER-1 | E | Module reads files or environment, opens sockets, or escapes into the host | C-ADAPTER-1 |
@@ -224,6 +237,8 @@ internal network, cloud metadata endpoints and the compilation cache.
     rate-limited. It is never the host's own stdout or stderr.
   - The random source is `crypto/rand`. The wall clock is fake, so real time
     comes only through the `clock` capability; the monotonic clock is real.
+    Go's runtime and GC are verified under the fake wall clock by the
+    hostile-guest module (ADR 9 A12) before this profile is final.
   - The only other host functions are `bearing_call` and its ABI's read
     helper (or, if Extism is chosen, Extism's memory kernel with its HTTP,
     config, var and path functions off: `allowed_hosts` and
@@ -237,7 +252,8 @@ internal network, cloud metadata endpoints and the compilation cache.
 - **C-ADAPTER-3** Per-call limits (ADR 9 A9):
   - Wall time: every guest call runs under a deadline with wazero's
     `CloseOnContextDone`, so a pure CPU loop is stopped too.
-  - Memory: a `MaxPages` cap of 64–128 MiB.
+  - Memory: a cap of 64–128 MiB per instance, counted across all of its
+    memories (an Extism instance has two).
   - Size caps on every capability request and response field, on the
     number and size of observations, on `kv` keys and bytes, and on log
     records and guest output. An oversize response is an error, never a
@@ -250,7 +266,8 @@ internal network, cloud metadata endpoints and the compilation cache.
 - **C-ADAPTER-4** The `http` capability allows only HTTPS to hosts on the
   effective allowlist, and only GET and HEAD unless the manifest declares
   other methods and the Source grants them. `http://` URLs are refused,
-  including as redirect targets. Hostnames are canonicalized (lowercase,
+  including as redirect targets. Only port 443 is allowed unless the grant
+  names a port. Hostnames are canonicalized (lowercase, IDNA to punycode,
   no trailing dot) and must match an allowlist entry exactly; no globs.
 - **C-ADAPTER-5** After DNS resolution the host refuses loopback, private
   (RFC 1918, `fc00::/7`), link-local (`169.254.0.0/16` including
@@ -263,8 +280,9 @@ internal network, cloud metadata endpoints and the compilation cache.
   C-ADAPTER-4 and these rules; at most 5 redirects. The capability's
   transport sets `Proxy: nil`, so `HTTPS_PROXY`, `HTTP_PROXY` and
   `NO_PROXY` are ignored; a shared egress proxy is a capability provider
-  (ADR 9), not an environment setting. A Source may allow named private CIDRs (for example a GitHub
-  Enterprise server) only with `insecure_allow_private_networks`.
+  (ADR 9), not an environment setting. A Source may allow named private
+  CIDRs (for example a GitHub Enterprise server) only with
+  `insecure_allow_private_networks`.
 - **C-ADAPTER-6** The host injects credentials only for the host the secret
   is bound to, and drops them on a cross-host redirect. It strips
   `Authorization`, `Cookie`, `Proxy-*`, `Host` and `X-Amz-*` headers set by
@@ -607,10 +625,9 @@ provider API keys.
   30 days by default (ADR 7), so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
-- **stdio process adapters.** ADR 3's stdio transport stays supported
-  (ADR 9 A13). A stdio adapter is a process with the service user's access;
-  none of B2's controls apply to it. Operators run only stdio adapters they
-  trust fully.
+- **stdio process adapters** run with the service user's OS access, outside
+  the sandbox. B2 lists which controls still apply. Operators run only
+  stdio adapters they trust.
 - **WASM side channels** (timing, speculative execution) between modules in
   one process are not addressed.
 - **Encryption at rest** is left to the disk or volume.

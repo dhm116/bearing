@@ -93,10 +93,11 @@ new ADR.
    `bearing.handle` for webhooks. Once M4 lands, sandboxed WASM modules
    reaching the world only through granted host capabilities are the
    default runtime ([ADR 9](docs/adr/0009-wasm-adapters.md)); stdio stays
-   supported. Adapters are stateless and read-only against their source.
-   Under ADR 9 the host, not the adapter, holds credentials and verifies
-   webhook signatures before parsing. Adapters never resolve identities
-   across systems. That is the core's job.
+   supported for transition and development. Adapters are stateless and
+   read-only against their source. For WASM adapters, from M4, the host
+   holds credentials and verifies webhook signatures before parsing; stdio
+   adapters keep verifying until then (ADR 9 A15). Adapters never resolve
+   identities across systems. That is the core's job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and
    focused on useful data types.

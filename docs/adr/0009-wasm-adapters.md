@@ -1,12 +1,12 @@
 # 9. Adapters run as sandboxed WebAssembly modules with granted capabilities
 
-Date: 2026-09-29 · Status: accepted (2026-10-02), with the conditions in
-[Amendment: accepted with conditions](#amendment-accepted-with-conditions-2026-10-02)
+Date: 2026-09-29 · Status: accepted (with amendment), 2026-10-02
 
 > Proposed 2026-09-29. Accepted 2026-10-02 after the
 > [WASM adapters spike](../spikes/wasm-adapters.md) (PR #24). Context,
 > Decision, Shape and Consequences are the original proposal; where the
 > amendment differs, the amendment wins, and the changed bullets say so.
+> See [the amendment](#amendment-accepted-with-conditions-2026-10-02).
 
 ## Context
 
@@ -84,15 +84,18 @@ credential handling.
   redesigning the capabilities.
 - **Modules are pinned by digest** (sha256) in configuration (ADR 10), and
   can be signed and verified (Sigstore) before loading.
-  *Amended (A11): first-party modules are embedded in the binary instead.*
+  *Amended (A11): first-party modules are embedded in the binary; external
+  modules stay digest-pinned, with an optional signature check.*
 - **A second runtime for what WASM can't do yet.** Remote adapters implement
   the same Protobuf service over Connect/gRPC and run as their own service.
   The core can't tell the difference. This covers adapters that need
   libraries that don't compile to WASM, or special network access.
 - **The stdio JSON-RPC transport is retired.** Existing adapters (GitHub)
   are ported to WASM.
-  *Amended (A13): stdio stays supported; WASM becomes the default runtime
-  when M4 lands.*
+  *Amended (A13, A15): reversed. stdio stays as a transitional and
+  development transport; WASM becomes the default runtime when
+  [M4 (WASM adapters and capabilities)][M4] lands, and the GitHub adapter
+  is still ported.*
 
 ## Shape
 
@@ -143,6 +146,8 @@ still unproven. Control IDs refer to the
   only `bearing_call`, a read helper and the WASI profile (A8). Either way
   the shape `bearing_call(capability, method, request_bytes) ->
   response_bytes` stays, and the SDKs hide the choice from adapter code.
+  SDK clients surface a permission error to the adapter and never fall
+  back silently (the spike's `clock` client fell back to the WASI clock).
 - **A5. Messages.** Capability and adapter messages are Protobuf, with HTTP
   bodies as `bytes` fields, never base64 inside JSON. protobuf-go adds a
   measured +3.6 MiB (+29%) to the lean Go module; its CPU cost on `wasip1`
@@ -167,18 +172,23 @@ still unproven. Control IDs refer to the
   (TinyGo's `sock_*` imports are stubs that return an error), stdout and
   stderr owned by the host and discarded or bounded and rate-limited,
   `crypto/rand` as the random source, a fake wall clock (real time comes
-  only through `clock`) and a real monotonic clock. Any import outside the
-  profile fails the load. If Extism is used, Bearing refuses to start with
+  only through `clock`) and a real monotonic clock. Go's runtime and GC
+  must be verified under the fake wall clock (an A12 case) before the
+  profile is final. Any import outside the profile fails the load. If
+  Extism is used, Bearing refuses to start with
   `EXTISM_ENABLE_WASI_OUTPUT` set.
 - **A9. Limits.** Every guest call runs under a deadline with wazero's
-  `CloseOnContextDone` and a `MaxPages` cap of 64–128 MiB, plus size caps on
+  `CloseOnContextDone` and a memory cap of 64–128 MiB per instance, counted
+  across all of its memories (Extism instances have two), plus size caps on
   capability requests, responses and observations. Any breach aborts the
   call and discards the instance (C-ADAPTER-3). The memory cap cost nothing
   measurable; `CloseOnContextDone` roughly doubles sync time (about 2× guest
   CPU; 1.3–1.6 s for the spike's 456-request sync). Worker pools are sized
   for that and re-measured under load with realistic API latency.
 - **A10. `http` capability rules** (C-ADAPTER-4, C-ADAPTER-5, C-ADAPTER-6):
-  HTTPS only, exact hostnames, GET and HEAD unless granted; a dialer that
+  HTTPS only, port 443 unless the grant names a port; exact hostnames,
+  canonicalized (lowercase, IDNA to punycode, no trailing dot); GET and
+  HEAD unless granted; a dialer that
   checks the resolved IP and dials the address it checked; every redirect
   re-checked, at most 5; `Proxy: nil`, so environment proxy settings are
   ignored; guest-set `Authorization`, `Cookie`, `Proxy-*`, `Host` and
@@ -193,23 +203,44 @@ still unproven. Control IDs refer to the
 - **A12. Hostile-guest conformance module.** A test module tries
   `environ_get`, `path_open`, an unknown capability, an ungranted method,
   its own `Authorization`, a cross-host redirect, a pure CPU loop (also
-  against a warm compile cache), memory growth and an output flood. Every
+  against a warm compile cache), memory growth and an output flood. It also
+  checks that the Go runtime and GC run correctly under the profile's fake
+  wall clock (A8), and that a denied capability reaches the adapter as a
+  permission error with no silent fallback (A4). Every
   runtime and capability provider must pass it before any adapter is
   enabled by default.
-- **A13. stdio stays.** The stdio JSON-RPC transport (ADR 3) stays
-  supported. WASM becomes the default runtime when M4 lands. A stdio
-  adapter is an unsandboxed process with the service user's access; the
-  controls for adapter modules (threat model B2) do not apply to it.
+- **A13. stdio stays, for transition and development.** This reverses the
+  original "stdio is retired" decision, so that nothing users rely on is
+  removed before WASM is proven in production. The stdio JSON-RPC
+  transport (ADR 3) stays as a transitional and development transport: for
+  adapters in languages without a mature `wasip1` toolchain, and for local
+  development. WASM becomes the default runtime when [M4][M4] lands, and
+  the GitHub adapter is still ported to WASM in M4 (A11). New first-party
+  adapters target WASM. stdio stays on JSON-RPC 0.x and need not follow
+  ADR 6's Protobuf rule. A stdio adapter is an unsandboxed process: the
+  sandbox controls in threat model B2 don't apply to it, but output
+  validation, grants, tagging and Source scoping do. Whether to retire
+  stdio is revisited after M4. *The owner is to confirm this scope.*
 - **A14. AWS.** The AWS SDK for Go v2 works in a Go module over the `http`
   capability (STS: 13.5 MiB). The remote runtime stays as a fallback, but
   AWS does not need it on technical grounds.
+- **A15. Transition rule for webhooks and secrets.** Until M4, the core
+  does not verify deliveries, and stdio adapters MUST keep verifying them
+  as the adapter protocol spec says. From M4, the host verifies deliveries
+  for every runtime (A6); a stdio adapter may still verify as defense in
+  depth, after the host. stdio adapters still receive their own Source's
+  credentials, an exception to C-SECRET-3 that holds only for stdio, and
+  only for the secret references that Source names. Updating
+  `docs/spec/adapter-protocol.md` and bumping `adapter.ProtocolVersion`
+  are deferred to [M4][M4].
 
 ## Consequences
 
-- **Spike first** (done, see the amendment): build the GitHub adapter as a WASM module, and check the
-  AWS SDK for Go v2 against the host HTTP function (a custom
-  `http.RoundTripper`). If the AWS SDK can't be made to work, the AWS
-  adapter uses the remote runtime. The decision doesn't depend on it.
+- **Spike first** (done, see the amendment): build the GitHub adapter as
+  a WASM module, and check the AWS SDK for Go v2 against the host HTTP
+  function (a custom `http.RoundTripper`). If the AWS SDK can't be made to
+  work, the AWS adapter uses the remote runtime. The decision doesn't
+  depend on it.
 - WASM doesn't make Bearing scale by itself. It helps because adapters
   become cheap, stateless functions that any worker can run, so scale comes
   from the event log and worker pool (ADR 7).
@@ -227,7 +258,10 @@ still unproven. Control IDs refer to the
 - Supersedes [ADR 3](0003-adapter-protocol.md) and
   `docs/spec/adapter-protocol.md` once accepted. *Amended (A6, A13):
   supersedes them in part. WASM becomes the default runtime and webhook
-  verification moves to the host; the stdio transport stays supported.*
+  verification moves to the host from M4; the stdio transport stays as a
+  transitional and development transport (A15).*
 - Per sync, WASM costs 3–5× the stdio process's wall time in the spike, and
   6.5–8.5× with `CloseOnContextDone` on, mostly guest CPU. Against real
   APIs, request latency still dominates.
+
+[M4]: https://github.com/dhm116/bearing/milestone/5
