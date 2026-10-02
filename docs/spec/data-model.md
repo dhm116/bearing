@@ -1,7 +1,7 @@
 # Data model
 
-Version 0.2 (draft). The rule sections (from [State](#state-determinism-and-apply)
-to [Wire mapping](#wire-mapping)) are normative: statements there in the
+Version 0.2 (draft). The rule sections (from [Terms](#terms) to
+[Wire mapping](#wire-mapping)) are normative: statements there in the
 imperative or present tense ("is", "becomes", "writes") are requirements,
 as if they said MUST. Worked examples and open questions are not.
 
@@ -41,6 +41,8 @@ because the spec is pre-1.0 and the only consumers are in this repository.
 | Source | A configured adapter instance ([ADR 10](../adr/0010-configuration-as-resources.md)), for example `github-acme`. The unit of provenance. |
 | Source system | The namespace a source reads. Sources of one system are not independent. |
 | Observation | One source's report about one entity at one `observed_at`. |
+| Claim | One statement in an observation (or a manual event) about one fact. |
+| Support | One source's claims about one fact, evaluated over valid time. |
 | Valid time | When something is true in the world, `[valid_from, valid_to)`. |
 | Record time | When Bearing held it, `[recorded_at, retracted_at)`. |
 
@@ -188,8 +190,9 @@ namespace's issuer type.
   Back-extension never releases a name, and a back-extended mapping is
   dropped where the subject holds another name by a covering write.
 - A binding written by a reference (when minting a placeholder) is
-  **tentative**. It counts wherever the name is unbound or released without
-  redirect; an observed binding to a subject overrides it.
+  **tentative**. It has no start: it covers every valid time at which the
+  name is unbound or released without redirect; an observed binding to a
+  subject overrides it.
 
 ### Resolution
 
@@ -280,7 +283,8 @@ Only subjects of the same kind merge. At record time `r`:
 ### Un-merge
 
 Only an `UnmergeRequested` event un-merges. It names an active subject `A`
-and a non-empty proper subset `D` of `A`'s aliases. At record time `r`:
+and a non-empty proper subset `D` of `A`'s aliases. A `placeholder` merge
+can't be un-merged: it is correct by construction. At record time `r`:
 
 1. If `D` is the alias set some `B` had when it merged into `A`, `B` becomes
    `active` again; subjects earlier merged into `B` stay merged into `B`.
@@ -512,9 +516,10 @@ a snapshot read); offset paging can skip items.
   it with an empty cursor ("reset"), that is a new sync and the earlier one
   is never complete.
 - A subject of a declared kind that had a live `exists` support from this
-  source and is missing from **two consecutive** complete syncs is treated
-  as `entity.deleted` at the first missing sync's `t0`, with watermark key
-  `(t0, <sync ID>, <sync ID>, "")`.
+  source at the first missing sync's `t0`, and is missing from **two
+  consecutive** complete syncs (consecutive among complete syncs; failed
+  syncs are skipped), is treated as `entity.deleted` at that `t0`, with
+  watermark key `(t0, <sync ID>, <sync ID>, "")`.
 - The core MAY append one derived deletion event per subject rather than
   apply them all in one transaction.
 
@@ -707,9 +712,9 @@ emit `ConflictOpened` / `ConflictResolved` events, with audit records.
 When valid time passes a known boundary (a `valid_to` reached), a
 scheduler appends a `ValidTimeBoundaryReached` event for it. Applying that
 event, like any other, recomputes conflicts for the affected
-`(subject, predicate)`, emits the events and writes the audit records, so it
-has a `recorded_at` and replays. Other status changes caused only by time
-passing are not audited.
+`(subject, predicate)` and emits the events, so it has a `recorded_at` and
+replays. It audits only the conflicts it opens and closes; status changes
+caused only by time passing are not audited.
 
 When any non-manual support of `(subject, predicate)` changes after an
 override was recorded, the core flags the override `override_stale` for
@@ -839,7 +844,8 @@ proto field names, so JSON matches the examples here.
   object. With no integer type, `Value` loses nothing.
 - Observation attributes are `google.protobuf.Value`, where an explicit
   `null` is meaningful. Everywhere else an absent field equals `null`.
-- Confidence is an optional `uint32 confidence_ppm`; absent means 1000000.
+- Confidence is a `uint32 confidence_ppm`. In claim inputs it is optional
+  and absent means 1000000; in outputs it is always present (0 is explicit).
 
 ## Worked examples
 
@@ -984,7 +990,6 @@ ownership would end.
 ## Open questions
 
 For Doug:
-
 1. **Identity store as primary state.** Subjects, bindings and merges can't
    be rebuilt from a windowed, partition-ordered log, so v0.2 makes them
    primary state, backed up with the graph. This narrows ADR 2's
@@ -996,22 +1001,23 @@ For Doug:
 4. **Login links.** `directory_link_login` is weak (850000) because logins
    are reusable. Make it strong when the login's binding hasn't changed
    since the directory record was updated?
-5. **CODEOWNERS confidence.** 1000000, or lower (a candidate unless
-   corroborated)? CODEOWNERS says who reviews, not always who owns.
+5. **CODEOWNERS confidence.** 1000000, or lower (CODEOWNERS says who
+   reviews, not always who owns)?
 6. **Unobserved owners.** A CODEOWNERS team not yet synced is a
    `candidate`, not an owner, until observed. Acceptable?
-7. **`owned_by` conflict policy** `set`: too strict? Ship a default
-   precedence?
+7. **`owned_by` conflict policy** `set`: too strict? Default precedence?
 8. **Backfill `valid_from`** where the source knows it (repo creation,
    membership start), so history doesn't start at install?
-9. **Record-time compaction** of superseded support versions after a
-   window?
+9. **Record-time compaction** of superseded support versions?
 10. **Placeholders** from typos in CODEOWNERS: hide by default, or report
     as data-quality issues?
 11. **Key types.** Spec-registered per issuer type, with unregistered types
     defaulting to `id`. Or should adapters declare them in `Describe`?
 12. **Wire choices.** Enumerations as validated strings rather than proto
     enums, and confidence as integer ppm in the API: confirm.
+13. **Global apply clock.** One clock record serializes applies store-wide:
+    fine for the MVP, but it caps throughput whatever ADR 7's NATS/Kafka
+    option offers. *Recommendation:* accept for v0.2.
 
 ## Follow-ups
 
@@ -1027,8 +1033,8 @@ To change once this is approved, in the M1 implementation:
 - `adapters/github`: node IDs as keys with the `X-Github-Next-Global-ID: 1`
   header, names as aliases, `full_name`; send `null`/`[]` for empty
   `language`, `description` and `topics` (`github.go:196-204` omits them);
-  snapshot scopes and `complete_sync` for full syncs; `observed_at` per the
-  rules above.
+  snapshot scopes for full syncs; `complete_sync` only after it moves to
+  cursor (GraphQL) paging; `observed_at` per the rules above.
 - `docs/spec/adapter-protocol.md` and `pkg/adapter`: `emits`, example keys,
   `complete_sync` on the last page, the full-sync claim, the source
   `namespace`, `issues` and `links` fields.
