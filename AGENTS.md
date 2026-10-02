@@ -117,23 +117,97 @@ new ADR.
   - New spans or metrics go into the catalog in `docs/telemetry.md` in the
     same change.
   - Outbound HTTP uses `otelhttp` so upstream calls appear in the trace.
-- **Testability:** time, environment and HTTP are injected (`Now`,
-  `Getenv`, `HTTP` fields; see `adapters/github`). Tests use `httptest`
-  servers, never the real network, and table-driven cases where they help.
-  New code that needs time beyond `Now` (timers, tickers) takes a
-  `pkg/clock.Clock`. Reach for `internal/testkit` fakes first; production
-  code never imports testkit, and declares its own small interfaces (IDs,
-  secret resolution) that the fakes satisfy.
 - **Secrets** come from environment variables named in config (for example
   `TokenEnv`, `BEARING_STORE_PASSWORD`), never from config values, URLs or
   logs.
-- Errors are wrapped with the package name as prefix, e.g.
-  `fmt.Errorf("surrealstore: open embedded %s: %w", endpoint, err)`.
-  `contracts.ErrNotFound` means "no match".
-- Every package has a package doc comment explaining its role; exported
-  identifiers have doc comments. Match the surrounding comment density.
 - Spec conventions: RFC 2119 keywords, `snake_case` JSON (CloudEvents
   envelope fields excepted), RFC 3339 UTC times.
+
+## Style guide
+
+Codifies what the existing code does and sets rules for patterns it doesn't
+have yet (`NewID`, `internal/testkit`, golden files). Code that predates a
+rule is not a finding unless the PR changes it. golangci-lint (`make lint`)
+enforces formatting and mechanical naming and error rules (initialisms,
+stutter, lower-case error strings, `errors.Is`, `ctx` first); this list is
+what it doesn't catch. Until it lands, reviewers apply those rules by hand.
+`go-reviewer` checks it.
+
+**Naming**
+
+- Name packages for what they provide (`memstore`, `telemetry`), never
+  `util` or `common`.
+- Typed strings for domain values: `model.Kind`, `model.Key`,
+  `contracts.EntityID`, with `Kind…`/`Rel…` constants.
+- Assert interface satisfaction at compile time:
+  `var _ contracts.GraphStore = (*Store)(nil)`.
+
+**Errors**
+
+- Errors returned from a package's entry points (`Open`, `New`, `Setup`)
+  start with the package name: `fmt.Errorf("store: parse URL: %w", err)`.
+  Methods behind a contract and inner helpers add only the action and
+  subject (`"decode facts: %w"`, `"entity %s: %w"`), because the caller's
+  span names the component.
+- Sentinels are package-level `ErrX` values built with `errors.New`
+  (`contracts.ErrNotFound`, `adapter.ErrTooManyPages`).
+  `contracts.ErrNotFound` means "no match".
+- Wrap sentinels with the subject so the message says what was missing:
+  `fmt.Errorf("entity %s: %w", id, contracts.ErrNotFound)`.
+- Don't log and return the same error; return it, and let the caller with
+  the span report it via `telemetry.Fail`.
+- Error text never contains secrets (see `redact` in `pkg/store`).
+
+**Doc comments**
+
+- Every package has a `// Package x …` comment (`// Command x …` for
+  `main`) that says its role and where it fits.
+- Every exported identifier has a doc comment. Methods that implement a
+  `pkg/contracts` interface may omit it; the interface documents them.
+- Short. Say why, a constraint, or a non-obvious default, not what the code
+  already says: `// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.`
+  Match the surrounding comment density.
+
+**Functions and interfaces**
+
+- Never store a `context.Context` in a struct.
+- Keep interfaces small and define them where they are used, as
+  `surrealstore.Querier` is. `pkg/contracts` is the deliberate exception:
+  component boundaries live there.
+- Configuration is a struct with defaults applied in one place
+  (`parseConfig`, `store.Config`), not functional options.
+
+**Dependency injection**
+
+- Inject time, environment, HTTP and ID generation as fields: `Now func()
+  time.Time`, `Getenv func(string) string`, `HTTP *http.Client` (see
+  `adapters/github`), `NewID func() string`. Constructors fill real
+  defaults (`time.Now`, `os.Getenv`, an `otelhttp` client); tests set fakes.
+  Code that needs timers takes a `clock.Clock` from `pkg/clock` (`Now`,
+  `After`, `NewTimer`, `NewTicker`); `testkit.FakeClock` implements it.
+- Code under test never calls `time.Now`, `os.Getenv`, `rand` or the
+  network directly. Measuring a duration for a metric is the exception.
+
+**Tests**
+
+- Name tests `Test<Subject><Behavior>` as a sentence:
+  `TestSyncAllStopsRunawayAdapters`, `TestHandleRejectsBadSignature`.
+- Table-driven when cases share a shape (`TestKeyParse`), with `t.Run` named
+  by the case.
+- Failure messages say got and want: `t.Fatalf("got %v, want %v", got, want)`.
+- Tests use `httptest` servers, never the real network.
+- Fakes over mocks: use `internal/testkit` fakes first; production code
+  never imports testkit. Fakes only one package needs (`httptest` handlers,
+  small structs like `pager`) stay in its test files. No mock frameworks.
+- Assert on behavior the code under test produced. A test that only checks
+  what a fake was told to return proves nothing.
+- Golden files live under the package's `testdata/` and are rewritten with
+  `go test ./pkg/x -update` (a package-level `var update = flag.Bool("update",
+  false, …)`); review golden diffs like code.
+- Backends prove themselves with `pkg/contracts/conformance`, not their own
+  ad hoc copies of it.
+- Tests needing an external service skip unless an env var
+  (`BEARING_TEST_<NAME>`) is set; `make test` stays hermetic.
 
 ## Changing the design
 
@@ -171,6 +245,38 @@ Both are plain Markdown checklists; any agent can follow them.
 - Keep changes focused. Spec, code and tests for one change land together.
 - PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
 - CI (`.github/workflows/ci.yml`) runs `make lint test build`.
+
+## Review and merge process
+
+- **Reviewers.** Each PR gets one or two reviewers, chosen from
+  [`.github/reviewers.yml`](.github/reviewers.yml) by the paths it touches.
+  If `security` matches, it always takes one of the two slots. If more than
+  two domain reviewers match, the lead picks the two most relevant and says
+  why in the PR. `go` takes the second slot when only one domain reviewer
+  matches and the PR changes Go, and is the only reviewer when no domain
+  reviewer matches. A PR that matches no rule gets the file's `default`.
+  Reviewer definitions live in [`.claude/agents/`](.claude/agents/).
+- **Findings.** Every finding states severity, effort to fix now, how hard
+  it is to change later, and whether leaving it opens an important gap
+  against the project's goals. A defect that makes the change wrong,
+  unsafe, or not do what it claims (a bug, a missing check, a test that
+  cannot fail) leaves an important gap. Style and polish do not. Only
+  findings that are hard to change later or leave an important gap block;
+  the rest become follow-up issues. The lead files them as GitHub issues
+  linked from the PR before merging.
+- **Rounds.** A round is one push answering the findings plus the
+  reviewers' re-review. Up to five rounds per PR. After the fifth round
+  with blocking findings open, the lead stops, comments on the PR listing
+  them, and mentions @dhm116 (Doug, the maintainer).
+- **Merge.** The lead merges once CI passes (or the change needs no tests)
+  and the assigned reviewers approve.
+- **Milestones** close only with Doug's review and approval.
+- **Shared files** are owned by the lead: `proto/`, `gen/go`,
+  `pkg/contracts`, `docs/spec/contracts.md`, `go.mod`/`go.sum`, `Makefile`,
+  `AGENTS.md`, `docs/telemetry.md`. Other contributors propose changes to
+  them through the lead. Contract changes (`pkg/contracts`, `proto/`,
+  `docs/spec/contracts.md`) land first, in their own PR, before code that
+  depends on them.
 
 ## Brand
 
