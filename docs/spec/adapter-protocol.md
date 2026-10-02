@@ -108,8 +108,8 @@ Result:
   (Under [ADR 9](../adr/0009-wasm-adapters.md) A6 and A15 the host
   verifies every delivery before it is logged; ingest stays off until that
   verifier ships with the first ingest transport, and until then this
-  check is the only one. This spec changes in
-  [M4](https://github.com/dhm116/bearing/milestone/5).)
+  check is the only one. This spec changes when the host verifier ships,
+  or in [M4](https://github.com/dhm116/bearing/milestone/5) at the latest.)
 - Events the adapter doesn't understand return an empty list, not an error.
 - Adapters without webhook support return error `-32001`.
 

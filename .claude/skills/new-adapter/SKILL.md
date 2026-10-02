@@ -42,8 +42,9 @@ its shape.
       signs, reject bad signatures, ignore unknown event types. (Under
       ADR 9 A6 and A15 the host verifies before a delivery is logged;
       ingest stays off until that verifier exists, so until then this
-      check is the only one. The spec changes in
-      [M4](https://github.com/dhm116/bearing/milestone/5).)
+      check is the only one. The spec changes when the host verifier
+      ships, or in [M4](https://github.com/dhm116/bearing/milestone/5) at
+      the latest.)
 - [ ] `adapters/<name>/telemetry.go` for spans and metrics; log with
       `telemetry.Logger`, fail with `telemetry.Fail`, never write to stdout.
 - [ ] `cmd/bearing-adapter-<name>/main.go`, copied from
