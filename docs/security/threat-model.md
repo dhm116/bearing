@@ -1,0 +1,571 @@
+# Threat model
+
+Status: draft for the MVP · Last reviewed: 2026-10-02
+
+This document describes Bearing as planned for the MVP, where it trusts what,
+what can go wrong at each trust boundary, and the control that answers each
+threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 3's
+process runtime is replaced by ADR 9. Where an ADR says otherwise, this
+document records the decision and the ADR is to be amended: in particular
+the host, not the adapter, authenticates webhook deliveries (C-INGEST-2),
+overriding ADR 7's `WebhookReceived` wording and AGENTS.md rule 2. Where
+today's code differs, the control is a requirement on the code.
+
+To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
+
+## How to use it
+
+- Every control has a stable ID, `C-<AREA>-<n>`. Milestone criteria, tests
+  and reviews cite these IDs. IDs are never renumbered or reused. A control
+  that is dropped stays listed, marked **Retired**, with the reason.
+- Threats have IDs too (`T-<AREA>-<n>`) and use STRIDE letters: **S**poofing,
+  **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of
+  service, **E**levation of privilege.
+- A change that adds a trust boundary, an input or a setting that weakens a
+  control updates this document in the same pull request.
+
+## The system
+
+```
+ [B3] source systems ─push─▶ [B1] ingest ─▶ event log ─▶ workers ─▶ [B6] store
+      (GitHub, …)                                        │  ▲      (SurrealDB: graph,
+           ▲                                             ▼  │       vectors, log, config,
+           └──── http capability ◀── [B2] adapter (WASM) ◀┘  │       audit, kv)
+                                                            │
+ people, CLI ── Unix socket / TCP+OIDC ──▶ [B4] API ────────┤
+ AI agents ─────────── OIDC ─────────────▶ [B4] MCP ────────┘
+
+ [B5] identity provider (OIDC, JWKS)     [B7] operators and config
+ [B8] build and release supply chain     [B9] model providers (embeddings)
+```
+
+- **`bearing server`** runs ingest, the scheduler, workers, the API and the
+  MCP server in one process for the MVP.
+- **Ingest** receives pushed events (HTTP webhooks, CloudEvents) and appends
+  them to the event log (ADR 7).
+- **Workers** run adapters as WASM modules (ADR 9). Adapters reach source
+  systems only through host capabilities and emit observations. Workers apply
+  the result to the graph in one transaction with its audit record (ADR 8).
+- **The store** is SurrealDB: graph, vectors, event log, config, audit log
+  and adapter `kv` (ADR 5).
+- **The API** serves queries and configuration (ADR 10). **MCP** serves
+  read-only queries to AI agents.
+- **The identity provider** (Authentik or any OIDC provider) authenticates
+  remote callers. Bearing never mints, issues or stores credentials.
+
+## Assets
+
+| ID | Asset | Why it matters |
+| --- | --- | --- |
+| A1 | Graph facts: ownership, on-call, dependencies | Wrong facts page the wrong team or, later, grant the wrong access |
+| A2 | Source credentials (API tokens, webhook secrets) | Read access to the organization's tools |
+| A3 | Organization data: repos, people, teams, incidents | Confidential; names people |
+| A4 | Audit log | The record of who changed what and why |
+| A5 | Configuration: sources, grants, role mappings | Controls what adapters can reach and who can do what |
+| A6 | Store credentials | Full access to A1, A3, A4, A5 |
+| A7 | Availability of ingest, API and MCP | Stale answers are wrong answers |
+
+## Controls that apply everywhere
+
+### Secure defaults, validation and logging
+
+- **C-GEN-1** Every setting that weakens a control is named `insecure_*`.
+  Each one in effect is logged at WARN on start and whenever config that
+  enables it is applied, the change is audited, and `bearing status` lists
+  it. No other setting may weaken a control.
+- **C-GEN-2** Defaults are the secure choice: ingest off, TCP API off, hosted
+  model providers off, adapters granted nothing they did not declare,
+  unmapped callers denied.
+- **C-GEN-3** Data entering Bearing (pushed events, adapter output, config,
+  API requests) is checked against its Protobuf type and protovalidate rules
+  at the edge, before use (ADR 6).
+- **C-GEN-4** Logs are structured. Source text appears only in attribute
+  values, never in the message or in attribute keys, with control characters
+  escaped.
+
+### Secrets
+
+- **C-SECRET-1** Secrets are configured only as references: `env:NAME` or
+  `file:/path` in the MVP. A config field that takes a secret rejects
+  anything that is not a reference. For Source and Adapter resources,
+  `env:` names must match a configured allowlist (default
+  `BEARING_SECRET_*`) and `file:` paths must be inside a configured secrets
+  directory (default `/run/secrets/bearing/`). `file:` paths are checked
+  after resolving symlinks and `..`. Bearing's own settings (store password,
+  OIDC) cannot be referenced by a Source or Adapter resource.
+- **C-SECRET-2** Resolved secret values are never stored, logged, traced,
+  put in errors, returned by the API or MCP, or written to audit records.
+- **C-SECRET-3** Adapter code never sees secret values. The host injects
+  them into outbound requests (C-ADAPTER-6) and webhook checks (C-INGEST-2).
+- **C-SECRET-4** Resolved values are registered with the logger and tracer,
+  which replace any occurrence with `[redacted]`. This is a backstop, not the
+  primary control; tests assert that a known secret never appears in log or
+  span output.
+- **C-SECRET-5** A `file:` secret that is group- or world-readable produces a
+  start-up warning.
+
+### Audit log
+
+- **C-AUDIT-1** Every fact change, config change, role decision on an admin
+  operation and confirmation by a person is written to the audit log in the
+  same transaction as the change (ADR 8). No change commits without its
+  record.
+- **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
+  over a canonical encoding, forming a chain.
+- **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number
+  and head hash) outside the store: to the log stream, a file or the
+  configured exporter. A rewrite of the whole chain in the store no longer
+  matches the checkpoints.
+- **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
+  it is given, and reports the first record that fails.
+- **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
+  removes only the oldest records, after writing a checkpoint at the cut.
+- **C-AUDIT-6** Records name actors by stable ID (`iss` + `sub`, client ID,
+  `local:<uid>`, component name) and never contain tokens or secret values.
+
+## Trust boundaries
+
+### B1. Ingest: pushed events and their senders
+
+Anyone who can reach an ingest port can send bytes. Only a configured Source
+holding the right secret, certificate or token is trusted, and only for its
+own events.
+
+Assets: A1, A7, the event log.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-INGEST-1 | S | Attacker posts a forged event that claims to come from GitHub | C-INGEST-2, C-INGEST-3 |
+| T-INGEST-2 | S | A valid credential for Source A is used to inject events for Source B | C-INGEST-3 |
+| T-INGEST-3 | T | Payload altered in transit | C-INGEST-2, C-INGEST-6 |
+| T-INGEST-4 | T, R | A captured valid delivery is replayed, or an old event overwrites newer facts | C-INGEST-5 |
+| T-INGEST-5 | D | Large bodies, slow clients or floods exhaust memory, the log or the store | C-INGEST-4, C-INGEST-8 |
+| T-INGEST-6 | E | Parser bug reached by unauthenticated input | C-INGEST-1, C-INGEST-9, C-GEN-3 |
+| T-INGEST-7 | I | Error responses reveal which sources exist or echo input | C-INGEST-7 |
+| T-INGEST-8 | D | An event is acknowledged but lost, so the sender never retries | C-INGEST-8 |
+| T-INGEST-9 | S | A forged `X-Forwarded-For` evades per-peer limits or poisons logs | C-INGEST-10 |
+
+- **C-INGEST-1** Ingest is a separate surface from the API, made of pluggable
+  transports (HTTP webhooks and CloudEvents in the MVP). Each transport is
+  configured on its own (address, port, protocol, TLS) and can be turned off.
+  Ingest is off until a Source that pushes events is configured.
+- **C-INGEST-2** The host authenticates every pushed event for its Source
+  before anything is stored or acknowledged, using the method the Source
+  configures: an HMAC signature over the raw body; a client certificate
+  chaining to the Source's CA bundle, with its SAN or SHA-256 fingerprint
+  pinned in the Source; a static token by reference; or an OIDC access token
+  whose client ID or group is mapped to `ingest` for this Source (C-API-4).
+  Comparisons are constant
+  time. A Source with no method configured cannot receive events. Failures
+  return 401, store nothing and increment a metric.
+- **C-INGEST-3** Each request is routed to exactly one Source by its
+  configured route and checked with that Source's credential. The Source
+  recorded on the event comes from the route, never from the payload.
+- **C-INGEST-4** Limits per transport: maximum body size (default 1 MiB,
+  enforced while reading), header size, read and idle timeouts, and maximum
+  concurrent requests.
+- **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
+  7): the delivery ID when the signature covers it, otherwise the SHA-256 of
+  the authenticated body. Where the sender signs a timestamp, events outside
+  a configured window (default 5 minutes) are rejected. Webhook payloads are
+  change hints. Facts carry the source's own update time, and an older
+  observation never replaces a newer assertion. Where the source gives no
+  update time, event-log order decides.
+- **C-INGEST-6** Transports bind TLS 1.2 or later. Plain HTTP on a
+  non-loopback address requires `insecure_ingest_plaintext` (for example
+  behind a TLS-terminating proxy).
+- **C-INGEST-7** Ingest responses carry only a status code and a request ID.
+  An unknown route and a failed check get the same response.
+- **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
+  sent only after the event is appended to the log (ADR 7); if the log is
+  unavailable, ingest returns 503 so the sender retries.
+- **C-INGEST-9** The body is parsed only after authentication succeeds, into
+  a fixed Protobuf or JSON type, with depth and size limits.
+- **C-INGEST-10** Forwarded headers are ignored unless the peer is in
+  `trusted_proxies`.
+
+### B2. Adapter modules
+
+An adapter module is code Bearing did not write and must not trust, even
+first-party ones, because they parse attacker-influenced data. The module
+runs inside the host process, so the sandbox is the boundary.
+
+Assets: A2, A3, A1 (through emitted observations), the host process, the
+internal network and cloud metadata endpoints.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-ADAPTER-1 | E | Module reads files or environment, opens sockets, or escapes into the host | C-ADAPTER-1 |
+| T-ADAPTER-2 | E | Module calls a capability or host it did not declare | C-ADAPTER-2, C-ADAPTER-4 |
+| T-ADAPTER-3 | I, E | SSRF to `169.254.169.254`, localhost, SurrealDB or internal services | C-ADAPTER-5 |
+| T-ADAPTER-4 | I | Module reads or forwards a source token | C-SECRET-3, C-ADAPTER-6 |
+| T-ADAPTER-5 | I | Module sends organization data to an attacker's host | C-ADAPTER-4, C-ADAPTER-5 |
+| T-ADAPTER-6 | T | Module writes to the source system | C-ADAPTER-4 |
+| T-ADAPTER-7 | D | Infinite loop, memory growth, huge output or log flood | C-ADAPTER-3 |
+| T-ADAPTER-8 | T | Module emits facts about another system's entities, overrides another Source's facts, or resolves identities | C-ADAPTER-7, C-ADAPTER-11, C-GEN-3 |
+| T-ADAPTER-9 | I, T | Module reads or poisons another Source's `kv` cache | C-ADAPTER-8 |
+| T-ADAPTER-10 | T | Module file swapped on disk or in a registry | C-ADAPTER-9, C-SUPPLY-6 |
+| T-ADAPTER-11 | R | Module logs pretend to come from the host | C-ADAPTER-10 |
+
+- **C-ADAPTER-1** Modules run under Extism on wazero with no WASI
+  filesystem, sockets, environment, process or clock access. The only host
+  functions are Extism's memory kernel and `bearing_call`. Extism's own
+  HTTP, config, var and path functions are off (`allowed_hosts` and
+  `allowed_paths` empty). A module importing anything else fails to load.
+- **C-ADAPTER-2** The effective grant is the manifest's declaration narrowed
+  by the Source; a Source can narrow but never widen it. Config apply rejects
+  a widening. A call outside the grant returns a permission error, is logged
+  and is counted. `bearing diff` shows the effective grant before apply.
+- **C-ADAPTER-3** Per-call limits: memory, wall time, response size, number
+  and size of observations, `kv` keys and bytes, and log records. A call that
+  exceeds a limit is aborted and the module instance discarded.
+- **C-ADAPTER-4** The `http` capability allows only HTTPS to hosts on the
+  effective allowlist (exact hostnames), and only GET and HEAD unless the
+  manifest declares other methods and the Source grants them.
+- **C-ADAPTER-5** After DNS resolution the host refuses loopback, private
+  (RFC 1918, `fc00::/7`), link-local (`169.254.0.0/16` including
+  `169.254.169.254`, `fe80::/10`), CGNAT (`100.64.0.0/10`), `0.0.0.0/8`,
+  `198.18.0.0/15`, `64:ff9b::/96`, `2002::/16`, `fec0::/10`, `::/128`,
+  multicast and broadcast addresses, including IPv4-mapped IPv6 forms. It
+  dials the address it checked, so DNS rebinding cannot swap it. Each
+  redirect is re-checked against the allowlist and these rules; at most 5
+  redirects. Environment proxy settings are ignored for the `http`
+  capability. A Source may allow named private CIDRs (for example a GitHub
+  Enterprise server) only with `insecure_allow_private_networks`.
+- **C-ADAPTER-6** The host injects credentials only for the host the secret
+  is bound to, and drops them on a cross-host redirect. It strips
+  `Authorization`, `Cookie`, `Proxy-*` and `Host` headers set by the module.
+- **C-ADAPTER-7** Adapter output is validated (C-GEN-3). Keys must use the
+  system prefixes in the effective grant, and kinds and relations must be in
+  the manifest's declared set. Only the core links keys across systems.
+- **C-ADAPTER-8** `kv` is scoped to one Source by the host; a module names
+  keys only inside its own scope. Values read back are treated as untrusted.
+- **C-ADAPTER-9** First-party adapters are built into the binary. External
+  modules load only by sha256 digest from config; a mismatch refuses the
+  load.
+- **C-ADAPTER-10** Adapter logs and spans are tagged with adapter and Source,
+  their attributes are prefixed `adapter.`, and they are rate-limited.
+- **C-ADAPTER-11** Every fact assertion records the Source that made it.
+  Applying a Source's observations can create, change or retract only that
+  Source's assertions, never another Source's. The key prefixes a module may
+  use are part of its effective grant and appear in `bearing diff`.
+
+### B3. Data from source systems
+
+Text from source systems is untrusted, even when the system is trusted. PR
+titles, commit messages, READMEs, CODEOWNERS and `catalog-info.yaml` are
+written by anyone with access to a repository, including attackers and
+contributors from outside the organization.
+
+Assets: A1, the people and agents who read Bearing's answers, model
+components (`Extractor`, `Judge`).
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-SOURCE-1 | T | A pull request or branch changes ownership before review | C-SOURCE-1 |
+| T-SOURCE-2 | T | A repo's `catalog-info.yaml` claims another team's Component or System | C-SOURCE-2 |
+| T-SOURCE-3 | T | Two sources disagree and the attacker's claim wins | C-SOURCE-3 |
+| T-SOURCE-4 | E | Prompt injection in source text steers an agent reading Bearing | C-SOURCE-4, C-MCP-2 |
+| T-SOURCE-5 | T | Prompt injection makes an `Extractor` or `Judge` create false facts | C-SOURCE-5 |
+| T-SOURCE-6 | D | Hostile YAML (alias bombs, deep nesting, huge files) | C-SOURCE-6 |
+| T-SOURCE-7 | T | Escape sequences, newlines or markup in names reach a terminal, a UI or the logs | C-SOURCE-7, C-GEN-4 |
+| T-SOURCE-8 | S | A user in one system is merged with a different person in another by name | C-SOURCE-8 |
+
+- **C-SOURCE-1** Ownership claims (CODEOWNERS, `catalog-info.yaml`) are read
+  only from the repository's default branch.
+- **C-SOURCE-2** A repository may claim only its own Component. Claims about
+  other entities are ignored and counted.
+- **C-SOURCE-3** Conflicting ownership claims lower the fact's confidence and
+  are flagged. Ownership and policy answers read only asserted facts
+  (ADR 2).
+- **C-SOURCE-4** Source text is stored and returned as data. Bearing never
+  puts it into instructions, tool descriptions or prompts it controls,
+  except as a delimited, labelled field.
+- **C-SOURCE-5** `Extractor` output is a candidate, not a fact, until a
+  `Judge` accepts it; `Judge` returns only typed values. Facts derived from a
+  model are marked inferred and never used for ownership or policy answers.
+- **C-SOURCE-6** Structured formats are parsed with size and depth limits;
+  YAML aliases and custom tags are rejected.
+- **C-SOURCE-7** The CLI strips control characters from source text before
+  printing to a terminal. Any HTML surface escapes output.
+- **C-SOURCE-8** Identity resolution uses stable source IDs and explicit
+  alias facts. It never merges on display names or other free text.
+
+### B4. API and MCP clients, including AI agents
+
+Callers are people (CLI, future UI), automation and AI agents. Agents may be
+steered by text they read, including text from Bearing itself.
+
+Assets: A3, A5, A4, A7.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-API-1 | S | Unauthenticated remote access | C-API-2, C-IDP-1 |
+| T-API-2 | I, E | Another local user reaches the socket on a shared host | C-API-1 |
+| T-API-3 | E | A reader changes config or triggers admin operations | C-API-4, C-API-5 |
+| T-API-4 | E | An agent gains more than read | C-API-4, C-MCP-1 |
+| T-API-5 | D | Costly queries (deep traversals, large vector searches) | C-API-6 |
+| T-API-6 | I | Errors expose queries, stack traces or internal hosts | C-API-7 |
+| T-API-7 | R | Nobody can tell who changed config | C-AUDIT-1, C-OPS-2 |
+| T-API-8 | I | Credentials or data cross the wire in clear text | C-API-3 |
+| T-MCP-1 | E, T | A prompt-injected agent uses Bearing to act | C-MCP-1, C-MCP-2 |
+| T-MCP-2 | S | A web page uses DNS rebinding or cross-site requests against a local MCP server | C-MCP-3 |
+| T-MCP-3 | I, E | The caller's token is passed on to another service | C-MCP-4 |
+
+- **C-API-1** Local access is a Unix socket with mode 0600 in a directory
+  with mode 0700, owned by the service user. The server checks the peer's
+  UID: only the service user's UID and root are accepted; others are
+  refused and logged. Accepted local callers have `admin` and are recorded
+  as `local:<uid>`.
+- **C-API-2** The TCP API listener is off by default and refuses to start
+  unless OIDC authentication is configured. There is no setting for
+  unauthenticated TCP access. Only `/healthz` and `/readyz` are
+  unauthenticated, and they return no data. Metrics are served on a separate
+  listener, off by default.
+- **C-API-3** The TCP listener uses TLS 1.2 or later. Plaintext on a
+  non-loopback address requires `insecure_api_plaintext`.
+- **C-API-4** Every request is checked by the `Authorizer` contract. The MVP
+  backend maps IdP groups and client IDs to roles and denies callers with no
+  mapping:
+  - `read`: queries and MCP.
+  - `ingest`, always granted for named Sources: request syncs
+    (`SyncRequested`) of those Sources, and push CloudEvents with an OIDC
+    access token to those Sources when they are configured for OIDC
+    (C-INGEST-2).
+  - `admin`: configuration, audit queries, and `read` and `ingest` for every
+    Source.
+
+  A client-credentials token (no user subject) is identified by its
+  `azp`/`client_id` and gets only the roles its client ID is mapped to; an
+  unmapped client is denied. An **agent** is a client whose only role is
+  `read`, for queries and MCP. A client may also be mapped to `ingest` for named Sources
+  only. A mapping that gives a client `admin` is rejected at config apply.
+- **C-API-5** Each API method declares its required role in one table. A
+  test fails if a method has no entry, so new methods are denied until
+  classified.
+- **C-API-6** Per-caller rate limits, page size limits, query timeouts and a
+  cap on traversal depth and vector `k`.
+- **C-API-7** Errors return a code, a message written for the caller and a
+  request ID. Details go to logs, not responses.
+- **C-MCP-1** MCP is read-only. It exposes only query tools that need the
+  `read` role: no config, sync, ingest or action tools.
+- **C-MCP-2** Source text in MCP results is returned only as objects
+  with the fields `untrusted_text`, `source` and `entity_key`, never in tool
+  prose.
+  Tool names and descriptions are static strings in the binary.
+- **C-MCP-3** The HTTP transport checks `Host` and `Origin` against
+  configured values and rejects others, and requires OIDC like the API.
+- **C-MCP-4** Bearing never forwards a caller's token. It reads sources only
+  with its own configured credentials.
+
+### B5. The OIDC identity provider
+
+Bearing trusts the configured issuer to say who a caller is and which groups
+they are in. It trusts nothing else in a token.
+
+Assets: caller identity, role mapping, A7 (API availability).
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-IDP-1 | S | Forged token (`alg: none`, HMAC with the public key, unknown key) | C-IDP-1 |
+| T-IDP-2 | S | ID token or token for another application accepted | C-IDP-1 |
+| T-IDP-3 | S | Token from another issuer, or a spoofed JWKS | C-IDP-1, C-IDP-2 |
+| T-IDP-4 | E | Role granted from a claim the user controls (email, name) | C-IDP-3 |
+| T-IDP-5 | D | IdP or JWKS endpoint down, slow or oversized, or key-refresh storms | C-IDP-2 |
+| T-IDP-6 | I | Bearer tokens leak through URLs, logs, traces or audit records | C-IDP-1, C-IDP-5, C-AUDIT-6 |
+| T-IDP-7 | S, E | Bearing becomes a credential store that can be stolen | C-IDP-4 |
+
+- **C-IDP-1** Tokens are verified against the issuer's JWKS: signature,
+  exact `iss`, `aud` containing Bearing's configured audience, `exp` and
+  `nbf` with at most 60 seconds of skew. Allowed algorithms: RS256, PS256,
+  ES256, EdDSA. `none` and HMAC algorithms are rejected. Only access tokens
+  are accepted. If the issuer is configured as issuing RFC 9068 tokens,
+  `typ` must be `at+jwt`. Otherwise `azp` must be on a configured allowlist,
+  and tokens with `nonce` or `at_hash` (ID tokens) are rejected. Tokens are
+  read only from the `Authorization` header.
+- **C-IDP-2** The JWKS URL comes from the issuer's HTTPS discovery document,
+  whose `issuer` must equal the configured issuer exactly. Fetches have
+  timeouts and size limits. Keys are cached; an unknown `kid` triggers at
+  most one refresh per minute, and keys missing from a refreshed JWKS are
+  dropped. With no valid keys, verification fails closed. The Unix socket
+  keeps working while the IdP is down.
+- **C-IDP-3** Roles come only from the configured groups claim (and, for
+  clients, client ID) through the configured mapping. Other claims never
+  grant a role.
+- **C-IDP-4** Bearing never mints, issues, refreshes or stores credentials.
+  There are no local users, passwords or API keys. Agents use the client
+  credentials flow at the IdP.
+- **C-IDP-5** Tokens are never logged, traced or stored. Only `iss`, `sub`
+  and client ID are recorded.
+
+### B6. The store (SurrealDB)
+
+The store holds everything except secrets. Whoever controls it controls
+Bearing's answers.
+
+Assets: A1, A3, A4, A5, A6.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-STORE-1 | S, E | Attacker on the network connects to SurrealDB | C-STORE-2, C-STORE-3 |
+| T-STORE-2 | I | Store password leaks through a URL, process list or log | C-STORE-1 |
+| T-STORE-3 | E, T | Query injection through source values | C-STORE-5 |
+| T-STORE-4 | E | Injected or legitimate queries use SurrealDB network functions or scripting for SSRF or code execution | C-STORE-4 |
+| T-STORE-5 | T, R | Someone with database access edits, deletes or prunes audit records to hide a change | C-AUDIT-2, C-AUDIT-3, C-AUDIT-4, C-AUDIT-5 |
+| T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
+| T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
+
+- **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
+  store URL that contains a password is rejected at start.
+- **C-STORE-2** Bearing connects as a database-scoped user, never root or a
+  namespace user.
+- **C-STORE-3** The compose deployment generates a random SurrealDB password
+  on first start into a secrets file (mode 0600), passes it as a Docker
+  secret, and does not publish the SurrealDB port. The store secret is
+  mounted outside the Source secrets directory.
+- **C-STORE-4** SurrealDB runs with network access from functions and
+  embedded scripting denied, and with guest access off.
+- **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
+  driver forces inlining (the embedded driver's arrays of objects, ADR 5),
+  one escaping function does it, covered by fuzz tests.
+- **C-STORE-6** Store connections use TLS (`wss`, `https`). Plaintext to a
+  non-loopback host requires `insecure_store_plaintext`. Compose sets it for
+  its internal network, with no published port, so `bearing status` shows
+  it.
+- **C-STORE-7** Operator docs state that exports contain organization data
+  and audit records, and must be stored encrypted. Exports never contain
+  secrets (C-SECRET-2).
+
+### B7. Operators and configuration
+
+Operators are trusted, but mistakes are expected. Configuration comes from
+files in Git (`bearing apply`) or the API (ADR 10).
+
+Assets: A5, A2, A6, the container and host.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-OPS-1 | T | A setting silently weakens security | C-GEN-1, C-GEN-2 |
+| T-OPS-2 | I | Secret values committed to Git, or left in files other users can read | C-SECRET-1, C-SECRET-5 |
+| T-OPS-3 | I | Secrets leak through logs, traces or errors | C-SECRET-2, C-SECRET-4 |
+| T-OPS-4 | E | A config change widens an adapter's grant unnoticed | C-ADAPTER-2, C-OPS-1 |
+| T-OPS-5 | T | Startup config directory writable by others | C-OPS-3 |
+| T-OPS-6 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
+| T-OPS-7 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
+
+- **C-OPS-1** Config apply validates types, protovalidate rules, adapter
+  settings and grants (ADR 10). `bearing diff` shows grant changes
+  separately from other changes.
+- **C-OPS-2** Config changes need the `admin` role (or the local socket),
+  are versioned and are audited with the actor (C-AUDIT-1, C-AUDIT-6).
+- **C-OPS-3** `bearing server --config` warns if a config file or directory
+  is group- or world-writable.
+- **C-OPS-4** Container images run as a non-root user with a read-only root
+  filesystem, `no-new-privileges` and all Linux capabilities dropped.
+
+### B8. Build and release supply chain
+
+Users run what the project ships. A compromise here bypasses every runtime
+control. The default binary is CGO-free and contains no BSL-licensed code
+(ADR 5); embedded-store builds are a separate artifact and out of scope for
+the MVP.
+
+Assets: source repository, CI, release binaries, container images, embedded
+first-party adapters, the local embedding model.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-SUPPLY-1 | T | Malicious or vulnerable dependency or build tool | C-SUPPLY-1 |
+| T-SUPPLY-2 | T | Compromised GitHub Action or over-privileged CI token | C-SUPPLY-2 |
+| T-SUPPLY-3 | T | Malicious pull request runs with secrets or lands unreviewed | C-SUPPLY-2, C-SUPPLY-3 |
+| T-SUPPLY-4 | S, T | Users download a tampered binary or image | C-SUPPLY-4 |
+| T-SUPPLY-5 | T | An image tag or model file is replaced upstream | C-SUPPLY-5 |
+| T-SUPPLY-6 | T | A first-party adapter module differs from its source | C-SUPPLY-6 |
+
+- **C-SUPPLY-1** Few dependencies (ADR 1): each new one is justified in its
+  commit, significant ones need an ADR. CI runs `govulncheck` and builds
+  with `-mod=readonly` against the committed `go.sum`. Build tools (buf
+  remote plugins, TinyGo, the Rust toolchain) are pinned by version and
+  checksum.
+- **C-SUPPLY-2** Workflows have read-only default permissions, pin
+  third-party actions by commit SHA, and never run fork code with secrets
+  (no `pull_request_target` checkout of PR code). `id-token: write` and
+  release secrets exist only in the release job, run from a protected tag
+  and environment. Pull requests never run on self-hosted runners.
+- **C-SUPPLY-3** `main` is protected: changes go through reviewed pull
+  requests with passing CI.
+- **C-SUPPLY-4** Releases are built in CI from a tag with `-trimpath`, and
+  ship checksums, an SBOM, build provenance and Sigstore signatures for
+  binaries and images.
+- **C-SUPPLY-5** The compose file pins every image (Bearing, SurrealDB,
+  embedding model server) and model file by digest.
+- **C-SUPPLY-6** First-party adapters are compiled from this repository in
+  the same build and embedded in the binary; they are never downloaded at
+  run time.
+
+### B9. Model providers
+
+Embedding and language models see organization data and return untrusted
+output.
+
+Assets: A3 (text sent for embedding or extraction), A1 (through candidates),
+provider API keys.
+
+| ID | STRIDE | Threat | Controls |
+| --- | --- | --- | --- |
+| T-MODEL-1 | I | Organization data sent to a hosted provider without the operator knowing | C-MODEL-1, C-MODEL-2 |
+| T-MODEL-2 | T | Model output creates or changes facts | C-SOURCE-5, C-MODEL-3 |
+| T-MODEL-3 | I | Provider API key leaks | C-SECRET-1, C-SECRET-2 |
+| T-MODEL-4 | I, S | The local embedding service is reached from outside or sends data out | C-MODEL-4 |
+
+- **C-MODEL-1** Bearing calls no hosted LLM or embedding API by default.
+  Compose runs a local embedding model.
+- **C-MODEL-2** A hosted provider is enabled per provider with
+  `insecure_hosted_model_<provider>` (C-GEN-1), and its config lists the
+  fields sent. `bearing status` shows each enabled provider and its fields.
+- **C-MODEL-3** Vector search only ranks candidates; results are verified in
+  the graph before they are returned as answers (ADR 2).
+- **C-MODEL-4** Compose's embedding service has no published port and no
+  egress network.
+
+## Accepted risks and out of scope for the MVP
+
+- **The IdP is trusted.** Its administrators can grant any role by changing
+  group membership. Bearing records the actor but cannot prevent this.
+- **Tokens stay valid until they expire.** Bearing does not check
+  revocation. Operators should configure short token lifetimes.
+- **`read` sees the whole graph.** There are no per-entity permissions. A
+  stolen agent credential can read everything an engineer can.
+- **Agents with other tools.** An agent that reads injected source text
+  through Bearing may misuse tools it has elsewhere. C-MCP-2 labels the text;
+  what the agent does with it is the agent's responsibility.
+- **The host is trusted.** Root, or any process running as the service user,
+  can use the Unix socket, read secrets from the environment and change the
+  store.
+- **Direct database edits to facts.** Anyone with write access to the store
+  can change facts. The audit chain (T-STORE-5) shows changes that bypass
+  Bearing only where an audit record is expected and missing; it does not
+  prevent them.
+- **Source systems are trusted for what they report.** If GitHub says a team
+  owns a repo, Bearing records it, with its source. Anyone who can push to a
+  default branch can change ownership claims; that is how CODEOWNERS works.
+- **Old replays.** A delivery replayed after its processed ID has been
+  pruned can be applied again. C-INGEST-5's update-time rule and the next
+  sync limit the effect.
+- **Data in allowed requests.** A module can encode data in GET requests to
+  hosts it is allowed to call.
+- **Erasure requests.** The audit log is append-only and raw events are kept
+  30 days by default (ADR 7), so a request to erase a person's data cannot
+  be met fully before retention removes them. Audit records name people by
+  stable ID only.
+- **WASM side channels** (timing, speculative execution) between modules in
+  one process are not addressed.
+- **Encryption at rest** is left to the disk or volume.
+- **Telemetry backends** are the operator's to secure. Telemetry carries
+  entity names and IDs, never secrets or tokens.
+- **Volumetric denial of service** is left to the network or a proxy in
+  front of ingest and the API.
+- **Out of scope:** distributed mode (remote adapters, remote capability
+  providers, NATS or Kafka), the `Executor` and any write action against
+  source systems, embedded-store builds, and Sigstore verification of
+  external modules. Each needs its own section here before it ships.
