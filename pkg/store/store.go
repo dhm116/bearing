@@ -13,7 +13,8 @@
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main).
-// Put the password in BEARING_STORE_PASSWORD rather than in the URL.
+// The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
+// carries one, so it never ends up in config files, process lists or logs.
 package store
 
 import (
@@ -30,11 +31,15 @@ import (
 	"bearing.example/pkg/contracts/instrument"
 )
 
+// PasswordEnv is the environment variable that holds the password for the
+// user named in a store URL.
+const PasswordEnv = "BEARING_STORE_PASSWORD"
+
 // Config names the backends. Vectors defaults to Graph.
 type Config struct {
 	Graph   string
 	Vectors string
-	// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.
+	// Getenv reads PasswordEnv; nil means os.Getenv.
 	Getenv func(string) string
 }
 
@@ -100,9 +105,9 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 }
 
 func open(ctx context.Context, raw string, getenv func(string) string) (backend, error) {
-	u, err := url.Parse(raw)
+	u, err := parseURL(raw)
 	if err != nil {
-		return backend{}, fmt.Errorf("store: parse URL: %w", err)
+		return backend{}, err
 	}
 	ns, db := "bearing", "main"
 	if v := u.Query().Get("ns"); v != "" {
@@ -135,10 +140,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		o := surrealstore.ServerOptions{Namespace: ns, Database: db}
 		if u.User != nil {
 			o.Username = u.User.Username()
-			o.Password, _ = u.User.Password()
-			if o.Password == "" {
-				o.Password = getenv("BEARING_STORE_PASSWORD")
-			}
+			o.Password = getenv(PasswordEnv)
 		}
 		server := url.URL{Scheme: strings.TrimPrefix(scheme, "surrealdb+"), Host: u.Host, Path: u.Path}
 		o.URL = server.String()
@@ -149,6 +151,23 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		return surreal(st), nil
 	}
 	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://, surrealdb+ws://, surrealdb+mem:// or surrealkv://", u.Scheme)
+}
+
+// parseURL parses a store URL and rejects one with a password in it. Its
+// errors never repeat the URL, which may hold a secret.
+func parseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, fmt.Errorf("store: parse URL: %w", err)
+	}
+	if _, ok := u.User.Password(); ok {
+		return nil, fmt.Errorf("store: %s has a password in it; remove it and set %s instead", u.Redacted(), PasswordEnv)
+	}
+	return u, nil
 }
 
 // redact hides a password in a URL for error messages.

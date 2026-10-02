@@ -40,6 +40,70 @@ func TestOpenRejectsUnknownSchemes(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsPasswordsInURLs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+	}{
+		{"server", Config{Graph: "surrealdb+ws://root:hunter2@localhost:8000"}},
+		{"server with query", Config{Graph: "surrealdb+wss://root:hunter2@db.example.com?ns=prod&db=main"}},
+		{"empty password", Config{Graph: "surrealdb+ws://root:@localhost:8000"}},
+		{"memory", Config{Graph: "mem://root:hunter2@"}},
+		{"vectors", Config{Graph: "mem://", Vectors: "surrealdb+http://root:hunter2@localhost:8000"}}, //nolint:gosec // G101: a fake password the test expects Open to reject
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			getenv := func(string) string {
+				t.Error("read the environment before rejecting the URL")
+				return ""
+			}
+			tc.cfg.Getenv = getenv
+			s, err := Open(context.Background(), tc.cfg)
+			if err == nil {
+				closeStore(t, s)
+				t.Fatal("opened a URL with a password in it")
+			}
+			if !strings.Contains(err.Error(), PasswordEnv) {
+				t.Errorf("error %q does not point at %s", err, PasswordEnv)
+			}
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Errorf("error %q repeats the password", err)
+			}
+		})
+	}
+}
+
+func TestOpenDoesNotLeakURLsItCannotParse(t *testing.T) {
+	_, err := Open(context.Background(), Config{Graph: "surrealdb+ws://root:hunter2@localhost:80%zz"})
+	if err == nil || !strings.Contains(err.Error(), "store: parse URL") {
+		t.Fatalf("got %v, want a parse error", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("error %q repeats the password", err)
+	}
+}
+
+func TestOpenReadsPasswordFromEnvironment(t *testing.T) {
+	var asked []string
+	getenv := func(k string) string {
+		asked = append(asked, k)
+		return "hunter2"
+	}
+	// A canceled context makes the dial fail without touching the network.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s, err := Open(ctx, Config{Graph: "surrealdb+ws://root@127.0.0.1:1", Getenv: getenv})
+	if err == nil {
+		closeStore(t, s)
+		t.Fatal("dial with a canceled context succeeded")
+	}
+	if len(asked) != 1 || asked[0] != PasswordEnv {
+		t.Errorf("read %v from the environment, want [%s]", asked, PasswordEnv)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("error %q repeats the password", err)
+	}
+}
+
 func TestOpenClosesTheGraphWhenVectorsFail(t *testing.T) {
 	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "qdrant://localhost"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported URL scheme") {
@@ -59,8 +123,7 @@ func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 
 // Set BEARING_TEST_SURREALDB (for example ws://127.0.0.1:8000) to check that
 // a surrealdb+ URL reaches a server. BEARING_TEST_SURREALDB_USER and
-// BEARING_TEST_SURREALDB_PASS sign in, the password through
-// BEARING_STORE_PASSWORD.
+// BEARING_TEST_SURREALDB_PASS sign in, the password through PasswordEnv.
 func TestOpenSurrealServer(t *testing.T) {
 	addr := os.Getenv("BEARING_TEST_SURREALDB")
 	if addr == "" {
@@ -74,7 +137,7 @@ func TestOpenSurrealServer(t *testing.T) {
 		u.User = url.User(user)
 	}
 	getenv := func(k string) string {
-		if k == "BEARING_STORE_PASSWORD" {
+		if k == PasswordEnv {
 			return os.Getenv("BEARING_TEST_SURREALDB_PASS")
 		}
 		return ""
