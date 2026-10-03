@@ -284,7 +284,8 @@ An observed entity is resolved from its `key`, `aliases` and `observed_at`
 1. **Id match.** Look up its `id` aliases. Any bound subject whose kind
    differs from `entity.kind`: reject the observation (`kind_mismatch`).
    One subject: use it. Several: they are one thing; merge them (rule
-   `co_reported_ids`), unless a `distinct_from` between them is set, in
+   `co_reported_ids`), unless a `distinct_from` between them is
+   [set](#merge-policy), in
    which case reject the observation (`identity_conflict`) and open a
    conflict on `(subject, same_as)`.
 2. **Name match.** Else look up its `name` aliases at `t`. For a subject
@@ -339,7 +340,7 @@ Nothing else mints. Every mint is audited.
 | `placeholder` | An observed binding covers a placeholder's tentative one. | 1.0 |
 | `authoritative` | Live [authoritative evidence](#identity-across-systems) between them, under any merge policy but `manual`. | 1.0 |
 | `score` | `same_as` confidence reaches the kind's threshold under the `score` [merge policy](#merge-policy). | computed |
-| `manual` | A `MergeRequested` event. Rejected (`identity_conflict`) while a `distinct_from` between them is set (at any valid time), unless the request also clears it. | 1.0 |
+| `manual` | A `MergeRequested` event. Rejected (`identity_conflict`) while a `distinct_from` between them is [set](#merge-policy), unless the request also clears it. | 1.0 |
 
 Only subjects of the same kind merge. **Guard:** no rule but
 `co_reported_ids` and `manual` joins two subjects that hold different `id`
@@ -828,8 +829,8 @@ A fact's status at `(v, r)`, with a `status_reason`, is the first match:
 | 1 | No live supports | `none` | `no_support` |
 | 2 | A live manual override covers `(subject, predicate)` | `asserted` if it lists the object, else `overridden` | `override` |
 | 3 | `C` below the threshold | `candidate` | `below_threshold` |
-| 4a | A `same_as` between subjects with a `distinct_from`, of a kind whose merge policy accepts authoritative evidence, where live authoritative evidence's covering write has a greater ordering key than the `distinct_from`'s covering write | `conflicted` | `conflict` |
-| 4b | Any other `same_as` between subjects with a `distinct_from` | `candidate` | `distinct_from` |
+| 4a | A `same_as` between subjects with a set `distinct_from`, of a kind whose merge policy accepts authoritative evidence, where live authoritative evidence's covering write has a greater ordering key than the `distinct_from`'s covering write | `conflicted` | `conflict` |
+| 4b | Any other `same_as` between subjects with a set `distinct_from` | `candidate` | `distinct_from` |
 | 4c | A `same_as` the [merge guard](#merge) excludes | `conflicted` | `conflict` |
 | 4d | A `same_as` its kind's [merge policy](#merge-policy) doesn't accept | `candidate` | `merge_policy` |
 | 5 | Relation predicate with `conflict` ≠ `none`, and the object has no live `exists` support | `candidate` | `unobserved_object` |
@@ -968,7 +969,8 @@ For `same_as`, the policy's `threshold_ppm` takes the place of the
 predicate threshold. The default configuration sets
 `Person: authoritative` and `Team: score`.
 A `same_as` the policy doesn't accept stays `candidate` for a person to
-confirm. A `distinct_from` live at any valid time blocks merging the pair
+confirm. A `distinct_from` is **set** when it is live at any valid time as
+recorded at `r`. A set `distinct_from` blocks merging the pair
 and makes `same_as` a `candidate` (`distinct_from`). For a kind whose
 policy accepts authoritative evidence, it opens a conflict on
 `(subject, same_as)` at valid times where the authoritative evidence's
