@@ -7,6 +7,8 @@ Date: 2026-09-29 · Status: accepted (with amendment), 2026-10-02
 > Decision, Shape and Consequences are the original proposal; where the
 > amendment differs, the amendment wins, and the changed bullets say so.
 > See [the amendment](#amendment-accepted-with-conditions-2026-10-02).
+> A13 was revised on 2026-10-03: the stdio transport is retired, and
+> adapters that can't run as WASM run as local processes on a Unix socket.
 
 ## Context
 
@@ -41,7 +43,8 @@ credential handling.
 - **The adapter interface is a Protobuf service** (ADR 6): `Describe`,
   `Sync` (cursor paged) and `Handle` (webhook). Messages cross every
   boundary as Protobuf bytes.
-  *Amended (A13): except the stdio transport, which stays JSON-RPC 0.x.*
+  *Amended (A13): with no exception. Local-process adapters serve the same
+  service over a Unix socket.*
 - **The default runtime is WASM, hosted with Extism** on wazero (pure Go, no
   CGO). An adapter ships as one `.wasm` module plus a manifest.
   *Amended (A4): wazero stays; Extism versus a thin wazero ABI is decided on
@@ -91,12 +94,14 @@ credential handling.
   the same Protobuf service over Connect/gRPC and run as their own service.
   The core can't tell the difference. This covers adapters that need
   libraries that don't compile to WASM, or special network access.
+  *Amended (A13): the same service also runs as a local process the core
+  starts, on a Unix domain socket.*
 - **The stdio JSON-RPC transport is retired.** Existing adapters (GitHub)
   are ported to WASM.
-  *Amended (A13, A15): reversed. stdio stays as a transitional and
-  development transport; WASM becomes the default runtime when
-  [M4 (WASM adapters and capabilities)][M4] lands, and the GitHub adapter
-  is still ported.*
+  *Amended (A13): stdio is retired as decided. WASM becomes the default
+  runtime when [M4 (WASM adapters and capabilities)][M4] lands, and the
+  GitHub adapter is ported in M4. Adapters that can't run as WASM run as
+  local processes serving the Protobuf service on a Unix socket.*
 
 ## Shape
 
@@ -210,34 +215,54 @@ still unproven. Control IDs refer to the
   permission error with no silent fallback (A4). Every
   runtime and capability provider must pass it before any adapter is
   enabled by default.
-- **A13. stdio stays, for transition and development.** This reverses the
-  original "stdio is retired" decision, so that nothing users rely on is
-  removed before WASM is proven in production. The stdio JSON-RPC
-  transport (ADR 3) stays as a transitional and development transport: for
-  adapters in languages without a mature `wasip1` toolchain, and for local
-  development. WASM becomes the default runtime when [M4][M4] lands, and
-  the GitHub adapter is still ported to WASM in M4 (A11). New first-party
-  adapters target WASM. stdio stays on JSON-RPC 0.x and need not follow
-  ADR 6's Protobuf rule. A stdio adapter is an unsandboxed process: the
-  sandbox controls in threat model B2 don't apply to it, but output
-  validation, grants, tagging and Source scoping do. Whether to retire
-  stdio is revisited after M4.
+- **A13. WASM by default; local processes on a Unix socket for the rest;
+  stdio retired** (revised 2026-10-03). WASM becomes the default adapter
+  runtime when [M4][M4] lands, and the GitHub adapter is ported to WASM in
+  M4 (A11). New first-party adapters target WASM.
+  - An adapter that can't run as WASM (for example, one written in a
+    language without a mature `wasip1` toolchain) runs as a **local
+    process** the core starts. It serves the same Protobuf adapter service
+    that remote adapters serve (Connect/gRPC), on a Unix domain socket. The
+    core can't tell a local adapter from a remote one except by how it was
+    started. Prior art: HashiCorp go-plugin.
+  - The stdio JSON-RPC transport (ADR 3) is retired. No users depend on it,
+    and the initial scaffold need not be preserved. The scaffold's stdio
+    code runs the GitHub adapter until M4 replaces it; nothing new is built
+    on it. Protobuf is the only source of truth for adapter messages
+    (ADR 6), with no JSON-RPC exception.
+  - The socket is protected (threat model C-ADAPTER-13 to 16). It lives in
+    a private directory the core creates per adapter instance (mode 0700,
+    owned by the Bearing user), and the core passes its path to the child,
+    for example in an environment variable or a flag. Where the OS
+    supports it (`SO_PEERCRED` on Linux, `getpeereid` on the BSDs and
+    macOS), the core checks that the peer is the child it started: its
+    UID, and its PID where the OS reports one. The core removes the socket
+    and its directory when the adapter stops. The child gets a minimal
+    environment ([#25](https://github.com/dhm116/bearing/issues/25)).
+    Windows has `AF_UNIX` from Windows 10; whether these controls hold
+    there is unverified.
+  - A local-process adapter is not sandboxed: the sandbox controls in
+    threat model B2 don't apply to it, but output validation, grants,
+    tagging and Source scoping do.
+  - stdout is no longer reserved for the protocol, so a local adapter logs
+    through normal telemetry (`pkg/telemetry`) like any other program.
 - **A14. AWS.** The AWS SDK for Go v2 works in a Go module over the `http`
   capability (STS: 13.5 MiB). The remote runtime stays as a fallback, but
   AWS does not need it on technical grounds.
 - **A15. Transition rule for webhooks and secrets.** Host verification is
   tied to ingest, not to M4. Ingest stays off (C-INGEST-1) until the host
   verifier exists; the host verifier ships with the first ingest
-  transport, whichever milestone that is. Until then a stdio adapter's
+  transport, whichever milestone that is. Until then an adapter's
   `Handle` is reached only through local or test paths, and the adapter's
   own verification, as the adapter protocol spec requires, is the check.
   Once ingest is on, the host verifies every delivery before it is logged
-  (ADR 7), for every runtime (A6); a stdio adapter may still verify as
-  defense in depth. stdio adapters still receive their own Source's
-  credentials, an exception to C-SECRET-3 that holds only for stdio, and
-  only for the secret references that Source names. Updating
-  `docs/spec/adapter-protocol.md` and bumping `adapter.ProtocolVersion`
-  are deferred to [M4][M4].
+  (ADR 7), for every runtime (A6); a local-process adapter may still
+  verify as defense in depth. Local-process adapters still receive their
+  own Source's credentials, an exception to C-SECRET-3 that holds only for
+  local processes, and only for the secret references that Source names.
+  `docs/spec/adapter-protocol.md` says now that its stdio transport is
+  retired; rewriting it for the Protobuf service and bumping
+  `adapter.ProtocolVersion` happen in [M4][M4].
 
 ## Consequences
 
@@ -261,11 +286,12 @@ still unproven. Control IDs refer to the
 - Each capability gets a conformance suite, so a remote provider behaves the
   same as the in-process one.
 - Supersedes [ADR 3](0003-adapter-protocol.md) and
-  `docs/spec/adapter-protocol.md` once accepted. *Amended (A6, A13):
-  supersedes them in part. WASM becomes the default runtime and webhook
-  verification moves to the host with the first ingest transport; the
-  stdio transport stays as a transitional and development transport
-  (A13, A15).*
+  `docs/spec/adapter-protocol.md` once accepted. *Amended (A6, A13, A15):
+  supersedes them in part. The stdio transport is retired; WASM becomes
+  the default runtime in M4, with local-process adapters on a Unix socket
+  for the rest; and webhook verification moves to the host with the first
+  ingest transport. ADR 3's stateless, cursor-paged, read-only adapter
+  model carries over.*
 - Per sync, WASM costs 3–5× the stdio process's wall time in the spike, and
   6.5–8.5× with `CloseOnContextDone` on, mostly guest CPU. Against real
   APIs, request latency still dominates.

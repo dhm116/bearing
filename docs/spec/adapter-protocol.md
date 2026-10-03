@@ -2,6 +2,14 @@
 
 Protocol version 0.1 (draft).
 
+> **Transport retired.** [ADR 9](../adr/0009-wasm-adapters.md) A13 retires
+> the JSON-RPC stdio transport described below. The adapter protocol moves
+> to the Protobuf adapter service: WASM modules by default from
+> [M4](https://github.com/dhm116/bearing/milestone/5), and local processes
+> serving the service over Connect/gRPC on a Unix socket for adapters that
+> can't run as WASM. This document describes the current scaffold until it
+> is rewritten for that service in M4.
+
 An adapter is a separate program that reads one external system and reports
 what it sees as [observations](data-model.md#observations). Adapters can be
 written in any language.

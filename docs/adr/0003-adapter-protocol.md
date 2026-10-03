@@ -3,13 +3,16 @@
 Date: 2026-09-28 · Status: accepted · Superseded in part by [ADR 9](0009-wasm-adapters.md)
 
 > Superseded in part by [ADR 9](0009-wasm-adapters.md) (accepted
-> 2026-10-02): WASM becomes the default runtime when
-> [M4](https://github.com/dhm116/bearing/milestone/5) lands, and the stdio
-> transport stays as a transitional and development transport (A13). The
-> host verifies webhook deliveries before they are logged; ingest stays off
-> until that verifier ships with the first ingest transport, and until
-> then a stdio adapter's own verification is the check (A15). Proposed
-> replacement for the message format: [ADR 6](0006-protobuf-contracts.md).
+> 2026-10-02, A13 revised 2026-10-03): the stdio JSON-RPC transport is
+> retired. WASM becomes the default runtime when
+> [M4](https://github.com/dhm116/bearing/milestone/5) lands, and adapters
+> that can't run as WASM run as local processes serving the Protobuf
+> adapter service on a Unix socket (A13). The host verifies webhook
+> deliveries before they are logged; ingest stays off until that verifier
+> ships with the first ingest transport, and until then the adapter's own
+> verification is the check (A15). Stateless, cursor-paged adapters that
+> never resolve identities across systems carry over. Proposed replacement
+> for the message format: [ADR 6](0006-protobuf-contracts.md).
 
 ## Context
 

@@ -1,15 +1,16 @@
 # Threat model
 
-Status: draft for the MVP · Last reviewed: 2026-10-02
+Status: draft for the MVP · Last reviewed: 2026-10-03
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
 threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
 [WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
-default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands;
-ADR 3's stdio processes stay as a
-transitional and development transport, with the exceptions in B2. Where
+default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands.
+Adapters that can't run as WASM run as local processes serving the
+Protobuf adapter service on a Unix socket, with the exceptions in B2; ADR
+3's stdio transport is retired (ADR 9 A13). Where
 an ADR says otherwise, this document records the decision and the ADR is
 to be amended: in particular the host, not the adapter, authenticates
 webhook deliveries (C-INGEST-2, ADR 9 A6). Where today's code differs, the
@@ -101,8 +102,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   put in errors, returned by the API or MCP, or written to audit records.
 - **C-SECRET-3** Adapter code never sees secret values. The host injects
   them into outbound requests (C-ADAPTER-6) and webhook checks (C-INGEST-2).
-  Exception: a stdio adapter receives the secrets its own Source names, and
-  no others (see "stdio process adapters" in B2; ADR 9 A15).
+  Exception: a local-process adapter receives the secrets its own Source
+  names, and no others (see "Local-process adapters" in B2; ADR 9 A15).
 - **C-SECRET-4** Resolved values are registered with the logger and tracer,
   which replace any occurrence with `[redacted]`. This is a backstop, not the
   primary control; tests assert that a known secret never appears in log or
@@ -166,10 +167,11 @@ Assets: A1, A7, the event log.
   return 401, store nothing and increment a metric. WASM modules never
   verify deliveries or see webhook secrets: `Handle` receives only
   deliveries the host has authenticated, and there is no HMAC capability
-  (ADR 9 A6). A stdio adapter may also verify, as defense in depth, but the
-  host authenticates first. Ingest stays off (C-INGEST-1) until the host
-  verifier exists; it ships with the first ingest transport. Until then a
-  stdio adapter's `Handle` is reached only through local or test paths,
+  (ADR 9 A6). A local-process adapter may also verify, as defense in
+  depth, but the host authenticates first. Ingest stays off (C-INGEST-1)
+  until the host verifier exists; it ships with the first ingest
+  transport. Until then an adapter's `Handle` is reached only through
+  local or test paths,
   and the adapter's own verification is the check (ADR 9 A15).
 - **C-INGEST-3** Each request is routed to exactly one Source by its
   configured route and checked with that Source's credential. The Source
@@ -206,18 +208,23 @@ runs inside the host process, so the sandbox is the boundary.
 Assets: A2, A3, A1 (through emitted observations), the host process, the
 internal network, cloud metadata endpoints and the compilation cache.
 
-**stdio process adapters** (ADR 3, kept by ADR 9 A13 for transition and
-development) are not sandboxed. Only the sandbox controls are waived for
-them: C-ADAPTER-1, 3, 4, 5, 6, 8 and 12. C-GEN-3, C-ADAPTER-7 and
-C-ADAPTER-11 apply to what the adapter returns. C-ADAPTER-2 applies to the
-declared kinds, relations and key prefixes of its grant, enforced on
-output. C-ADAPTER-10 is a requirement on the code: today the adapter's
-stderr passes through untagged. A stdio adapter is started with a minimal
-environment holding only the secret references its Source names, before
-any always-on server (M3) runs stdio adapters. Today `pkg/adapter` sets no
-environment, so the adapter inherits the server's, including
-`BEARING_STORE_PASSWORD` and OIDC settings
-([#25](https://github.com/dhm116/bearing/issues/25)).
+**Local-process adapters** (ADR 9 A13) are adapters that can't run as
+WASM. The core starts each one as a child process serving the Protobuf
+adapter service (Connect/gRPC) on a Unix domain socket, the same service a
+remote adapter serves; prior art is HashiCorp go-plugin. They replace ADR
+3's stdio JSON-RPC transport, which is retired. They are not sandboxed.
+Only the sandbox controls are waived for them: C-ADAPTER-1, 3, 4, 5, 6, 8
+and 12. C-GEN-3, C-ADAPTER-7 and C-ADAPTER-11 apply to what the adapter
+returns. C-ADAPTER-2 applies to the declared kinds, relations and key
+prefixes of its grant, enforced on output. C-ADAPTER-10 applies: stdout is
+no longer reserved for the protocol, so the adapter logs through normal
+telemetry, and the core tags what it receives or captures from the child.
+C-ADAPTER-13 to 16 protect the socket and the child's environment. On
+Windows, `AF_UNIX` exists from Windows 10, but these controls are
+unverified there. Today the scaffold's stdio adapter is the only
+process adapter: it inherits the server's environment, including
+`BEARING_STORE_PASSWORD` and OIDC settings, and its stderr passes through
+untagged ([#25](https://github.com/dhm116/bearing/issues/25)).
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
@@ -233,6 +240,9 @@ environment, so the adapter inherits the server's, including
 | T-ADAPTER-10 | T | Module file swapped on disk or in a registry | C-ADAPTER-9, C-SUPPLY-6 |
 | T-ADAPTER-11 | R | Module logs pretend to come from the host | C-ADAPTER-10 |
 | T-ADAPTER-12 | T, E | Native code in the compilation cache is replaced or shared, or code compiled without termination checks is reused with them required, so a module runs outside its limits | C-ADAPTER-12 |
+| T-ADAPTER-13 | S, I | Another local process connects to a local adapter's socket, poses as the adapter or the core, or reads its traffic | C-ADAPTER-13, C-ADAPTER-14 |
+| T-ADAPTER-14 | S, D | A stale or pre-created socket path is reused, so the core talks to the wrong process or cannot start the adapter | C-ADAPTER-13, C-ADAPTER-15 |
+| T-ADAPTER-15 | I, E | A local adapter inherits the server's environment, including the store password and OIDC settings | C-ADAPTER-16 |
 
 - **C-ADAPTER-1** Modules run on wazero with a fixed WASI preview1 profile
   (ADR 9 A8), because every Go-built module imports preview1:
@@ -322,6 +332,30 @@ environment, so the adapter inherits the server's, including
     compiled without termination checks is never reused with
     `CloseOnContextDone` on.
   - The hostile-guest CPU-loop case also runs against a warm cache.
+- **C-ADAPTER-13** For each local-process adapter instance, the core
+  creates a new private directory, owned by the Bearing user with mode
+  0700, and refuses one that already exists or has another owner or mode.
+  The adapter's socket lives only in that directory. The core passes the
+  socket path to the child, in an environment variable or a flag, and the
+  child serves the adapter service there and nowhere else. The path stays
+  within the OS limit for socket paths (104 bytes on macOS, 108 on Linux).
+- **C-ADAPTER-14** On every connection the core checks the peer where the
+  OS supports it: the UID must be the Bearing user's, and the PID, where
+  the OS reports it (`SO_PEERCRED` on Linux, `LOCAL_PEERPID` on macOS),
+  must be the child the core started. `getpeereid` on the BSDs gives the
+  UID only. A failed check closes the connection, stops the child, fails
+  the call and is logged and counted.
+- **C-ADAPTER-15** When an adapter stops or crashes, the core closes its
+  connections and removes the socket and its directory. At start-up the
+  core removes directories an earlier run left in its own runtime
+  directory.
+- **C-ADAPTER-16** A local-process adapter starts with a minimal
+  environment: the socket path, telemetry settings tagged with the adapter
+  and Source, and only the secret references its Source names. It never
+  receives `BEARING_STORE_PASSWORD`, OIDC settings or other Bearing
+  settings. This is a requirement on the code, and it lands before any
+  always-on server (M3) runs local-process adapters
+  ([#25](https://github.com/dhm116/bearing/issues/25)).
 
 ### B3. Data from source systems
 
@@ -631,9 +665,9 @@ provider API keys.
   30 days by default (ADR 7), so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
-- **stdio process adapters** run with the service user's OS access, outside
+- **Local-process adapters** run with the service user's OS access, outside
   the sandbox. B2 lists which controls still apply. Operators run only
-  stdio adapters they trust.
+  local-process adapters they trust.
 - **WASM side channels** (timing, speculative execution) between modules in
   one process are not addressed.
 - **Encryption at rest** is left to the disk or volume.

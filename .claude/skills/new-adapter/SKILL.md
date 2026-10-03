@@ -1,6 +1,6 @@
 ---
 name: new-adapter
-description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits observations over the JSON-RPC stdio adapter protocol.
+description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits observations through the Bearing adapter interface.
 ---
 
 # Add a Bearing adapter
@@ -8,6 +8,15 @@ description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits o
 An adapter is a small, stateless, read-only program that reads one external
 system and emits observations. `adapters/github` is the worked example; copy
 its shape.
+
+> **Transport change.** [ADR 9](../../../docs/adr/0009-wasm-adapters.md)
+> A13 retires the JSON-RPC stdio transport. From
+> [M4](https://github.com/dhm116/bearing/milestone/5), adapters are WASM
+> modules by default, and adapters that can't run as WASM serve the
+> Protobuf adapter service on a Unix socket as local processes. Until M4
+> ships the SDK, this checklist describes the scaffold
+> (`adapter.ServeStdio`); keep the adapter logic separate from `main` so
+> it moves to the new runtime unchanged.
 
 ## Before writing code
 
