@@ -1,6 +1,6 @@
 # 2. The graph is the source of truth; the vector index is derived
 
-Date: 2026-09-28 · Status: accepted
+Date: 2026-09-28 · Status: accepted, amended by data-model v0.3
 
 ## Context
 
@@ -25,3 +25,12 @@ exact, auditable facts.
   pgvector can back both interfaces.
 - Superseded in part by [ADR 5](0005-one-store-to-start.md): one SurrealDB
   database backs both interfaces by default.
+
+## Amended by data-model v0.3
+
+The [data model](../spec/data-model.md#state-determinism-and-apply) splits
+Bearing's state in two. The **identity store** (subjects, alias bindings,
+merge records) is primary state: backed up with the graph and never rebuilt,
+because identity decisions depend on apply order and the event log keeps
+only a window (ADR 7). Facts and their history (the claim store) and the
+vector index stay rebuildable, against that identity store.

@@ -1,33 +1,30 @@
 # Data model
 
-Version 0.2 (draft). The rule sections (from [Terms](#terms) to
+Version 0.3 (draft). The rule sections (from [Terms](#terms) to
 [Wire mapping](#wire-mapping)) are normative: statements there in the
 imperative or present tense ("is", "becomes", "writes") are requirements,
 as if they said MUST. Worked examples and open questions are not.
 
+This model replaces the v0.1 scaffold outright. Nothing here is kept
+compatible with it.
+
 ## Changes in this revision
 
-v0.2 makes exact what v0.1 left open: how keys become things, how history
-works and what wins when sources disagree.
-
-| Change | Why |
-| --- | --- |
-| A **subject** with a Bearing-minted, never-reused ID is what everything attaches to. Source keys are its **aliases**, `id` (immutable) or `name` (time-bounded). Replaces v0.1 Keys. | Renames and transfers keep the subject; reused names get a new one. |
-| Exact resolution, minting, merge and un-merge rules, audited. The identity store is primary state. | Identity is where implementations would diverge. |
-| **Facts** `(subject, predicate, object)`; attributes are facts; relation types join a predicate registry. Replaces v0.1 Facts. | One model with provenance, time and confidence for everything. |
-| **Bitemporal**: claims write states onto valid time; supports have record time. "As of" and "what changed" queries. | Time-bounded facts are core, not special cases. On-call is just one enrichment. |
-| Per-source supports, latest `observed_at` wins per valid time, snapshot scopes, sync completeness. | A stale sync can't undo a newer event; endings are explicit. |
-| Confidence in parts per million: max within a source system, noisy-OR across. Statuses and conflicts. | Corroboration counts once per independent system; disputed owners are never asserted. |
-| Person identity across GitHub and the directory. | The MVP sources are GitHub and Authentik. |
-
-**Compatibility.** The observation type stays `dev.bearing.observation.v1`
-and the new fields are optional, but v0.2 is additive **except**: a
-reference with an unregistered key type and a multi-kind range is rejected
-(`on_call_for` to `pagerduty:service/…` in `testdata/`); attribute `null`
-ends a claim and an array is the complete set; unregistered attributes are
-renamed `<namespace>.<attribute>`; a relation may carry `from` instead of
-`to`; `Change.author` and `Schedule.on_call_now` are dropped. Accepted
-because the spec is pre-1.0 and the only consumers are in this repository.
+| Version | Change | Why |
+| --- | --- | --- |
+| 0.2 | A **subject** with a Bearing-minted, never-reused ID is what everything attaches to. Source keys are its **aliases**, `id` (immutable) or `name` (time-bounded). | Renames and transfers keep the subject; reused names get a new one. |
+| 0.2 | Exact resolution, minting, merge and un-merge rules, audited. | Identity is where implementations would diverge. |
+| 0.2 | **Facts** `(subject, predicate, object)`; attributes are facts; one predicate registry. | One model with provenance, time and confidence for everything. |
+| 0.2 | **Bitemporal**: claims write states onto valid time; supports have record time. "As of" and "what changed" queries. | Time-bounded facts are core, not special cases. |
+| 0.2 | Per-source supports, latest `observed_at` wins per valid time, snapshot scopes, sync completeness. | A stale sync can't undo a newer event; endings are explicit. |
+| 0.2 | Confidence in parts per million: max within a source system, noisy-OR across. Statuses and conflicts. | Corroboration counts once per independent system; disputed owners are never asserted. |
+| 0.3 | The identity store is primary state, backed up with the graph. ADR 2 and ADR 7 amended. | Subject IDs must survive events ageing out of the log. |
+| 0.3 | Adapters **declare** kinds, key types, fields, links and default **authority** in `Describe`; operators override authority per source. Replaces the spec's key type registry. | New sources need no spec change. |
+| 0.3 | One generic **matcher** scores same-kind pairs; the score is the confidence of `same_as`. **Merge policy** per kind: people need authoritative evidence or confirmation, teams merge on score. Replaces the fixed identity rule table. | Matching rules belong in configuration, not the spec. |
+| 0.3 | CODEOWNERS is reported literally as `approves_changes`; the core **derives** `owned_by` from the file's shape. | CODEOWNERS names reviewers; only some files say who owns the repository. |
+| 0.3 | Authority resolves conflicts by default. | Most disagreements have an obvious source of record. |
+| 0.3 | Tiered **compaction** with a precision marker on answers. | History can't grow without bound. |
+| 0.3 | Protobuf is the only source of truth; core-closed lists are proto enums. | No hand-kept copies. |
 
 ## Terms
 
@@ -35,11 +32,13 @@ because the spec is pre-1.0 and the only consumers are in this repository.
 | --- | --- |
 | Subject | A thing Bearing knows about, identified by a `subject_id`. |
 | Kind | A subject's type (`Person`, `Repository`, …), fixed at mint. |
-| Issuer type | A kind of identifier issuer with registered key types: `github`, `authentik`, `saml`. |
+| Issuer type | A kind of identifier issuer, such as `github`, `authentik` or `saml`. Adapters declare its key types. |
 | Namespace | One issuer instance, for example `github` (github.com) or `ghes-acme`. Each has an issuer type. |
 | Alias | `(namespace, key_type, external_id)`, written as a key `<namespace>:<key_type>/<external_id>`. |
 | Source | A configured adapter instance ([ADR 10](../adr/0010-configuration-as-resources.md)), for example `github-acme`. The unit of provenance. |
 | Source system | The namespace a source reads. Sources of one system are not independent. |
+| Declaration | What an adapter's `Describe` says it emits: kinds, key types, fields and links ([Declarations](#declarations)). |
+| Authority | Whether a source is the source of record for a field of a kind. Declared by the adapter, overridable per source. |
 | Observation | One source's report about one entity at one `observed_at`. |
 | Claim | One statement in an observation (or a manual event) about one fact. |
 | Support | One source's claims about one fact, evaluated over valid time. |
@@ -59,17 +58,20 @@ Bearing's state has two parts:
   records. It is **primary state**, backed up with the graph and never
   rebuilt from events, because identity decisions depend on apply order and
   the event log keeps only a window ([ADR 7](../adr/0007-durable-event-log.md)).
+  It is never compacted.
 - The **claim store**: claims, watermarks, support versions and audit
   links. Replaying observations against the identity store rebuilds it.
 
 Guarantees:
 
 1. Given the same identity decisions (the same mints, bindings, merges and
-   rejections, for example by replaying against the final identity store)
-   and the same set of events, conforming implementations produce the same
-   valid-time state: supports, fact statuses, confidence and conflicts at
-   every valid time, **regardless of the order** the events are applied in.
-   (The event log orders events only within a partition.)
+   rejections, for example by replaying against the final identity store),
+   the same configuration and the same set of events, conforming
+   implementations produce the same valid-time state: supports, fact
+   statuses, confidence and conflicts at every valid time not yet
+   [compacted](#retention-and-compaction), **regardless of the order** the
+   events are applied in. (The event log orders events only within a
+   partition.)
 2. Applying the same events in the same order from the same identity store,
    they make the same identity decisions, up to a one-to-one renaming of
    newly minted subject IDs.
@@ -83,7 +85,12 @@ Guarantees:
   and advanced in each apply transaction to `max(now, previous + 1 µs)`.
   Every apply therefore has a unique, strictly increasing `recorded_at`.
 - Because every apply writes the clock record, applies are serialized.
-  This is the only isolation model in v0.2.
+  This is the only isolation model in this version. It is far above MVP
+  volume; an M3 load benchmark against SurrealDB checks the ceiling
+  ([issue #27](https://github.com/dhm116/bearing/issues/27)). It can later
+  be relaxed to per-partition hybrid logical clocks, with an as-recorded
+  watermark below which every partition's applies are complete, so
+  record-time reads stay consistent.
 
 ## Subjects
 
@@ -107,8 +114,6 @@ recorded (only referenced) is a **placeholder**.
 
 ## Identifiers and aliases
 
-*Replaces v0.1 "Keys". The key syntax is unchanged.*
-
 ### Keys and namespaces
 
 ```
@@ -126,52 +131,102 @@ Namespaces come from source configuration:
 | Source config field | Meaning |
 | --- | --- |
 | `namespace` | The namespace the source reads. Default: its adapter's issuer type (`github` for github.com). A GitHub Enterprise Server source sets e.g. `ghes-acme`. |
-| `issues` | Other namespaces the source is the issuer for: `[{ "namespace": "authentik-saml", "issuer_type": "saml", "nameid_format": "persistent" }]`. |
+| `issues` | Other namespaces the source is the issuer for: `[{ "namespace": "authentik-saml", "issuer_type": "saml", "key_classes": {} }]`. |
 | `links` | Namespaces the source reports `linked_ids` in, with their issuer types. |
+| `authority` | Overrides of declared authority: `[{ "kind", "predicate" or "link", "authoritative" }]`. |
 
-An adapter declares its issuer type, which is the default `namespace`. A key
-in a namespace the source neither reads, issues nor links is rejected
-(`namespace_not_allowed`).
-
-Every configured use of a namespace MUST name the same issuer type;
-configuration apply rejects a disagreement. Key types are looked up by the
-namespace's issuer type.
+A key in a namespace the source neither reads, issues nor links is rejected
+(`namespace_not_allowed`). Every configured use of a namespace MUST name the
+same issuer type; configuration apply rejects a disagreement. Key types are
+looked up by the namespace's issuer type in the
+[declarations](#declarations) in force.
 
 ### Key types
 
+Adapters declare key types per kind ([Declarations](#declarations)):
+
 | Property | Meaning |
 | --- | --- |
-| `kind` | Kind of subjects with this key type; used to mint placeholders. |
+| `issuer_type` | Default: the adapter's own. |
+| `key_type` | The name in keys. Its kind is the kind it is declared under; one key type has one kind. |
 | `class` | `id`: assigned once, never changed or reassigned. `name`: can be renamed and later reused. |
 | `per_subject` | `name` only. `one`: binding a new name of this type to a subject releases its previous one. |
 | `redirects` | `name` only. A released name still resolves to its last subject (as GitHub does for repositories). |
-| `case` | `insensitive` external IDs are compared and stored after Unicode simple case folding. |
-| `link_rules` | Rules allowed when this key type appears in `linked_ids`. |
+| `case` | `insensitive` external IDs are compared and stored after Unicode simple case folding. Default `sensitive`. |
 
-| Issuer type | Key type | Kind | Class | Per subject | Redirects | Case | Link rules |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| github | `repo_node` | Repository | id | | | sensitive | |
-| github | `repo` | Repository | name | one | yes | insensitive | |
-| github | `team_node` | Team | id | | | sensitive | |
-| github | `team` | Team | name | one | no | insensitive | |
-| github | `user_node` | Person | id | | | sensitive | `directory_link` |
-| github | `user` | Person | name | one | no | insensitive | `directory_link_login` |
-| authentik | `user` | Person | id | | | sensitive | |
-| authentik | `username` | Person | name | one | no | insensitive | |
-| authentik | `group` | Team | id | | | sensitive | |
-| authentik | `group_name` | Team | name | one | no | sensitive | |
-| saml | `name_id` | Person | `id` if the namespace's `nameid_format` is `persistent`, else `name` | one (if `name`) | no | sensitive | `saml_name_id` |
-
+- Any adapter may declare key types of any issuer type (its own, those it
+  issues and those it links). Configuration apply rejects two declarations
+  of one `(issuer_type, key_type)` that differ, and a configured link or
+  issued namespace whose key types nobody declares.
+- A source's `issues[].key_classes` MAY override a key type's class for that
+  namespace: a SAML namespace whose NameID format isn't `persistent` sets
+  `{ "name_id": "name" }`.
+- A key whose key type isn't declared for its namespace's issuer type is
+  rejected (`not_declared`).
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted. Node
-  IDs survive renames, transfers and login changes.
-- Directory `id` keys are the directory's immutable primary keys.
-- **Unregistered key types** are class `id`, case-sensitive. Their kind is
-  the entity's `kind` when used as an entity key or alias, or the
-  predicate's range when used in a reference and the range is one kind.
-  Otherwise the claim is rejected (`unknown_key_type`). The first use fixes
-  the kind, recorded in the identity store; a later use with another kind is
-  rejected (`kind_mismatch`).
+  IDs survive renames, transfers and login changes. Directory `id` keys are
+  the directory's immutable primary keys.
+
+### Declarations
+
+An adapter's `Describe` result ([adapter protocol](adapter-protocol.md#bearingdescribe))
+declares, per kind it emits:
+
+| Field | Meaning |
+| --- | --- |
+| `keys` | Its [key types](#key-types): which are permanent ids and which renamable names. |
+| `fields` | Every predicate it claims with this kind as the observed entity: `predicate`, optional `direction` (`in` for relations given with `from`; default `out`), `match` (a [matching method](#matching), if the field is identity evidence) and `authoritative` (default `false`). An unregistered attribute also gives `type` (`string`, `float`, `bool`, `json`) and `cardinality`; it is stored as `<namespace>.<attribute>`. |
+| `links` | Key types of other systems that this system records for the entity (`linked_ids`), with `authoritative`. |
+
+A claim's **authority** is that of the field (or link) it was made under,
+after the source's `authority` overrides. A source's own keys are always
+authoritative in its namespace. Observations using an undeclared kind,
+predicate or link are rejected (`not_declared`); `exists` is implicit.
+
+Reference declarations for the MVP sources (attributes without a role
+abbreviated):
+
+```json
+{ "name": "github", "issuer_type": "github", "kinds": [
+  { "kind": "Repository",
+    "keys": [ { "key_type": "repo_node", "class": "id" },
+              { "key_type": "repo", "class": "name", "per_subject": "one", "redirects": true, "case": "insensitive" } ],
+    "fields": [ { "predicate": "approves_changes", "authoritative": true },
+                { "predicate": "default_branch", "authoritative": true }, { "predicate": "name" }, "…" ] },
+  { "kind": "Team",
+    "keys": [ { "key_type": "team_node", "class": "id" },
+              { "key_type": "team", "class": "name", "per_subject": "one", "case": "insensitive" } ],
+    "fields": [ { "predicate": "name", "match": "name" }, { "predicate": "slug" },
+                { "predicate": "member_of", "direction": "in", "match": "members", "authoritative": true } ] },
+  { "kind": "Person",
+    "keys": [ { "key_type": "user_node", "class": "id" },
+              { "key_type": "user", "class": "name", "per_subject": "one", "case": "insensitive" } ],
+    "fields": [ { "predicate": "name", "match": "name" }, { "predicate": "verified_email", "match": "email" },
+                { "predicate": "commit_email", "match": "email" }, { "predicate": "login" } ],
+    "links": [ { "issuer_type": "saml", "key_type": "name_id", "authoritative": true } ] } ] }
+```
+
+```json
+{ "name": "authentik", "issuer_type": "authentik", "kinds": [
+  { "kind": "Person",
+    "keys": [ { "key_type": "user", "class": "id" },
+              { "key_type": "username", "class": "name", "per_subject": "one", "case": "insensitive" },
+              { "issuer_type": "saml", "key_type": "name_id", "class": "id" } ],
+    "fields": [ { "predicate": "name", "match": "name", "authoritative": true },
+                { "predicate": "email", "match": "email", "authoritative": true } ],
+    "links": [ { "issuer_type": "github", "key_type": "user_node", "authoritative": true },
+               { "issuer_type": "github", "key_type": "user" } ] },
+  { "kind": "Team",
+    "keys": [ { "key_type": "group", "class": "id" },
+              { "key_type": "group_name", "class": "name", "per_subject": "one" } ],
+    "fields": [ { "predicate": "name", "match": "name" },
+                { "predicate": "member_of", "direction": "in", "match": "members", "authoritative": true } ] } ] }
+```
+
+The `github` `user_node` and `user` key types that Authentik links are
+declared by the GitHub adapter; both declarations of `saml` `name_id` would
+have to agree.
 
 ### Bindings
 
@@ -223,9 +278,9 @@ same whichever of the reference and the observation is applied first.
 A **reference** (a relation's `to` or `from`, or a `linked_id`) resolves to
 the subject its alias maps to at `t`, tentative bindings included. A
 released name resolves to the subject it last mapped to if the key type
-`redirects`. Otherwise, and for an unbound key, a placeholder is minted
-(rule `reference`) with a tentative binding, so later references to the
-same name reuse it.
+`redirects`. Otherwise, and for an unbound key, a placeholder of the key
+type's kind is minted (rule `reference`) with a tentative binding, so later
+references to the same name reuse it.
 
 Each claim records `via`: the set of aliases the observation's entity
 carried, and the reference key for the other end.
@@ -255,7 +310,8 @@ Nothing else mints. Every mint is audited.
 | --- | --- | --- |
 | `co_reported_ids` | Resolution rule 1. | 1.0 |
 | `placeholder` | An observed binding covers a placeholder's tentative one. | 1.0 |
-| `identity` | `same_as` between them becomes `asserted`. | computed |
+| `authoritative` | Live [authoritative evidence](#identity-across-systems) between them, under any merge policy but `manual`. | 1.0 |
+| `score` | `same_as` confidence reaches the kind's threshold under the `score` [merge policy](#merge-policy). | computed |
 | `manual` | A `MergeRequested` event. Rejected (`identity_conflict`) while a `distinct_from` between them is live, unless the request also clears it. | 1.0 |
 
 Only subjects of the same kind merge. At record time `r`:
@@ -273,9 +329,10 @@ Only subjects of the same kind merge. At record time `r`:
 4. `same_as` and `distinct_from` facts between the two move to the merge
    record and keep being evaluated. A later `same_as`/`distinct_from` claim
    whose ends canonicalize to one subject counts as evidence for the merge
-   records joining the subjects its `via` aliases were bound to. If an
-   `identity` merge's evidence falls below threshold, the core opens a
-   conflict on `(subject, same_as)` for review. It never un-merges by itself.
+   records joining the subjects its `via` aliases were bound to. If the
+   evidence for an `authoritative` or `score` merge stops meeting its kind's
+   merge policy, the core opens a conflict on `(subject, same_as)` for
+   review. It never un-merges by itself.
 5. Reads as recorded before `r` still show two subjects.
 6. An audit record holds the rule, confidence, evidence, both alias sets and
    the event ID.
@@ -295,14 +352,13 @@ can't be un-merged: it is correct by construction. At record time `r`:
    claims are not rewritten) and counts for it. Claims whose `via` spans
    both sides, or that have none (manual, core), stay with `A` and are
    listed in the audit record for review.
-4. A `distinct_from` between the two is set (source `manual`).
+4. A `distinct_from` between the two is set (source `manual`), which blocks
+   them from merging again by score or evidence.
 
 A `DistinctFromSet` for two subjects already merged is rejected
 (`already_merged`); un-merge instead.
 
 ## Subject kinds
-
-*Replaces v0.1 "Entity kinds". The kinds are unchanged.*
 
 | Kind | Meaning | Registered attributes | MVP sources |
 | --- | --- | --- | --- |
@@ -318,13 +374,12 @@ A `DistinctFromSet` for two subjects already merged is rejected
 | `Schedule` | An on-call rotation | `name` | |
 | `Document` | A runbook, ADR, README or similar | `title`, `url`, `doc_type` | |
 
-`Change.author` is now the `changed_by` fact. `Schedule.on_call_now` is gone:
-an on-call source reports `on_call_for` facts with `valid_from`/`valid_to`
-per shift, and "who is on call now" is an [as-of query](#as-of).
+A change's author is its `changed_by` fact. An on-call source reports
+`on_call_for` facts with `valid_from`/`valid_to` per shift, and "who is on
+call now" is an [as-of query](#as-of). Adapters emit only kinds they
+[declare](#declarations).
 
 ## Predicates
-
-*Replaces v0.1 "Relation types".*
 
 | Property | Meaning |
 | --- | --- |
@@ -342,6 +397,7 @@ applies.
 | --- | --- | --- | --- |
 | `member_of` | Person, Team → Team | many | none |
 | `owned_by` | any → Team, Person | many | set |
+| `approves_changes` | Repository → Team, Person | many | none |
 | `depends_on` | Component → Component, CloudResource | many | none |
 | `publishes` | Repository, Component → Package | many | none |
 | `consumes` | Component → Package | many | none |
@@ -363,16 +419,17 @@ applies.
 | every other registered attribute in [kinds](#subject-kinds) | string | one | none |
 
 - `exists` is claimed implicitly by every observation of an entity.
+- `approves_changes`: the source requires the object's approval for changes
+  to some paths ([CODEOWNERS](#codeowners)). It is not ownership.
 - `verified_email`: an address the source verified on a domain the
   organization verified. `commit_email`: an author address of commits the
   source links to the person.
-- An unregistered attribute becomes `<namespace>.<attr>` (namespace of the
-  source system), cardinality `one` for a scalar and `many` for an array,
-  conflict `none`, type from the JSON: string, number → `float`, boolean,
-  object → `json`.
+- An unregistered attribute is declared with its type and cardinality and
+  becomes `<namespace>.<attr>` (namespace of the source system), conflict
+  `none`.
 
 **Core predicates** (adapters MUST NOT claim them): `same_as` and
-`distinct_from`, Person → Person or Team → Team. Both are symmetric and
+`distinct_from`, between two subjects of one kind. Both are symmetric and
 stored with the lower `subject_id` as subject.
 
 | Value type | Canonical form |
@@ -387,7 +444,7 @@ There is no integer type until a predicate needs one.
 
 ## Observations
 
-*Extends v0.1.* Example (envelope fields `specversion`, `type`,
+Example (CloudEvents envelope fields `specversion`, `type`,
 `datacontenttype` omitted here and below):
 
 ```json
@@ -404,10 +461,10 @@ There is no integer type until a predicate needs one.
                       "topics": [], "description": null }
     },
     "relations": [
-      { "type": "owned_by", "to": "github:team/acme/payments",
+      { "type": "approves_changes", "to": "github:team/acme/payments",
         "attributes": { "pattern": "*", "file": ".github/CODEOWNERS" } }
     ],
-    "snapshots": [ { "direction": "out", "predicates": ["owned_by"] } ],
+    "snapshots": [ { "direction": "out", "predicates": ["approves_changes"] } ],
     "evidence": { "url": "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS" }
   }
 }
@@ -418,7 +475,7 @@ There is no integer type until a predicate needs one.
 | `time` | `observed_at` of every claim; see below. |
 | `entity.key` | Primary key; SHOULD be `id` class when the source has one. |
 | `entity.aliases` | More keys for the entity, only in the source's `namespace` or its `issues` namespaces. |
-| `entity.linked_ids` | Keys in the source's `links` namespaces that the source records for the entity: `[{ "key", "rule" }]`. Identity evidence, never an alias. When present, the list is complete for this source. |
+| `entity.linked_ids` | Keys in the source's `links` namespaces that the source records for the entity, of key types in the kind's declared `links`. Identity evidence, never an alias. When present, the list is complete for this source. |
 | `entity.attributes` | Attribute claims. A value, an array (the complete set) or `null` (none). |
 | `entity.deleted` | The entity no longer exists in the source. |
 | `relations[]` | `type`; exactly one of `to` (entity is subject) or `from` (entity is object); `attributes` (qualifiers, not part of the fact); `absent`; optional `valid_from`, `valid_to`, `confidence_ppm`. |
@@ -465,7 +522,7 @@ Each observation becomes claims about the resolved subject `E` at
 | attribute `k: null` | none | `(source, E, out, [k])` |
 | relation `to: T` / `from: F` | `(E, type, T)` / `(F, type, E)`, ended if `absent` | `(source, E, out, [type])` if `type` is `one` and `to` |
 | `attribute_claims[]` | `(E, predicate, value)`, ended if `absent` | as for attributes |
-| `linked_ids` | evidence for `(E, same_as, target)` from source `core/identity/<rule>/<source>` | the source's linked-id evidence for `E` |
+| `linked_ids` | evidence for `(E, same_as, target)` ([Identity across systems](#identity-across-systems)) | the source's linked-id evidence for `E` |
 
 Otherwise the absence of a fact is **not** an ending: adapters see
 different slices at different times.
@@ -525,8 +582,6 @@ a snapshot read); offset paging can skip items.
 
 ## Facts and supports
 
-*Replaces v0.1 "Facts".*
-
 ### Facts
 
 ```json
@@ -538,8 +593,8 @@ a snapshot read); offset paging can skip items.
 - `object` is `{ "subject_id" }` or `{ "type", "value" }` (value in
   canonical form).
 - `fact_id` is the lowercase hex SHA-256 of the JCS form of
-  `{ "subject_id", "predicate", "object" }`, with canonical (survivor) IDs.
-  Test vectors:
+  `{ "subject_id", "predicate", "object" }`, with canonical (survivor) IDs
+  and value types written as in this document (`"string"`). Test vectors:
 
   | JCS input | `fact_id` |
   | --- | --- |
@@ -566,6 +621,10 @@ assert with a default `valid_from` writes nothing before `observed_at`, so
 re-sending it never moves its start. `confidence_ppm` is an integer in
 `[1, 1000000]`; to say a fact is false, end it.
 
+Adapters MAY backfill `valid_from` with a time the source records for when
+the fact began (a membership start, a repository's creation), so history
+doesn't start at install. They MUST NOT estimate one.
+
 ### Supports
 
 A source's support for a fact at valid time `v`, as recorded at `r`, is the
@@ -581,7 +640,7 @@ Implementations MAY evaluate writes on read or materialize **support
 versions**:
 
 ```json
-{ "fact_id": "041d6c02…", "source": "github-acme", "adapter": "github@0.2.0",
+{ "fact_id": "9b1e…", "source": "github-acme", "adapter": "github@0.2.0",
   "event_id": "github-acme/9f2c…", "observation_id": "github:repo_node/R_kgDOH1a2b3@2026-09-28T01:30:00.000000Z",
   "observed_at": "2026-09-28T01:30:00Z", "last_confirmed_at": "2026-10-01T06:00:00Z",
   "confidence_ppm": 1000000, "valid_from": "2026-09-28T01:30:00Z", "valid_to": null,
@@ -594,17 +653,48 @@ versions**:
 
 - One row per maximal valid-time interval with one state, confidence and
   qualifier set. `adapter` is the adapter name and version that produced
-  the observation.
+  the observation; derived supports have none.
 - Rows are immutable except that `retracted_at` is set once, to the
   `recorded_at` of the apply that replaces them.
 - `reason`: `assert`, `end`, `snapshot`, `deleted`, `withdrawn`, `merge`,
-  `unmerge`.
+  `unmerge`, `derived`.
 - A materialized store MUST keep the ordering key per valid-time segment. A
   **confirming** claim (same state, later key) replaces the keys on
   `[observed_at, ∞)` only, and creates no new support version.
   `last_confirmed_at` is informational.
 
 Both forms give the same answers to every query here.
+
+### Derived claims
+
+The core derives some claims from asserted facts by configured **derivation
+rules**. A derived support's source is `core/derive/<rule>/<input source>`.
+It counts in its input source's system for [Confidence](#confidence) and is
+not authoritative unless the operator configures it so. Its state at each
+valid time is the rule applied to its inputs' state there, so it follows
+them on valid time and is re-evaluated, with reason `derived`, in every
+apply that changes them. Matching ([Identity across systems](#identity-across-systems))
+works the same way.
+
+#### CODEOWNERS
+
+The GitHub adapter reports CODEOWNERS literally: for each line and each
+owner, `(Repository, approves_changes, owner)` at 1000000 with qualifiers
+`{ "file", "pattern" }`, and a snapshot scope over `approves_changes`.
+Lines naming one owner collapse into one fact whose qualifiers list every
+pattern.
+
+The default configuration's rule `codeowners` reads the file's shape from
+one source's live `approves_changes` supports for a repository and claims
+`owned_by` for each owner on a `*` line:
+
+| File shape | `owned_by` for each `*` owner | Default ppm |
+| --- | --- | --- |
+| One rule line, pattern `*`, naming one team | yes | 950000 |
+| Any other file with a `*` line | yes | 700000 (below threshold: `candidate`) |
+| Only path rules | none | |
+
+A team appearing in many repositories' CODEOWNERS gives no ownership signal.
 
 ### Retraction
 
@@ -644,9 +734,10 @@ detect that; the next sync corrects it.
 All confidence is integer **parts per million** (ppm). At `(v, r)`:
 
 1. Group the fact's live supports by **source system**. `manual` is one
-   group; each `core/identity/<rule>` is one group. Systems listed together
-   in the configuration field `confidence_groups` (systems that copy each
-   other) form one group.
+   group; `core/identity/link` and each `core/identity/match/<method>` is
+   one group; a derived support joins its input source's system. Systems
+   listed together in the configuration field `confidence_groups` (systems
+   that copy each other) form one group.
 2. Within a group, take the maximum: `g_k`.
 3. Across `n` groups, exact integer noisy-OR:
    `P = ∏ₖ (1000000 − g_k)`, then
@@ -672,26 +763,31 @@ A fact's status at `(v, r)`, with a `status_reason`, is the first match:
 | 1 | No live supports | `none` | `no_support` |
 | 2 | A live manual override covers `(subject, predicate)` | `asserted` if it lists the object, else `overridden` | `override` |
 | 3 | `C` below the threshold | `candidate` | `below_threshold` |
-| 4 | Relation predicate with `conflict` ≠ `none`, and the object has no live `exists` support | `candidate` | `unobserved_object` |
-| 5a | In a conflict, with precedence configured | `asserted` or `candidate` | `precedence` |
-| 5b | In a conflict, no precedence | `conflicted` | `conflict` |
-| 6 | Otherwise | `asserted` | |
+| 4 | A `same_as` its kind's [merge policy](#merge-policy) doesn't accept | `candidate` | `merge_policy` |
+| 5 | Relation predicate with `conflict` ≠ `none`, and the object has no live `exists` support | `candidate` | `unobserved_object` |
+| 6a | In a conflict, with precedence configured | `asserted` or `candidate` | `precedence` |
+| 6b | In a conflict that authority decides | `asserted` or `candidate` | `authority` |
+| 6c | In a conflict otherwise | `conflicted` | `conflict` |
+| 7 | Otherwise | `asserted` | |
 
 Answers that act (ownership, policy) read only `asserted` facts
-([ADR 2](../adr/0002-graph-is-source-of-truth.md)).
+([ADR 2](../adr/0002-graph-is-source-of-truth.md)). A placeholder never
+passes step 5, so a typo in CODEOWNERS never makes an owner; it is reported
+as a [data-quality issue](#data-quality) instead.
 
 A fact's reported `valid_from`/`valid_to` at `(v, r)` is the maximal
 interval containing `v` over which its status, as recorded at `r`, is
 unchanged.
 
-Thresholds, precedence, groups and identity rule confidences are those of
-the configuration in force at record time `r`. Configuration changes are
+Thresholds, precedence, authority overrides, groups, match weights, merge
+policies, derivation rules and compaction tiers are those of the
+configuration in force at record time `r`. Configuration changes are
 versioned with record time (ADR 10).
 
 ### Conflicts
 
 For `(subject, predicate)` at `(v, r)`, let `A` be the objects passing steps
-1–4, and `S_g` the objects whose group confidence `g_k` from source system
+1–5, and `S_g` the objects whose group confidence `g_k` from source system
 `g` meets the threshold.
 
 | `conflict` | Conflict when | Conflicted objects |
@@ -700,12 +796,18 @@ For `(subject, predicate)` at `(v, r)`, let `A` be the objects passing steps
 | `one` | `A` has more than one object | all of `A` |
 | `set` | two systems have non-empty, different `S_g` | objects in `A` not in every non-empty `S_g` |
 
-Objects every system agrees on stay asserted. Resolution:
+Objects every system agrees on stay asserted. Resolution, first match:
 
-- **Manual override** (step 2, an `OverrideSet` event).
-- **Precedence**: a configured, per-predicate ordered list of source
-  systems. The first system with a non-empty `S_g` decides: its conflicted
-  objects are `asserted`, the others `candidate`.
+1. **Manual override** (step 2, an `OverrideSet` event).
+2. **Precedence**: a configured, per-predicate ordered list of source
+   systems. The first system with a non-empty `S_g` decides: its conflicted
+   objects are `asserted`, the others `candidate`.
+3. **Authority**: a system is authoritative when a live support in its
+   `S_g` is authoritative ([Declarations](#declarations)). If authoritative
+   systems have non-empty `S_g` and all those `S_g` are equal, they decide
+   as precedence does.
+4. Otherwise (two authoritative systems disagree, or none is
+   authoritative) the conflict stands and its objects are `conflicted`.
 
 Conflicts are derived, but implementations MUST expose them by query and
 emit `ConflictOpened` / `ConflictResolved` events, with audit records.
@@ -723,41 +825,67 @@ review (event and audit record).
 ```json
 { "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e", "predicate": "owned_by",
   "valid_from": "2026-10-02T10:00:00Z",
-  "positions": [ { "source_system": "github",  "objects": ["0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70"] },
-                 { "source_system": "catalog", "objects": ["0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"] } ],
+  "positions": [ { "source_system": "github",  "authoritative": false, "objects": ["0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70"] },
+                 { "source_system": "catalog", "authoritative": false, "objects": ["0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"] } ],
   "resolution": null }
 ```
 
 ## Identity across systems
 
 Adapters never decide that keys from two systems are one thing. They report
-what their own system records; the core turns that into `same_as` evidence
-and merges when `same_as` is asserted.
+what their own system records, through declared links and matching fields;
+the core turns that into evidence for `same_as` between two subjects of one
+kind, whose confidence is the identity **score**.
 
-| Rule | Evidence | ppm | Strength |
-| --- | --- | --- | --- |
-| `directory_link` | The directory stores the GitHub user's node ID (`linked_ids`, `github:user_node`). | 1000000 | strong |
-| `saml_name_id` | GitHub's linked SAML identity reports the NameID (`linked_ids`); the directory issues it as an alias. | 1000000 if the namespace is `persistent`, else 850000 | strong if persistent, else weak |
-| `manual` | `MergeRequested`. | 1000000 | strong |
-| `directory_link_login` | The directory stores a GitHub login, resolved through the `github:user` binding at `observed_at`. Logins are reusable. | 850000 | weak |
-| `verified_domain_email` | A GitHub `verified_email` equals a directory `email`. | 800000 | weak |
-| `commit_email` | A GitHub `commit_email` equals a directory `email`. | 600000 | weak |
-| `display_name` | Equal `name` after NFKC, case folding and whitespace collapsing. | 300000 | weak |
+| Evidence | Support source | ppm |
+| --- | --- | --- |
+| **Authoritative**: a live `linked_id`, under a link declared (or overridden) authoritative, to an `id`-class key. One system stores another's permanent ID. | `core/identity/link/<source>` | 1000000 |
+| Another `linked_id` (not authoritative, or a `name` key resolved through its binding at `observed_at`) | `core/identity/match/link` | configured weight |
+| Matching fields | `core/identity/match/<method>` | configured weight |
 
-- Emails are compared after Unicode simple case folding of the whole
-  address.
-- Evidence sources are `core/identity/<rule>/<origin>`: the reporting
-  source for `linked_ids` rules, `core` for the matching rules, which the
-  core re-evaluates whenever their input facts change and ends when the
-  inputs stop being asserted.
-- A `linked_ids` rule not in the key type's `link_rules`, or a reserved rule
-  (`manual` and the matching rules), is rejected (`unknown_rule`).
-- `same_as` combines as in [Confidence](#confidence); **if no strong rule
-  is live, it is capped at 850000**, below the default threshold. Weak
-  evidence never merges; it yields a `candidate` for a person to confirm.
-- A live `distinct_from` blocks the merge and opens a conflict on
-  `(subject, same_as)` (the [conflict shape](#conflicts), `ConflictOpened`).
-- Teams and groups are not matched automatically.
+Evidence follows its inputs on valid time and ends when they stop being
+asserted ([Derived claims](#derived-claims)). A link of a key type not in
+the kind's declared `links` is rejected (`not_declared`).
+
+### Matching
+
+One generic matcher scores pairs of active subjects of one kind that share
+a value of a declared matching field. A pair in which both subjects hold an
+`id` alias in the same namespace is two things in one system and is not
+scored.
+
+| Method | Values match when |
+| --- | --- |
+| `exact` | Equal canonical values (ids, logins). |
+| `email` | Equal after Unicode simple case folding of the whole address. |
+| `name` | Equal after NFKC, case folding and whitespace collapsing. |
+| `members` | Overlap of the sets of subjects with asserted `member_of` to each (both non-empty): the size of `A ∩ B` over the size of `A ∪ B`. |
+
+Configuration gives each matching field a weight in ppm (defaults per kind
+and method, overridable per source and field). A matching pair of values
+contributes the lower of its two fields' weights, for `members` multiplied
+by the overlap and rounded half to even. Each method's support is the
+largest contribution. The weights' default values live in the default
+configuration, not in this spec.
+
+### Merge policy
+
+Configuration sets a merge policy per kind. It decides when `same_as` is
+`asserted` (step 4 of [Status](#status)) and the two subjects merge:
+
+| Policy | Merges on |
+| --- | --- |
+| `authoritative` | Live authoritative evidence, or a person's confirmation (`MergeRequested`). |
+| `score` | As `authoritative`, or a `same_as` confidence at or above the policy's `threshold_ppm`. |
+| `manual` | Only `MergeRequested`. |
+
+For `same_as`, the policy's `threshold_ppm` takes the place of the
+predicate threshold. The default configuration sets
+`Person: authoritative` and `Team: score`.
+A `same_as` the policy doesn't accept stays `candidate` for a person to
+confirm. A live `distinct_from` blocks the merge and opens a conflict on
+`(subject, same_as)` (the [conflict shape](#conflicts), `ConflictOpened`).
+`co_reported_ids` and `placeholder` merges don't depend on the policy.
 
 ## Manual operations
 
@@ -773,6 +901,35 @@ reason, applied and audited like any other event. Their source is `manual`.
 | `OverrideSet` | `subject_id`, `predicate`, `objects` (fact objects: `{ "subject_id" }` or `{ "type", "value" }`), optional `valid_from`, `valid_to` | A `manual` snapshot of `(subject, predicate)` that decides status (step 2) |
 | `OverrideCleared` | `subject_id`, `predicate` | Ends the override at `observed_at` |
 
+## Retention and compaction
+
+Operators configure **tiers** per predicate or per kind (a predicate's tiers
+override its domain kind's). Each tier keeps a level of detail for a span of
+valid time, counted back from now:
+
+```json
+{ "predicate": "owned_by", "tiers": [ { "detail": "full", "for": "P18M" }, { "detail": "quarter", "for": "P5Y" }, { "detail": "year" } ] }
+```
+
+- `full` keeps every support version. `quarter` and `year` replace the
+  history of each `(subject, predicate)` in each calendar period with a
+  **summary**: `{ "period_start", "period_end", "value_at_end", "changes",
+  "distinct_values", "compacted_at" }`. `value_at_end` is the asserted
+  objects at period end, `changes` the number of status changes of its
+  facts within the period, and `distinct_values` every object asserted at
+  some time in it.
+- A summary is Bearing's knowledge at `compacted_at`: reads as recorded
+  earlier also answer from it. Live supports are never compacted.
+  Compaction runs as an event and is audited.
+- An answer from a summary MUST say so: every `as_of` and `changes` result
+  carries `precision`, `full` or `summary` (with the period), so "who owned
+  X in 2024?" answers "Z at year end, after 3 changes".
+- The identity store and the audit log ([ADR 8](../adr/0008-audit-log.md))
+  are never compacted.
+
+The MVP implements only the `full` tier: nothing is compacted and
+`precision` is always `full`.
+
 ## Queries
 
 Times default to now.
@@ -783,9 +940,10 @@ Times default to now.
 a key, a predicate, an object and statuses. A key resolves through bindings
 valid at `valid_at` as recorded at `recorded_at`; subject IDs canonicalize
 through merges recorded by `recorded_at`. Each result has the fact triple,
-`status`, `status_reason`, `confidence_ppm`, its valid interval, and the
-live supports with `source`, `adapter`, `confidence_ppm`, `observed_at`,
-valid and record times, `qualifiers` and `evidence`.
+`status`, `status_reason`, `confidence_ppm`, its valid interval,
+`precision`, and the live supports with `source`, `adapter`,
+`confidence_ppm`, `observed_at`, valid and record times, `qualifiers` and
+`evidence`.
 
 | Question | `valid_at` | `recorded_at` |
 | --- | --- | --- |
@@ -812,9 +970,17 @@ therefore the supports recorded by `t1`, combined under `t2`'s merges.
 ```json
 { "fact_id": "041d6c02…", "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e",
   "predicate": "owned_by", "object": { "subject_id": "0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f" },
-  "from": { "status": "asserted", "confidence_ppm": 1000000 },
-  "to": { "status": "none", "confidence_ppm": 0 }, "supports_changed": ["github-acme"] }
+  "from": { "status": "asserted", "confidence_ppm": 950000 },
+  "to": { "status": "none", "confidence_ppm": 0 }, "precision": "full",
+  "supports_changed": ["core/derive/codeowners/github-acme"] }
 ```
+
+### Data quality
+
+`data_quality(filter)` lists placeholders that live supports reference
+(typically a misspelled team in CODEOWNERS): the placeholder, its tentative
+aliases, and the referencing supports with their `evidence`. Placeholders
+never count as owners (step 5 of [Status](#status)).
 
 ## Audit
 
@@ -822,26 +988,35 @@ The core writes an audit record ([ADR 8](../adr/0008-audit-log.md)) in the
 apply transaction, with the event ID and rule, for: a mint; a binding
 written or released; merge, un-merge, `distinct_from`; a fact's status
 change caused by an apply; a conflict opened or closed; an override set,
-cleared or flagged stale; and every rejection (`kind_mismatch`,
-`type_mismatch`, `domain_mismatch`, `unknown_key_type`, `unknown_rule`,
+cleared or flagged stale; a compaction; and every rejection
+(`kind_mismatch`, `type_mismatch`, `domain_mismatch`, `not_declared`,
 `duplicate_claim`, `cardinality_mismatch`, `invalid_interval`,
 `identity_conflict`, `already_merged`, `namespace_not_allowed`,
 `observed_at_in_future`).
 
 ## Wire mapping
 
-The Protobuf model (ADR 6, issue #11) encodes this document; ProtoJSON uses
-proto field names, so JSON matches the examples here.
+Protobuf (ADR 6, issue #11) is the only source of truth for these shapes.
+JSON Schema and every other format are generated from the `.proto` files,
+never written by hand. ProtoJSON uses proto field names, so JSON field
+names match the examples here.
 
-- Enumerated values (kinds, statuses, reasons, classes, directions) are
-  strings checked by protovalidate `in` rules, not proto enums, so they
-  appear exactly as written here (`"Person"`, `"asserted"`) and v1 JSON
-  stays valid.
-- A typed value is `TypedValue { string type; google.protobuf.Value value; }`,
-  so its ProtoJSON is `{ "type", "value" }`. A protovalidate CEL rule ties
-  `type` to the value's JSON kind: `string` and `time` are strings (`time`
-  in the canonical form), `float` a number, `bool` a boolean, `json` an
-  object. With no integer type, `Value` loses nothing.
+- **Core-closed lists are proto enums**: subject status, minting and merge
+  rules, key class, `per_subject`, case, merge policy, matching method,
+  snapshot direction, cardinality, conflict policy, value type, support
+  `reason`, fact status, `status_reason`, `precision`, compaction detail and
+  rejection codes. Each has a zero `*_UNSPECIFIED` value that validation
+  rejects. This document writes values in short form (`asserted`); ProtoJSON
+  spells them as enum names (`FACT_STATUS_ASSERTED`). `fact_id` hashes the
+  short forms.
+- **Adapter-declared values are strings**: kinds, predicates, key types and
+  namespaces. The core validates them at runtime against the registry here
+  and the declarations in force (`not_declared`).
+- A typed value is `TypedValue { ValueType type; google.protobuf.Value value; }`.
+  A protovalidate CEL rule ties `type` to the value's JSON kind: `string`
+  and `time` are strings (`time` in the canonical form), `float` a number,
+  `bool` a boolean, `json` an object. With no integer type, `Value` loses
+  nothing.
 - Observation attributes are `google.protobuf.Value`, where an explicit
   `null` is meaningful. Everywhere else an absent field equals `null`.
 - Confidence is a `uint32 confidence_ppm`. In claim inputs it is optional
@@ -849,7 +1024,9 @@ proto field names, so JSON matches the examples here.
 
 ## Worked examples
 
-Illustrative IDs; hashes and event IDs shortened.
+Illustrative IDs; hashes and event IDs shortened. Examples use the
+[default configuration](#derived-claims) and the reference
+[declarations](#declarations).
 
 | Name | Subject ID |
 | --- | --- |
@@ -859,12 +1036,13 @@ Illustrative IDs; hashes and event IDs shortened.
 | J: person jdoe | `0192b2d0-1a01-7e70-b261-ad5e6f708192` |
 | G: directory group `payments` | `0192b2d0-1a02-7d6f-a150-9c4d5e6f7081` |
 
-### 1. A repository with a CODEOWNERS team owner
+### 1. A repository with a CODEOWNERS team
 
 The [observation above](#observations), from `github-acme`,
-`observed_at` 2026-09-28T01:30:00Z, nothing bound yet. The same full sync
-requested the teams page at 01:29 and observed the team (key
-`github:team_node/T_kwDOAB12cd`, alias `github:team/acme/payments`).
+`observed_at` 2026-09-28T01:30:00Z, nothing bound yet. CODEOWNERS is the
+single line `* @acme/payments`. The same full sync requested the teams page
+at 01:29 and observed the team (key `github:team_node/T_kwDOAB12cd`, alias
+`github:team/acme/payments`).
 
 1. Both repo keys are unbound: mint R, bind them.
 2. The team: if its observation is applied first, it mints P and the repo's
@@ -873,12 +1051,15 @@ requested the teams page at 01:29 and observed the team (key
    then resolves by name to P, which adopts the node ID. Either way P has
    `exists` from 01:29.
 3. Claims: `(R, exists, true)`, `name`, `default_branch`, `language`, and
-   `(R, owned_by, P)`. `topics: []` and `description: null` record that R
-   has none.
-4. `(R, owned_by, P)` is `asserted` from 01:30. Until the team observation
-   is applied, reads give `candidate` (`unobserved_object`); the final
-   valid-time state doesn't depend on the order.
-5. The scope `(github-acme, R, out, [owned_by])` has watermark key
+   `(R, approves_changes, P)` at 1000000. `topics: []` and
+   `description: null` record that R has none.
+4. The file is one `*` line naming one team, so `codeowners` derives
+   `(R, owned_by, P)` at 950000 from `core/derive/codeowners/github-acme`:
+   `asserted` from 01:30. Until the team observation is applied, reads give
+   `candidate` (`unobserved_object`); the final valid-time state doesn't
+   depend on the order. Had the file also had path rules, `owned_by` would
+   be 700000, a `candidate`.
+5. The scope `(github-acme, R, out, [approves_changes])` has watermark key
    `(2026-09-28T01:30:00Z, "github:repo_node/R_kgDOH1a2b3@…", "github-acme/…", <hash>)`.
 
 ### 2. Repository rename
@@ -896,31 +1077,34 @@ requested the teams page at 01:29 and observed the team (key
   releases `github:repo/acme/payments-api` from 12:00. It redirects, so
   references to the old name still resolve to R.
 - `name` is `one`: `"payments-api"` ends at 12:00, `"payments"` starts.
-- `(R, owned_by, P)` is untouched.
+- `(R, approves_changes, P)` and the derived `owned_by` are untouched.
 
 ### 3. A team removed from CODEOWNERS
 
-A full sync requests R's CODEOWNERS at 2026-10-02T09:00:00Z; it lists only
-`@acme/platform`:
+A full sync requests R's CODEOWNERS at 2026-10-02T09:00:00Z; it is now the
+single line `* @acme/platform`:
 
 ```json
 { "id": "github:repo_node/R_kgDOH1a2b3@2026-10-02T09:00:00.000000Z", "time": "2026-10-02T09:00:00Z",
   "data": { "entity": { "kind": "Repository", "key": "github:repo_node/R_kgDOH1a2b3",
                         "aliases": ["github:repo/acme/payments"] },
-            "relations": [ { "type": "owned_by", "to": "github:team/acme/platform",
+            "relations": [ { "type": "approves_changes", "to": "github:team/acme/platform",
                              "attributes": { "pattern": "*", "file": ".github/CODEOWNERS" } } ],
-            "snapshots": [ { "direction": "out", "predicates": ["owned_by"] } ] } }
+            "snapshots": [ { "direction": "out", "predicates": ["approves_changes"] } ] } }
 ```
 
-- `(R, owned_by, L)` is claimed from 09:00 (L was observed earlier, so it
-  is asserted).
-- The watermark ends `(R, owned_by, P)` at 09:00. It had no other support:
-  `asserted` on `[2026-09-28T01:30:00Z, 2026-10-02T09:00:00Z)`, `none` after.
+- `(R, approves_changes, L)` is claimed from 09:00, and the watermark ends
+  `(R, approves_changes, P)` there. Its support versions:
 
-| valid_from | valid_to | recorded_at | retracted_at | reason |
-| --- | --- | --- | --- | --- |
-| 2026-09-28T01:30:00Z | null | 2026-09-28T01:30:02Z | 2026-10-02T09:00:03Z | assert |
-| 2026-09-28T01:30:00Z | 2026-10-02T09:00:00Z | 2026-10-02T09:00:03Z | null | snapshot |
+  | valid_from | valid_to | recorded_at | retracted_at | reason |
+  | --- | --- | --- | --- | --- |
+  | 2026-09-28T01:30:00Z | null | 2026-09-28T01:30:02Z | 2026-10-02T09:00:03Z | assert |
+  | 2026-09-28T01:30:00Z | 2026-10-02T09:00:00Z | 2026-10-02T09:00:03Z | null | snapshot |
+
+- The derived `(R, owned_by, P)` ends with it (reason `derived`):
+  `asserted` on `[2026-09-28T01:30:00Z, 2026-10-02T09:00:00Z)`, `none`
+  after. `(R, owned_by, L)` is asserted at 950000 from 09:00 (L was
+  observed earlier).
 
 A webhook observed at 08:55 that still lists P, applied late, changes
 nothing: at valid times from 09:00 the watermark's key is greater.
@@ -928,7 +1112,8 @@ nothing: at valid times from 09:00 the watermark's key is greater.
 ### 4. A directory group membership with an end date
 
 Source `authentik-acme` reports group G and its members; jdoe's
-membership ends on 1 November (the directory holds an end date):
+membership ends on 1 November, and the directory records its start (a
+backfilled `valid_from`):
 
 ```json
 { "id": "authentik:group/5b0e…@2026-10-02T06:00:00.000000Z", "time": "2026-10-02T06:00:00Z",
@@ -949,15 +1134,21 @@ membership ends on 1 November (the directory holds an end date):
 ### 5. A conflicting ownership claim
 
 A catalog source (`catalog-acme`, system `catalog`) observes at
-2026-10-02T10:00:00Z that R is owned by P; GitHub says L. Both 1000000 ppm.
+2026-10-02T10:00:00Z that R is owned by P at 1000000; its adapter declares
+`owned_by` on `Repository` authoritative. GitHub's derived support says L
+at 950000.
 
-- `owned_by` is `set`: `S_github = {L}`, `S_catalog = {P}`. A conflict
-  opens from 10:00 ([shape](#conflicts)); both facts are `conflicted`.
-- "Who owns R?" returns no asserted owner, plus the conflict.
-- With precedence `owned_by: [catalog, github]`, P is `asserted` and L
-  `candidate` (`precedence`).
-- Or `OverrideSet { subject_id: R, predicate: owned_by, objects: [L] }`: L
-  `asserted`, P `overridden`. Both are audited and the conflict closes.
+- `owned_by` is `set`: `S_github = {L}`, `S_catalog = {P}`. Only `catalog`
+  is authoritative, so it decides: P is `asserted` and L `candidate`
+  (`authority`). No conflict opens.
+- If the operator overrides `catalog-acme`'s authority for `owned_by` to
+  `false`, neither system is authoritative: a conflict opens from 10:00
+  ([shape](#conflicts)), both facts are `conflicted`, and "who owns R?"
+  returns no asserted owner, plus the conflict.
+- Precedence `owned_by: [github, catalog]` would make L `asserted` and P
+  `candidate` (`precedence`), even with catalog authoritative. Or
+  `OverrideSet { subject_id: R, predicate: owned_by, objects: [L] }`: L
+  `asserted`, P `overridden`. Both are audited.
 
 ### 6. An "as of" query
 
@@ -973,13 +1164,12 @@ After examples 1–3, at 2026-10-02T12:00:00Z:
 { "facts": [ {
     "fact_id": "041d6c02…", "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e",
     "predicate": "owned_by", "object": { "subject_id": "0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f" },
-    "status": "asserted", "status_reason": null, "confidence_ppm": 1000000,
+    "status": "asserted", "status_reason": null, "confidence_ppm": 950000, "precision": "full",
     "valid_from": "2026-09-28T01:30:00Z", "valid_to": "2026-10-02T09:00:00Z",
-    "supports": [ { "source": "github-acme", "adapter": "github@0.2.0", "confidence_ppm": 1000000,
+    "supports": [ { "source": "core/derive/codeowners/github-acme", "adapter": null, "confidence_ppm": 950000,
                     "observed_at": "2026-09-28T01:30:00Z",
                     "valid_from": "2026-09-28T01:30:00Z", "valid_to": "2026-10-02T09:00:00Z",
-                    "recorded_at": "2026-10-02T09:00:03Z", "retracted_at": null,
-                    "qualifiers": [ { "file": ".github/CODEOWNERS", "pattern": "*" } ],
+                    "recorded_at": "2026-10-02T09:00:03Z", "retracted_at": null, "qualifiers": [],
                     "evidence": { "url": "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS" } } ] } ] }
 ```
 
@@ -987,69 +1177,64 @@ With `valid_at` now it returns L. With both times 2026-10-01T00:00:00Z it
 returns P with `valid_to: null`: on 1 October Bearing didn't yet know the
 ownership would end.
 
+### 7. Matching across GitHub and the directory
+
+- jdoe's Authentik record links their GitHub node ID
+  (`linked_ids: ["github:user_node/U_kgDOA1b2c3"]`): authoritative evidence
+  at 1000000, so the Authentik person merges into J (rule `authoritative`).
+  A matching email alone would leave a `candidate` to confirm.
+- P and G match on `name` and, once their members have merged, on
+  `members`. At or above the `Team` threshold they merge (rule `score`);
+  below it `same_as` stays a `candidate`.
+
 ## Open questions
 
 For Doug:
-1. **Identity store as primary state.** Subjects, bindings and merges can't
-   be rebuilt from a windowed, partition-ordered log, so v0.2 makes them
-   primary state, backed up with the graph. This narrows ADR 2's
-   "rebuildable" story to facts and the vector index. *Recommendation:*
-   accept, and amend ADR 2 and ADR 7 to say so.
-2. **Directory groups as Teams.** Should GitHub teams link to directory
-   groups automatically when GitHub team sync ties them, or only by hand?
-3. **Verified domain email** (800000, weak). Strong for orgs without SAML?
-4. **Login links.** `directory_link_login` is weak (850000) because logins
-   are reusable. Make it strong when the login's binding hasn't changed
-   since the directory record was updated?
-5. **CODEOWNERS confidence.** 1000000, or lower (CODEOWNERS says who
-   reviews, not always who owns)?
-6. **Unobserved owners.** A CODEOWNERS team not yet synced is a
-   `candidate`, not an owner, until observed. Acceptable?
-7. **`owned_by` conflict policy** `set`: too strict? Default precedence?
-8. **Backfill `valid_from`** where the source knows it (repo creation,
-   membership start), so history doesn't start at install?
-9. **Record-time compaction** of superseded support versions?
-10. **Placeholders** from typos in CODEOWNERS: hide by default, or report
-    as data-quality issues?
-11. **Key types.** Spec-registered per issuer type, with unregistered types
-    defaulting to `id`. Or should adapters declare them in `Describe`?
-12. **Wire choices.** Enumerations as validated strings rather than proto
-    enums, and confidence as integer ppm in the API: confirm.
-13. **Global apply clock.** One clock record serializes applies store-wide:
-    fine for the MVP, but it caps throughput whatever ADR 7's NATS/Kafka
-    option offers. *Recommendation:* accept for v0.2.
+1. **Other CODEOWNERS shapes.** A file whose only line is `*` with several
+   teams, or with a person, is treated as "any other file with a `*`
+   line" (700000, candidate). Right?
+2. **Authority is a boolean.** Two authoritative sources that disagree
+   always conflict. Enough, or do we need ranked authority levels?
+3. **Score merges going stale.** A `Team` merge made on score is never
+   undone automatically when the score drops; the core opens a conflict for
+   review. Keep that, or un-merge automatically for score merges only?
+4. **Enum spelling in JSON.** ProtoJSON writes `FACT_STATUS_ASSERTED`, not
+   `asserted`. Accept that in APIs and config, or map to short names?
 
 ## Follow-ups
 
-To change once this is approved, in the M1 implementation:
+To do once this is approved, in the M1 implementation. The scaffold
+artifacts are replaced, not migrated:
 
-- `schema/observation.v1.schema.json`: new fields, `to` no longer
-  required (`from` alternative), `additionalProperties`, attribute `null`.
-- `pkg/model`: `Validate` requires `To` today; add the missing fields;
-  rewrite the key comment (`model.go:91-94`); `NewObservation` uses
-  microsecond times in `id`.
-- `testdata/observations.ndjson`: the `pagerduty:`/`aws:` references and
-  `on_call_now`.
+- `proto/bearing/model/`: the data model, events and declarations as
+  Protobuf, with JSON Schema generated from it. ADR 6 says `v1` packages,
+  issue #11 says `v1alpha1`: reconcile.
+- Delete `schema/observation.v1.schema.json`, the hand-written types in
+  `pkg/model` and `testdata/observations.ndjson`; replace them with
+  generated types plus small helpers (key parsing, `fact_id`) and new
+  example observations that follow this spec.
 - `adapters/github`: node IDs as keys with the `X-Github-Next-Global-ID: 1`
-  header, names as aliases, `full_name`; send `null`/`[]` for empty
-  `language`, `description` and `topics` (`github.go:196-204` omits them);
-  snapshot scopes for full syncs; `complete_sync` only after it moves to
+  header, names as aliases, `full_name`; CODEOWNERS as `approves_changes`
+  with snapshot scopes; the reference declaration in `Describe`; send
+  `null`/`[]` for empty attributes; `complete_sync` only after it moves to
   cursor (GraphQL) paging; `observed_at` per the rules above.
-- `docs/spec/adapter-protocol.md` and `pkg/adapter`: `emits`, example keys,
-  `complete_sync` on the last page, the full-sync claim, the source
-  `namespace`, `issues` and `links` fields.
+- `pkg/adapter`: the declaration shape in `Describe` (specified in
+  `docs/spec/adapter-protocol.md`), `complete_sync` on the last page, the
+  source `namespace`, `issues` and `links` fields; bump
+  `adapter.ProtocolVersion`.
 - `docs/spec/contracts.md` and `pkg/contracts`: entities become subjects;
   `GraphStore` gains resolution, merge, un-merge, `Apply`, `as_of`,
-  `changes` and conflicts; vector points re-point on merge; `EventBus`
-  superseded by ADR 7's `EventLog`, with a home for the new event types;
-  conformance tests for every rule here, including apply-order independence.
-- ADR 6 says `v1` packages, issue #11 says `v1alpha1`: reconcile.
-- ADR 7: partition key (`(source, key)` vs subject), event IDs that
-  include the source, and the new event types (manual operations,
-  `ValidTimeBoundaryReached`, derived deletions); ADR 2: subject/fact
-  terminology and open question 1.
-- ADR 10: `namespace`, `issues`, `links` and `confidence_groups` as
-  `Source.spec` and configuration fields; adapters declare their issuer
-  type in `Describe` for the `namespace` default.
-- `AGENTS.md`, `README.md` and the `new-adapter` skill: keys, aliases,
-  snapshots and the "send `null` for empty" rule in the adapter checklist.
+  `changes`, `data_quality` and conflicts; vector points re-point on merge;
+  `EventBus` superseded by ADR 7's `EventLog`, with a home for the new event
+  types; conformance tests for every rule here, including apply-order
+  independence.
+- ADR 7: partition key (`(source, key)` vs subject), event IDs that include
+  the source, and the new event types (manual operations,
+  `ValidTimeBoundaryReached`, derived deletions, compaction).
+- ADR 10: `namespace`, `issues` (with `key_classes`), `links`, `authority`,
+  `confidence_groups`, match weights, merge policies, derivation rules and
+  compaction tiers as configuration, with the defaults named here.
+- Issue #27: the M3 apply-clock load benchmark against SurrealDB.
+- `AGENTS.md`, `README.md` and the `new-adapter` skill: declarations, keys,
+  aliases, snapshots and the "send `null` for empty" rule in the adapter
+  checklist.
