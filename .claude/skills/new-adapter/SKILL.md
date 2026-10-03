@@ -1,6 +1,6 @@
 ---
 name: new-adapter
-description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits observations over the JSON-RPC stdio adapter protocol.
+description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits observations through the Bearing adapter interface.
 ---
 
 # Add a Bearing adapter
@@ -8,6 +8,17 @@ description: Add a new Bearing source adapter (e.g. AWS, PagerDuty) that emits o
 An adapter is a small, stateless, read-only program that reads one external
 system and emits observations. `adapters/github` is the worked example; copy
 its shape.
+
+> **Transport change.** [ADR 9](../../../docs/adr/0009-wasm-adapters.md)
+> A13 retires the JSON-RPC stdio transport. From
+> [M4](https://github.com/dhm116/bearing/milestone/5), adapters are WASM
+> modules by default, and adapters that can't run as WASM serve the
+> Protobuf adapter service on a Unix socket as local processes. This
+> checklist describes the scaffold (`adapter.ServeStdio`), which exists
+> only until M4 replaces it. Don't start a new third-party adapter on
+> `ServeStdio`; wait for the M4 SDK. For first-party work before then,
+> keep the adapter logic separate from `main` so it moves to the new
+> runtime unchanged.
 
 ## Before writing code
 
@@ -39,7 +50,12 @@ its shape.
       Observations carry `evidence` pointing where a person can check the
       claim (the spec says SHOULD).
 - [ ] `Handle` (optional): verify the webhook signature when the source
-      signs, reject bad signatures, ignore unknown event types.
+      signs, reject bad signatures, ignore unknown event types. (Under
+      ADR 9 A6 and A15 the host verifies before a delivery is logged;
+      ingest stays off until that verifier exists, so until then this
+      check is the only one. The spec changes when the host verifier
+      ships, or in [M4](https://github.com/dhm116/bearing/milestone/5) at
+      the latest.)
 - [ ] `adapters/<name>/telemetry.go` for spans and metrics; log with
       `telemetry.Logger`, fail with `telemetry.Fail`, never write to stdout.
 - [ ] `cmd/bearing-adapter-<name>/main.go`, copied from

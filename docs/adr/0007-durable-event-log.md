@@ -19,7 +19,8 @@ the graph quietly.
 - **One way in.** Webhook deliveries, scheduled syncs and manual "sync now"
   requests all become events on an **event log**:
   - `SyncRequested`: from the scheduler, the CLI or the API.
-  - `WebhookReceived`: the raw delivery, verified by the adapter (ADR 9).
+  - `WebhookReceived`: the raw delivery, verified by the host before it is
+    logged (ADR 9 A6, threat model C-INGEST-2).
   - `ObservationsEmitted`: adapter output.
 
   The CLI is a client of the running server. It does not run adapters itself.
