@@ -61,6 +61,7 @@ func newRepo(t *testing.T) string {
 	for _, kv := range [][2]string{{"diff.noprefix", "true"}, {"color.diff", "always"}, {"diff.relative", "true"}} {
 		gitIn(t, dir, "config", kv[0], kv[1])
 	}
+	writeFile(t, dir, ".gitignore", "cover.out\n")
 	writeFile(t, dir, "go.mod", "module example.com/m\n")
 	writeFile(t, dir, "pkg/a.go", "package pkg\n\nfunc A() int {\n\treturn 1\n}\n")
 	writeFile(t, dir, "pkg/old.go", "package pkg\n\nfunc Old() int {\n\treturn 3\n}\n")
@@ -163,7 +164,7 @@ func TestCheckSkipsWhenNothingChanged(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ok = %v, err = %v; want a skip", ok, err)
 	}
-	if !strings.HasPrefix(out.String(), "::warning ") || !strings.Contains(out.String(), "no measured Go changes") {
+	if !strings.HasPrefix(out.String(), "::warning ") || !strings.Contains(out.String(), "no changes outside documentation and other inert paths") {
 		t.Fatalf("want a warning annotation, got %q", out)
 	}
 }
@@ -220,5 +221,117 @@ func TestRunExitCodes(t *testing.T) {
 	run([]string{"-base", "origin/nope", "-require-base"}, &out, &errOut, func(string) string { return "" })
 	if !strings.Contains(errOut.String(), "covergate: base origin/nope not found") || out.Len() != 0 {
 		t.Fatalf("stdout %q, stderr %q; want the error on stderr only", out.String(), errOut.String())
+	}
+}
+
+// TestCheckComparesTotalWithoutMeasuredChanges covers changes that touch no
+// measured Go line. The total comparison must still run unless every
+// changed path is inert, so deleting tests or changing testdata can't lower
+// coverage unnoticed.
+func TestCheckComparesTotalWithoutMeasuredChanges(t *testing.T) {
+	// The baseline covers both A and Old; the head covers only A.
+	full := "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 1\n"
+	half := "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 0\n"
+	drop := []string{"no measured Go lines changed", "dropped by 50.00 points", "FAIL"}
+	skip := []string{"no changes outside documentation and other inert paths since merge base", "skipping"}
+	files := func(kv ...string) func(*testing.T, string) {
+		return func(t *testing.T, dir string) {
+			for i := 0; i < len(kv); i += 2 {
+				writeFile(t, dir, kv[i], kv[i+1])
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name      string
+		change    func(t *testing.T, dir string)
+		untracked bool // leave the change uncommitted and untracked
+		profile   string
+		want      []string // substrings of the report
+		wantOK    bool
+	}{
+		{
+			name:   "tests deleted only",
+			change: func(t *testing.T, dir string) { gitIn(t, dir, "rm", "-q", "pkg/old_test.go") },
+			want:   drop,
+		},
+		{
+			name: "test moved into docs",
+			change: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				gitIn(t, dir, "mv", "pkg/old_test.go", "docs/old_test.go")
+			},
+			want: drop,
+		},
+		{
+			name: "test renamed to docs/old.md",
+			change: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				gitIn(t, dir, "mv", "pkg/old_test.go", "docs/old.md")
+			},
+			want: drop,
+		},
+		{name: "go.mod only", change: files("go.mod", "module example.com/m\n\ngo 1.22\n"), want: drop},
+		{name: "go.sum only", change: files("go.sum", "example.com/x v1.0.0 h1:abc=\n"), want: drop},
+		{name: "untracked nested go.mod", change: files("sub/go.mod", "module example.com/m/sub\n"), untracked: true, want: drop},
+		{name: "test file under cmd only", change: files("cmd/x/main_test.go", "package main\n"), want: drop},
+		{name: "test file under tools only", change: files("tools/y/y_test.go", "package y\n"), want: drop},
+		{name: "testdata only", change: files("testdata/obs.ndjson", "{}\n"), want: drop},
+		{name: "workflow only", change: files(".github/workflows/ci.yml", "on: push\n"), want: drop},
+		{
+			name:    "comment only",
+			change:  files("pkg/a.go", "package pkg\n\n// A returns one.\nfunc A() int {\n\treturn 1\n}\n"),
+			profile: "mode: set\nexample.com/m/pkg/a.go:4.14,6.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 0\n",
+			want:    []string{"none are statements", "dropped by 50.00 points", "FAIL"},
+		},
+		{
+			name: "inert paths only",
+			change: files("README.md", "docs\n", "docs/spec/x.md", "spec\n", "docs/adr/x.svg", "<svg/>\n",
+				"LICENSE", "license\n", "NOTICE", "notice\n", ".github/reviewers.yml", "x: y\n"),
+			want:   skip,
+			wantOK: true,
+		},
+		{name: "untracked doc only", change: files("NOTES.md", "notes\n"), untracked: true, want: skip, wantOK: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := newRepo(t)
+			writeFile(t, dir, "pkg/old_test.go", "package pkg\n\nimport \"testing\"\n\nfunc TestOld(t *testing.T) { Old() }\n")
+			gitIn(t, dir, "add", "-A")
+			gitIn(t, dir, "commit", "-q", "-m", "test Old")
+			gitIn(t, dir, "checkout", "-q", "-b", "feature")
+			tc.change(t, dir)
+			if !tc.untracked {
+				gitIn(t, dir, "add", "-A")
+				gitIn(t, dir, "commit", "-q", "-m", tc.name)
+			}
+			profile := tc.profile
+			if profile == "" {
+				profile = half
+			}
+			writeFile(t, dir, "cover.out", profile)
+
+			g, out := newGate(dir, false)
+			ok, err := g.check(config{
+				profile: "cover.out", base: "main", min: 80,
+				test: baseFixture(t, full), requireBase: true, requireBaseline: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok != tc.wantOK {
+				t.Errorf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out.String(), w) {
+					t.Errorf("report lacks %q", w)
+				}
+			}
+			if t.Failed() {
+				t.Logf("report:\n%s", out)
+			}
+		})
 	}
 }

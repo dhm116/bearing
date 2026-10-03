@@ -11,11 +11,22 @@
 // generated code (gen/ and files marked "Code generated ... DO NOT EDIT."),
 // the tools/ module and test files are left out of both measures.
 //
-// When nothing has changed since the merge base (a push to main, for
-// example) the gate skips. It also skips when the base ref does not exist,
-// unless -require-base is set, and skips the total comparison when the
-// baseline cannot be measured, unless -require-baseline is set. CI sets both.
-// Every skip is reported, as a ::warning:: annotation under GitHub Actions.
+// When no measured Go line has changed, the changed-lines check has nothing
+// to measure, but the total comparison still runs: deleting or weakening
+// tests, or changing testdata, go.mod or a schema, can lower coverage
+// without touching a measured line. Only when every changed path is in
+// inertPaths (documentation, licenses, and .github outside its workflows
+// and actions, but never testdata), or nothing changed at all (a push to
+// main), does the gate skip. Skipping saves the baseline test run; `make
+// cover` has already measured the head.
+//
+// The gate also skips when the base ref does not exist, unless
+// -require-base is set, and skips the total comparison when the baseline
+// cannot be measured, unless -require-baseline is set. CI sets both. Every
+// skip is reported, as a ::warning:: annotation under GitHub Actions.
+//
+// The gate can't defend against edits to the CI workflow itself, because CI
+// runs the pull request's own workflow.
 //
 // Usage, from the module root:
 //
@@ -32,6 +43,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -139,8 +151,14 @@ func (g gate) check(c config) (bool, error) {
 		return false, err
 	}
 	if len(changed) == 0 {
-		g.out.skip("no measured Go changes since merge base %.12s; skipping", mergeBase)
-		return true, nil
+		relevant, err := g.anyTestRelevantChange(mergeBase)
+		if err != nil {
+			return false, err
+		}
+		if !relevant {
+			g.out.skip("no changes outside documentation and other inert paths since merge base %.12s; skipping", mergeBase)
+			return true, nil
+		}
 	}
 
 	module, err := modulePath(filepath.Join(g.root, "go.mod"))
@@ -160,9 +178,12 @@ func (g gate) check(c config) (bool, error) {
 
 	// Changed lines.
 	covered, total, missed := changedCoverage(head, changed)
-	if total == 0 {
+	switch {
+	case len(changed) == 0:
+		g.out.printf("covergate: changed lines: no measured Go lines changed; nothing to measure\n")
+	case total == 0:
 		g.out.printf("covergate: changed lines: none are statements; nothing to measure\n")
-	} else {
+	default:
 		pct := percent(covered, total)
 		g.out.printf("covergate: changed lines: %d of %d covered (%.1f%%, minimum %.0f%%)\n", covered, total, pct, c.min)
 		if pct < c.min {
@@ -199,13 +220,84 @@ func (g gate) check(c config) (bool, error) {
 	return ok, nil
 }
 
+// inertPaths are the paths whose changes cannot affect test results, as
+// globs in which "**" matches any number of directories. A change touching
+// only these paths skips the gate. Anything else, testdata and schemas
+// included, runs the total comparison. A path matching inertExceptions is
+// never inert.
+var (
+	inertPaths      = []string{"**/*.md", "docs/**", "LICENSE", "NOTICE", ".github/**"}
+	inertExceptions = []string{".github/workflows/**", ".github/actions/**", "**/testdata/**"}
+)
+
+// inert reports whether a repo-relative, slash-separated path is in
+// inertPaths.
+func inert(p string) bool {
+	matchAny := func(globs []string) bool {
+		for _, g := range globs {
+			if globMatch(strings.Split(g, "/"), strings.Split(p, "/")) {
+				return true
+			}
+		}
+		return false
+	}
+	return matchAny(inertPaths) && !matchAny(inertExceptions)
+}
+
+// globMatch matches path segments against pattern segments, where a "**"
+// segment matches zero or more path segments and any other segment is a
+// path.Match pattern.
+func globMatch(pattern, segs []string) bool {
+	if len(pattern) == 0 {
+		return len(segs) == 0
+	}
+	if pattern[0] == "**" {
+		for i := 0; i <= len(segs); i++ {
+			if globMatch(pattern[1:], segs[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(segs) == 0 {
+		return false
+	}
+	ok, err := path.Match(pattern[0], segs[0])
+	return err == nil && ok && globMatch(pattern[1:], segs[1:])
+}
+
+// anyTestRelevantChange reports whether any path outside inertPaths differs
+// between mergeBase and the working tree, counting deleted and untracked
+// files. Renames count as a deletion and an addition, so moving a file
+// into docs/ still counts.
+func (g gate) anyTestRelevantChange(mergeBase string) (bool, error) {
+	diff, err := g.git("diff", "--no-ext-diff", "--no-relative", "--no-renames", "--name-only", "-z", mergeBase)
+	if err != nil {
+		return false, err
+	}
+	untracked, err := g.git("ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return false, err
+	}
+	for f := range strings.SplitSeq(diff+"\x00"+untracked, "\x00") {
+		if f != "" && !inert(f) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// goFiles is the pathspec for Go files in any directory, explicit so that it
+// doesn't depend on git's default wildcard matching across slashes.
+const goFiles = ":(glob)**/*.go"
+
 // changedLines lists the added or modified lines of each measured Go file
 // between mergeBase and the working tree, including untracked files.
 func (g gate) changedLines(mergeBase string) (map[string]map[int]bool, error) {
 	// Fixed prefixes and repo-root paths whatever the user's git config
 	// says (diff.noprefix, diff.relative, external diff drivers, color).
 	diff, err := g.git("diff", "--no-color", "--no-ext-diff", "--no-relative",
-		"--src-prefix=a/", "--dst-prefix=b/", "-U0", mergeBase, "--", "*.go")
+		"--src-prefix=a/", "--dst-prefix=b/", "-U0", mergeBase, "--", goFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +305,7 @@ func (g gate) changedLines(mergeBase string) (map[string]map[int]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	untracked, err := g.git("ls-files", "-z", "--others", "--exclude-standard", "--", "*.go")
+	untracked, err := g.git("ls-files", "-z", "--others", "--exclude-standard", "--", goFiles)
 	if err != nil {
 		return nil, err
 	}
