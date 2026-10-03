@@ -28,7 +28,7 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
 | `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
-| `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded; the total check runs whenever any Go file, tests included, `go.mod` or `go.sum` changed; skips when none did) |
+| `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
 | `make build` | Builds `bin/bearing` and `bin/bearing-adapter-github` |
 | `make fmt` | gofumpt and goimports via `golangci-lint fmt` |

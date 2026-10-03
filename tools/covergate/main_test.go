@@ -133,3 +133,38 @@ func TestSkipEscapesWorkflowCommands(t *testing.T) {
 		t.Fatalf("got %q without Actions, want it unescaped", out.String())
 	}
 }
+
+func TestInert(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"README.md", true},
+		{"pkg/model/README.md", true},
+		{"docs/spec/data-model.md", true},
+		{"docs/adr/diagrams/0001.svg", true},
+		{"docs/adr/diagrams/src/gen.py", true},
+		{"LICENSE", true},
+		{"NOTICE", true},
+		{".github/pull_request_template.md", true},
+		{".github/reviewers.yml", true},
+		{".github/workflows/ci.yml", false},
+		{"pkg/LICENSE", false},
+		{"docsx/a.md", true}, // still Markdown
+		{"docsx/a.txt", false},
+		{"go.mod", false},
+		{"go.sum", false},
+		{"go.work", false},
+		{"go.work.sum", false},
+		{"tools/go.mod", false},
+		{"pkg/model/model_test.go", false},
+		{"testdata/observations.ndjson", false},
+		{"schema/observation.v1.schema.json", false},
+		{"Makefile", false},
+		{".golangci.yml", false},
+	} {
+		if got := inert(tc.path); got != tc.want {
+			t.Errorf("inert(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
