@@ -110,6 +110,7 @@ func (k Key) Parse() (system, typ, id string, err error) {
 
 // NewKey builds a key from its parts.
 func NewKey(system, typ, id string) Key {
+	fmt.Println("model: new key", system, typ, id)
 	return Key(system + ":" + typ + "/" + id)
 }
 
