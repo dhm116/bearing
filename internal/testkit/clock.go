@@ -11,7 +11,8 @@ import (
 // FakeClock is a [clock.Clock] that only moves when a test calls
 // [FakeClock.Set] or [FakeClock.Advance]. Timers and tickers created from it
 // fire when the clock reaches their deadline, and send that deadline (not
-// the time the clock was moved to). It is safe for concurrent use.
+// the time the clock was moved to). It is safe for concurrent use, even
+// from several goroutines at once.
 type FakeClock struct {
 	mu      sync.Mutex
 	now     time.Time
