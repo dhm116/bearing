@@ -93,7 +93,8 @@ new ADR.
    WASM modules reaching the world only through granted host capabilities
    are the default runtime. Adapters that can't run as WASM run as local
    processes the core starts, serving the same service over Connect/gRPC
-   on a Unix socket in a private directory (ADR 9 A13). The stdio JSON-RPC
+   on a Unix socket in a private directory; the core owns their
+   lifecycle, environment, secrets and telemetry (ADR 9 A13). The stdio JSON-RPC
    transport ([ADR 3](docs/adr/0003-adapter-protocol.md)) is retired; the
    scaffold's stdio code runs the GitHub adapter until M4 replaces it, and
    nothing new is built on it. Adapters are stateless and read-only
@@ -132,8 +133,11 @@ new ADR.
     telemetry setup itself fails.
   - Report errors with `telemetry.Fail(ctx, span, log, msg, err, attrs...)`,
     which records on the span and logs with the same attributes.
-  - Console telemetry never writes to **stdout**. Adapters use stdout for the
-    protocol and the CLI uses it for NDJSON output.
+  - Console telemetry never writes to **stdout**. The CLI uses it for
+    NDJSON output, and the stdio scaffold adapters use it for the protocol
+    until M4. Local-process adapters (ADR 9 A13) log through telemetry
+    that the core captures and forwards; they get no exporter settings of
+    their own.
   - New spans or metrics go into the catalog in `docs/telemetry.md` in the
     same change.
   - Outbound HTTP uses `otelhttp` so upstream calls appear in the trace.

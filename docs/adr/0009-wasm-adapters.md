@@ -230,22 +230,46 @@ still unproven. Control IDs refer to the
     code runs the GitHub adapter until M4 replaces it; nothing new is built
     on it. Protobuf is the only source of truth for adapter messages
     (ADR 6), with no JSON-RPC exception.
-  - The socket is protected (threat model C-ADAPTER-13 to 16). It lives in
-    a private directory the core creates per adapter instance (mode 0700,
-    owned by the Bearing user), and the core passes its path to the child,
-    for example in an environment variable or a flag. Where the OS
-    supports it (`SO_PEERCRED` on Linux, `getpeereid` on the BSDs and
-    macOS), the core checks that the peer is the child it started: its
-    UID, and its PID where the OS reports one. The core removes the socket
-    and its directory when the adapter stops. The child gets a minimal
-    environment ([#25](https://github.com/dhm116/bearing/issues/25)).
-    Windows has `AF_UNIX` from Windows 10; whether these controls hold
-    there is unverified.
-  - A local-process adapter is not sandboxed: the sandbox controls in
-    threat model B2 don't apply to it, but output validation, grants,
-    tagging and Source scoping do.
-  - stdout is no longer reserved for the protocol, so a local adapter logs
-    through normal telemetry (`pkg/telemetry`) like any other program.
+  - The socket is protected (threat model C-ADAPTER-13 to 15). It lives
+    in a private directory (mode 0700) that the core creates per adapter
+    instance inside a verified runtime directory. The core passes its
+    path to the child in one place, the `BEARING_ADAPTER_SOCKET`
+    environment variable, and the started process must listen on it
+    itself. On every connection the core checks that the peer is the
+    child it started: the UID must be the one the core started the child
+    as (`SO_PEERCRED` on Linux, `getpeereid` on the BSDs and macOS), and
+    the PID must be the child's where the OS reports one (`SO_PEERCRED` on
+    Linux, `LOCAL_PEERPID` on macOS; `getpeereid` gives the UID only).
+    The core removes the socket and its directory when the adapter stops.
+  - The core owns the child (C-ADAPTER-16 to 19): a minimal environment
+    with no secrets, secret references or exporter settings
+    ([#25](https://github.com/dhm116/bearing/issues/25)); core-side limits
+    in place of the sandbox's (an RPC deadline, a start-up deadline, a
+    response size cap, per-page caps on observations, and bounded,
+    rate-limited output); and a lifecycle that kills the child's process
+    group when the child stops or the core exits.
+  - The core resolves the Source's secrets and sends their values to the
+    child once, over an inherited pipe or a `Configure` RPC, never in the
+    environment (C-ADAPTER-20, C-SECRET-3).
+  - stdout is no longer reserved for the protocol. The child's logs and
+    telemetry go to the core, which captures stdout and stderr (or serves
+    an OTLP receiver in the private directory), tags them with adapter and
+    Source, rate-limits them and forwards them (C-ADAPTER-18).
+  - A local-process adapter is not sandboxed. Running as the service user,
+    it is equivalent to the host: grants, output validation, Source
+    scoping, the minimal environment and C-SECRET-3's "no others" limit
+    what a correct adapter receives and what the core accepts, not what a
+    malicious one can do. Operators run only local-process adapters they
+    would run as the service user. The sandbox controls in threat model B2
+    don't apply, apart from C-ADAPTER-3's limits, which the core enforces
+    from its side. Running each local-process adapter under its own
+    unprivileged UID is a planned hardening option; the core's start
+    contract is written against "the UID the core started the child as",
+    so it can be added without changing the SDK.
+  - Windows has `AF_UNIX` from Windows 10, but the core refuses to start
+    local-process adapters there until a Windows control (an ACL on the
+    directory, `SIO_AF_UNIX_GETPEERPID`) is specified and tested
+    (C-ADAPTER-21).
 - **A14. AWS.** The AWS SDK for Go v2 works in a Go module over the `http`
   capability (STS: 13.5 MiB). The remote runtime stays as a fallback, but
   AWS does not need it on technical grounds.
@@ -259,7 +283,8 @@ still unproven. Control IDs refer to the
   (ADR 7), for every runtime (A6); a local-process adapter may still
   verify as defense in depth. Local-process adapters still receive their
   own Source's credentials, an exception to C-SECRET-3 that holds only for
-  local processes, and only for the secret references that Source names.
+  local processes, and only for the secrets that Source names; the core
+  resolves them and sends the values (A13).
   `docs/spec/adapter-protocol.md` says now that its stdio transport is
   retired; rewriting it for the Protobuf service and bumping
   `adapter.ProtocolVersion` happen in [M4][M4].
