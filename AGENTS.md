@@ -86,12 +86,23 @@ new ADR.
    Every vector points at a graph entity and the index can be rebuilt from
    the graph. Ownership and policy answers read only asserted facts; results
    from semantic search are verified in the graph.
-2. **Adapters are separate processes** speaking JSON-RPC 2.0 over stdio, one
-   message per line ([ADR 3](docs/adr/0003-adapter-protocol.md)). Methods:
-   `bearing.describe`, `bearing.sync` (cursor paged), optional
-   `bearing.handle` for webhooks. Adapters are stateless, read-only against
-   their source, verify webhook signatures, and never resolve identities
-   across systems. That is the core's job.
+2. **Adapters are isolated from the core** and implement one Protobuf
+   adapter service: `Describe`, `Sync` (cursor paged) and optional `Handle`
+   for webhooks ([ADR 9](docs/adr/0009-wasm-adapters.md)). Once
+   [M4](https://github.com/dhm116/bearing/milestone/5) lands, sandboxed
+   WASM modules reaching the world only through granted host capabilities
+   are the default runtime. Adapters that can't run as WASM run as local
+   processes the core starts, serving the same service over Connect/gRPC
+   on a Unix socket in a private directory; the core owns their
+   lifecycle, environment, secrets and telemetry (ADR 9 A13). The stdio JSON-RPC
+   transport ([ADR 3](docs/adr/0003-adapter-protocol.md)) is retired; the
+   scaffold's stdio code runs the GitHub adapter until M4 replaces it, and
+   nothing new is built on it. Adapters are stateless and read-only
+   against their source. WASM adapters never hold credentials; the host
+   injects them. The host verifies webhook signatures before a delivery is
+   logged, and ingest stays off until that verifier exists; until then the
+   adapter's own verification is the check (ADR 9 A15). Adapters never
+   resolve identities across systems. That is the core's job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and
    focused on useful data types.
@@ -122,8 +133,11 @@ new ADR.
     telemetry setup itself fails.
   - Report errors with `telemetry.Fail(ctx, span, log, msg, err, attrs...)`,
     which records on the span and logs with the same attributes.
-  - Console telemetry never writes to **stdout**. Adapters use stdout for the
-    protocol and the CLI uses it for NDJSON output.
+  - Console telemetry never writes to **stdout**. The CLI uses it for
+    NDJSON output, and the stdio scaffold adapters use it for the protocol
+    until M4. Local-process adapters (ADR 9 A13) log through telemetry
+    that the core captures and forwards; they get no exporter settings of
+    their own.
   - New spans or metrics go into the catalog in `docs/telemetry.md` in the
     same change.
   - Outbound HTTP uses `otelhttp` so upstream calls appear in the trace.
