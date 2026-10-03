@@ -246,8 +246,13 @@ still unproven. Control IDs refer to the
     ([#25](https://github.com/dhm116/bearing/issues/25)); core-side limits
     in place of the sandbox's (an RPC deadline, a start-up deadline, a
     response size cap, per-page caps on observations, and bounded,
-    rate-limited output); and a lifecycle that kills the child's process
-    group when the child stops or the core exits.
+    rate-limited output); and a lifecycle that kills the process group
+    when the child stops, while the child dies with the core (`Pdeathsig`,
+    pipe EOF).
+  - A local-process adapter is configured by absolute path plus sha256;
+    the core verifies the digest from an open file descriptor and, on
+    Linux, executes that descriptor (C-ADAPTER-22). The sha256 field is
+    part of the M4 Source and Adapter configuration.
   - The core resolves the Source's secrets and sends their values to the
     child once, over an inherited pipe or a `Configure` RPC, never in the
     environment (C-ADAPTER-20, C-SECRET-3).

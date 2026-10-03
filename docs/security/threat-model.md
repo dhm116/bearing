@@ -219,8 +219,10 @@ remote adapter serves; prior art is HashiCorp go-plugin. They replace ADR
 
 They are not sandboxed. A local-process adapter running as the service
 user is equivalent to the host: it can read whatever the service user can,
-including secrets files, the store password and the compilation cache, and
-it can reach the store and the network directly. C-ADAPTER-2, 7, 11 and
+including secrets files, the store password and the compilation cache;
+it can reach the store and the network directly; it can use the local API
+socket as `admin` (C-API-1); and it can connect to other local adapters'
+sockets. C-ADAPTER-2, 7, 11 and
 16 and C-SECRET-3's "no others" limit what a correct adapter receives and
 what the core accepts from it; they do not contain a malicious one.
 Operators run only local-process adapters they would run as the service
@@ -240,8 +242,8 @@ What applies to them:
 - C-ADAPTER-10 applies through C-ADAPTER-18: stdout is no longer reserved
   for the protocol, so the child logs through telemetry that the core
   captures, tags and forwards.
-- C-ADAPTER-13 to 21 cover the socket, the child's environment, secrets,
-  lifecycle and platforms.
+- C-ADAPTER-13 to 22 cover the socket, the child's environment, secrets,
+  lifecycle, platforms and the adapter binary itself.
 
 Today the scaffold's stdio adapter is the only process adapter: it
 inherits the server's environment, including `BEARING_STORE_PASSWORD` and
@@ -259,7 +261,7 @@ OIDC settings, and its stderr passes through untagged
 | T-ADAPTER-7 | D | Infinite loop, memory growth, huge output or log flood | C-ADAPTER-3 |
 | T-ADAPTER-8 | T | Module emits facts about another system's entities, overrides another Source's facts, or resolves identities | C-ADAPTER-7, C-ADAPTER-11, C-GEN-3 |
 | T-ADAPTER-9 | I, T | Module reads or poisons another Source's `kv` cache | C-ADAPTER-8 |
-| T-ADAPTER-10 | T | Module file swapped on disk or in a registry | C-ADAPTER-9, C-SUPPLY-6 |
+| T-ADAPTER-10 | T | Module file swapped on disk or in a registry | C-ADAPTER-9, C-ADAPTER-22, C-SUPPLY-6 |
 | T-ADAPTER-11 | R | Module logs pretend to come from the host | C-ADAPTER-10, C-ADAPTER-18 |
 | T-ADAPTER-12 | T, E | Native code in the compilation cache is replaced or shared, or code compiled without termination checks is reused with them required, so a module runs outside its limits | C-ADAPTER-12 |
 | T-ADAPTER-13 | S, I | A process running as another UID connects to a local adapter's socket, poses as the adapter or the core, or reads its traffic | C-ADAPTER-13, C-ADAPTER-14 |
@@ -371,6 +373,11 @@ because that process could read the token or key too.
     on a lock file in it while the instance runs. By default the child
     runs as the service user, so the directory is that user's alone; a
     child started under its own UID gets access for that UID only.
+  - Under a separate child UID, the parent runtime directory allows
+    traversal for that UID only (mode 0711 or an ACL). Either the core
+    sets the socket file's owner and mode after the child binds it, or the
+    core binds the socket itself and passes the listening descriptor to
+    the child.
   - The socket is an absolute filesystem path in that directory, never an
     abstract (`@`) socket, and stays within the OS limit for socket paths
     (104 bytes on macOS, 108 on Linux).
@@ -388,8 +395,10 @@ because that process could read the token or key too.
   is still unreaped, so the PID cannot have been reused. Where available,
   the core compares process file descriptors instead of PIDs
   (`SO_PEERPIDFD` against the child's pidfd on Linux). `getpeereid` on the
-  BSDs gives the UID only. A failed check closes the connection, stops
-  the child, fails the call and is logged and counted.
+  BSDs gives the UID only. The same check applies to connections the core
+  accepts on the OTLP receiver socket (C-ADAPTER-18). A failed check
+  closes the connection, stops the child, fails the call and is logged
+  and counted.
 - **C-ADAPTER-15** When an adapter stops or crashes, the core closes its
   connections and removes the socket and its directory. At start-up the
   core removes directories an earlier run left, only inside the verified
@@ -412,10 +421,12 @@ because that process could read the token or key too.
     message size), and each `Sync` page has caps on the number and size
     of observations.
   - stdout, stderr and telemetry from the child are bounded and
-    rate-limited (C-ADAPTER-18).
+    rate-limited (C-ADAPTER-18). Overflow is dropped and counted, not
+    treated as a breach.
 
-  A breach fails the call and kills the child, which is restarted under
-  C-ADAPTER-19's backoff.
+  A breach of the RPC deadline, the start-up deadline or a size cap fails
+  the call and kills the child, which is restarted under C-ADAPTER-19's
+  backoff.
 - **C-ADAPTER-18** A local-process adapter's logs and telemetry go to the
   core, never straight to an exporter. The core captures its stdout and
   stderr, and may serve an OTLP receiver on a second socket in the same
@@ -426,14 +437,20 @@ because that process could read the token or key too.
 - **C-ADAPTER-19** The core owns the child's lifecycle:
   - The child runs in its own process group, and stopping it kills the
     group.
-  - On Linux, the child is started with `Pdeathsig` set to `SIGKILL`, from
-    a locked OS thread, so it dies with the core.
+  - On Linux, the child is started with `Pdeathsig` set to `SIGKILL`, so
+    it dies with the core. `Pdeathsig` fires when the starting thread
+    exits, so the goroutine that starts the child stays locked to its OS
+    thread for the child's whole life.
   - Everywhere, the child holds the read end of a pipe from the core and
     exits on EOF, so it exits when the core is gone.
   - A start-up handshake deadline applies (C-ADAPTER-17), and a child that
     keeps failing is restarted with exponential backoff.
   - The peer check (C-ADAPTER-14) runs before the child is reaped, using
     pidfds where available.
+  - Descendants left behind when the core crashes are cleaned up by the
+    service manager (systemd `KillMode=control-group`, or the container
+    exiting). On Linux the core may also set `PR_SET_CHILD_SUBREAPER` and
+    kill leftover process groups at start-up.
 - **C-ADAPTER-20** The core resolves the secrets the adapter's Source names
   (C-SECRET-1) and sends their values to the child once, over an inherited
   pipe file descriptor or a `Configure` RPC on the checked socket. Values
@@ -446,6 +463,13 @@ because that process could read the token or key too.
   socket directory in place of mode 0700, and `SIO_AF_UNIX_GETPEERPID` for
   the peer check. `AF_UNIX` exists from Windows 10, but nothing here is
   verified there.
+- **C-ADAPTER-22** A local-process adapter is configured by absolute path
+  plus sha256; the sha256 field is part of the M4 Source and Adapter
+  configuration. Before each start the core checks that the file and every
+  directory above it are not writable by other users, opens the file,
+  verifies the digest from that descriptor and, on Linux, executes that
+  same descriptor (`/proc/self/fd/N` or `execveat`), so the file cannot
+  be swapped between check and use. A mismatch refuses the start.
 
 ### B3. Data from source systems
 
