@@ -184,7 +184,8 @@ Adapters declare key types per kind ([Declarations](#declarations)):
 - Declarations are configuration: versioned with record time like the rest
   (ADR 10), and taken from the adapter version a source runs. Once any
   alias of a key type is bound, its kind, class and case are fixed;
-  configuration apply rejects a declaration that changes them.
+  configuration apply rejects a declaration, or an `issues[].key_classes`
+  override, that changes them.
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted. Node
   IDs survive renames, transfers and login changes. Directory `id` keys are
@@ -340,20 +341,28 @@ Nothing else mints. Every mint is audited.
 | `score` | `same_as` confidence reaches the kind's threshold under the `score` [merge policy](#merge-policy). | computed |
 | `manual` | A `MergeRequested` event. Rejected (`identity_conflict`) while a `distinct_from` between them is live, unless the request also clears it. | 1.0 |
 
-Only subjects of the same kind merge. No rule but `co_reported_ids` and
-`manual` joins two subjects that hold different `id` aliases of one key type
-in one namespace: their `same_as` is `conflicted`, a conflict opens, and the
-pair is listed by [`data_quality`](#data-quality).
+Only subjects of the same kind merge. **Guard:** no rule but
+`co_reported_ids` and `manual` joins two subjects that hold different `id`
+aliases of one key type in one namespace: their `same_as` is `conflicted`,
+a conflict opens, and the pair is listed by
+[`data_quality`](#data-quality) as `id_conflict`. If a subject has accepted
+`same_as` to two or more subjects that the guard excludes from each other,
+none of those pairs merges; all are `conflicted` and listed the same way.
+Across applies, the first merge stands and the later pair is flagged.
 
 **When merges happen.** Each apply evaluates merge triggers after writing
 its claims and derived claims, for every pair of active subjects whose
-`same_as` supports or member sets it changed. A pair merges if its kind's
+`same_as` supports, member sets, `distinct_from` or guard the apply
+changed, and, after a configuration change to merge policies, thresholds
+or match weights (applied as an event, ADR 10), for every pair with a live
+`same_as` support. A pair merges if its kind's
 policy accepts `same_as` at any valid time `v` ≤ the applied event's
 `observed_at` (the ingest time for manual, boundary and derived events).
 Qualifying pairs are taken in order (confidence descending, then lower
 `subject_id`, then higher), and the rest are re-evaluated after each merge,
-with canonicalization and the same-namespace exclusion applied, until none
-qualifies.
+with canonicalization and the guard applied, until none qualifies. A pair's
+ordering confidence is its highest `same_as` confidence over the valid
+times at which the policy accepts it.
 
 At record time `r`:
 
@@ -376,11 +385,11 @@ At record time `r`:
    for `members`, the `via` of each `member_of` object) are in its alias set
    in the merge record, so the merged subject never confirms itself. The
    check uses the same rule as merge triggers. If the evidence now
-   contradicts the merge (a link names a different id, or a
-   `distinct_from` is set), the core opens a conflict on
-   `(subject, same_as)` for review. Evidence that ends because a subject
-   was deleted or lost its live `exists` is not a reason for review. The
-   core never un-merges by itself.
+   contradicts the merge (a link names a different id), the core opens a
+   conflict on `(subject, same_as)` for review. The per-side score of a
+   `score` merge is reported on the merge record for review. Evidence that
+   ends because a subject was deleted or lost its live `exists` is not a
+   reason for review. The core never un-merges by itself.
 5. Reads as recorded before `r` still show two subjects.
 6. An audit record holds the rule, confidence, evidence, both alias sets and
    the event ID.
@@ -819,9 +828,10 @@ A fact's status at `(v, r)`, with a `status_reason`, is the first match:
 | 1 | No live supports | `none` | `no_support` |
 | 2 | A live manual override covers `(subject, predicate)` | `asserted` if it lists the object, else `overridden` | `override` |
 | 3 | `C` below the threshold | `candidate` | `below_threshold` |
-| 4a | A `same_as` between subjects with a live `distinct_from` | `candidate` | `distinct_from` |
-| 4b | A `same_as` between subjects holding different `id` aliases of one key type in one namespace ([Merge](#merge)) | `conflicted` | `conflict` |
-| 4c | A `same_as` its kind's [merge policy](#merge-policy) doesn't accept | `candidate` | `merge_policy` |
+| 4a | A `same_as` between subjects with a live `distinct_from`, where live authoritative evidence's covering write has a greater ordering key than the `distinct_from`'s covering write | `conflicted` | `conflict` |
+| 4b | Any other `same_as` between subjects with a live `distinct_from` | `candidate` | `distinct_from` |
+| 4c | A `same_as` the [merge guard](#merge) excludes | `conflicted` | `conflict` |
+| 4d | A `same_as` its kind's [merge policy](#merge-policy) doesn't accept | `candidate` | `merge_policy` |
 | 5 | Relation predicate with `conflict` ≠ `none`, and the object has no live `exists` support | `candidate` | `unobserved_object` |
 | 6a | In a conflict, with precedence configured | `asserted` or `candidate` | `precedence` |
 | 6b | In a conflict that authority decides | `asserted` or `candidate` | `authority` |
@@ -871,10 +881,10 @@ Override, precedence and authority decide without opening a conflict; the
 disagreement stays queryable, with `resolution` set to the rule
 (`override`, `precedence` or `authority`). Conflicts are derived, but
 implementations MUST expose them by query and emit `ConflictOpened` and
-`ConflictResolved` (naming how it was resolved) for standing conflicts,
-with audit records.
-When valid time passes a known boundary (a `valid_to` reached), a
-scheduler appends a `ValidTimeBoundaryReached` event for it. Applying that
+`ConflictResolved` (with its `resolution`; `evidence_changed` when the
+supports stopped disagreeing) for standing conflicts, with audit
+records. When valid time passes a known boundary (a `valid_from` or
+`valid_to` reached), a scheduler appends a `ValidTimeBoundaryReached` event for it. Applying that
 event, like any other, recomputes conflicts for the affected
 `(subject, predicate)` and emits the events, so it has a `recorded_at` and
 replays. It audits only the conflicts it opens and closes; status changes
@@ -887,8 +897,10 @@ review (event and audit record).
 ```json
 { "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e", "predicate": "owned_by",
   "valid_from": "2026-10-02T10:00:00Z",
-  "positions": [ { "source_system": "github",  "authoritative": false, "objects": ["0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70"] },
-                 { "source_system": "catalog", "authoritative": false, "objects": ["0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"] } ],
+  "positions": [ { "source_system": "github",  "authority": { "authoritative": false },
+                   "objects": ["0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70"] },
+                 { "source_system": "catalog", "authority": { "authoritative": false },
+                   "objects": ["0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"] } ],
   "resolution": null }
 ```
 
@@ -921,9 +933,9 @@ is the set of subjects with asserted `member_of` to `S`, from a field
 declared `(kind(S), member_of, in)` with `match: members`. Two subjects
 match under `m` when they have matching values under `m`, whatever their
 predicates, that are equal under `m`. The matcher scores pairs of active
-subjects of one kind that match under any method. A pair in which both
-subjects hold an `id` alias in the same namespace is two things in one
-system and is not scored.
+subjects of one kind that match under any method. A pair the
+[merge guard](#merge) excludes (different `id` aliases of one key type in
+one namespace) is two things in one system and is not scored.
 
 | Method | Values match when |
 | --- | --- |
@@ -934,16 +946,17 @@ system and is not scored.
 
 Configuration gives weights in ppm per kind and method, overridden per
 source and predicate, plus a weight `link` for non-authoritative links
-(`link` is not a declarable `match` method). A matching pair of values
-contributes the lower of its two fields' weights, for `members` multiplied
-by the overlap and rounded half to even. Each method's support is the
+(`link` is not a declarable `match` method). A matching value's weight is
+the highest weight among the fields (declaring `match: m`) of its live
+supports; a matching pair contributes the lower of its two values' weights,
+for `members` multiplied by the overlap and rounded half to even. Each method's support is the
 largest contribution. The weights' default values live in the default
 configuration, not in this spec.
 
 ### Merge policy
 
 Configuration sets a merge policy per kind. It decides when `same_as` is
-`asserted` (step 4c of [Status](#status)) and the two subjects merge:
+`asserted` (step 4d of [Status](#status)) and the two subjects merge:
 
 | Policy | Merges on |
 | --- | --- |
@@ -956,9 +969,10 @@ predicate threshold. The default configuration sets
 `Person: authoritative` and `Team: score`.
 A `same_as` the policy doesn't accept stays `candidate` for a person to
 confirm. A live `distinct_from` makes `same_as` a `candidate`
-(`distinct_from`) and blocks the merge; it opens a conflict on
-`(subject, same_as)` only for authoritative evidence recorded after the
-`distinct_from`. `co_reported_ids` and `placeholder` merges don't depend on
+(`distinct_from`) and blocks the merge. It opens a conflict on
+`(subject, same_as)` at valid times where the authoritative evidence's
+covering write has a greater ordering key than the `distinct_from`'s
+covering write (step 4a), so the outcome doesn't depend on apply order. `co_reported_ids` and `placeholder` merges don't depend on
 the policy. A merge is never undone automatically.
 
 ## Manual operations
@@ -980,7 +994,8 @@ reason, applied and audited like any other event. Their source is `manual`.
 Operators configure **tiers** per predicate or per kind in a `Retention`
 resource ([ADR 10](../adr/0010-configuration-as-resources.md)); a
 predicate's tiers override those of the subject's kind. Each tier keeps a
-level of detail for a span of valid time, counted back from now:
+level of detail for a span of valid time, counted back from the
+compaction event's `observed_at`:
 
 ```json
 { "predicate": "owned_by", "tiers": [ { "detail": "full", "for": "P18M" }, { "detail": "quarter", "for": "P5Y" }, { "detail": "year" } ] }
@@ -1063,8 +1078,8 @@ their `source` and `evidence`:
 
 | `issue` | Listed when |
 | --- | --- |
-| `unobserved_placeholder` | A placeholder referenced by live relation supports (typically a misspelled team in CODEOWNERS). Placeholders minted only by `linked_ids` are not listed. |
-| `id_conflict` | A `same_as` between subjects holding different `id` aliases of one key type in one namespace ([Merge](#merge)). |
+| `unobserved_object` | An object of a relation with a conflict policy, referenced by live supports, that has no live `exists` support (step 5). A placeholder (typically a misspelled team in CODEOWNERS) is the common case; placeholders minted only by `linked_ids` are not listed. |
+| `id_conflict` | A `same_as` the [merge guard](#merge) excludes (step 4c). |
 
 A placeholder never counts as an owner: it fails step 5 of
 [Status](#status) for predicates with a conflict policy. Relations with
@@ -1083,7 +1098,7 @@ applies.
 
 | Code | Scope | Raised by |
 | --- | --- | --- |
-| `kind_mismatch` | observation | [Resolution](#resolution), rule 1 |
+| `kind_mismatch` | observation | [Resolution](#resolution), rule 1; an entity key whose key type is declared for another kind |
 | `identity_conflict` | observation or manual event | Resolution rule 1; `MergeRequested` |
 | `not_declared` | observation (kind, entity key) or claim (predicate, reference key type, link) | [Declarations](#declarations) |
 | `namespace_not_allowed` | observation (entity key) or claim (reference) | [Keys and namespaces](#keys-and-namespaces) |
@@ -1106,8 +1121,9 @@ proto field names, so JSON field names match the examples here.
 - **Core-closed lists are proto enums**: subject status, minting and merge
   rules, key class, `per_subject`, case, merge policy, matching method,
   snapshot direction, cardinality, conflict policy, value type, support
-  `reason`, fact status, `status_reason`, compaction detail, issue types and
-  rejection codes. On the wire and in configuration they are ProtoJSON
+  `reason`, fact status, `status_reason`, conflict `resolution` (`override`,
+  `precedence`, `authority`, `evidence_changed`), compaction detail, issue
+  types and rejection codes. On the wire and in configuration they are ProtoJSON
   enum names (`FACT_STATUS_ASSERTED`). This document, and `fact_id`, use
   the **short form**: the enum value name without its `<ENUM_NAME>_`
   prefix, lowercased (`asserted`). The CLI MAY print short forms in output
@@ -1343,6 +1359,7 @@ artifacts are replaced, not migrated:
   `changes`, `data_quality` and conflicts; vector points re-point on merge;
   `EventBus` superseded by ADR 7's `EventLog`, with a home for the new event
   types; conformance tests and shared test vectors for every rule here,
+  a backup-and-restore conformance test for primary state,
   including apply-order independence and merge-trigger order.
 - ADR 7: partition key (`(source, key)` vs subject), event IDs that include
   the source, and the new event types (manual operations,

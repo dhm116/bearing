@@ -1,6 +1,6 @@
 # Adapter protocol
 
-Protocol version 0.1 (draft).
+Protocol version 0.2 (draft).
 
 > **Transport retired.** [ADR 9](../adr/0009-wasm-adapters.md) A13 retires
 > the JSON-RPC stdio transport described below. The adapter protocol moves

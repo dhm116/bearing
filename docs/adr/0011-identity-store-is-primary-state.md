@@ -37,6 +37,8 @@ holds only in part:
 - Manual events are exempt from the log's retention window: they are kept
   as long as their effects are live.
 - The vector index stays derived and rebuildable from the graph.
+- Fact history MAY be compacted by configured tiers. The identity store
+  and the audit log are not compacted.
 
 ## Consequences
 
