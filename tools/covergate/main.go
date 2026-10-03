@@ -15,14 +15,18 @@
 // to measure, but the total comparison still runs: deleting or weakening
 // tests, or changing testdata, go.mod or a schema, can lower coverage
 // without touching a measured line. Only when every changed path is in
-// inertPaths (documentation, licenses, and .github outside its workflows),
-// or nothing changed at all (a push to main), does the gate skip. Skipping
-// saves the baseline test run; `make cover` has already measured the head.
+// inertPaths (documentation, licenses, and .github outside its workflows
+// and actions, but never testdata), or nothing changed at all (a push to
+// main), does the gate skip. Skipping saves the baseline test run; `make
+// cover` has already measured the head.
 //
 // The gate also skips when the base ref does not exist, unless
 // -require-base is set, and skips the total comparison when the baseline
 // cannot be measured, unless -require-baseline is set. CI sets both. Every
 // skip is reported, as a ::warning:: annotation under GitHub Actions.
+//
+// The gate can't defend against edits to the CI workflow itself, because CI
+// runs the pull request's own workflow.
 //
 // Usage, from the module root:
 //
@@ -223,7 +227,7 @@ func (g gate) check(c config) (bool, error) {
 // never inert.
 var (
 	inertPaths      = []string{"**/*.md", "docs/**", "LICENSE", "NOTICE", ".github/**"}
-	inertExceptions = []string{".github/workflows/**"}
+	inertExceptions = []string{".github/workflows/**", ".github/actions/**", "**/testdata/**"}
 )
 
 // inert reports whether a repo-relative, slash-separated path is in

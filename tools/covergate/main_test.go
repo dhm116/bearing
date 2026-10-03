@@ -149,6 +149,9 @@ func TestInert(t *testing.T) {
 		{".github/pull_request_template.md", true},
 		{".github/reviewers.yml", true},
 		{".github/workflows/ci.yml", false},
+		{".github/actions/setup/action.yml", false},
+		{"docs/testdata/example.md", false},
+		{"testdata/README.md", false},
 		{"pkg/LICENSE", false},
 		{"docsx/a.md", true}, // still Markdown
 		{"docsx/a.txt", false},

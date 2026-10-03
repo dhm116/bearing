@@ -254,6 +254,26 @@ func TestCheckComparesTotalWithoutMeasuredChanges(t *testing.T) {
 			change: func(t *testing.T, dir string) { gitIn(t, dir, "rm", "-q", "pkg/old_test.go") },
 			want:   drop,
 		},
+		{
+			name: "test moved into docs",
+			change: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				gitIn(t, dir, "mv", "pkg/old_test.go", "docs/old_test.go")
+			},
+			want: drop,
+		},
+		{
+			name: "test renamed to docs/old.md",
+			change: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				gitIn(t, dir, "mv", "pkg/old_test.go", "docs/old.md")
+			},
+			want: drop,
+		},
 		{name: "go.mod only", change: files("go.mod", "module example.com/m\n\ngo 1.22\n"), want: drop},
 		{name: "go.sum only", change: files("go.sum", "example.com/x v1.0.0 h1:abc=\n"), want: drop},
 		{name: "untracked nested go.mod", change: files("sub/go.mod", "module example.com/m/sub\n"), untracked: true, want: drop},
