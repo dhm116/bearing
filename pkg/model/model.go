@@ -108,6 +108,13 @@ func (k Key) Parse() (system, typ, id string, err error) {
 	return system, typ, id, nil
 }
 
+// System returns the system part of k, such as "github", or "" when k does
+// not parse.
+func (k Key) System() string {
+	system, _, _, _ := k.Parse()
+	return system
+}
+
 // NewKey builds a key from its parts.
 func NewKey(system, typ, id string) Key {
 	return Key(system + ":" + typ + "/" + id)

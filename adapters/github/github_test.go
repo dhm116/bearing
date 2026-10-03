@@ -255,3 +255,17 @@ func TestHandleIgnoresUnknownEvents(t *testing.T) {
 		t.Fatalf("got %v, %v; want no observations and no error", res, err)
 	}
 }
+
+func TestNewDescribesGitHub(t *testing.T) {
+	a := New()
+	if a.HTTP == nil || a.Now == nil || a.Getenv == nil {
+		t.Fatalf("New() = %+v; want HTTP, Now and Getenv set", a)
+	}
+	d, err := a.Describe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "github" || d.ProtocolVersion != adapter.ProtocolVersion || !d.Webhooks {
+		t.Fatalf("Describe() = %+v", d)
+	}
+}
