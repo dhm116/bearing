@@ -19,13 +19,19 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) contracts.GraphStore) 
 	ctx := context.Background()
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 
-	team := contracts.Entity{ID: "team-payments", Kind: model.KindTeam,
-		Aliases: []model.Key{"github:team/acme/payments", "pagerduty:team/PT1"}, UpdatedAt: now}
-	svc := contracts.Entity{ID: "payments-api", Kind: model.KindComponent,
-		Aliases: []model.Key{"github:repo/acme/payments-api"}, UpdatedAt: now}
-	owns := contracts.Fact{Subject: svc.ID, Relation: model.RelOwnedBy, Object: team.ID,
+	team := contracts.Entity{
+		ID: "team-payments", Kind: model.KindTeam,
+		Aliases: []model.Key{"github:team/acme/payments", "pagerduty:team/PT1"}, UpdatedAt: now,
+	}
+	svc := contracts.Entity{
+		ID: "payments-api", Kind: model.KindComponent,
+		Aliases: []model.Key{"github:repo/acme/payments-api"}, UpdatedAt: now,
+	}
+	owns := contracts.Fact{
+		Subject: svc.ID, Relation: model.RelOwnedBy, Object: team.ID,
 		Confidence: 0.94, Asserted: true, UpdatedAt: now,
-		Sources: []contracts.Source{{Adapter: "github", Key: "github:repo/acme/payments-api", ObservedAt: now}}}
+		Sources: []contracts.Source{{Adapter: "github", Key: "github:repo/acme/payments-api", ObservedAt: now}},
+	}
 
 	seed := func(t *testing.T, s contracts.GraphStore) {
 		t.Helper()

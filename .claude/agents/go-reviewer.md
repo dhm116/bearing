@@ -20,7 +20,7 @@ rules" 4 to 6 constrain dependencies and layering.
 - **Scope.** golangci-lint (`make lint`) enforces formatting and
   mechanical naming and error rules (initialisms, stutter, lower-case error
   strings, `errors.Is`, `ctx` first); this list is what it doesn't catch.
-  Until it lands, reviewers apply those rules by hand. Code that predates a style rule is not a finding
+  Code that predates a style rule is not a finding
   unless the PR changes it. Generated code under `gen/go/` is not
   style-reviewed.
 - **Naming** per the style guide: packages named for what they provide,
@@ -29,8 +29,8 @@ rules" 4 to 6 constrain dependencies and layering.
   `Setup`), action and subject only in contract methods and helpers; `ErrX`
   sentinels; no log-and-return; no secrets in messages;
   `contracts.ErrNotFound` for misses.
-- **Doc comments.** Every package and exported identifier has one (methods
-  implementing a `pkg/contracts` interface may omit it); short; says why or
+- **Doc comments.** Every package and exported identifier has one (a
+  one-line "implements" comment suffices for interface methods); short; says why or
   a constraint, not a restatement. Comment density matches the surrounding
   code.
 - **Context and DI.** No context in structs; time, env, HTTP and IDs

@@ -32,7 +32,8 @@ none with an embedded build ([ADR 5](../adr/0005-one-store-to-start.md)).
 `store.Config{Graph: url}` uses one backend for both. Setting
 `Config.Vectors` to a second URL splits them, for example a SurrealDB graph
 with Qdrant vectors, and nothing else changes. Passwords come from
-`BEARING_STORE_PASSWORD`, not the URL.
+`BEARING_STORE_PASSWORD`, not the URL; opening a URL that carries a password
+MUST fail.
 
 In a vector index, a point's kind is its `kind` payload field, which
 `VectorQuery.Kinds` filters on.

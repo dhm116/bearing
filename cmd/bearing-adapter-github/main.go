@@ -28,7 +28,8 @@ func run() int {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		shutdown(ctx)
+		// Telemetry is what failed to flush, so there is nowhere left to report it.
+		_ = shutdown(ctx)
 	}()
 	if err != nil {
 		// Telemetry isn't available, so stderr is the only place to say why.

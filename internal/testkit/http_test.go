@@ -28,7 +28,7 @@ func get(t *testing.T, c *http.Client, method, u string, h http.Header) (int, ht
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -39,12 +39,18 @@ func get(t *testing.T, c *http.Client, method, u string, h http.Header) (int, ht
 func TestScriptServer(t *testing.T) {
 	auth := http.Header{"Authorization": {"Bearer t"}}
 	s := NewScriptServer(t,
-		Route{Method: "GET", Path: "/items", Query: url.Values{"page": {"1"}}, Header: auth,
-			Responses: []Response{{Body: `[1]`, Header: http.Header{"Link": {`<{{URL}}/items?page=2>; rel="next"`}}}}},
-		Route{Method: "GET", Path: "/items", Query: url.Values{"page": {"2"}}, Header: auth,
-			Responses: []Response{{Body: `[2]`}}},
-		Route{Method: "GET", Path: "/limited",
-			Responses: []Response{RateLimited(1500 * time.Millisecond), {Body: "ok"}}},
+		Route{
+			Method: "GET", Path: "/items", Query: url.Values{"page": {"1"}}, Header: auth,
+			Responses: []Response{{Body: `[1]`, Header: http.Header{"Link": {`<{{URL}}/items?page=2>; rel="next"`}}}},
+		},
+		Route{
+			Method: "GET", Path: "/items", Query: url.Values{"page": {"2"}}, Header: auth,
+			Responses: []Response{{Body: `[2]`}},
+		},
+		Route{
+			Method: "GET", Path: "/limited",
+			Responses: []Response{RateLimited(1500 * time.Millisecond), {Body: "ok"}},
+		},
 		Route{Method: "GET", Path: "/old", Responses: []Response{Redirect(http.StatusMovedPermanently, "{{URL}}/new")}},
 		Route{Method: "GET", Path: "/new", Responses: []Response{{Body: "moved here"}}},
 		Route{Method: "POST", Path: "/empty"},
@@ -117,8 +123,10 @@ func TestScriptServerFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &fakeTB{TB: t}
-			s := NewScriptServer(f, Route{Method: "GET", Path: "/x", Query: url.Values{"page": {"1"}},
-				Header: http.Header{"accept": {"application/json"}}})
+			s := NewScriptServer(f, Route{
+				Method: "GET", Path: "/x", Query: url.Values{"page": {"1"}},
+				Header: http.Header{"accept": {"application/json"}},
+			})
 			status, _, _ := get(t, s.Client(), tt.method, s.URL+tt.path, tt.header)
 			if status != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", status, tt.wantStatus)
@@ -153,8 +161,10 @@ func TestScriptServerDelay(t *testing.T) {
 }
 
 func TestScriptServerConcurrent(t *testing.T) {
-	s := NewScriptServer(t, Route{Method: "GET", Path: "/n",
-		Responses: []Response{{Body: "a"}, {Body: "b"}}})
+	s := NewScriptServer(t, Route{
+		Method: "GET", Path: "/n",
+		Responses: []Response{{Body: "a"}, {Body: "b"}},
+	})
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	bodies := map[string]int{}
@@ -168,7 +178,7 @@ func TestScriptServerConcurrent(t *testing.T) {
 				return
 			}
 			b, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			mu.Lock()
 			bodies[string(b)]++
 			mu.Unlock()
@@ -206,10 +216,10 @@ func TestFixtureName(t *testing.T) {
 func writeFixture(t *testing.T, dir, name, content string) {
 	t.Helper()
 	p := filepath.Join(dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -263,7 +273,7 @@ func TestFixtureServerUnreadable(t *testing.T) {
 	dir := t.TempDir()
 	// A directory where the fixture file should be makes ReadFile fail
 	// with something other than "not exist".
-	if err := os.MkdirAll(filepath.Join(dir, "x", "GET.http"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "x", "GET.http"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeTB{TB: t}
@@ -302,7 +312,7 @@ func TestServerClosesWithTest(t *testing.T) {
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", s.URL, nil)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		t.Fatal("server still accepting requests after its test ended")
 	}
 }

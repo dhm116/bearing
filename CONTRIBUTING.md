@@ -13,7 +13,7 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
   signatures when the source signs them.
 - Log with `telemetry.Logger`, report failures with `telemetry.Fail`, and
   add new metrics to [docs/telemetry.md](docs/telemetry.md).
-- Run `make lint test` before sending a change.
+- Run `make check` (what CI runs) before sending a change.
 - Working with an AI coding agent? Point it at [AGENTS.md](AGENTS.md), which
   collects the commands, layout and rules in one place.
 

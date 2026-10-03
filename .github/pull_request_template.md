@@ -10,7 +10,7 @@ After:
 
 ## Checklist
 
-- [ ] `make lint test` passes
+- [ ] `make check` passes
 - [ ] Spec (`docs/spec/`) and schema updated if the data model, protocol or contracts changed
 - [ ] ADR added for significant decisions
 - [ ] New spans or metrics listed in `docs/telemetry.md`

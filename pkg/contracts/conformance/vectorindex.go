@@ -19,14 +19,22 @@ import (
 func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex, seed func(t *testing.T, ids ...contracts.EntityID)) {
 	ctx := context.Background()
 	points := []contracts.VectorPoint{
-		{ID: "payments-api:readme", EntityID: "payments-api", Vector: []float32{1, 0, 0, 0},
-			Text: "Handles card payments and refunds", Payload: map[string]any{"kind": string(model.KindComponent)}},
-		{ID: "payments-api:runbook", EntityID: "payments-api", Vector: []float32{0.9, 0.1, 0, 0},
-			Text: "Refund runbook", Payload: map[string]any{"kind": string(model.KindDocument)}},
-		{ID: "team-payments", EntityID: "team-payments", Vector: []float32{0.7, 0.7, 0, 0},
-			Text: "Payments team", Payload: map[string]any{"kind": string(model.KindTeam)}},
-		{ID: "search-api", EntityID: "search-api", Vector: []float32{0, 0, 1, 0},
-			Text: "Product search", Payload: map[string]any{"kind": string(model.KindComponent)}},
+		{
+			ID: "payments-api:readme", EntityID: "payments-api", Vector: []float32{1, 0, 0, 0},
+			Text: "Handles card payments and refunds", Payload: map[string]any{"kind": string(model.KindComponent)},
+		},
+		{
+			ID: "payments-api:runbook", EntityID: "payments-api", Vector: []float32{0.9, 0.1, 0, 0},
+			Text: "Refund runbook", Payload: map[string]any{"kind": string(model.KindDocument)},
+		},
+		{
+			ID: "team-payments", EntityID: "team-payments", Vector: []float32{0.7, 0.7, 0, 0},
+			Text: "Payments team", Payload: map[string]any{"kind": string(model.KindTeam)},
+		},
+		{
+			ID: "search-api", EntityID: "search-api", Vector: []float32{0, 0, 1, 0},
+			Text: "Product search", Payload: map[string]any{"kind": string(model.KindComponent)},
+		},
 	}
 	fresh := func(t *testing.T) contracts.VectorIndex {
 		t.Helper()
