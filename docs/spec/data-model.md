@@ -1331,12 +1331,10 @@ ownership would end.
 
 ## Open questions
 
-For Doug:
-1. **Enum spelling in JSON.** ProtoJSON writes `FACT_STATUS_ASSERTED`, not
-   `asserted`, in APIs and configuration. *Recommendation:* accept the
-   ProtoJSON names on the wire and in config, with no hand-written codecs
-   (ADR 6), short forms in prose and `fact_id`, and short forms in the
-   CLI's output for people.
+None. Doug decided the last one on 2026-10-03: enum values use their
+ProtoJSON names on the wire and in configuration (no hand-written codecs,
+ADR 6); short forms appear in prose, in `fact_id` and in the CLI's output
+for people.
 
 ## Follow-ups
 
