@@ -73,3 +73,7 @@ A webhook delivery, end to end:
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Supersedes the `EventBus` row in `docs/spec/contracts.md`.
+- Superseded in part by [ADR 11](0011-identity-store-is-primary-state.md):
+  replaying the log rebuilds facts only inside the retention window, the
+  identity store is backed up rather than rebuilt, manual events are kept
+  as long as their effects are live, and fact history may be compacted.
