@@ -163,7 +163,7 @@ func TestCheckSkipsWhenNothingChanged(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ok = %v, err = %v; want a skip", ok, err)
 	}
-	if !strings.HasPrefix(out.String(), "::warning ") || !strings.Contains(out.String(), "no measured Go changes") {
+	if !strings.HasPrefix(out.String(), "::warning ") || !strings.Contains(out.String(), "no Go, go.mod or go.sum changes") {
 		t.Fatalf("want a warning annotation, got %q", out)
 	}
 }
@@ -220,5 +220,88 @@ func TestRunExitCodes(t *testing.T) {
 	run([]string{"-base", "origin/nope", "-require-base"}, &out, &errOut, func(string) string { return "" })
 	if !strings.Contains(errOut.String(), "covergate: base origin/nope not found") || out.Len() != 0 {
 		t.Fatalf("stdout %q, stderr %q; want the error on stderr only", out.String(), errOut.String())
+	}
+}
+
+// TestCheckComparesTotalWithoutMeasuredChanges covers changes that touch no
+// measured Go line. The total comparison must still run when any Go file,
+// go.mod or go.sum changed, so deleting tests can't lower coverage
+// unnoticed; with none of those changed the gate skips.
+func TestCheckComparesTotalWithoutMeasuredChanges(t *testing.T) {
+	// The baseline covers both A and Old; the head covers only A.
+	full := "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 1\n"
+	half := "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 0\n"
+	for _, tc := range []struct {
+		name    string
+		change  func(t *testing.T, dir string)
+		profile string
+		want    []string // substrings of the report
+		wantOK  bool
+	}{
+		{
+			name: "tests deleted only",
+			change: func(t *testing.T, dir string) {
+				gitIn(t, dir, "rm", "-q", "pkg/old_test.go")
+			},
+			profile: half,
+			want:    []string{"no measured Go lines changed", "dropped by 50.00 points", "FAIL"},
+		},
+		{
+			name: "go.mod only",
+			change: func(t *testing.T, dir string) {
+				writeFile(t, dir, "go.mod", "module example.com/m\n\ngo 1.22\n")
+			},
+			profile: half,
+			want:    []string{"no measured Go lines changed", "dropped by 50.00 points", "FAIL"},
+		},
+		{
+			name: "comment only",
+			change: func(t *testing.T, dir string) {
+				writeFile(t, dir, "pkg/a.go", "package pkg\n\n// A returns one.\nfunc A() int {\n\treturn 1\n}\n")
+			},
+			profile: "mode: set\nexample.com/m/pkg/a.go:4.14,6.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 0\n",
+			want:    []string{"none are statements", "dropped by 50.00 points", "FAIL"},
+		},
+		{
+			name: "no Go changes",
+			change: func(t *testing.T, dir string) {
+				writeFile(t, dir, "README.md", "docs only\n")
+			},
+			profile: half,
+			want:    []string{"no Go, go.mod or go.sum changes since merge base", "skipping"},
+			wantOK:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := newRepo(t)
+			writeFile(t, dir, "pkg/old_test.go", "package pkg\n\nimport \"testing\"\n\nfunc TestOld(t *testing.T) { Old() }\n")
+			gitIn(t, dir, "add", "-A")
+			gitIn(t, dir, "commit", "-q", "-m", "test Old")
+			gitIn(t, dir, "checkout", "-q", "-b", "feature")
+			tc.change(t, dir)
+			gitIn(t, dir, "add", "-A")
+			gitIn(t, dir, "commit", "-q", "-m", tc.name)
+			writeFile(t, dir, "cover.out", tc.profile)
+
+			g, out := newGate(dir, false)
+			ok, err := g.check(config{
+				profile: "cover.out", base: "main", min: 80,
+				test: baseFixture(t, full), requireBase: true, requireBaseline: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok != tc.wantOK {
+				t.Errorf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out.String(), w) {
+					t.Errorf("report lacks %q", w)
+				}
+			}
+			if t.Failed() {
+				t.Logf("report:\n%s", out)
+			}
+		})
 	}
 }

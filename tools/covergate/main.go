@@ -11,8 +11,11 @@
 // generated code (gen/ and files marked "Code generated ... DO NOT EDIT."),
 // the tools/ module and test files are left out of both measures.
 //
-// When nothing has changed since the merge base (a push to main, for
-// example) the gate skips. It also skips when the base ref does not exist,
+// When no measured Go line has changed, the changed-lines check has nothing
+// to measure, but the total comparison still runs if any Go file (tests
+// included), go.mod or go.sum changed: deleting or weakening tests lowers
+// coverage without touching a measured line. When none of those changed
+// (a docs-only change, or a push to main) the gate skips. It also skips when the base ref does not exist,
 // unless -require-base is set, and skips the total comparison when the
 // baseline cannot be measured, unless -require-baseline is set. CI sets both.
 // Every skip is reported, as a ::warning:: annotation under GitHub Actions.
@@ -139,8 +142,14 @@ func (g gate) check(c config) (bool, error) {
 		return false, err
 	}
 	if len(changed) == 0 {
-		g.out.skip("no measured Go changes since merge base %.12s; skipping", mergeBase)
-		return true, nil
+		goChanged, err := g.anyGoChange(mergeBase)
+		if err != nil {
+			return false, err
+		}
+		if !goChanged {
+			g.out.skip("no Go, go.mod or go.sum changes since merge base %.12s; skipping", mergeBase)
+			return true, nil
+		}
 	}
 
 	module, err := modulePath(filepath.Join(g.root, "go.mod"))
@@ -160,9 +169,12 @@ func (g gate) check(c config) (bool, error) {
 
 	// Changed lines.
 	covered, total, missed := changedCoverage(head, changed)
-	if total == 0 {
+	switch {
+	case len(changed) == 0:
+		g.out.printf("covergate: changed lines: no measured Go lines changed; nothing to measure\n")
+	case total == 0:
 		g.out.printf("covergate: changed lines: none are statements; nothing to measure\n")
-	} else {
+	default:
 		pct := percent(covered, total)
 		g.out.printf("covergate: changed lines: %d of %d covered (%.1f%%, minimum %.0f%%)\n", covered, total, pct, c.min)
 		if pct < c.min {
@@ -197,6 +209,25 @@ func (g gate) check(c config) (bool, error) {
 		g.out.printf("covergate: FAIL\n")
 	}
 	return ok, nil
+}
+
+// anyGoChange reports whether any Go file, test files and unmeasured
+// directories included, or any go.mod or go.sum differs between mergeBase
+// and the working tree, counting deleted and untracked files.
+func (g gate) anyGoChange(mergeBase string) (bool, error) {
+	paths := []string{"*.go", ":(glob)**/go.mod", ":(glob)**/go.sum"}
+	diff, err := g.git(append([]string{"diff", "--no-ext-diff", "--no-relative", "--name-only", mergeBase, "--"}, paths...)...)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(diff) != "" {
+		return true, nil
+	}
+	untracked, err := g.git(append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)...)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(untracked) != "", nil
 }
 
 // changedLines lists the added or modified lines of each measured Go file
