@@ -50,14 +50,14 @@ No params. Returns what the adapter is, what it needs and what it emits.
 {
   "name": "github",
   "version": "0.2.0",
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "issuer_type": "github",
   "kinds": [
     { "kind": "Team",
       "keys": [ { "key_type": "team_node", "class": "id" },
                 { "key_type": "team", "class": "name", "per_subject": "one", "case": "insensitive" } ],
       "fields": [ { "predicate": "name", "match": "name" },
-                  { "predicate": "member_of", "direction": "in", "match": "members", "authoritative": true } ],
+                  { "predicate": "member_of", "direction": "in", "match": "members", "authority": { "authoritative": true } } ],
       "links": [] }
   ],
   "config_schema": { "type": "object", "required": ["org"], "properties": { "...": {} } },
@@ -76,16 +76,22 @@ Per kind:
 | Field | Meaning |
 | --- | --- |
 | `keys` | Key types: `key_type`, `class` (`id`: permanent, never reassigned; `name`: renamable, reusable), and for names `per_subject`, `redirects`; `case`; `issuer_type` when not the adapter's own (for example SAML NameIDs a directory issues). |
-| `fields` | Every predicate the adapter claims with this kind as the observed entity: `predicate`, `direction` (`in` for relations sent with `from`), optional `match` (`exact`, `email`, `name` or `members`) when the field is identity evidence, and `authoritative`. Unregistered attributes add `type` and `cardinality`. |
-| `links` | Key types of other systems that this system stores for the entity (`linked_ids`): `issuer_type`, `key_type`, `authoritative`. |
+| `fields` | Every predicate the adapter claims with this kind as the observed entity: `predicate`, `direction` (`in` for relations sent with `from`), optional `match` (`exact`, `email`, `name` or `members`) when the field is identity evidence, and `authority`. Kinds and relations come only from the data model's registry; an adapter adds only its own attributes, which also give `type` and `cardinality` and are stored namespaced. |
+| `links` | Key types of other systems that this system stores for the entity (`linked_ids`): `issuer_type`, `key_type`, `authority`. |
 
-`authoritative` (default `false`) is the adapter's default claim to be the
-source of record for that field or link. It settles conflicts and, for a
+`authority` (`{ "authoritative": true }`; default not authoritative) is
+the adapter's default claim to be the source of record for that field or
+link. It settles conflicts and, for a
 link to another system's permanent ID, lets the core merge identities
 without review. Operators can override it per source. Adapters never
 declare match weights or merge rules; those are core configuration. The
 [data model](data-model.md#declarations) gives the rules and complete
 GitHub and Authentik declarations.
+
+These declarations are specified for the Protobuf adapter service that
+replaces this transport ([ADR 9](../adr/0009-wasm-adapters.md)): they
+become fields of its `DescribeResponse`. The JSON above writes enum values
+in short form (`id`); on the wire they are ProtoJSON enum names.
 
 `access` lists the permissions the adapter needs, in the source system's own
 terms, so an operator can grant exactly those and nothing more. Adapters

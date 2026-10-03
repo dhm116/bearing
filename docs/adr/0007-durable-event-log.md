@@ -1,6 +1,6 @@
 # 7. Bearing is always on and every input is a durable event
 
-Date: 2026-09-29 · Status: proposed, amended by data-model v0.3
+Date: 2026-09-29 · Status: proposed
 
 ## Context
 
@@ -72,15 +72,7 @@ A webhook delivery, end to end:
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Supersedes the `EventBus` row in `docs/spec/contracts.md`.
-
-## Amended by data-model v0.3
-
-- Replaying the log rebuilds facts (the claim store) only. The identity
-  store (subjects, alias bindings, merge records) is primary state, backed
-  up with the graph and never rebuilt from events, so subject IDs survive
-  events leaving the retention window. See
-  [the data model](../spec/data-model.md#state-determinism-and-apply).
-- "Facts and their history are kept indefinitely" becomes configurable:
-  operators may set tiers that compact old history into summaries
-  ([Retention and compaction](../spec/data-model.md#retention-and-compaction)).
-  The identity store and the audit log are never compacted.
+- Superseded in part by [ADR 11](0011-identity-store-is-primary-state.md):
+  replaying the log rebuilds facts only inside the retention window, the
+  identity store is backed up rather than rebuilt, manual events are kept
+  as long as their effects are live, and fact history may be compacted.
