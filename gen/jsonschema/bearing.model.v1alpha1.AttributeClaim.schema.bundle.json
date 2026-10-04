@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.AttributeClaim.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AttributeClaim is an attribute claim that needs times, confidence or an\n ending.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "In [1, 1000000]. Absent: 1000000."
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: observed_at."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: open."
+        }
+      },
+      "properties": {
+        "absent": {
+          "default": false,
+          "description": "Ends the fact instead of asserting it.",
+          "type": "boolean"
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "In [1, 1000000]. Absent: 1000000."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The attribute. Required.",
+          "type": "string"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: observed_at."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: open."
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "The value. Required unless absent."
+        }
+      },
+      "title": "Attribute Claim",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.AttributeClaim.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AttributeClaim.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

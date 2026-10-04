@@ -1,0 +1,84 @@
+// Declarations: what an adapter's Describe says it emits
+// (docs/spec/data-model.md, "Declarations"). The adapter service's
+// DescribeResponse carries them.
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// Authority is a source's claim to be the source of record. It is a message
+// so levels can be added later without breaking declarations or overrides.
+message Authority {
+  // True when the source is the source of record. Default false.
+  bool authoritative = 1;
+}
+
+// AdapterDeclaration is everything one adapter declares.
+message AdapterDeclaration {
+  // The adapter's name, e.g. "github".
+  string name = 1;
+  // The kind of identifier issuer the adapter reads; the default namespace
+  // of a source using it.
+  string issuer_type = 2;
+  // Every kind the adapter emits.
+  repeated KindDeclaration kinds = 3;
+}
+
+// KindDeclaration declares one registered kind an adapter emits.
+message KindDeclaration {
+  // A registered subject kind, e.g. "Repository".
+  string kind = 1;
+  // The kind's key types.
+  repeated KeyTypeDeclaration keys = 2;
+  // Every predicate claimed with this kind as the observed entity.
+  repeated FieldDeclaration fields = 3;
+  // Key types of other systems this system records for the entity.
+  repeated LinkDeclaration links = 4;
+}
+
+// KeyTypeDeclaration declares one key type.
+message KeyTypeDeclaration {
+  // Default: the adapter's own issuer type.
+  string issuer_type = 1;
+  // The name in keys: lowercase letters, digits, "-" and "_".
+  string key_type = 2;
+  // Whether the key is a permanent id or a renamable name. Required.
+  KeyClass class = 3;
+  // Names only: how many names of this type a subject holds.
+  PerSubject per_subject = 4;
+  // Names only: a released name still resolves to its last subject.
+  bool redirects = 5;
+  // How external IDs are compared. Default sensitive.
+  KeyCase case = 6;
+}
+
+// FieldDeclaration declares one predicate an adapter claims for a kind.
+message FieldDeclaration {
+  // A registered predicate, or an unregistered attribute name.
+  string predicate = 1;
+  // DIRECTION_IN for relations given with "from". Default out.
+  Direction direction = 2;
+  // Set when the field is identity evidence.
+  MatchMethod match = 3;
+  // Default not authoritative.
+  Authority authority = 4;
+  // Unregistered attributes only: the value type.
+  ValueType type = 5;
+  // Unregistered attributes only: the cardinality.
+  Cardinality cardinality = 6;
+}
+
+// LinkDeclaration declares a key type of another system that this system
+// records for the entity (linked_ids).
+message LinkDeclaration {
+  // The other system's issuer type.
+  string issuer_type = 1;
+  // A key type declared for that issuer type.
+  string key_type = 2;
+  // Default not authoritative.
+  Authority authority = 3;
+}

@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.KeyTypeDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KeyTypeDeclaration declares one key type.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "Default: the adapter's own issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "The name in keys: lowercase letters, digits, \"-\" and \"_\".",
+          "type": "string"
+        },
+        "^(perSubject)$": {
+          "anyOf": [
+            {
+              "pattern": "^PER_SUBJECT_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "PER_SUBJECT_ONE",
+                "PER_SUBJECT_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Names only: how many names of this type a subject holds.",
+          "title": "Per Subject"
+        }
+      },
+      "properties": {
+        "case": {
+          "anyOf": [
+            {
+              "pattern": "^KEY_CASE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "KEY_CASE_SENSITIVE",
+                "KEY_CASE_INSENSITIVE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "How external IDs are compared. Default sensitive.",
+          "title": "Key Case"
+        },
+        "class": {
+          "anyOf": [
+            {
+              "pattern": "^KEY_CLASS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "KEY_CLASS_ID",
+                "KEY_CLASS_NAME"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Whether the key is a permanent id or a renamable name. Required.",
+          "title": "Key Class"
+        },
+        "issuer_type": {
+          "default": "",
+          "description": "Default: the adapter's own issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "The name in keys: lowercase letters, digits, \"-\" and \"_\".",
+          "type": "string"
+        },
+        "per_subject": {
+          "anyOf": [
+            {
+              "pattern": "^PER_SUBJECT_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "PER_SUBJECT_ONE",
+                "PER_SUBJECT_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Names only: how many names of this type a subject holds.",
+          "title": "Per Subject"
+        },
+        "redirects": {
+          "default": false,
+          "description": "Names only: a released name still resolves to its last subject.",
+          "type": "boolean"
+        }
+      },
+      "title": "Key Type Declaration",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.KeyTypeDeclaration.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.KeyTypeDeclaration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Header.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Header is one HTTP header field.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The field name as received.",
+          "type": "string"
+        },
+        "value": {
+          "default": "",
+          "description": "The field value.",
+          "type": "string"
+        }
+      },
+      "title": "Header",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.WebhookReceived.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "WebhookReceived is one webhook delivery, verified by the host before it\n is logged.",
+      "patternProperties": {
+        "^(receivedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the host received it."
+        }
+      },
+      "properties": {
+        "body": {
+          "default": null,
+          "description": "The request body, unchanged.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "headers": {
+          "description": "The request headers, in the order received.",
+          "items": {
+            "$ref": "#/$defs/bearing.event.v1alpha1.Header.schema.json"
+          },
+          "type": "array"
+        },
+        "received_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the host received it."
+        },
+        "source": {
+          "default": "",
+          "description": "The configured source the delivery is for.",
+          "type": "string"
+        }
+      },
+      "title": "Webhook Received",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.WebhookReceived.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.WebhookReceived.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

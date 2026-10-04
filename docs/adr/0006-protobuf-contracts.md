@@ -24,7 +24,9 @@ it.
 
 - **Protobuf is the source of truth** for the data model, events, adapter
   interface, configuration resources and audit records. Files live in
-  `proto/bearing/<area>/v1/` (for example `proto/bearing/model/v1/model.proto`).
+  `proto/bearing/<area>/v1alpha1/` (for example
+  `proto/bearing/model/v1alpha1/observation.proto`) until the MVP closes,
+  then `v1`.
 - **Tooling:** `buf` for linting, generation and `buf breaking` against
   `main` in CI. Generated Go code is committed under `gen/go/` so
   `go build` needs no extra tools.
@@ -40,8 +42,10 @@ it.
 - **Humans still get JSON.** Config files, logs and debug output use the
   canonical ProtoJSON mapping, so nothing a person reads or writes is
   binary.
-- **Versioning:** packages carry `v1`. Adding fields is compatible. Removing
-  or renumbering one needs `v2`, which `buf breaking` enforces.
+- **Versioning:** packages carry `v1alpha1` until the MVP closes and `v1`
+  after (issue #11). From `v1`, adding fields is compatible; removing or
+  renumbering one needs `v2`, which `buf breaking` enforces. `buf breaking`
+  turns on when the MVP closes.
 
 ## Shape
 

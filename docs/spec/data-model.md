@@ -1343,8 +1343,8 @@ artifacts are replaced, not migrated:
 
 - `proto/bearing/model/`: the data model, events and declarations as
   Protobuf, with JSON Schema generated from it. Declarations are fields of
-  `DescribeResponse` in `proto/bearing/adapter/v1` (issue #11). ADR 6 says
-  `v1` packages, issue #11 says `v1alpha1`: reconcile.
+  `DescribeResponse` in `proto/bearing/adapter/v1alpha1` (issue #11).
+  Packages are `v1alpha1` until the MVP closes, then `v1` (ADR 6).
 - Delete `schema/observation.v1.schema.json`, the hand-written types in
   `pkg/model`, `testdata/observations.ndjson` and the `bearing validate`
   command (and its row in `AGENTS.md`'s commands table); replace them with

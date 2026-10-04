@@ -1,0 +1,28 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Via.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Via is the aliases a claim's ends were resolved through.",
+      "properties": {
+        "object": {
+          "default": "",
+          "description": "The reference key for the other end.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The aliases the observation's entity carried.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Via",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Via.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Via.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

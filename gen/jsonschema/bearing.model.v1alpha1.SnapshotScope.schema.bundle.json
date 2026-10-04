@@ -1,0 +1,46 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.SnapshotScope.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "SnapshotScope declares that the observation lists every fact the source\n claims in (source, entity, direction, predicates).",
+      "properties": {
+        "direction": {
+          "anyOf": [
+            {
+              "pattern": "^DIRECTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DIRECTION_OUT",
+                "DIRECTION_IN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Which end the entity is. Required.",
+          "title": "Direction"
+        },
+        "predicates": {
+          "description": "Predicate names, or [\"*\"] for all in that direction. Required.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Snapshot Scope",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.SnapshotScope.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.SnapshotScope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

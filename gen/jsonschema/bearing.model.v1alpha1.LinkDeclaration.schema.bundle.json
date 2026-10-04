@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Authority.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Authority is a source's claim to be the source of record. It is a message\n so levels can be added later without breaking declarations or overrides.",
+      "properties": {
+        "authoritative": {
+          "default": false,
+          "description": "True when the source is the source of record. Default false.",
+          "type": "boolean"
+        }
+      },
+      "title": "Authority",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.LinkDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkDeclaration declares a key type of another system that this system\n records for the entity (linked_ids).",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+          "description": "Default not authoritative."
+        },
+        "issuer_type": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "title": "Link Declaration",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.LinkDeclaration.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.LinkDeclaration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

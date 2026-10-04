@@ -1,0 +1,212 @@
+// Facts, supports, conflicts and the shapes queries return
+// (docs/spec/data-model.md, "Facts and supports" to "Queries").
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/declaration.proto";
+import "bearing/model/v1alpha1/enums.proto";
+import "bearing/model/v1alpha1/observation.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// TypedValue is an attribute value with its type.
+message TypedValue {
+  // The value type. Required.
+  ValueType type = 1;
+  // string and time are strings (time in the 6-digit canonical form), float
+  // a number, bool a boolean, json any JSON value.
+  google.protobuf.Value value = 2;
+}
+
+// FactObject is a fact's object: { "subject_id" } for a relation, or
+// { "type", "value" } for an attribute.
+message FactObject {
+  // A relation's object. Set alone.
+  string subject_id = 1;
+  // An attribute's value type. Set with value.
+  ValueType type = 2;
+  // An attribute's value, in canonical form. Set with type.
+  google.protobuf.Value value = 3;
+}
+
+// Fact is (subject, predicate, object). Status, confidence and valid time
+// are computed from its supports.
+message Fact {
+  // Lowercase hex SHA-256 of the JCS form of subject_id, predicate, object.
+  string fact_id = 1;
+  // The canonical (survivor) subject ID.
+  string subject_id = 2;
+  // A registered predicate or <namespace>.<attribute>.
+  string predicate = 3;
+  // The object.
+  FactObject object = 4;
+}
+
+// Via is the aliases a claim's ends were resolved through.
+message Via {
+  // The aliases the observation's entity carried.
+  repeated string subject = 1;
+  // The reference key for the other end.
+  string object = 2;
+}
+
+// Support is one support version: one source's state for a fact over one
+// maximal valid-time interval, as recorded over one record-time interval.
+message Support {
+  // The fact supported.
+  string fact_id = 1;
+  // The configured source, "manual" or a "core/..." source.
+  string source = 2;
+  // Adapter name and version, e.g. "github@0.2.0". Empty for derived supports.
+  string adapter = 3;
+  // The event that wrote it.
+  string event_id = 4;
+  // The observation that wrote it.
+  string observation_id = 5;
+  // The claim's observed_at.
+  google.protobuf.Timestamp observed_at = 6;
+  // Informational: the latest confirming claim's observed_at.
+  google.protobuf.Timestamp last_confirmed_at = 7;
+  // Always present in outputs; 0 is explicit.
+  optional uint32 confidence_ppm = 8;
+  // Start of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_from = 9;
+  // End of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 10;
+  // When Bearing recorded it.
+  google.protobuf.Timestamp recorded_at = 11;
+  // When an apply replaced it; absent while current.
+  google.protobuf.Timestamp retracted_at = 12;
+  // Why it was written.
+  SupportReason reason = 13;
+  // The aliases the claim was resolved through.
+  Via via = 14;
+  // De-duplicated qualifier objects, sorted by JCS bytes.
+  repeated google.protobuf.Struct qualifiers = 15;
+  // Where a person can check it.
+  Evidence evidence = 16;
+}
+
+// Precision says whether an answer comes from full history or a summary.
+message Precision {
+  // The detail answered from.
+  CompactionDetail detail = 1;
+  // Summaries only: the period's start.
+  google.protobuf.Timestamp period_start = 2;
+  // Summaries only: the period's end.
+  google.protobuf.Timestamp period_end = 3;
+}
+
+// FactState is one as_of result: a fact's state at a valid and record time.
+message FactState {
+  // The fact.
+  string fact_id = 1;
+  // The canonical subject ID.
+  string subject_id = 2;
+  // The predicate.
+  string predicate = 3;
+  // The object.
+  FactObject object = 4;
+  // The status at the query's times.
+  FactStatus status = 5;
+  // The status step that decided it.
+  StatusReason status_reason = 6;
+  // Always present; 0 is explicit.
+  optional uint32 confidence_ppm = 7;
+  // The maximal interval containing valid_at with an unchanged status.
+  google.protobuf.Timestamp valid_from = 8;
+  // End of that interval; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 9;
+  // Whether the answer comes from a summary.
+  Precision precision = 10;
+  // The live supports.
+  repeated Support supports = 11;
+}
+
+// FactPoint is a fact's status and confidence at one point.
+message FactPoint {
+  // The status.
+  FactStatus status = 1;
+  // Always present; 0 is explicit.
+  optional uint32 confidence_ppm = 2;
+}
+
+// FactChange is one changes result: a fact whose status or confidence
+// differs between two points.
+message FactChange {
+  // The fact.
+  string fact_id = 1;
+  // The canonical subject ID at the later point.
+  string subject_id = 2;
+  // The predicate.
+  string predicate = 3;
+  // The object.
+  FactObject object = 4;
+  // The earlier point.
+  FactPoint from = 5;
+  // The later point.
+  FactPoint to = 6;
+  // Whether the answer comes from a summary.
+  Precision precision = 7;
+  // Sources whose supports changed between the points.
+  repeated string supports_changed = 8;
+}
+
+// ConflictPosition is one source system's side of a conflict.
+message ConflictPosition {
+  // The source system (namespace), or a core group.
+  string source_system = 1;
+  // Whether the system is authoritative for the field.
+  Authority authority = 2;
+  // The objects the system supports at or above the threshold.
+  repeated FactObject objects = 3;
+}
+
+// Conflict is a disagreement on (subject, predicate) across source systems.
+message Conflict {
+  // The canonical subject ID.
+  string subject_id = 1;
+  // The predicate.
+  string predicate = 2;
+  // When the disagreement starts in valid time.
+  google.protobuf.Timestamp valid_from = 3;
+  // When it ends; absent means open.
+  google.protobuf.Timestamp valid_to = 4;
+  // Each system's side.
+  repeated ConflictPosition positions = 5;
+  // The rule that decided it; unspecified while it stands.
+  ConflictResolution resolution = 6;
+}
+
+// DataQualityIssue is one data_quality result.
+message DataQualityIssue {
+  // The issue type.
+  IssueType issue = 1;
+  // The subjects involved.
+  repeated string subject_ids = 2;
+  // The aliases involved.
+  repeated string aliases = 3;
+  // The supports involved, with their source and evidence.
+  repeated Support supports = 4;
+}
+
+// CompactionSummary replaces the history of one (subject, predicate) in one
+// UTC calendar quarter or year.
+message CompactionSummary {
+  // The period's start.
+  google.protobuf.Timestamp period_start = 1;
+  // The period's end.
+  google.protobuf.Timestamp period_end = 2;
+  // The asserted objects at the last instant before period_end.
+  repeated FactObject value_at_end = 3;
+  // The number of status changes of its facts within the period.
+  uint32 changes = 4;
+  // Every object asserted at some time in the period.
+  repeated FactObject distinct_values = 5;
+  // When it was compacted; reads as recorded earlier also answer from it.
+  google.protobuf.Timestamp compacted_at = 6;
+}

@@ -1,0 +1,11 @@
+# Generates gen/go and gen/jsonschema from proto/ with plugins pinned in
+# tools/go.mod. Run `make generate`; CI checks the output is current.
+version: v2
+clean: true
+plugins:
+  - local: bin/tools/protoc-gen-go
+    out: gen/go
+    opt: paths=source_relative
+  - local: bin/tools/protoc-gen-jsonschema
+    out: gen/jsonschema
+    opt: target=proto-bundle

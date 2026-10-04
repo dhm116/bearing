@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.CompactionSummary.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CompactionSummary replaces the history of one (subject, predicate) in one\n UTC calendar quarter or year.",
+      "patternProperties": {
+        "^(compactedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When it was compacted; reads as recorded earlier also answer from it."
+        },
+        "^(distinctValues)$": {
+          "description": "Every object asserted at some time in the period.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json"
+          },
+          "type": "array"
+        },
+        "^(periodEnd)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The period's end."
+        },
+        "^(periodStart)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The period's start."
+        },
+        "^(valueAtEnd)$": {
+          "description": "The asserted objects at the last instant before period_end.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "properties": {
+        "changes": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The number of status changes of its facts within the period."
+        },
+        "compacted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When it was compacted; reads as recorded earlier also answer from it."
+        },
+        "distinct_values": {
+          "description": "Every object asserted at some time in the period.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json"
+          },
+          "type": "array"
+        },
+        "period_end": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The period's end."
+        },
+        "period_start": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The period's start."
+        },
+        "value_at_end": {
+          "description": "The asserted objects at the last instant before period_end.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Compaction Summary",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactObject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactObject is a fact's object: { \"subject_id\" } for a relation, or\n { \"type\", \"value\" } for an attribute.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "subject_id": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type. Set with value.",
+          "title": "Value Type"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "An attribute's value, in canonical form. Set with type."
+        }
+      },
+      "title": "Fact Object",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.CompactionSummary.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.CompactionSummary.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

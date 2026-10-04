@@ -1,0 +1,53 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.SubjectDeletionDerived.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "SubjectDeletionDerived treats a subject missing from two consecutive\n complete syncs as entity.deleted at the first missing sync's t0.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        },
+        "^(syncId)$": {
+          "default": "",
+          "description": "The first missing sync's ID (its SyncRequested event ID).",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "That sync's t0."
+        },
+        "source": {
+          "default": "",
+          "description": "The source whose syncs missed it.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        },
+        "sync_id": {
+          "default": "",
+          "description": "The first missing sync's ID (its SyncRequested event ID).",
+          "type": "string"
+        }
+      },
+      "title": "Subject Deletion Derived",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.SubjectDeletionDerived.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.SubjectDeletionDerived.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
