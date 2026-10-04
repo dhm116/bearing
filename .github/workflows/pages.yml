@@ -25,6 +25,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # The roadmap reads milestones and issues; without this the token
+      # gets 403 even on a public repository.
+      issues: read
     defaults:
       run:
         working-directory: site
