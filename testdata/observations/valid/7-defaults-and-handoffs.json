@@ -1,0 +1,48 @@
+{
+  "specversion": "1.0",
+  "id": "github:component/pay@2026-09-28T01:30:00.000000Z",
+  "source": "adapter/github",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-09-28T01:30:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Component",
+      "key": "github:component/pay"
+    },
+    "relations": [
+      {
+        "type": "depends_on",
+        "to": "github:component/ledger"
+      },
+      {
+        "type": "depends_on",
+        "to": "github:component/ledger",
+        "confidence_ppm": 1000000,
+        "valid_from": "2026-09-28T01:30:00Z"
+      },
+      {
+        "type": "defined_in",
+        "to": "github:repo/acme/payments-api",
+        "valid_from": "2026-01-01T00:00:00Z",
+        "valid_to": "2026-06-01T00:00:00Z"
+      },
+      {
+        "type": "defined_in",
+        "to": "github:repo/acme/payments",
+        "valid_from": "2026-06-01T00:00:00Z"
+      }
+    ],
+    "attribute_claims": [
+      {
+        "predicate": "tier",
+        "value": "1",
+        "valid_to": "2026-09-01T00:00:00Z"
+      },
+      {
+        "predicate": "tier",
+        "value": "2"
+      }
+    ]
+  }
+}

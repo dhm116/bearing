@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -31,11 +35,11 @@ func (p pager) Sync(_ context.Context, sp SyncParams) (SyncResult, error) {
 	if sp.Cursor != "" {
 		page, _ = strconv.Atoi(sp.Cursor)
 	}
-	o := model.NewObservation("adapter/pager", time.Unix(0, 0), model.ObservationData{
-		Entity: model.Entity{Kind: model.KindTeam, Key: model.NewKey("test", "team", cfg.Prefix+strconv.Itoa(page))},
+	o := model.NewObservation("adapter/pager", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: string(model.NewKey("test", "team", cfg.Prefix+strconv.Itoa(page)))},
 	})
 	next := page + 1
-	return SyncResult{Observations: []model.Observation{o}, NextCursor: strconv.Itoa(next), Done: next == p.n}, nil
+	return SyncResult{Observations: Observations{o}, NextCursor: strconv.Itoa(next), Done: next == p.n}, nil
 }
 
 func (p pager) Handle(context.Context, HandleParams) (HandleResult, error) {
@@ -73,8 +77,8 @@ func TestDescribeFillsProtocolVersion(t *testing.T) {
 func TestSyncAllPagesUntilDone(t *testing.T) {
 	c := connect(t, pager{n: 3})
 	var keys []model.Key
-	err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o model.Observation) error {
-		keys = append(keys, o.Data.Entity.Key)
+	err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
+		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
 		return nil
 	})
 	if err != nil {
@@ -93,7 +97,7 @@ func TestSyncAllPagesUntilDone(t *testing.T) {
 
 func TestSyncAllStopsRunawayAdapters(t *testing.T) {
 	c := connect(t, pager{n: 1000})
-	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(model.Observation) error { return nil })
+	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 	if !errors.Is(err, ErrTooManyPages) {
 		t.Fatalf("got %v, want ErrTooManyPages", err)
 	}
@@ -185,5 +189,103 @@ func TestUnknownMethod(t *testing.T) {
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeMethodNotFound {
 		t.Fatalf("got %v, want method not found", err)
+	}
+}
+
+// badKeys emits one observation whose key doesn't parse.
+type badKeys struct{ pager }
+
+func (badKeys) Sync(context.Context, SyncParams) (SyncResult, error) {
+	o := model.NewObservation("adapter/bad", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "no key"},
+	})
+	return SyncResult{Observations: Observations{o}, Done: true}, nil
+}
+
+func TestSyncAllRejectsInvalidObservations(t *testing.T) {
+	c := connect(t, badKeys{})
+	emitted := 0
+	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error {
+		emitted++
+		return nil
+	})
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) || emitted != 0 {
+		t.Fatalf("got %v after %d emitted, want a malformed-key rejection before any emit", err, emitted)
+	}
+}
+
+func TestObservationsJSONRoundTrip(t *testing.T) {
+	in := Observations{model.NewObservation("adapter/x", time.Unix(1, 2000), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "x:team/a"},
+	})}
+	b, err := json.Marshal(SyncResult{Observations: in, Done: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"time":"1970-01-01T00:00:01.000002Z"`) {
+		t.Fatalf("got %s, want ProtoJSON times", b)
+	}
+	var out SyncResult
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Observations) != 1 || !proto.Equal(out.Observations[0], in[0]) {
+		t.Fatalf("got %v, want %v", out.Observations, in)
+	}
+	for _, bad := range []string{`{"observations":{}}`, `{"observations":[{"nope":1}]}`} {
+		if err := json.Unmarshal([]byte(bad), &out); err == nil {
+			t.Errorf("decoding %s: got no error, want one", bad)
+		}
+	}
+}
+
+// coreFields emits observations an adapter must not send: Sync sets
+// bearingsource, and Handle returns one with a bad key unless the body is
+// "ok", and nanosecond times either way.
+type coreFields struct{ pager }
+
+func (coreFields) Sync(context.Context, SyncParams) (SyncResult, error) {
+	o := model.NewObservation("adapter/x", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "x:team/a"},
+	})
+	o.Bearingsource = "github-acme"
+	return SyncResult{Observations: Observations{o}, Done: true}, nil
+}
+
+func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error) {
+	key := "no key"
+	if string(p.Body) == "ok" {
+		key = "x:team/a"
+	}
+	o := model.NewObservation("adapter/x", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: key},
+	})
+	o.Time.Nanos = 123_456_789
+	return HandleResult{Observations: Observations{o}}, nil
+}
+
+func TestSyncAllRejectsBearingSource(t *testing.T) {
+	c := connect(t, coreFields{})
+	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !strings.Contains(err.Error(), "bearingsource") {
+		t.Fatalf("got %v, want bearingsource rejected", err)
+	}
+}
+
+func TestClientHandleValidatesAndTruncates(t *testing.T) {
+	c := connect(t, coreFields{})
+	_, err := c.Handle(context.Background(), HandleParams{Body: []byte("bad")})
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) {
+		t.Fatalf("got %v, want a malformed-key rejection", err)
+	}
+	res, err := c.Handle(context.Background(), HandleParams{Body: []byte("ok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
+		t.Fatalf("got nanos %d, want 123456000", got)
 	}
 }

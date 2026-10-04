@@ -1,0 +1,26 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Header.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Header is one HTTP header field.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The field name as received.",
+          "type": "string"
+        },
+        "value": {
+          "default": "",
+          "description": "The field value.",
+          "type": "string"
+        }
+      },
+      "title": "Header",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.Header.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.Header.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

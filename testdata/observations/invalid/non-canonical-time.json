@@ -1,0 +1,17 @@
+{
+  "specversion": "1.0",
+  "id": "github:change/1@2026-09-28T01:30:00.000000Z",
+  "source": "adapter/github",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-09-28T01:30:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Change",
+      "key": "github:change/1",
+      "attributes": {
+        "at": "2026-09-28T01:30:00Z"
+      }
+    }
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.MintedBy.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MintedBy records the event and rule that minted a subject.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply minted the subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply minted the subject.",
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "pattern": "^MINT_RULE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MINT_RULE_OBSERVATION",
+                "MINT_RULE_REFERENCE",
+                "MINT_RULE_SPLIT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The minting rule.",
+          "title": "Mint Rule"
+        }
+      },
+      "title": "Minted By",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Subject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Subject is a thing Bearing knows about.",
+      "patternProperties": {
+        "^(mergedInto)$": {
+          "default": "",
+          "description": "For merged subjects, the subject it was merged into.",
+          "type": "string"
+        },
+        "^(mintedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the core minted it (record time)."
+        },
+        "^(mintedBy)$": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.MintedBy.schema.json",
+          "description": "What minted it."
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "UUIDv7, canonical lowercase text. Minted only by the core.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "A registered subject kind, fixed at mint.",
+          "type": "string"
+        },
+        "merged_into": {
+          "default": "",
+          "description": "For merged subjects, the subject it was merged into.",
+          "type": "string"
+        },
+        "minted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the core minted it (record time)."
+        },
+        "minted_by": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.MintedBy.schema.json",
+          "description": "What minted it."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^SUBJECT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "SUBJECT_STATUS_ACTIVE",
+                "SUBJECT_STATUS_MERGED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Active or merged. Subjects are never deleted.",
+          "title": "Subject Status"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "UUIDv7, canonical lowercase text. Minted only by the core.",
+          "type": "string"
+        }
+      },
+      "title": "Subject",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Subject.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Subject.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

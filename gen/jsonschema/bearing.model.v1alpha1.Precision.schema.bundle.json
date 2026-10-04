@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Precision.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Precision says whether an answer comes from full history or a summary.",
+      "patternProperties": {
+        "^(periodEnd)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "^(periodStart)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The detail answered from.",
+          "title": "Compaction Detail"
+        },
+        "period_end": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "period_start": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "title": "Precision",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Precision.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Precision.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

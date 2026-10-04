@@ -1,0 +1,107 @@
+// The observation payload: one source's report about one entity at one
+// observed_at (docs/spec/data-model.md, "Observations"). The CloudEvents
+// envelope around it is bearing.event.v1alpha1.Observation.
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// ObservationData is the data of an observation event.
+message ObservationData {
+  // The observed entity. Required.
+  Entity entity = 1;
+  // Relation claims.
+  repeated Relation relations = 2;
+  // Attribute claims that need times, confidence or an ending.
+  repeated AttributeClaim attribute_claims = 3;
+  // Scopes in which this observation lists every fact the source claims.
+  repeated SnapshotScope snapshots = 4;
+  // Where a person can check the claims; stored on each support.
+  Evidence evidence = 5;
+}
+
+// Entity is what the observation says about the observed entity itself.
+message Entity {
+  // A registered subject kind. Required.
+  string kind = 1;
+  // The primary key, <namespace>:<key_type>/<external_id>. Required.
+  string key = 2;
+  // More keys for the entity, in the source's own or issued namespaces.
+  repeated string aliases = 3;
+  // Keys in linked namespaces that the source records for the entity.
+  // Identity evidence, never aliases. When present, complete for the source.
+  repeated string linked_ids = 4;
+  // Attribute claims: a value, a list (the complete set) or null (none).
+  // Omitting an attribute means "not read".
+  map<string, google.protobuf.Value> attributes = 5;
+  // The entity no longer exists in the source.
+  bool deleted = 6;
+}
+
+// Relation is one relation claim about the observed entity.
+message Relation {
+  // A registered relation predicate. Required.
+  string type = 1;
+  // The other end. Exactly one is required.
+  oneof end {
+    // The entity is the subject and this key the object.
+    string to = 2;
+    // This key is the subject and the entity the object.
+    string from = 3;
+  }
+  // Qualifiers: not part of the fact.
+  map<string, google.protobuf.Value> attributes = 4;
+  // Ends the fact instead of asserting it.
+  bool absent = 5;
+  // Absent: observed_at.
+  google.protobuf.Timestamp valid_from = 6;
+  // Absent: open.
+  google.protobuf.Timestamp valid_to = 7;
+  // In [1, 1000000]. Absent: 1000000.
+  optional uint32 confidence_ppm = 8;
+}
+
+// AttributeClaim is an attribute claim that needs times, confidence or an
+// ending.
+message AttributeClaim {
+  // The attribute. Required.
+  string predicate = 1;
+  // The value. Required, also when absent: an ending ends this value only.
+  google.protobuf.Value value = 2;
+  // Absent: observed_at.
+  google.protobuf.Timestamp valid_from = 3;
+  // Absent: open.
+  google.protobuf.Timestamp valid_to = 4;
+  // In [1, 1000000]. Absent: 1000000.
+  optional uint32 confidence_ppm = 5;
+  // Ends the fact instead of asserting it.
+  bool absent = 6;
+}
+
+// SnapshotScope declares that the observation lists every fact the source
+// claims in (source, entity, direction, predicates).
+message SnapshotScope {
+  // Which end the entity is. Required.
+  Direction direction = 1;
+  // Predicate names, or ["*"] for all in that direction. Required.
+  repeated string predicates = 2;
+}
+
+// Evidence says where a person can check an observation's claims.
+message Evidence {
+  // A link to the claims in the source.
+  string url = 1;
+}
+
+// CompleteSync, on a sync's last page, says the sync visited every entity of
+// these kinds the source can see.
+message CompleteSync {
+  // Registered subject kinds.
+  repeated string kinds = 1;
+}

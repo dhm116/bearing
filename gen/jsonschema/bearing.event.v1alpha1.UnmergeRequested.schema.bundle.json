@@ -1,0 +1,63 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "OIDC subject or agent token ID.",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.UnmergeRequested.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "UnmergeRequested splits aliases off an active subject.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The active subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who asked."
+        },
+        "aliases": {
+          "description": "A non-empty proper subset of its aliases.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The active subject.",
+          "type": "string"
+        }
+      },
+      "title": "Unmerge Requested",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.UnmergeRequested.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.UnmergeRequested.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

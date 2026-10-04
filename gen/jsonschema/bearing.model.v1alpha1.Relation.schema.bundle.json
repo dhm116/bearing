@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Relation.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Relation is one relation claim about the observed entity.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "In [1, 1000000]. Absent: 1000000."
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: observed_at."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: open."
+        }
+      },
+      "properties": {
+        "absent": {
+          "default": false,
+          "description": "Ends the fact instead of asserting it.",
+          "type": "boolean"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/google.protobuf.Value.schema.json"
+          },
+          "description": "Qualifiers: not part of the fact.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "In [1, 1000000]. Absent: 1000000."
+        },
+        "from": {
+          "description": "This key is the subject and the entity the object.",
+          "type": "string"
+        },
+        "to": {
+          "description": "The entity is the subject and this key the object.",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "description": "A registered relation predicate. Required.",
+          "type": "string"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: observed_at."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Absent: open."
+        }
+      },
+      "title": "Relation",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Relation.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Relation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

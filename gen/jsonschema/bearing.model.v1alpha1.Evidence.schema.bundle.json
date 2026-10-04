@@ -1,0 +1,21 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Evidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Evidence says where a person can check an observation's claims.",
+      "properties": {
+        "url": {
+          "default": "",
+          "description": "A link to the claims in the source.",
+          "type": "string"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Evidence.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

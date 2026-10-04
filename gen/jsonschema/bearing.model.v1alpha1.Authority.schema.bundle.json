@@ -1,0 +1,21 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Authority.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Authority is a source's claim to be the source of record. It is a message\n so levels can be added later without breaking declarations or overrides.",
+      "properties": {
+        "authoritative": {
+          "default": false,
+          "description": "True when the source is the source of record. Default false.",
+          "type": "boolean"
+        }
+      },
+      "title": "Authority",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Authority.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

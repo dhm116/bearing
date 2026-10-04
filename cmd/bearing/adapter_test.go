@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
@@ -37,10 +38,10 @@ func (fakeAdapter) Describe(context.Context) (adapter.DescribeResult, error) {
 }
 
 func (fakeAdapter) Sync(context.Context, adapter.SyncParams) (adapter.SyncResult, error) {
-	o := model.NewObservation("adapter/fake", time.Unix(0, 0), model.ObservationData{
-		Entity: model.Entity{Kind: model.KindTeam, Key: model.NewKey("test", "team", "payments")},
+	o := model.NewObservation("adapter/fake", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: string(model.NewKey("test", "team", "payments"))},
 	})
-	return adapter.SyncResult{Observations: []model.Observation{o}, Done: true}, nil
+	return adapter.SyncResult{Observations: adapter.Observations{o}, Done: true}, nil
 }
 
 func (fakeAdapter) Handle(context.Context, adapter.HandleParams) (adapter.HandleResult, error) {
@@ -59,7 +60,7 @@ func TestRunAdapterCommands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(childEnv, "serve")
 			var out bytes.Buffer
-			if err := run(context.Background(), tc.args, nil, &out); err != nil {
+			if err := run(context.Background(), tc.args, &out); err != nil {
 				t.Fatal(err)
 			}
 			if tc.name == "sync" {
@@ -85,7 +86,7 @@ func TestRunAdapterCommandsReportAdapterExitStatus(t *testing.T) {
 		t.Run(sub, func(t *testing.T) {
 			t.Setenv(childEnv, "fail")
 			var out bytes.Buffer
-			err := run(context.Background(), []string{"adapter", sub, "--", os.Args[0]}, nil, &out)
+			err := run(context.Background(), []string{"adapter", sub, "--", os.Args[0]}, &out)
 			var exit *exec.ExitError
 			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 				t.Fatalf("got %v, want the adapter's exit status 1", err)
@@ -100,7 +101,7 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{"adapter"},
 		{"nope"},
 	} {
-		if err := run(context.Background(), args, nil, &bytes.Buffer{}); !errors.Is(err, errUsage) {
+		if err := run(context.Background(), args, &bytes.Buffer{}); !errors.Is(err, errUsage) {
 			t.Errorf("run %q: got %v, want errUsage", args, err)
 		}
 	}
@@ -108,7 +109,7 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{"adapter", "describe", os.Args[0]},
 		{"adapter", "describe", "--"},
 	} {
-		if err := run(context.Background(), args, nil, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") {
+		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") {
 			t.Errorf("run %q: got %v, want an error about the adapter command", args, err)
 		}
 	}
@@ -125,7 +126,7 @@ func TestSyncReportsOutputFlushErrors(t *testing.T) {
 	t.Setenv(childEnv, "serve")
 	// One small observation fits in sync's buffer, so the failure surfaces
 	// at the deferred Flush.
-	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, nil, failingWriter{})
+	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, failingWriter{})
 	if !errors.Is(err, errClosedStdout) {
 		t.Fatalf("got %v, want the flush error %v", err, errClosedStdout)
 	}

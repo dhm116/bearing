@@ -3,7 +3,6 @@
 //
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
-//	bearing validate [file.ndjson]   (reads stdin when no file is given)
 package main
 
 import (
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
@@ -27,7 +27,6 @@ import (
 const usage = `usage:
   bearing adapter describe -- <adapter command> [args]
   bearing adapter sync [--config cfg.json] [--max-pages N] -- <adapter command> [args]
-  bearing validate [file.ndjson]
 `
 
 // version is the CLI version, set at build time with -ldflags.
@@ -64,7 +63,7 @@ func mainCode() int {
 	}
 	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, name)
 	defer span.End()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
 		if errors.Is(err, errUsage) {
 			return 2
@@ -76,7 +75,7 @@ func mainCode() int {
 
 var errUsage = errors.New("see usage above")
 
-func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
 		return errUsage
@@ -93,22 +92,6 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		case "sync":
 			return syncCmd(ctx, args[2:], stdout)
 		}
-	case "validate":
-		in := stdin
-		if len(args) > 1 {
-			f, err := os.Open(args[1]) //nolint:gosec // G703: the CLI reads the file its user names
-			if err != nil {
-				return err
-			}
-			defer func() { _ = f.Close() }() // read-only: a close error carries no information
-			in = f
-		}
-		n, err := validate(in)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(stdout, "%d observations valid\n", n)
-		return err
 	}
 	fmt.Fprint(os.Stderr, usage)
 	return errUsage
@@ -171,35 +154,16 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
-	enc := json.NewEncoder(w)
 	n := 0
-	err = adapter.SyncAll(ctx, c, config, *maxPages, func(o model.Observation) error {
+	err = adapter.SyncAll(ctx, c, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
-		return enc.Encode(o)
+		b, err := model.EncodeJSON(o)
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(append(b, '\n'))
+		return err
 	})
 	telemetry.Logger("cmd/bearing").InfoContext(ctx, "observations written", "count", n)
 	return err
-}
-
-// validate checks newline-delimited observations and returns how many passed.
-func validate(r io.Reader) (int, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 32<<20)
-	n, line := 0, 0
-	var errs []error
-	for sc.Scan() {
-		line++
-		if len(sc.Bytes()) == 0 {
-			continue
-		}
-		if _, err := model.DecodeObservation(sc.Bytes()); err != nil {
-			errs = append(errs, fmt.Errorf("line %d: %w", line, err))
-			continue
-		}
-		n++
-	}
-	if err := sc.Err(); err != nil {
-		return n, err
-	}
-	return n, errors.Join(errs...)
 }

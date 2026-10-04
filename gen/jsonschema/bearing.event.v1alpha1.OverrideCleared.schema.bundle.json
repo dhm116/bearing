@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "OIDC subject or agent token ID.",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.OverrideCleared.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "OverrideCleared ends an override at the event's observed_at.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who asked."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "title": "Override Cleared",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.OverrideCleared.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.OverrideCleared.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

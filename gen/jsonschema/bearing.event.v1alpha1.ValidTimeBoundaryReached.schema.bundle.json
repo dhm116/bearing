@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.ValidTimeBoundaryReached.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ValidTimeBoundaryReached says valid time passed a known boundary of\n (subject, predicate); applying it recomputes conflicts and derived claims.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The boundary: a valid_from or valid_to."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "title": "Valid Time Boundary Reached",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.ValidTimeBoundaryReached.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.ValidTimeBoundaryReached.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Entity.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Entity is what the observation says about the observed entity itself.",
+      "patternProperties": {
+        "^(linkedIds)$": {
+          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. When present, complete for the source.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "properties": {
+        "aliases": {
+          "description": "More keys for the entity, in the source's own or issued namespaces.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/google.protobuf.Value.schema.json"
+          },
+          "description": "Attribute claims: a value, a list (the complete set) or null (none).\n Omitting an attribute means \"not read\".",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "deleted": {
+          "default": false,
+          "description": "The entity no longer exists in the source.",
+          "type": "boolean"
+        },
+        "key": {
+          "default": "",
+          "description": "The primary key, \u003cnamespace\u003e:\u003ckey_type\u003e/\u003cexternal_id\u003e. Required.",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "A registered subject kind. Required.",
+          "type": "string"
+        },
+        "linked_ids": {
+          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. When present, complete for the source.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Entity",
+      "type": "object"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Entity.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Entity.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

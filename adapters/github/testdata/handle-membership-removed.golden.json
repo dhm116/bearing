@@ -1,0 +1,26 @@
+[
+  {
+    "specversion": "1.0",
+    "id": "github:user/jdoe@2026-09-28T02:00:00.000000Z",
+    "source": "adapter/github",
+    "type": "dev.bearing.observation.v1",
+    "time": "2026-09-28T02:00:00Z",
+    "datacontenttype": "application/json",
+    "data": {
+      "entity": {
+        "kind": "Person",
+        "key": "github:user/jdoe",
+        "attributes": {
+          "login": "jdoe"
+        }
+      },
+      "relations": [
+        {
+          "type": "member_of",
+          "to": "github:team/acme/payments",
+          "absent": true
+        }
+      ]
+    }
+  }
+]

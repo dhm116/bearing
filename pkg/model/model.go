@@ -1,223 +1,129 @@
-// Package model defines Bearing's core schema: the entity kinds, relation
-// types and the Observation envelope that adapters emit.
+// Package model holds the helpers around Bearing's data model: the kind and
+// predicate registry, keys, the observation envelope, ProtoJSON encoding,
+// validation at the edges, and fact_id and content_hash.
 //
-// The schema is versioned. Everything in this package is v1; additions are
-// backwards compatible, and breaking changes get a new observation type.
+// The message types themselves are generated from proto/bearing/model and
+// proto/bearing/event (v1alpha1) into gen/go; protobuf is their only source
+// of truth (docs/adr/0006-protobuf-contracts.md). docs/spec/data-model.md
+// gives the rules this package checks.
 package model
 
 import (
-	"encoding/json"
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
+
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
 // SpecVersion is the CloudEvents spec version every observation uses.
 const SpecVersion = "1.0"
 
-// ObservationType is the CloudEvents type for a v1 observation.
+// ObservationType is the CloudEvents type of an observation. It stays v1
+// while the spec is a pre-1.0 draft (docs/spec/README.md, "Versioning").
 const ObservationType = "dev.bearing.observation.v1"
 
-// Kind is an entity kind in the Bearing schema.
-type Kind string
+// ContentType is the datacontenttype of an observation.
+const ContentType = "application/json"
 
-// The v1 entity kinds. docs/spec/data-model.md defines each one.
-const (
-	KindPerson        Kind = "Person"
-	KindTeam          Kind = "Team"
-	KindRepository    Kind = "Repository"
-	KindComponent     Kind = "Component"
-	KindPackage       Kind = "Package"
-	KindEnvironment   Kind = "Environment"
-	KindCloudResource Kind = "CloudResource"
-	KindChange        Kind = "Change"
-	KindIncident      Kind = "Incident"
-	KindSchedule      Kind = "Schedule"
-	KindDocument      Kind = "Document"
-)
+// TimeLayout is the canonical form of a time value: UTC with exactly six
+// fraction digits.
+const TimeLayout = "2006-01-02T15:04:05.000000Z"
 
-// Kinds lists every v1 entity kind.
-var Kinds = []Kind{
-	KindPerson, KindTeam, KindRepository, KindComponent, KindPackage,
-	KindEnvironment, KindCloudResource, KindChange, KindIncident,
-	KindSchedule, KindDocument,
-}
-
-// Valid reports whether k is a known v1 kind.
-func (k Kind) Valid() bool {
-	for _, known := range Kinds {
-		if k == known {
-			return true
-		}
-	}
-	return false
-}
-
-// RelationType is a directed relation from the observed entity to another.
-type RelationType string
-
-// The v1 relation types. docs/spec/data-model.md defines each one.
-const (
-	RelMemberOf   RelationType = "member_of"
-	RelOwnedBy    RelationType = "owned_by"
-	RelDependsOn  RelationType = "depends_on"
-	RelPublishes  RelationType = "publishes"
-	RelConsumes   RelationType = "consumes"
-	RelDeployedTo RelationType = "deployed_to"
-	RelRunsOn     RelationType = "runs_on"
-	RelOnCallFor  RelationType = "on_call_for"
-	RelAffectedBy RelationType = "affected_by"
-	RelDocuments  RelationType = "documents"
-	RelChangedBy  RelationType = "changed_by"
-	RelDefinedIn  RelationType = "defined_in"
-)
-
-// RelationTypes lists every v1 relation type.
-var RelationTypes = []RelationType{
-	RelMemberOf, RelOwnedBy, RelDependsOn, RelPublishes, RelConsumes,
-	RelDeployedTo, RelRunsOn, RelOnCallFor, RelAffectedBy, RelDocuments,
-	RelChangedBy, RelDefinedIn,
-}
-
-// Valid reports whether r is a known v1 relation type.
-func (r RelationType) Valid() bool {
-	for _, known := range RelationTypes {
-		if r == known {
-			return true
-		}
-	}
-	return false
-}
-
-// Key identifies an entity inside one source system, in the form
-// "<system>:<type>/<id>", for example "github:user/jdoe" or
-// "pagerduty:schedule/PX12AB". Keys are never shared across systems; the core
-// decides when two keys refer to the same entity.
-type Key string
-
-var keyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9_-]*/.+$`)
-
-// Parse splits a key into its system, type and id parts.
-func (k Key) Parse() (system, typ, id string, err error) {
-	if !keyPattern.MatchString(string(k)) {
-		return "", "", "", fmt.Errorf("invalid key %q: want <system>:<type>/<id>", k)
-	}
-	system, rest, _ := strings.Cut(string(k), ":")
-	typ, id, _ = strings.Cut(rest, "/")
-	return system, typ, id, nil
-}
-
-// NewKey builds a key from its parts.
-func NewKey(system, typ, id string) Key {
-	return Key(system + ":" + typ + "/" + id)
-}
-
-// Entity is what an observation says about one thing in a source system.
-type Entity struct {
-	Kind       Kind           `json:"kind"`
-	Key        Key            `json:"key"`
-	Attributes map[string]any `json:"attributes,omitempty"`
-	// Deleted marks that the source reports this entity no longer exists.
-	Deleted bool `json:"deleted,omitempty"`
-}
-
-// Relation is a directed edge from the observed entity to another key.
-type Relation struct {
-	Type       RelationType   `json:"type"`
-	To         Key            `json:"to"`
-	Attributes map[string]any `json:"attributes,omitempty"`
-	// Absent marks that the source reports this relation no longer holds,
-	// for example a team membership that was removed.
-	Absent bool `json:"absent,omitempty"`
-}
-
-// Evidence points back to where the observation came from, so every fact in
-// the graph can show its source.
-type Evidence struct {
-	URL  string `json:"url,omitempty"`
-	Ref  string `json:"ref,omitempty"`
-	Note string `json:"note,omitempty"`
-}
-
-// ObservationData is the payload of an observation.
-type ObservationData struct {
-	Entity    Entity     `json:"entity"`
-	Relations []Relation `json:"relations,omitempty"`
-	Evidence  *Evidence  `json:"evidence,omitempty"`
-}
-
-// Observation is a CloudEvents 1.0 envelope carrying one adapter report.
-type Observation struct {
-	SpecVersion     string          `json:"specversion"`
-	ID              string          `json:"id"`
-	Type            string          `json:"type"`
-	Source          string          `json:"source"`
-	Time            time.Time       `json:"time"`
-	DataContentType string          `json:"datacontenttype,omitempty"`
-	Data            ObservationData `json:"data"`
-}
-
-// NewObservation fills in the envelope fields for an observation from source.
-// The id is derived from the entity key and time so re-sending the same
-// observation is idempotent for consumers that de-duplicate on id.
-func NewObservation(source string, at time.Time, data ObservationData) Observation {
-	at = at.UTC().Truncate(time.Second)
-	return Observation{
-		SpecVersion:     SpecVersion,
-		ID:              fmt.Sprintf("%s@%s", data.Entity.Key, at.Format(time.RFC3339)),
-		Type:            ObservationType,
+// NewObservation wraps data in a CloudEvents envelope from source, observed
+// at at (truncated to microseconds). The id is the entity key and the time,
+// so re-sending the same observation keeps its id.
+func NewObservation(source string, at time.Time, data *modelv1alpha1.ObservationData) *eventv1alpha1.Observation {
+	at = at.UTC().Truncate(time.Microsecond)
+	return &eventv1alpha1.Observation{
+		Specversion:     SpecVersion,
+		Id:              data.GetEntity().GetKey() + "@" + at.Format(TimeLayout),
 		Source:          source,
-		Time:            at,
-		DataContentType: "application/json",
+		Type:            ObservationType,
+		Time:            timestamppb.New(at),
+		Datacontenttype: ContentType,
 		Data:            data,
 	}
 }
 
-// Validate checks an observation against the v1 schema rules that JSON Schema
-// alone can't express.
-func (o Observation) Validate() error {
-	var errs []string
-	if o.SpecVersion != SpecVersion {
-		errs = append(errs, fmt.Sprintf("specversion must be %q", SpecVersion))
-	}
-	if o.ID == "" {
-		errs = append(errs, "id is required")
-	}
-	if o.Type != ObservationType {
-		errs = append(errs, fmt.Sprintf("type must be %q", ObservationType))
-	}
-	if o.Source == "" {
-		errs = append(errs, "source is required")
-	}
-	if o.Time.IsZero() {
-		errs = append(errs, "time is required")
-	}
-	if !o.Data.Entity.Kind.Valid() {
-		errs = append(errs, fmt.Sprintf("unknown entity kind %q", o.Data.Entity.Kind))
-	}
-	if _, _, _, err := o.Data.Entity.Key.Parse(); err != nil {
-		errs = append(errs, err.Error())
-	}
-	for i, r := range o.Data.Relations {
-		if !r.Type.Valid() {
-			errs = append(errs, fmt.Sprintf("relations[%d]: unknown type %q", i, r.Type))
+// TimeValue returns t as a canonical time attribute value.
+func TimeValue(t time.Time) *structpb.Value {
+	return structpb.NewStringValue(t.UTC().Truncate(time.Microsecond).Format(TimeLayout))
+}
+
+// TruncateTimes truncates every google.protobuf.Timestamp in m, at any
+// depth, to microseconds, as the core does on ingest.
+func TruncateTimes(m proto.Message) {
+	truncate(m.ProtoReflect())
+}
+
+var timestampName = (&timestamppb.Timestamp{}).ProtoReflect().Descriptor().FullName()
+
+func truncate(m protoreflect.Message) {
+	if m.Descriptor().FullName() == timestampName {
+		// An invalid timestamp is left for validation to reject.
+		if ts, ok := m.Interface().(*timestamppb.Timestamp); ok && ts.IsValid() {
+			ts.Nanos -= ts.Nanos % 1000
 		}
-		if _, _, _, err := r.To.Parse(); err != nil {
-			errs = append(errs, fmt.Sprintf("relations[%d]: %v", i, err))
-		}
+		return
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("invalid observation: %s", strings.Join(errs, "; "))
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		switch {
+		case fd.Message() == nil:
+		case fd.IsList():
+			l := v.List()
+			for i := range l.Len() {
+				truncate(l.Get(i).Message())
+			}
+		case fd.IsMap():
+			if fd.MapValue().Message() != nil {
+				v.Map().Range(func(_ protoreflect.MapKey, mv protoreflect.Value) bool {
+					truncate(mv.Message())
+					return true
+				})
+			}
+		default:
+			truncate(v.Message())
+		}
+		return true
+	})
+}
+
+var (
+	marshalJSON   = protojson.MarshalOptions{UseProtoNames: true}
+	unmarshalJSON = protojson.UnmarshalOptions{}
+)
+
+// EncodeJSON returns m as ProtoJSON with proto field names and enum value
+// names, on one line, with unset fields omitted. Its whitespace is stable,
+// unlike protojson's own output.
+func EncodeJSON(m proto.Message) ([]byte, error) {
+	b, err := marshalJSON.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return compact(b)
+}
+
+// DecodeJSON parses ProtoJSON into m. Unknown fields are an error.
+func DecodeJSON(b []byte, m proto.Message) error {
+	if err := unmarshalJSON.Unmarshal(b, m); err != nil {
+		return fmt.Errorf("decode %s: %w", m.ProtoReflect().Descriptor().Name(), err)
 	}
 	return nil
 }
 
-// DecodeObservation parses and validates one JSON observation.
-func DecodeObservation(b []byte) (Observation, error) {
-	var o Observation
-	if err := json.Unmarshal(b, &o); err != nil {
-		return o, fmt.Errorf("decode observation: %w", err)
+// DecodeObservation parses one ProtoJSON observation and validates it.
+func DecodeObservation(b []byte) (*eventv1alpha1.Observation, error) {
+	o := &eventv1alpha1.Observation{}
+	if err := DecodeJSON(b, o); err != nil {
+		return nil, err
 	}
-	return o, o.Validate()
+	return o, ValidateObservation(o)
 }

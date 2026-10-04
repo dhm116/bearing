@@ -1,0 +1,230 @@
+// Events on Bearing's event log (ADR 7): inputs, adapter output, manual
+// operations and the events the core appends itself
+// (docs/spec/data-model.md, "Manual operations" and "Status and
+// conflicts"). Each payload travels as the data of a CloudEvent; the
+// observation envelope is spelled out because adapters emit it whole.
+
+syntax = "proto3";
+
+package bearing.event.v1alpha1;
+
+import "bearing/model/v1alpha1/fact.proto";
+import "bearing/model/v1alpha1/observation.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/event/v1alpha1;eventv1alpha1";
+
+// Observation is a CloudEvents 1.0 event carrying one observation, in
+// structured mode: its ProtoJSON is the CloudEvents JSON form.
+message Observation {
+  // CloudEvents spec version: "1.0".
+  string specversion = 1;
+  // Stable for the same entity and time; part of the ordering key.
+  string id = 2;
+  // The adapter's own label, e.g. "adapter/github". Not provenance.
+  string source = 3;
+  // The CloudEvents type: "dev.bearing.observation.v1".
+  string type = 4;
+  // observed_at of every claim. Truncated to microseconds on ingest.
+  google.protobuf.Timestamp time = 5;
+  // "application/json".
+  string datacontenttype = 6;
+  // The configured source whose event carried the observation. Set by the
+  // core, never by adapters.
+  string bearingsource = 7;
+  // The observation. Required.
+  bearing.model.v1alpha1.ObservationData data = 8;
+}
+
+// SyncRequested asks for a sync of one source. The sync is identified by
+// this event's ID, and its time is t0.
+message SyncRequested {
+  // The configured source to sync.
+  string source = 1;
+  // Who asked: the scheduler, the CLI or the API.
+  Actor actor = 2;
+}
+
+// WebhookReceived is one webhook delivery, verified by the host before it
+// is logged.
+message WebhookReceived {
+  // The configured source the delivery is for.
+  string source = 1;
+  // The request headers, in the order received.
+  repeated Header headers = 2;
+  // The request body, unchanged.
+  bytes body = 3;
+  // When the host received it.
+  google.protobuf.Timestamp received_at = 4;
+}
+
+// Header is one HTTP header field.
+message Header {
+  // The field name as received.
+  string name = 1;
+  // The field value.
+  string value = 2;
+}
+
+// ObservationsEmitted is one page of adapter output.
+message ObservationsEmitted {
+  // The configured source that ran the adapter.
+  string source = 1;
+  // The SyncRequested or WebhookReceived event this page answers.
+  string trigger_event_id = 2;
+  // The observations.
+  repeated Observation observations = 3;
+  // The last page of a sync: done.
+  bool done = 4;
+  // On the last page, the kinds the sync visited completely.
+  bearing.model.v1alpha1.CompleteSync complete_sync = 5;
+}
+
+// Actor is who asked for an event: a person or an agent acting for one.
+message Actor {
+  // OIDC subject or agent token ID.
+  string subject = 1;
+  // True for an agent.
+  bool agent = 2;
+}
+
+// MergeRequested merges two subjects (rule manual).
+message MergeRequested {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // Exactly two subjects of one kind.
+  repeated string subject_ids = 3;
+  // Also withdraws a distinct_from between them.
+  bool clear_distinct_from = 4;
+}
+
+// UnmergeRequested splits aliases off an active subject.
+message UnmergeRequested {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // The active subject.
+  string subject_id = 3;
+  // A non-empty proper subset of its aliases.
+  repeated string aliases = 4;
+}
+
+// DistinctFromSet asserts distinct_from between two subjects on all valid
+// time.
+message DistinctFromSet {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // Exactly two subjects of one kind.
+  repeated string subject_ids = 3;
+}
+
+// DistinctFromCleared withdraws distinct_from between two subjects on all
+// valid time.
+message DistinctFromCleared {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // Exactly two subjects.
+  repeated string subject_ids = 3;
+}
+
+// ClaimWithdrawn withdraws one source's claims on one fact.
+message ClaimWithdrawn {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // The source whose claims are withdrawn.
+  string source = 3;
+  // The fact's subject.
+  string subject_id = 4;
+  // The fact's predicate.
+  string predicate = 5;
+  // The fact's object.
+  bearing.model.v1alpha1.FactObject object = 6;
+}
+
+// OverrideSet is a manual snapshot of (subject, predicate) that decides
+// status.
+message OverrideSet {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // The subject.
+  string subject_id = 3;
+  // The predicate.
+  string predicate = 4;
+  // The objects that are asserted; every other object is overridden.
+  repeated bearing.model.v1alpha1.FactObject objects = 5;
+  // Absent: unbounded.
+  google.protobuf.Timestamp valid_from = 6;
+  // Absent: open.
+  google.protobuf.Timestamp valid_to = 7;
+}
+
+// OverrideCleared ends an override at the event's observed_at.
+message OverrideCleared {
+  // Who asked.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // The subject.
+  string subject_id = 3;
+  // The predicate.
+  string predicate = 4;
+}
+
+// ValidTimeBoundaryReached says valid time passed a known boundary of
+// (subject, predicate); applying it recomputes conflicts and derived claims.
+message ValidTimeBoundaryReached {
+  // The subject.
+  string subject_id = 1;
+  // The predicate.
+  string predicate = 2;
+  // The boundary: a valid_from or valid_to.
+  google.protobuf.Timestamp at = 3;
+}
+
+// SubjectDeletionDerived treats a subject missing from two consecutive
+// complete syncs as entity.deleted at the first missing sync's t0.
+message SubjectDeletionDerived {
+  // The source whose syncs missed it.
+  string source = 1;
+  // The subject.
+  string subject_id = 2;
+  // The first missing sync's ID (its SyncRequested event ID).
+  string sync_id = 3;
+  // That sync's t0.
+  google.protobuf.Timestamp at = 4;
+}
+
+// ConflictOpened reports a conflict that stands.
+message ConflictOpened {
+  // The conflict.
+  bearing.model.v1alpha1.Conflict conflict = 1;
+}
+
+// ConflictResolved reports a standing conflict that closed, with its
+// resolution.
+message ConflictResolved {
+  // The conflict, with resolution set.
+  bearing.model.v1alpha1.Conflict conflict = 1;
+}
+
+// OverrideStale flags an override whose non-manual supports changed after
+// it was recorded.
+message OverrideStale {
+  // The subject.
+  string subject_id = 1;
+  // The predicate.
+  string predicate = 2;
+  // When the override was recorded.
+  google.protobuf.Timestamp override_recorded_at = 3;
+}

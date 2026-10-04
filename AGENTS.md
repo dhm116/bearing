@@ -24,7 +24,9 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 
 | Command | What it does |
 | --- | --- |
-| `make check` | Exactly what CI runs: `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `vuln`, `build` |
+| `make check` | Exactly what CI runs: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `vuln`, `build` |
+| `make generate` | After editing `proto/`: `buf format`, `buf lint`, then `buf generate` into `gen/go` and `gen/jsonschema` (buf and plugins pinned in `tools/go.mod`). Commit the output |
+| `make generate-check` | Fails if `proto/` isn't formatted or doesn't lint, or if `gen/` differs from what `buf generate` writes. `buf breaking` turns on when the MVP closes |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
 | `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
@@ -36,7 +38,7 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 | `make test-embedded SURREALDB_LIB=<dir>` | Same suites against embedded SurrealDB (CGO, needs `libsurrealdb_c.a`) |
 
 Run `make check` before every commit. A single package:
-`go test ./pkg/model/ -run TestSchema`.
+`go test ./pkg/model/ -run TestInvalidObservations`.
 
 SurrealDB tests skip unless `BEARING_TEST_SURREALDB` is set or the binary is
 built with `-tags surrealembed`, so a green `make test` does not prove the
@@ -55,9 +57,11 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `docs/adr/` | Architecture decision records, numbered. [`template.md`](docs/adr/template.md) for new ones. |
 | `docs/telemetry.md` | Catalog of spans, metrics and telemetry config. Keep it current. |
 | `docs/security/threat-model.md` | Trust boundaries, threats and controls (`C-<AREA>-<n>` IDs). Update it when adding an input, a boundary or an `insecure_*` setting. |
-| `schema/observation.v1.schema.json` | JSON Schema for observations; must list every kind and relation in `pkg/model` (a test checks). |
-| `testdata/observations.ndjson` | Example observations; decoded and validated by tests. |
-| `pkg/model` | Entity kinds, relation types, keys, the observation envelope and its validation. |
+| `proto/bearing/{model,event}/v1alpha1` | Protobuf: the only source of truth for the data model, declarations and events ([ADR 6](docs/adr/0006-protobuf-contracts.md)). Linted and formatted by buf (`buf.yaml`). `v1alpha1` until the MVP closes. |
+| `gen/go`, `gen/jsonschema` | Generated from `proto/` by `make generate` (`buf.gen.yaml`) and committed; never edit by hand. CI checks they are current. |
+| `testdata/observations/` | Example observations in ProtoJSON: `valid/` must validate, each file in `invalid/` must fail for the one reason `pkg/model`'s test table names. |
+| `testdata/declarations/` | The spec's reference adapter declarations; tests validate them. |
+| `pkg/model` | Helpers around the generated types: the kind and predicate registry, keys, ProtoJSON encoding, validation at the edges (`ValidateObservation`, `ValidateDeclaration`, `ValidateManualEvent`), `FactID` and `ContentHash`. |
 | `pkg/adapter` | Adapter protocol: `Adapter` interface, `ServeStdio` for adapter authors, client for the core. |
 | `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventBus`, `Judge`, …). |
 | `pkg/contracts/conformance` | Test suites every backend must pass. |
@@ -69,10 +73,10 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
-| `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync`, `validate`. |
+| `cmd/bearing` | Developer CLI: `adapter describe`, and `adapter sync`, which validates every observation and prints them as ProtoJSON NDJSON. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
 | `spikes/` | Spike code, each in its own Go module(s) so the root module stays untouched; results in `docs/spikes/`. |
-| `tools/` | Separate Go module: pinned golangci-lint and govulncheck, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
+| `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
 
 The Go module path is the placeholder `bearing.example`. Import packages as
 `bearing.example/pkg/...`; don't rename the module unless asked.
@@ -237,10 +241,11 @@ what it doesn't catch.
 ## Changing the design
 
 - **Data model** (kinds, relations, observation fields): update
-  `docs/spec/data-model.md`, `pkg/model/model.go`,
-  `schema/observation.v1.schema.json` and, if useful,
-  `testdata/observations.ndjson` together. Adding is compatible; removing or
-  changing meaning needs `v2` (see `docs/spec/README.md`).
+  `docs/spec/data-model.md`, `proto/bearing/model` (then `make generate`),
+  the registry and validation in `pkg/model` and, if useful,
+  `testdata/observations/` together. Never hand-write a schema or codec;
+  everything is generated from `proto/`. Adding is compatible; removing or
+  changing meaning needs a new package version (see `docs/spec/README.md`).
 - **Adapter protocol:** update `docs/spec/adapter-protocol.md` and
   `pkg/adapter` together; bump `adapter.ProtocolVersion` (reported in
   `bearing.describe`) for breaking changes.

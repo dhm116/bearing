@@ -7,6 +7,9 @@ is. The Makefile builds them into `bin/tools/`.
 | --- | --- | --- |
 | [golangci-lint](https://github.com/golangci/golangci-lint) | v2.14.0 | GPL-3.0 |
 | [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) | v1.8.0 | BSD-3-Clause |
+| [buf](https://github.com/bufbuild/buf) | v1.73.0 | Apache-2.0 |
+| [protoc-gen-go](https://pkg.go.dev/google.golang.org/protobuf/cmd/protoc-gen-go) | v1.36.12 (matches the root module's runtime) | BSD-3-Clause |
+| [protoc-gen-jsonschema](https://github.com/bufbuild/protoschema-plugins) | v0.6.0 | Apache-2.0 |
 | `covergate` (this directory) | | Apache-2.0, standard library only |
 
 These are development and CI tools only. Bearing code never imports them,

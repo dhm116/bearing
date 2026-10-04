@@ -1,10 +1,14 @@
-.PHONY: all build test test-surrealdb test-embedded fmt lint vet cover covergate vuln tools-test check clean
+.PHONY: all build test test-surrealdb test-embedded fmt lint vet cover covergate vuln tools-test generate generate-check check clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
 GOLANGCI_LINT := $(TOOLS)/golangci-lint
 GOVULNCHECK := $(TOOLS)/govulncheck
 COVERGATE := $(TOOLS)/covergate
+BUF := $(TOOLS)/buf
+PROTOC_GEN_GO := $(TOOLS)/protoc-gen-go
+PROTOC_GEN_JSONSCHEMA := $(TOOLS)/protoc-gen-jsonschema
+PROTO_TOOLS := $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_JSONSCHEMA)
 
 # The coverage gate compares against the merge base with COVER_BASE. On a
 # GitHub pull request that is the PR's base branch.
@@ -19,7 +23,7 @@ all: fmt test build
 
 # check is exactly what CI runs. vuln goes last because it needs the
 # network (vuln.go.dev).
-check: lint vet tools-test cover covergate build vuln
+check: generate-check lint vet tools-test cover covergate build vuln
 
 build:
 	go build -o bin/ ./cmd/...
@@ -60,6 +64,23 @@ tools-test:
 	go -C tools vet ./...
 	go -C tools test ./...
 
+# generate formats and lints proto/ and regenerates gen/go and
+# gen/jsonschema (see buf.gen.yaml). Commit the result.
+generate: $(PROTO_TOOLS)
+	$(BUF) format -w
+	$(BUF) lint
+	$(BUF) generate
+
+# generate-check fails if proto/ isn't formatted or doesn't lint, or if gen/
+# differs from what buf generate writes.
+generate-check: $(PROTO_TOOLS)
+	$(BUF) format --diff --exit-code
+	$(BUF) lint
+	$(BUF) generate
+	@git diff --exit-code -- gen || { echo 'gen/ is stale: run make generate and commit the result'; exit 1; }
+	@test -z "$$(git status --porcelain --untracked-files=all -- gen)" || \
+		{ git status --porcelain --untracked-files=all -- gen; echo 'gen/ has uncommitted files: run make generate and commit the result'; exit 1; }
+
 cover:
 	$(COVER_TEST)=cover.out ./...
 
@@ -74,6 +95,15 @@ $(GOLANGCI_LINT): tools/go.mod tools/go.sum
 
 $(GOVULNCHECK): tools/go.mod tools/go.sum
 	go -C tools build -o ../$(TOOLS)/ golang.org/x/vuln/cmd/govulncheck
+
+$(BUF): tools/go.mod tools/go.sum
+	go -C tools build -o ../$(TOOLS)/ github.com/bufbuild/buf/cmd/buf
+
+$(PROTOC_GEN_GO): tools/go.mod tools/go.sum
+	go -C tools build -o ../$(TOOLS)/ google.golang.org/protobuf/cmd/protoc-gen-go
+
+$(PROTOC_GEN_JSONSCHEMA): tools/go.mod tools/go.sum
+	go -C tools build -o ../$(TOOLS)/ github.com/bufbuild/protoschema-plugins/cmd/protoc-gen-jsonschema
 
 $(COVERGATE): tools/go.mod $(wildcard tools/covergate/*.go)
 	go -C tools build -o ../$(TOOLS)/ ./covergate

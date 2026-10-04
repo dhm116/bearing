@@ -34,5 +34,5 @@ alone.
   observation type `dev.bearing.observation.v1` despite a few listed
   incompatibilities (see the data model's "Compatibility"), which pre-1.0
   allows; the Protobuf model (issue #11) follows this document.
-- The adapter protocol has its own version (`0.1`), reported by adapters in
+- The adapter protocol has its own version (`0.2`), reported by adapters in
   `bearing.describe`. Until `1.0`, minor versions may break compatibility.
