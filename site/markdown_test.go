@@ -134,6 +134,26 @@ func TestRenderMarkdownWrapsTablesAndEscapesHTML(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownHighlightsNamedLanguagesOnly(t *testing.T) {
+	src := []byte("# T\n\n```json\n{\"a\": \"<b>\"}\n```\n\n```\nplain <b>\n```\n\n```\" onclick=x\nbad\n```\n")
+	r, err := RenderMarkdown("x.md", src, &fakeResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<pre><code class="language-json"><span class="p">{</span><span class="nt">&#34;a&#34;</span>`,
+		`<span class="s2">&#34;&lt;b&gt;&#34;</span>`,
+		"<pre><code>plain &lt;b&gt;\n</code></pre>",
+	} {
+		if !strings.Contains(r.HTML, want) {
+			t.Errorf("got %s, want it to contain %s", r.HTML, want)
+		}
+	}
+	if strings.Contains(r.HTML, "onclick") {
+		t.Errorf("got %s, want an odd info string kept out of the markup", r.HTML)
+	}
+}
+
 func TestClipCutsAtAWord(t *testing.T) {
 	got := clip("one two three four", 10)
 	if got != "one two…" {

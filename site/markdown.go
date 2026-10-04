@@ -9,11 +9,35 @@ import (
 	"strings"
 	"unicode"
 
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/yuin/goldmark"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
+
+// highlight colors fenced code blocks that name a language when the site is
+// built. Tokens get chroma's short class names, which site.css colors from
+// the brand tokens so code follows light and dark mode. Blocks without a
+// language stay plain.
+var highlight = highlighting.NewHighlighting(
+	highlighting.WithFormatOptions(chromahtml.WithClasses(true), chromahtml.PreventSurroundingPre(true)),
+	highlighting.WithWrapperRenderer(func(w util.BufWriter, c highlighting.CodeBlockContext, entering bool) {
+		if !entering {
+			_, _ = w.WriteString("</code></pre>\n")
+			return
+		}
+		_, _ = w.WriteString("<pre><code")
+		if lang, ok := c.Language(); ok && langRE.Match(lang) {
+			_, _ = w.WriteString(` class="language-` + string(lang) + `"`)
+		}
+		_ = w.WriteByte('>')
+	}),
+)
+
+var langRE = regexp.MustCompile(`^[a-z0-9+-]+$`)
 
 // Heading is an entry in a page's table of contents.
 type Heading struct {
@@ -47,7 +71,7 @@ type Resolver interface {
 // heading IDs, removes the first H1 (the page template shows the title)
 // and rewrites relative links through res.
 func RenderMarkdown(file string, src []byte, res Resolver) (*Rendered, error) {
-	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
+	md := goldmark.New(goldmark.WithExtensions(extension.GFM, highlight))
 	doc := md.Parser().Parse(text.NewReader(src))
 
 	out := &Rendered{IDs: map[string]bool{}}

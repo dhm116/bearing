@@ -110,7 +110,7 @@ titles) and, if it belongs in the top bar, a `nav` entry.
 | `config.go` | Loads `site.yaml` |
 | `roadmap.go` | Loads `roadmap.yaml` and derives feature statuses |
 | `github.go` | Reads milestones and issues from the REST API |
-| `markdown.go` | Renders Markdown (GitHub-flavored, raw HTML off) with GitHub-style heading IDs |
+| `markdown.go` | Renders Markdown (GitHub-flavored, raw HTML off) with GitHub-style heading IDs, and highlights code blocks that name a language |
 | `build.go` | Lays out pages, rewrites and checks links, writes `search.json` |
 | `templates/` | `base.html` wraps every page; `_*.html` are partials |
 | `static/` | CSS, the search and table-of-contents script, and self-hosted fonts |

@@ -665,6 +665,18 @@ pre:has(> .language-yaml)::before { content: "yaml"; }
 pre:has(> .language-go)::before { content: "go"; }
 pre:has(> .language-proto)::before { content: "protobuf"; }
 
+/* Syntax highlighting. Classes are chroma's short token names, added when
+ * the site is built; colors come from the brand tokens so code follows
+ * light and dark mode. Anything unlisted stays ink. */
+pre :is(.nt, .na, .py, .nv, .nl) { color: var(--accent); }
+pre :is(.s, .s1, .s2, .sb, .sc, .sd, .se, .sh, .si, .sx, .dl) { color: var(--good); }
+pre :is(.m, .mi, .mf, .mh, .mo, .il, .kc, .no) { color: var(--warn); }
+pre :is(.k, .kd, .kn, .kr, .kt, .kp, .ow, .nb, .bp) { color: var(--accent); font-weight: 500; }
+pre :is(.nf, .fm, .nc, .nn) { color: var(--ink); font-weight: 500; }
+pre :is(.c, .c1, .cm, .cp, .cs, .ch, .gp) { color: var(--muted); font-style: italic; }
+pre :is(.p, .o) { color: var(--soft); }
+pre .err { color: inherit; background: none; }
+
 .table-scroll { overflow-x: auto; border: var(--rule); border-radius: var(--radius-md); background: var(--surface); }
 .prose table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); line-height: 1.5; }
 .prose th, .prose td { text-align: left; vertical-align: top; padding: 0.6rem var(--space-md); border-bottom: var(--rule); }
