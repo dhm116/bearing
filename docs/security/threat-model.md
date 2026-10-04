@@ -694,7 +694,8 @@ control. The default binary is CGO-free and contains no BSL-licensed code
 the MVP.
 
 Assets: source repository, CI, release binaries, container images, embedded
-first-party adapters, the local embedding model.
+first-party adapters, the local embedding model, the project website
+(GitHub Pages, built from `site/`).
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
@@ -704,6 +705,7 @@ first-party adapters, the local embedding model.
 | T-SUPPLY-4 | S, T | Users download a tampered binary or image | C-SUPPLY-4 |
 | T-SUPPLY-5 | T | An image tag or model file is replaced upstream | C-SUPPLY-5 |
 | T-SUPPLY-6 | T | A first-party adapter module differs from its source | C-SUPPLY-6 |
+| T-SUPPLY-7 | T, I | Script injected into the project website, or build secrets published on it, through repository files or GitHub issue and milestone text | C-SUPPLY-2, C-SUPPLY-7 |
 
 - **C-SUPPLY-1** Few dependencies (ADR 1): each new one is justified in its
   commit, significant ones need an ADR. CI runs `govulncheck` and builds
@@ -714,7 +716,19 @@ first-party adapters, the local embedding model.
   third-party actions by commit SHA, and never run fork code with secrets
   (no `pull_request_target` checkout of PR code). `id-token: write` and
   release secrets exist only in the release job, run from a protected tag
-  and environment. Pull requests never run on self-hosted runners.
+  and environment. The one exception is the Pages deploy job, which holds
+  `id-token: write` and `pages: write` and nothing else, runs only on
+  `main`, and deploys through the `github-pages` environment, whose
+  deployment branches are limited to `main`. Pull requests never run on
+  self-hosted runners.
+- **C-SUPPLY-7** The website generator renders Markdown with raw HTML
+  disabled and puts GitHub API text (issue and milestone titles, states,
+  URLs) only through `html/template` auto-escaping, never into
+  `template.HTML` or the search index. It reads repository files through
+  `os.Root`, so a committed symlink can't pull files from outside the
+  repository into the site, and writes only inside its output directory.
+  The build job's token is read-only. The daily rebuild republishes issue
+  text without review, which this escaping makes safe to do.
 - **C-SUPPLY-3** `main` is protected: changes go through reviewed pull
   requests with passing CI.
 - **C-SUPPLY-4** Releases are built in CI from a tag with `-trimpath`, and

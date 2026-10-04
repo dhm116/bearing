@@ -1,0 +1,269 @@
+{{define "main"}}
+{{/* Home: a problem-first story for readers new to the field. Today's hunt
+     for an answer, then the same question with Bearing, then why the answer
+     can be trusted. Present tense throughout: the site describes the
+     finished product; the roadmap says what works today. */}}
+<section class="hero shell">
+  <h1 class="hero__title">Who owns this? Who can help? What changed?</h1>
+  <div class="hero__aside">
+    <p class="lede">In every engineering team, the answers to these everyday questions are scattered across a dozen tools and a few people's memories. Bearing gathers them in one place, keeps them current on its own, and shows where every answer came from.</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="{{url "how-it-works/"}}">See how it works</a>
+      <a class="btn" href="{{url "roadmap/"}}">What works today</a>
+    </div>
+    <p class="fine">Free and open source</p>
+  </div>
+</section>
+
+<section class="hunt shell" aria-labelledby="hunt-title">
+  <div class="hunt__head">
+    <h2 id="hunt-title">One question, two ways</h2>
+    <p>The checkout page is slow, and you need whoever looks after the payments service. Here is how that tends to go, and how it goes with Bearing.</p>
+  </div>
+
+  <div class="tabs" role="presentation">
+    <input class="tabs__radio" type="radio" name="hunt" id="hunt-today" checked>
+    <input class="tabs__radio" type="radio" name="hunt" id="hunt-bearing">
+    <div class="tabs__bar">
+      <label for="hunt-today">Today</label>
+      <label for="hunt-bearing">With Bearing</label>
+    </div>
+
+    <div class="tabs__panel tabs__panel--1">
+      <ol class="trail">
+        <li class="hop hop--partial" style="--i: 0">
+          <span class="hop__time">0 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-code"/></svg>Code repository</span>
+          <p class="hop__found">A file says changes need approval from <strong>@payments-team</strong>. Six people. Which one?</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-question"/></svg>Partial</span>
+        </li>
+        <li class="hop hop--dead" style="--i: 1">
+          <span class="hop__time">6 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-book"/></svg>Team wiki</span>
+          <p class="hop__found">The service page says <strong>Sam</strong> owns it. Last edited two years ago.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-x"/></svg>Out of date</span>
+        </li>
+        <li class="hop hop--dead" style="--i: 2">
+          <span class="hop__time">11 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-people"/></svg>Company directory</span>
+          <p class="hop__found">Sam moved to another team last spring.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-x"/></svg>Dead end</span>
+        </li>
+        <li class="hop hop--wait" style="--i: 3">
+          <span class="hop__time">15 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-chat"/></svg>Team chat</span>
+          <p class="hop__found">“Does anyone know who looks after payments?” No reply yet.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-wait"/></svg>Waiting</span>
+        </li>
+        <li class="hop hop--partial" style="--i: 4">
+          <span class="hop__time">34 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-person"/></svg>A colleague</span>
+          <p class="hop__found">“Maybe Priya? Check who's on call.”</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-question"/></svg>A hunch</span>
+        </li>
+        <li class="hop hop--found" style="--i: 5">
+          <span class="hop__time">40 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-calendar"/></svg>On-call schedule</span>
+          <p class="hop__found"><strong>Priya</strong> is on call today. Found her.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-check"/></svg>Found</span>
+        </li>
+      </ol>
+      <p class="tabs__moral" style="--i: 6">Six places, two dead ends and most of an hour. Next month, someone else repeats the same hunt.</p>
+    </div>
+
+    <div class="tabs__panel tabs__panel--2">
+      <div class="ask">
+        <p class="ask__q"><svg class="icon"><use href="#i-chat"/></svg><span>Who looks after the payments service, and who can help right now?</span></p>
+        <ul class="ask__sources" aria-label="Tools Bearing checked">
+          <li style="--i: 0"><svg class="icon"><use href="#i-code"/></svg>Code repository</li>
+          <li style="--i: 1"><svg class="icon"><use href="#i-people"/></svg>Company directory</li>
+          <li style="--i: 2"><svg class="icon"><use href="#i-calendar"/></svg>On-call schedule</li>
+          <li style="--i: 3"><svg class="icon"><use href="#i-book"/></svg>Old service catalog</li>
+        </ul>
+        <div class="ask__a">
+          <img class="ask__mark" src="{{static "brand/bearing-mark.svg"}}" alt="" width="32" height="32">
+          <ul class="answer">
+            <li style="--i: 0"><p>The <strong>Payments team</strong> owns it.</p><span class="src">Code repository · Company directory</span></li>
+            <li style="--i: 1"><p><strong>Priya Nair</strong> is on call until 5 pm.</p><span class="src">On-call schedule</span></li>
+            <li style="--i: 2"><p>Last changed 3 hours ago, by Priya.</p><span class="src">Code repository</span></li>
+            <li class="answer__warn" style="--i: 3"><p>The old service catalog still names Sam, who has moved teams. It may need fixing.</p><span class="src">Sources disagree</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="tabs__moral" style="--i: 5">One question, one answer in seconds, and you can see where each part came from.</p>
+    </div>
+  </div>
+  <p class="fine hunt__note">An illustrative example. The people and services are invented.</p>
+</section>
+
+<section class="asks shell" aria-labelledby="asks-title">
+  <div class="asks__head">
+    <h2 id="asks-title">Questions people ask every day</h2>
+    <p>Bearing is for anyone who works on or around software: developers, the person on call, new joiners, team leads, and the AI assistants that now write code alongside them.</p>
+  </div>
+  <ul class="asks__grid">
+    <li><svg class="icon"><use href="#i-person"/></svg><h3>Who owns this?</h3><p>Anyone about to change code they didn't write.</p></li>
+    <li><svg class="icon"><use href="#i-check"/></svg><h3>Who needs to approve my change?</h3><p>A developer opening a change for review.</p></li>
+    <li><svg class="icon"><use href="#i-history"/></svg><h3>What changed just before it broke?</h3><p>The engineer woken up by an alert.</p></li>
+    <li><svg class="icon"><use href="#i-people"/></svg><h3>Which team is this person on?</h3><p>A new joiner finding their way around.</p></li>
+    <li><svg class="icon"><use href="#i-layers"/></svg><h3>What does this team look after?</h3><p>A team lead planning work, or checking nothing is left without an owner.</p></li>
+    <li><svg class="icon"><use href="#i-spark"/></svg><h3>Who should my coding assistant ask?</h3><p>AI assistants get the same answers people do, so their changes reach the right reviewers.</p></li>
+  </ul>
+</section>
+
+<section class="map shell" aria-labelledby="map-title">
+  <div class="map__head">
+    <h2 id="map-title">Every answer shows its work</h2>
+    <p>Behind each answer is a map of how people, teams, code and changes connect. Each line on the map is one fact, and each fact records which tool reported it and how sure Bearing is. Pick one to see its evidence.</p>
+  </div>
+  <div class="map__body">
+    <figure class="map__figure">
+      <svg class="orgmap" viewBox="0 0 640 400" role="img" aria-labelledby="orgmap-t orgmap-d">
+        <title id="orgmap-t">An example of Bearing's map</title>
+        <desc id="orgmap-d">The payments-api code repository needs approval from the Payments team, and is owned by it. Priya Nair is a member of the Payments team. Change 1182 was made by Priya Nair.</desc>
+        <defs>
+          <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" class="orgmap__dot"/></pattern>
+        </defs>
+        <rect width="640" height="400" fill="url(#dots)"/>
+        <g class="orgmap__rose" aria-hidden="true">
+          <circle cx="318" cy="258" r="36"/>
+          <path d="M318 216v-8M318 300v8M276 258h-8M360 258h8"/>
+          <path class="orgmap__needle" d="M318 258 L341.1 230.4"/>
+          <circle cx="318" cy="258" r="3"/>
+        </g>
+
+        <g class="edge" data-fact="1">
+          <path d="M220 62 H410"/><path class="edge__head" d="M418 62 l-10 -5 v10 z"/>
+          <text x="317" y="52" text-anchor="middle" class="edge__label">needs approval from</text>
+          <text x="317" y="80" text-anchor="middle" class="edge__meta">GitHub · certain</text>
+        </g>
+        <g class="edge edge--derived" data-fact="2">
+          <path d="M210 106 C 270 168, 364 168, 424 106"/><path class="edge__head" d="M429 101 l-3.5 10.6 -6.6 -7.4 z"/>
+          <text x="317" y="166" text-anchor="middle" class="edge__label">owned by</text>
+          <text x="317" y="180" text-anchor="middle" class="edge__meta">worked out · very likely</text>
+        </g>
+        <g class="edge" data-fact="3">
+          <path d="M560 290 V114"/><path class="edge__head" d="M560 106 l-5 10 h10 z"/>
+          <text x="548" y="196" text-anchor="end" class="edge__label">member of</text>
+          <text x="548" y="210" text-anchor="end" class="edge__meta">directory · certain</text>
+        </g>
+        <g class="edge" data-fact="4">
+          <path d="M220 340 H410"/><path class="edge__head" d="M418 340 l-10 -5 v10 z"/>
+          <text x="317" y="330" text-anchor="middle" class="edge__label">made by</text>
+          <text x="317" y="358" text-anchor="middle" class="edge__meta">GitHub · certain</text>
+        </g>
+
+        <g transform="translate(24 40)"><g class="node node--1" data-in="1 2">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Code repository</text>
+          <text x="16" y="44" class="node__name">payments-api</text>
+          <text x="16" y="58" class="node__alias">on GitHub</text>
+        </g></g>
+        <g transform="translate(420 40)"><g class="node node--2" data-in="1 2 3">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Team</text>
+          <text x="16" y="44" class="node__name">Payments</text>
+          <text x="16" y="58" class="node__alias">on GitHub and in the directory</text>
+        </g></g>
+        <g transform="translate(420 290)"><g class="node node--3" data-in="3 4">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Person</text>
+          <text x="16" y="44" class="node__name">Priya Nair</text>
+          <text x="16" y="58" class="node__alias">2 accounts, 1 person</text>
+        </g></g>
+        <g transform="translate(24 307)"><g class="node node--4" data-in="4">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Change</text>
+          <text x="16" y="44" class="node__name">#1182</text>
+          <text x="16" y="58" class="node__alias">to payments-api, Oct 2</text>
+        </g></g>
+      </svg>
+      <figcaption>An invented example. Each box is something in your tools; each arrow is a fact connecting two of them.</figcaption>
+    </figure>
+
+    <fieldset class="facts">
+      <legend>Facts on this map</legend>
+      <label class="fact"><input type="radio" name="fact" id="fact-1" checked>
+        <span class="fact__triple">payments-api <em>needs approval from</em> the Payments team</span><span class="fact__conf">certain</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-2">
+        <span class="fact__triple">payments-api <em>is owned by</em> the Payments team</span><span class="fact__conf">very likely</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-3">
+        <span class="fact__triple">Priya Nair <em>is a member of</em> the Payments team</span><span class="fact__conf">certain</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-4">
+        <span class="fact__triple">Change #1182 <em>was made by</em> Priya Nair</span><span class="fact__conf">certain</span></label>
+
+      <div class="evidence" data-fact="1">
+        <dl>
+          <dt>Source</dt><dd>GitHub</dd>
+          <dt>Evidence</dt><dd>The repository's CODEOWNERS file, which lists who must approve changes, names the Payments team for every file.</dd>
+          <dt>Since</dt><dd>28 September</dd>
+        </dl>
+        <p>Needing someone's approval isn't quite the same as owning the code, so Bearing records exactly what the file says.</p>
+      </div>
+      <div class="evidence" data-fact="2">
+        <dl>
+          <dt>Source</dt><dd>Worked out by Bearing</dd>
+          <dt>Evidence</dt><dd>One team approves every change to the whole repository, so it very likely owns it.</dd>
+          <dt>How sure</dt><dd>95%, enough to give as an answer</dd>
+        </dl>
+        <p>If the file split the code between several teams, Bearing would be less sure and would wait for another tool to agree.</p>
+      </div>
+      <div class="evidence" data-fact="3">
+        <dl>
+          <dt>Source</dt><dd>The company directory</dd>
+          <dt>Evidence</dt><dd>Priya is in the directory's Payments group.</dd>
+          <dt>Since</dt><dd>2 March</dd>
+        </dl>
+        <p>Priya has a GitHub account and a directory account. Bearing recognized them as the same person, and can undo that if it ever gets it wrong.</p>
+      </div>
+      <div class="evidence" data-fact="4">
+        <dl>
+          <dt>Source</dt><dd>GitHub, the moment the change went in</dd>
+          <dt>Evidence</dt><dd>Change #1182 to payments-api, accepted on 2 October.</dd>
+        </dl>
+        <p>Tools tell Bearing about changes as they happen, and Bearing also re-reads them regularly, so nothing slips through.</p>
+      </div>
+    </fieldset>
+  </div>
+</section>
+
+<section class="tenets shell" aria-labelledby="tenets-title">
+  <h2 id="tenets-title">What makes it different</h2>
+  <ul class="tenets__list">
+    <li><svg class="icon"><use href="#i-plug"/></svg><h3>Works with what you have</h3><p>Bearing reads the tools you already use. Nobody has to fill in a new catalog or remember to keep it up to date.</p></li>
+    <li><svg class="icon"><use href="#i-eye"/></svg><h3>Shows its sources</h3><p>Every answer says where it came from and when, so you can check it instead of taking it on trust.</p></li>
+    <li><svg class="icon"><use href="#i-split"/></svg><h3>Admits when tools disagree</h3><p>If the code and the wiki name different owners, you see both, and can fix the one that's wrong.</p></li>
+    <li><svg class="icon"><use href="#i-layers"/></svg><h3>Open, and yours to shape</h3><p>Free and open source, and every part can be swapped for one that suits your organization.</p></li>
+  </ul>
+</section>
+
+<section class="status shell" aria-labelledby="status-title">
+  <div class="status__head">
+    <h2 id="status-title">Where things stand</h2>
+    <p>Bearing is young and built in the open. The roadmap shows what works today and what is coming.</p>
+  </div>
+  {{with .Roadmap}}
+  <ul class="status__counts">
+    {{range .Groups}}
+    <li><a class="status__tile status__tile--{{.Status}}" href="{{url "roadmap/"}}#{{.Status}}">
+      <strong>{{len .Features}}</strong><span><span class="dot dot--{{.Status}}"></span>{{statusLabel .Status}}</span>
+    </a></li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+
+{{with collection "spec"}}
+<section class="builders shell" aria-labelledby="builders-title">
+  <div class="builders__head">
+    <h2 id="builders-title">For builders</h2>
+    <p>The specification describes, in technical detail, how Bearing records facts, how connectors talk to it and how its parts fit together.</p>
+  </div>
+  <ul class="builders__list">
+    {{range .Pages}}
+    <li><a href="{{url .Path}}"><span class="builders__t">{{.Title}}</span><span class="builders__s">{{clip .Summary 110}}</span></a></li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+{{end}}

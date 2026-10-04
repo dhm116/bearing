@@ -173,6 +173,15 @@ linters:
       - path: ^tools/
         linters: [gosec]
         text: G(204|304)
+      # The site generator (its own module, run by the Pages workflow) is a
+      # developer command too: it logs to stderr, runs git and reads
+      # repository files.
+      - path: ^site/
+        linters: [forbidigo]
+        text: os\.Stderr
+      - path: ^site/
+        linters: [gosec]
+        text: G(204|304)
       # The stdio protocol server speaks on stdout.
       - path: ^pkg/adapter/server\.go$
         linters: [forbidigo]

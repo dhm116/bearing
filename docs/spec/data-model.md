@@ -91,7 +91,7 @@ Guarantees:
   Every apply therefore has a unique, strictly increasing `recorded_at`.
 - Because every apply writes the clock record, applies are serialized.
   This is the only isolation model in this version. It is far above MVP
-  volume; an M3 load benchmark against SurrealDB checks the ceiling
+  volume; a load benchmark against SurrealDB checks the ceiling
   ([issue #27](https://github.com/dhm116/bearing/issues/27)). It can later
   be relaxed to per-partition hybrid logical clocks, with an as-recorded
   watermark below which every partition's applies are complete, so
@@ -1340,14 +1340,14 @@ ownership would end.
 
 ## Open questions
 
-None. Doug decided the last one on 2026-10-03: enum values use their
+None. The last one was settled on 2026-10-03: enum values use their
 ProtoJSON names on the wire and in configuration (no hand-written codecs,
 ADR 6); short forms appear in prose, in `fact_id` and in the CLI's output
 for people.
 
 ## Follow-ups
 
-To do once this is approved, in the M1 implementation. The scaffold
+To do once this is approved, in the first implementation. The scaffold
 artifacts are replaced, not migrated:
 
 - `proto/bearing/model/`: the data model, events and declarations as
@@ -1390,7 +1390,7 @@ artifacts are replaced, not migrated:
   descriptor in `Describe` with `config_schema`.
 - `docs/telemetry.md`: spans and metrics for apply, matching, merges,
   conflicts and compaction.
-- Issue #27: the M3 apply-clock load benchmark against SurrealDB.
+- Issue #27: the apply-clock load benchmark against SurrealDB.
 - `AGENTS.md`, `README.md` and the `new-adapter` skill: declarations, keys,
   aliases, snapshots and the "send `null` for empty" rule in the adapter
   checklist.

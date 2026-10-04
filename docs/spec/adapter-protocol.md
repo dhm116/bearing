@@ -4,11 +4,10 @@ Protocol version 0.2 (draft).
 
 > **Transport retired.** [ADR 9](../adr/0009-wasm-adapters.md) A13 retires
 > the JSON-RPC stdio transport described below. The adapter protocol moves
-> to the Protobuf adapter service: WASM modules by default from
-> [M4](https://github.com/dhm116/bearing/milestone/5), and local processes
-> serving the service over Connect/gRPC on a Unix socket for adapters that
-> can't run as WASM. This document describes the current scaffold until it
-> is rewritten for that service in M4.
+> to the Protobuf adapter service: WASM modules by default, and local
+> processes serving the service over Connect/gRPC on a Unix socket for
+> adapters that can't run as WASM. This document describes the current
+> scaffold until it is rewritten for that service.
 
 An adapter is a separate program that reads one external system and reports
 what it sees as [observations](data-model.md#observations). Adapters can be
@@ -154,7 +153,7 @@ Result:
   verifies every delivery before it is logged; ingest stays off until that
   verifier ships with the first ingest transport, and until then this
   check is the only one. This spec changes when the host verifier ships,
-  or in [M4](https://github.com/dhm116/bearing/milestone/5) at the latest.)
+  or with the move to WASM adapters at the latest.)
 - Events the adapter doesn't understand return an empty list, not an error.
 - Adapters without webhook support return error `-32001`.
 

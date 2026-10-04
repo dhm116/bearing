@@ -1,0 +1,38 @@
+{{define "main"}}
+{{with .Roadmap}}
+<header class="pagehead shell">
+  <h1>Roadmap</h1>
+  <div class="pagehead__aside">
+    <p class="lede">Everything Bearing is meant to do, and where each part stands. Statuses update on their own as the work lands.</p>
+    <p class="tally">
+      {{range .Groups}}<a href="#{{.Status}}"><span class="dot dot--{{.Status}}"></span><strong>{{len .Features}}</strong> {{lower (statusLabel .Status)}}</a>{{end}}
+    </p>
+  </div>
+</header>
+
+{{if not .Live}}
+<p class="notice shell" role="status">GitHub couldn't be read when this page was built, so some statuses may be out of date.</p>
+{{end}}
+
+<div class="board shell">
+  {{range .Groups}}
+  <section class="board__col board__col--{{.Status}}" id="{{.Status}}" aria-labelledby="{{.Status}}-t">
+    <h2 class="board__head" id="{{.Status}}-t"><span class="dot dot--{{.Status}}"></span>{{statusLabel .Status}} <span class="board__n">{{len .Features}}</span></h2>
+    <p class="board__sum">{{if eq .Status "available"}}Works today.{{else if eq .Status "in-progress"}}Being built now.{{else}}Coming after that.{{end}}</p>
+    <ul class="board__list">
+      {{range .Features}}
+      <li class="card" id="{{.Slug}}">
+        <span class="card__area">{{.Area.Name}}</span>
+        <h3 class="card__name">{{.Name}}</h3>
+        <p class="card__sum">{{.Summary}}</p>
+        {{with .Links}}<p class="card__links">{{range .}}<a class="link-arrow" href="{{url .Href}}">{{.Label}}</a>{{end}}</p>{{end}}
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  {{end}}
+</div>
+
+<p class="source-note shell">Have an idea or want to help? <a href="{{repoURL}}">Bearing is on GitHub</a>, and the roadmap lives in <a href="{{github "blob" "site/roadmap.yaml"}}"><code>site/roadmap.yaml</code></a>.</p>
+{{end}}
+{{end}}

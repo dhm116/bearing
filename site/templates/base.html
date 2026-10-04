@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{if eq .Path ""}}{{.Site.Title}} · {{.Site.Tagline}}{{else}}{{.Title}} · {{.Site.Title}}{{end}}</title>
+<meta name="description" content="{{.Description}}">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F5F7F6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#11191C" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<link rel="icon" href="{{static "brand/bearing-mark.svg"}}" type="image/svg+xml">
+<link rel="preload" href="{{static "fonts/ibm-plex-sans.woff2"}}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{static "fonts/bricolage-grotesque.woff2"}}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{static "css/tokens.css"}}">
+<link rel="stylesheet" href="{{static "css/site.css"}}">
+<script src="{{static "js/site.js"}}" defer></script>
+</head>
+<body data-base="{{.Base}}" data-search="{{.Base}}search.json">
+<a class="skip" href="#main">Skip to content</a>
+{{template "_icons.html"}}
+{{template "_nav.html" .}}
+<main id="main">
+{{template "main" .}}
+</main>
+{{template "_footer.html" .}}
+{{template "_search.html" .}}
+</body>
+</html>

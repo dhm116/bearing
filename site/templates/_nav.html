@@ -1,0 +1,27 @@
+{{/* Nav: N13 inline search pill. Links collapse into a menu below 60rem. */}}
+<header class="nav">
+  <div class="nav__inner shell">
+    <a class="brand" href="{{url ""}}" aria-label="Bearing home">
+      <img class="brand__mark" src="{{static "brand/bearing-mark.svg"}}" alt="" width="28" height="28">
+      <span class="wordmark">bear<span class="wordmark__i">i</span>ng</span>
+    </a>
+    <button class="searchpill" type="button" data-search-open aria-haspopup="dialog" aria-controls="search">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+      <span class="searchpill__text">Search the spec and roadmap</span>
+      <kbd class="searchpill__kbd" data-kbd>⌘K</kbd>
+    </button>
+    <nav class="nav__links" aria-label="Primary">
+      {{range .Site.Nav}}{{$here := or (eq $.Section .Href) (eq (printf "%s/" $.Section) .Href)}}
+      <a class="nav__link" href="{{url .Href}}"{{if $here}} aria-current="page"{{end}}>{{.Label}}</a>
+      {{end}}
+      <a class="nav__link nav__link--gh" href="{{repoURL}}">GitHub<span class="sr"> repository</span></a>
+    </nav>
+    <details class="nav__menu">
+      <summary>Menu</summary>
+      <nav aria-label="Primary (menu)">
+        {{range .Site.Nav}}<a href="{{url .Href}}">{{.Label}}</a>{{end}}
+        <a href="{{repoURL}}">GitHub</a>
+      </nav>
+    </details>
+  </div>
+</header>

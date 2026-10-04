@@ -1,0 +1,39 @@
+{{define "main"}}
+{{$doc := .Doc}}
+<div class="docs shell">
+  {{template "_docnav.html" .}}
+  <article class="docs__main">
+    <header class="dochead">
+      <p class="crumbs"><a href="{{url (printf "%s/" .Collection.Path)}}">{{.Collection.Title}}</a>{{if not $doc.Index}}<span aria-hidden="true">/</span><span>{{if $doc.Number}}ADR {{$doc.Number}}{{else}}{{$doc.Title}}{{end}}</span>{{end}}</p>
+      <h1{{with $doc.TitleID}} id="{{.}}"{{end}}>{{$doc.Label}}</h1>
+      <div class="dochead__meta">
+        {{if $doc.Version}}<span class="chip">Version {{$doc.Version}}</span>{{end}}
+        {{if $doc.Status}}<span class="chip chip--adr-{{$doc.Status}}">{{$doc.Status}}</span>{{end}}
+        {{if $doc.StatusNote}}<span class="dochead__note">{{$doc.StatusNote}}</span>{{end}}
+        {{if $doc.Date}}<time datetime="{{$doc.Date}}">{{$doc.Date}}</time>{{end}}
+        <a class="dochead__src" href="{{github "blob" $doc.Source}}">View on GitHub</a>
+        <a class="dochead__src" href="{{github "edit" $doc.Source}}">Suggest an edit</a>
+      </div>
+    </header>
+    {{if $doc.TOC}}
+    <details class="docs__toc-inline">
+      <summary>On this page</summary>
+      {{template "_toc.html" $doc}}
+    </details>
+    {{end}}
+    <div class="prose">
+      {{html $doc.HTML}}
+    </div>
+    <nav class="pager" aria-label="Previous and next">
+      {{with $doc.Prev}}<a class="pager__prev" href="{{url .Path}}"><span>Previous</span>{{.Label}}</a>{{end}}
+      {{with $doc.Next}}<a class="pager__next" href="{{url .Path}}"><span>Next</span>{{.Label}}</a>{{end}}
+    </nav>
+  </article>
+  {{if $doc.TOC}}
+  <aside class="docs__toc" aria-label="On this page">
+    <p class="docs__toc-title">On this page</p>
+    {{template "_toc.html" $doc}}
+  </aside>
+  {{end}}
+</div>
+{{end}}
