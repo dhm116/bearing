@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,11 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	}
 	if !strings.Contains(string(home), `href="/bearing/spec/data-model/"`) {
 		t.Error("got home links without the /bearing/ base")
+	}
+	// The map's nodes are animated with CSS transforms, which would replace
+	// an SVG translate on the same element and stack every node at 0,0.
+	if regexp.MustCompile(`<g[^>]*class="node[^"]*"[^>]*transform=|<g[^>]*transform=[^>]*class="node`).Match(home) {
+		t.Error("got a map node positioned with transform on the animated element")
 	}
 }
 
