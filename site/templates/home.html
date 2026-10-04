@@ -1,27 +1,126 @@
 {{define "main"}}
-{{/* Home: Map / Diagram macrostructure. The org map is the page's centre of gravity. */}}
+{{/* Home: a problem-first story for readers new to the field. Today's hunt
+     for an answer, then the same question with Bearing, then why the answer
+     can be trusted. Present tense throughout: the site describes the
+     finished product; the roadmap says what works today. */}}
 <section class="hero shell">
-  <h1 class="hero__title">Get your bearings in any engineering org.</h1>
+  <h1 class="hero__title">Who owns this? Who can help? What changed?</h1>
   <div class="hero__aside">
-    <p class="lede">Bearing builds a live map of who owns what, what depends on what and what changed, from the tools your organization already runs. Every fact says where it came from, how sure Bearing is, and when it was true.</p>
+    <p class="lede">In every engineering team, the answers to these everyday questions are scattered across a dozen tools and a few people's memories. Bearing gathers them in one place, keeps them current on its own, and shows where every answer came from.</p>
     <div class="actions">
       <a class="btn btn--primary" href="{{url "how-it-works/"}}">See how it works</a>
-      <a class="btn" href="{{url "spec/data-model/"}}">Read the data model</a>
+      <a class="btn" href="{{url "roadmap/"}}">What works today</a>
     </div>
-    <p class="fine">Open source under Apache 2.0 · Go · early, and designed in the open</p>
+    <p class="fine">Free and open source</p>
   </div>
+</section>
+
+<section class="hunt shell" aria-labelledby="hunt-title">
+  <div class="hunt__head">
+    <h2 id="hunt-title">One question, two ways</h2>
+    <p>The checkout page is slow, and you need whoever looks after the payments service. Here is how that tends to go, and how it goes with Bearing.</p>
+  </div>
+
+  <div class="tabs" role="presentation">
+    <input class="tabs__radio" type="radio" name="hunt" id="hunt-today" checked>
+    <input class="tabs__radio" type="radio" name="hunt" id="hunt-bearing">
+    <div class="tabs__bar">
+      <label for="hunt-today">Today</label>
+      <label for="hunt-bearing">With Bearing</label>
+    </div>
+
+    <div class="tabs__panel tabs__panel--1">
+      <ol class="trail">
+        <li class="hop hop--partial" style="--i: 0">
+          <span class="hop__time">0 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-code"/></svg>Code repository</span>
+          <p class="hop__found">A file says changes need approval from <strong>@payments-team</strong>. Six people. Which one?</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-question"/></svg>Partial</span>
+        </li>
+        <li class="hop hop--dead" style="--i: 1">
+          <span class="hop__time">6 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-book"/></svg>Team wiki</span>
+          <p class="hop__found">The service page says <strong>Sam</strong> owns it. Last edited two years ago.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-x"/></svg>Out of date</span>
+        </li>
+        <li class="hop hop--dead" style="--i: 2">
+          <span class="hop__time">11 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-people"/></svg>Company directory</span>
+          <p class="hop__found">Sam moved to another team last spring.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-x"/></svg>Dead end</span>
+        </li>
+        <li class="hop hop--wait" style="--i: 3">
+          <span class="hop__time">15 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-chat"/></svg>Team chat</span>
+          <p class="hop__found">“Does anyone know who looks after payments?” No reply yet.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-wait"/></svg>Waiting</span>
+        </li>
+        <li class="hop hop--partial" style="--i: 4">
+          <span class="hop__time">34 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-person"/></svg>A colleague</span>
+          <p class="hop__found">“Maybe Priya? Check who's on call.”</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-question"/></svg>A hunch</span>
+        </li>
+        <li class="hop hop--found" style="--i: 5">
+          <span class="hop__time">40 min</span>
+          <span class="hop__tool"><svg class="icon"><use href="#i-calendar"/></svg>On-call schedule</span>
+          <p class="hop__found"><strong>Priya</strong> is on call today. Found her.</p>
+          <span class="hop__verdict"><svg class="icon"><use href="#i-check"/></svg>Found</span>
+        </li>
+      </ol>
+      <p class="tabs__moral" style="--i: 6">Six places, two dead ends and most of an hour. Next month, someone else repeats the same hunt.</p>
+    </div>
+
+    <div class="tabs__panel tabs__panel--2">
+      <div class="ask">
+        <p class="ask__q"><svg class="icon"><use href="#i-chat"/></svg><span>Who looks after the payments service, and who can help right now?</span></p>
+        <ul class="ask__sources" aria-label="Tools Bearing checked">
+          <li style="--i: 0"><svg class="icon"><use href="#i-code"/></svg>Code repository</li>
+          <li style="--i: 1"><svg class="icon"><use href="#i-people"/></svg>Company directory</li>
+          <li style="--i: 2"><svg class="icon"><use href="#i-calendar"/></svg>On-call schedule</li>
+          <li style="--i: 3"><svg class="icon"><use href="#i-book"/></svg>Old service catalog</li>
+        </ul>
+        <div class="ask__a">
+          <img class="ask__mark" src="{{static "brand/bearing-mark.svg"}}" alt="" width="32" height="32">
+          <ul class="answer">
+            <li style="--i: 0"><p>The <strong>Payments team</strong> owns it.</p><span class="src">Code repository · Company directory</span></li>
+            <li style="--i: 1"><p><strong>Priya Nair</strong> is on call until 5 pm.</p><span class="src">On-call schedule</span></li>
+            <li style="--i: 2"><p>Last changed 3 hours ago, by Priya.</p><span class="src">Code repository</span></li>
+            <li class="answer__warn" style="--i: 3"><p>The old service catalog still names Sam, who has moved teams. It may need fixing.</p><span class="src">Sources disagree</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="tabs__moral" style="--i: 5">One question, one answer in seconds, and you can see where each part came from.</p>
+    </div>
+  </div>
+  <p class="fine hunt__note">An illustrative example. The people and services are invented.</p>
+</section>
+
+<section class="asks shell" aria-labelledby="asks-title">
+  <div class="asks__head">
+    <h2 id="asks-title">Questions people ask every day</h2>
+    <p>Bearing is for anyone who works on or around software: developers, the person on call, new joiners, team leads, and the AI assistants that now write code alongside them.</p>
+  </div>
+  <ul class="asks__grid">
+    <li><svg class="icon"><use href="#i-person"/></svg><h3>Who owns this?</h3><p>Anyone about to change code they didn't write.</p></li>
+    <li><svg class="icon"><use href="#i-check"/></svg><h3>Who needs to approve my change?</h3><p>A developer opening a change for review.</p></li>
+    <li><svg class="icon"><use href="#i-history"/></svg><h3>What changed just before it broke?</h3><p>The engineer woken up by an alert.</p></li>
+    <li><svg class="icon"><use href="#i-people"/></svg><h3>Which team is this person on?</h3><p>A new joiner finding their way around.</p></li>
+    <li><svg class="icon"><use href="#i-layers"/></svg><h3>What does this team look after?</h3><p>A team lead planning work, or checking nothing is left without an owner.</p></li>
+    <li><svg class="icon"><use href="#i-spark"/></svg><h3>Who should my coding assistant ask?</h3><p>AI assistants get the same answers people do, so their changes reach the right reviewers.</p></li>
+  </ul>
 </section>
 
 <section class="map shell" aria-labelledby="map-title">
   <div class="map__head">
-    <h2 id="map-title">One repository. Four facts. Three sources.</h2>
-    <p>A small slice of what Bearing builds: each box is something in your tools, and each arrow is a fact linking two of them, labeled with its source and confidence. Pick a fact to see the evidence behind it.</p>
+    <h2 id="map-title">Every answer shows its work</h2>
+    <p>Behind each answer is a map of how people, teams, code and changes connect. Each line on the map is one fact, and each fact records which tool reported it and how sure Bearing is. Pick one to see its evidence.</p>
   </div>
   <div class="map__body">
     <figure class="map__figure">
       <svg class="orgmap" viewBox="0 0 640 400" role="img" aria-labelledby="orgmap-t orgmap-d">
-        <title id="orgmap-t">An example slice of the graph</title>
-        <desc id="orgmap-d">The repository payments-api requires approval from the team acme/payments, and is owned by it. Priya Nair is a member of acme/payments. Pull request 1182 was changed by Priya Nair.</desc>
+        <title id="orgmap-t">An example of Bearing's map</title>
+        <desc id="orgmap-d">The payments-api code repository needs approval from the Payments team, and is owned by it. Priya Nair is a member of the Payments team. Change 1182 was made by Priya Nair.</desc>
         <defs>
           <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" class="orgmap__dot"/></pattern>
         </defs>
@@ -35,153 +134,134 @@
 
         <g class="edge" data-fact="1">
           <path d="M220 62 H410"/><path class="edge__head" d="M418 62 l-10 -5 v10 z"/>
-          <text x="317" y="52" text-anchor="middle" class="edge__label">approves_changes</text>
-          <text x="317" y="80" text-anchor="middle" class="edge__meta">GitHub · 1.00</text>
+          <text x="317" y="52" text-anchor="middle" class="edge__label">needs approval from</text>
+          <text x="317" y="80" text-anchor="middle" class="edge__meta">GitHub · certain</text>
         </g>
         <g class="edge edge--derived" data-fact="2">
           <path d="M210 106 C 270 168, 364 168, 424 106"/><path class="edge__head" d="M429 101 l-3.5 10.6 -6.6 -7.4 z"/>
-          <text x="317" y="166" text-anchor="middle" class="edge__label">owned_by</text>
-          <text x="317" y="180" text-anchor="middle" class="edge__meta">derived · 0.95</text>
+          <text x="317" y="166" text-anchor="middle" class="edge__label">owned by</text>
+          <text x="317" y="180" text-anchor="middle" class="edge__meta">worked out · very likely</text>
         </g>
         <g class="edge" data-fact="3">
           <path d="M560 290 V114"/><path class="edge__head" d="M560 106 l-5 10 h10 z"/>
-          <text x="548" y="196" text-anchor="end" class="edge__label">member_of</text>
-          <text x="548" y="210" text-anchor="end" class="edge__meta">directory · 1.00</text>
+          <text x="548" y="196" text-anchor="end" class="edge__label">member of</text>
+          <text x="548" y="210" text-anchor="end" class="edge__meta">directory · certain</text>
         </g>
         <g class="edge" data-fact="4">
           <path d="M220 340 H410"/><path class="edge__head" d="M418 340 l-10 -5 v10 z"/>
-          <text x="317" y="330" text-anchor="middle" class="edge__label">changed_by</text>
-          <text x="317" y="358" text-anchor="middle" class="edge__meta">GitHub · 1.00</text>
+          <text x="317" y="330" text-anchor="middle" class="edge__label">made by</text>
+          <text x="317" y="358" text-anchor="middle" class="edge__meta">GitHub · certain</text>
         </g>
 
         <g transform="translate(24 40)"><g class="node node--1" data-in="1 2">
           <rect width="196" height="66" rx="10"/>
-          <text x="16" y="22" class="node__kind">Repository</text>
+          <text x="16" y="22" class="node__kind">Code repository</text>
           <text x="16" y="44" class="node__name">payments-api</text>
-          <text x="16" y="58" class="node__alias">2 aliases · github</text>
+          <text x="16" y="58" class="node__alias">on GitHub</text>
         </g></g>
         <g transform="translate(420 40)"><g class="node node--2" data-in="1 2 3">
           <rect width="196" height="66" rx="10"/>
           <text x="16" y="22" class="node__kind">Team</text>
-          <text x="16" y="44" class="node__name">acme/payments</text>
-          <text x="16" y="58" class="node__alias">github:team/acme/payments</text>
+          <text x="16" y="44" class="node__name">Payments</text>
+          <text x="16" y="58" class="node__alias">on GitHub and in the directory</text>
         </g></g>
         <g transform="translate(420 290)"><g class="node node--3" data-in="3 4">
           <rect width="196" height="66" rx="10"/>
           <text x="16" y="22" class="node__kind">Person</text>
           <text x="16" y="44" class="node__name">Priya Nair</text>
-          <text x="16" y="58" class="node__alias">2 aliases · github, authentik</text>
+          <text x="16" y="58" class="node__alias">2 accounts, 1 person</text>
         </g></g>
         <g transform="translate(24 307)"><g class="node node--4" data-in="4">
           <rect width="196" height="66" rx="10"/>
           <text x="16" y="22" class="node__kind">Change</text>
-          <text x="16" y="44" class="node__name">PR #1182</text>
-          <text x="16" y="58" class="node__alias">github · merged Oct 2</text>
+          <text x="16" y="44" class="node__name">#1182</text>
+          <text x="16" y="58" class="node__alias">to payments-api, Oct 2</text>
         </g></g>
       </svg>
-      <figcaption>An invented organization, drawn with the data model's real predicates and rules. See the <a href="{{url "spec/data-model/#worked-examples"}}">worked examples</a>.</figcaption>
+      <figcaption>An invented example. Each box is something in your tools; each arrow is a fact connecting two of them.</figcaption>
     </figure>
 
     <fieldset class="facts">
-      <legend>Facts about payments-api and the people around it</legend>
+      <legend>Facts on this map</legend>
       <label class="fact"><input type="radio" name="fact" id="fact-1" checked>
-        <span class="fact__triple">payments-api <code>approves_changes</code> acme/payments</span><span class="fact__conf">1.00</span></label>
+        <span class="fact__triple">payments-api <em>needs approval from</em> the Payments team</span><span class="fact__conf">certain</span></label>
       <label class="fact"><input type="radio" name="fact" id="fact-2">
-        <span class="fact__triple">payments-api <code>owned_by</code> acme/payments</span><span class="fact__conf">0.95</span></label>
+        <span class="fact__triple">payments-api <em>is owned by</em> the Payments team</span><span class="fact__conf">very likely</span></label>
       <label class="fact"><input type="radio" name="fact" id="fact-3">
-        <span class="fact__triple">Priya Nair <code>member_of</code> acme/payments</span><span class="fact__conf">1.00</span></label>
+        <span class="fact__triple">Priya Nair <em>is a member of</em> the Payments team</span><span class="fact__conf">certain</span></label>
       <label class="fact"><input type="radio" name="fact" id="fact-4">
-        <span class="fact__triple">PR #1182 <code>changed_by</code> Priya Nair</span><span class="fact__conf">1.00</span></label>
+        <span class="fact__triple">Change #1182 <em>was made by</em> Priya Nair</span><span class="fact__conf">certain</span></label>
 
       <div class="evidence" data-fact="1">
         <dl>
-          <dt>Source</dt><dd><code>github-acme</code>, the GitHub adapter</dd>
-          <dt>Evidence</dt><dd><code>.github/CODEOWNERS</code> line 1: <code>* @acme/payments</code></dd>
-          <dt>Status</dt><dd><span class="chip chip--good">asserted</span> since 2026-09-28 01:30 UTC</dd>
+          <dt>Source</dt><dd>GitHub</dd>
+          <dt>Evidence</dt><dd>The repository's CODEOWNERS file, which lists who must approve changes, names the Payments team for every file.</dd>
+          <dt>Since</dt><dd>28 September</dd>
         </dl>
-        <p>CODEOWNERS names who must approve changes. Bearing reports exactly that, and doesn't call it ownership.</p>
+        <p>Needing someone's approval isn't quite the same as owning the code, so Bearing records exactly what the file says.</p>
       </div>
       <div class="evidence" data-fact="2">
         <dl>
-          <dt>Source</dt><dd><code>core/derive/codeowners</code></dd>
-          <dt>Evidence</dt><dd>Derived from <code>approves_changes</code>: the file is a single <code>*</code> rule naming one team</dd>
-          <dt>Status</dt><dd><span class="chip chip--good">asserted</span> at 0.95, above the 0.90 threshold</dd>
+          <dt>Source</dt><dd>Worked out by Bearing</dd>
+          <dt>Evidence</dt><dd>One team approves every change to the whole repository, so it very likely owns it.</dd>
+          <dt>How sure</dt><dd>95%, enough to give as an answer</dd>
         </dl>
-        <p>Had the file also had path rules, this would be 0.70 and stay a candidate until another source agreed.</p>
+        <p>If the file split the code between several teams, Bearing would be less sure and would wait for another tool to agree.</p>
       </div>
       <div class="evidence" data-fact="3">
         <dl>
-          <dt>Source</dt><dd><code>authentik-corp</code>, the identity directory</dd>
-          <dt>Evidence</dt><dd>Group <code>payments</code>; the directory is the source of record for membership</dd>
-          <dt>Status</dt><dd><span class="chip chip--good">asserted</span>, valid from 2026-03-02</dd>
+          <dt>Source</dt><dd>The company directory</dd>
+          <dt>Evidence</dt><dd>Priya is in the directory's Payments group.</dd>
+          <dt>Since</dt><dd>2 March</dd>
         </dl>
-        <p>Priya's GitHub login and directory account are two aliases of one person. Adapters never decide that; the core does.</p>
+        <p>Priya has a GitHub account and a directory account. Bearing recognized them as the same person, and can undo that if it ever gets it wrong.</p>
       </div>
       <div class="evidence" data-fact="4">
         <dl>
-          <dt>Source</dt><dd><code>github-acme</code>, from a <code>pull_request</code> webhook</dd>
-          <dt>Evidence</dt><dd>PR #1182 merged 2026-10-02 14:05 UTC</dd>
-          <dt>Status</dt><dd><span class="chip chip--good">asserted</span></dd>
+          <dt>Source</dt><dd>GitHub, the moment the change went in</dd>
+          <dt>Evidence</dt><dd>Change #1182 to payments-api, accepted on 2 October.</dd>
         </dl>
-        <p>A webhook and a full sync can arrive in either order. The newest observation from each source wins, so a stale sync can't undo it.</p>
+        <p>Tools tell Bearing about changes as they happen, and Bearing also re-reads them regularly, so nothing slips through.</p>
       </div>
     </fieldset>
   </div>
 </section>
 
-<section class="why shell" aria-labelledby="why-title">
-  <div class="why__story">
-    <h2 id="why-title">The answers already exist. They're scattered, and they go stale.</h2>
-    <p>Ownership lives in CODEOWNERS files, directory groups, paging schedules and people's heads. Deploy history sits in CI, incidents in another tool, runbooks in a wiki. Portals try to collect all of it by hand, so catalogs drift and engineers stop trusting them.</p>
-    <p>AI agents now write a large share of the code, and they can't see any of this context either. They need the same answers people do, with the evidence attached.</p>
-    <p class="why__question">“What is this, who owns it, what changed, and how do I safely change it?”</p>
-  </div>
-  <dl class="why__principles">
-    <div><dt>Infer first, declare to override</dt><dd>The graph is built from signals that already exist. Metadata files correct it; they're never required to create it.</dd></div>
-    <div><dt>Show the evidence</dt><dd>Every fact carries its source, confidence and the time it was true. When sources disagree, Bearing shows the dispute instead of picking one.</dd></div>
-    <div><dt>Integrate, don't replace</dt><dd>Small adapters read the tools you run, Backstage included. Bearing defines the data worth having and leaves the rest alone.</dd></div>
-    <div><dt>Contracts first</dt><dd>Every component sits behind a published interface with a conformance suite, so any backend that passes can replace the default.</dd></div>
-    <div><dt>One answer, everywhere</dt><dd>The same graph answers on the command line, in an agent session through MCP, and later in a browser.</dd></div>
-  </dl>
+<section class="tenets shell" aria-labelledby="tenets-title">
+  <h2 id="tenets-title">What makes it different</h2>
+  <ul class="tenets__list">
+    <li><svg class="icon"><use href="#i-plug"/></svg><h3>Works with what you have</h3><p>Bearing reads the tools you already use. Nobody has to fill in a new catalog or remember to keep it up to date.</p></li>
+    <li><svg class="icon"><use href="#i-eye"/></svg><h3>Shows its sources</h3><p>Every answer says where it came from and when, so you can check it instead of taking it on trust.</p></li>
+    <li><svg class="icon"><use href="#i-split"/></svg><h3>Admits when tools disagree</h3><p>If the code and the wiki name different owners, you see both, and can fix the one that's wrong.</p></li>
+    <li><svg class="icon"><use href="#i-layers"/></svg><h3>Open, and yours to shape</h3><p>Free and open source, and every part can be swapped for one that suits your organization.</p></li>
+  </ul>
 </section>
 
-{{with .Roadmap}}
-<section class="pulse shell" aria-labelledby="pulse-title">
-  <div class="pulse__head">
-    <h2 id="pulse-title">Built in the open</h2>
-    {{with .Current}}<p>Now building <strong>{{.Code}} · {{.Name}}</strong>{{if gt (add .Open .Closed) 0}}, {{.Closed}} of {{add .Open .Closed}} issues closed{{end}}.</p>{{else}}<p>Milestone progress comes from GitHub when the site is built.</p>{{end}}
-    <a class="link-arrow" href="{{url "roadmap/"}}">Follow the roadmap</a>
+<section class="status shell" aria-labelledby="status-title">
+  <div class="status__head">
+    <h2 id="status-title">Where things stand</h2>
+    <p>Bearing is young and built in the open. The roadmap shows what works today and what is coming.</p>
   </div>
-  <ol class="track track--compact">
-    {{range .Milestones}}
-    <li class="track__step track__step--{{.State}}"><span class="track__code">{{.Code}}</span><span class="track__name">{{.Name}}</span></li>
+  {{with .Roadmap}}
+  <ul class="status__counts">
+    {{range .Groups}}
+    <li><a class="status__tile status__tile--{{.Status}}" href="{{url "roadmap/"}}#{{.Status}}">
+      <strong>{{len .Features}}</strong><span><span class="dot dot--{{.Status}}"></span>{{statusLabel .Status}}</span>
+    </a></li>
     {{end}}
-  </ol>
-  <p class="pulse__counts">
-    <a href="{{url "roadmap/"}}#ready"><span class="dot dot--ready"></span>{{index .Counts "ready"}} ready</a>
-    <a href="{{url "roadmap/"}}#in-progress"><span class="dot dot--in-progress"></span>{{index .Counts "in-progress"}} in progress</a>
-    <a href="{{url "roadmap/"}}#planned"><span class="dot dot--planned"></span>{{index .Counts "planned"}} planned</a>
-  </p>
+  </ul>
+  {{end}}
 </section>
-{{end}}
 
 {{with collection "spec"}}
-<section class="read shell" aria-labelledby="read-title">
-  <h2 id="read-title">Start with the specification</h2>
-  <p class="read__intro">The spec is the product. Anyone should be able to write an adapter or a backend from these documents alone.</p>
-  <ul class="read__list">
+<section class="builders shell" aria-labelledby="builders-title">
+  <div class="builders__head">
+    <h2 id="builders-title">For builders</h2>
+    <p>The specification describes, in technical detail, how Bearing records facts, how connectors talk to it and how its parts fit together.</p>
+  </div>
+  <ul class="builders__list">
     {{range .Pages}}
-    <li><a class="read__item" href="{{url .Path}}">
-      <span class="read__title">{{.Title}}</span>
-      {{if .Version}}<span class="chip">v{{.Version}}</span>{{end}}
-      <span class="read__lede">{{clip .Summary 160}}</span>
-    </a></li>
-    {{end}}
-    {{with collection "decisions"}}
-    <li><a class="read__item" href="{{url "decisions/"}}">
-      <span class="read__title">{{.Title}}</span><span class="chip">{{len .Pages}} ADRs</span>
-      <span class="read__lede">{{.Description}}</span>
-    </a></li>
+    <li><a href="{{url .Path}}"><span class="builders__t">{{.Title}}</span><span class="builders__s">{{clip .Summary 110}}</span></a></li>
     {{end}}
   </ul>
 </section>

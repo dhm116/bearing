@@ -24,7 +24,7 @@ func buildRepoSite(t *testing.T, base string) (*Builder, string) {
 	out := filepath.Join(t.TempDir(), "_site")
 	b := &Builder{
 		Root: "..", SiteDir: ".", Out: out, Base: base, Config: cfg,
-		Roadmap: BuildRoadmap(rf, nil, cfg.Repo),
+		Roadmap: BuildRoadmap(rf, nil),
 		Build:   BuildInfo{Commit: "0123456789abcdef", Time: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)},
 	}
 	if err := b.Run(); err != nil {
@@ -41,15 +41,11 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	}
 	for _, page := range []string{
 		"index.html", "how-it-works/index.html", "roadmap/index.html", "404.html",
-		"spec/index.html", "spec/data-model/index.html", "decisions/index.html",
-		"search.json", ".nojekyll",
+		"spec/index.html", "spec/data-model/index.html", "search.json", ".nojekyll",
 	} {
 		if _, err := os.Stat(filepath.Join(out, page)); err != nil {
 			t.Errorf("got no %s: %v", page, err)
 		}
-	}
-	if _, err := os.Stat(filepath.Join(out, "decisions/template/index.html")); err == nil {
-		t.Error("got a page for the excluded ADR template")
 	}
 	home, err := os.ReadFile(filepath.Join(out, "index.html"))
 	if err != nil {
@@ -58,10 +54,44 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	if !strings.Contains(string(home), `href="/bearing/spec/data-model/"`) {
 		t.Error("got home links without the /bearing/ base")
 	}
-	// The map's nodes are animated with CSS transforms, which would replace
-	// an SVG translate on the same element and stack every node at 0,0.
-	if regexp.MustCompile(`<g[^>]*class="node[^"]*"[^>]*transform=|<g[^>]*transform=[^>]*class="node`).Match(home) {
-		t.Error("got a map node positioned with transform on the animated element")
+}
+
+// The hand-written pages are for readers new to Bearing. They describe the
+// finished product, so they never mention milestones or decision records,
+// and they avoid jargon the project has agreed to drop.
+func TestHandWrittenPagesStayInPlainTerms(t *testing.T) {
+	_, out := buildRepoSite(t, "/")
+	// Checked against the text readers see, with tags removed (SVG path data
+	// is full of things like "M4").
+	inText := map[string]*regexp.Regexp{
+		"a milestone":          regexp.MustCompile(`\bM\d+\b|(?i)milestone`),
+		"a decision record":    regexp.MustCompile(`\bADRs?\b|(?i)decision record`),
+		"the word \"surface\"": regexp.MustCompile(`(?i)\bsurfaces?\b`),
+	}
+	// Checked against the markup.
+	inMarkup := map[string]*regexp.Regexp{
+		"a link to a decision record": regexp.MustCompile(`href="[^"]*(?:/adr/|decisions/)`),
+		// Diagrams animate with CSS transforms, which replace an SVG
+		// transform attribute on the same element and move it to 0,0.
+		"a transform on an animated element": regexp.MustCompile(`<[^>]*class="[^"]*"[^>]*\stransform=|<[^>]*\stransform="[^"]*"[^>]*class=`),
+	}
+	tags := regexp.MustCompile(`<[^>]*>`)
+	for _, page := range []string{"index.html", "how-it-works/index.html", "roadmap/index.html"} {
+		raw, err := os.ReadFile(filepath.Join(out, page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := tags.ReplaceAll(raw, []byte(" "))
+		for what, re := range inText {
+			if m := re.Find(text); m != nil {
+				t.Errorf("%s: got %s (%q)", page, what, m)
+			}
+		}
+		for what, re := range inMarkup {
+			if m := re.Find(raw); m != nil {
+				t.Errorf("%s: got %s (%q)", page, what, m)
+			}
+		}
 	}
 }
 
@@ -124,7 +154,7 @@ func buildFixture(t *testing.T, root string) (*Builder, string) {
 	out := filepath.Join(t.TempDir(), "_site")
 	b := &Builder{
 		Root: root, SiteDir: ".", Out: out, Base: "/b/", Config: cfg,
-		Roadmap: BuildRoadmap(&RoadmapFile{}, nil, cfg.Repo),
+		Roadmap: BuildRoadmap(&RoadmapFile{}, nil),
 		Build:   BuildInfo{Commit: "0123456789abcdef", Time: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)},
 	}
 	if err := b.Run(); err != nil {

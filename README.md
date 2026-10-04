@@ -47,7 +47,7 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
-| [`site/`](site/) | The project website: a small Go generator that renders the spec, decisions and roadmap for GitHub Pages |
+| [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 

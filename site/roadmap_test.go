@@ -3,18 +3,18 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func testRoadmapFile() *RoadmapFile {
 	return &RoadmapFile{
-		Milestones: []MilestoneSpec{{Number: 1}, {Number: 2}, {Number: 3}, {Number: 4, Title: "M3. Later"}, {Number: 5}},
+		Milestones: []MilestoneSpec{{Number: 1}, {Number: 2}, {Number: 3}, {Number: 4}, {Number: 5}},
 		Areas:      []AreaSpec{{Name: "Core"}},
 		Features: []FeatureSpec{
-			{Name: "Explicit", Area: "Core", Status: StatusReady},
+			{Name: "Explicit", Area: "Core", Status: StatusAvailable},
 			{Name: "Done milestone", Area: "Core", Milestone: 1},
 			{Name: "Active milestone", Area: "Core", Milestone: 2},
+			{Name: "Started early", Area: "Core", Milestone: 5},
 			{Name: "Later milestone", Area: "Core", Milestone: 3},
 			{Name: "No milestone", Area: "Core"},
 			{Name: "All issues closed", Area: "Core", Issues: []int{10, 11}, Milestone: 3},
@@ -43,14 +43,15 @@ func testGitHubData() *GitHubData {
 }
 
 func TestBuildRoadmapDerivesStatuses(t *testing.T) {
-	r := BuildRoadmap(testRoadmapFile(), testGitHubData(), "o/r")
+	r := BuildRoadmap(testRoadmapFile(), testGitHubData())
 	want := map[string]Status{
-		"Explicit":                     StatusReady,
-		"Done milestone":               StatusReady,
+		"Explicit":                     StatusAvailable,
+		"Done milestone":               StatusAvailable,
 		"Active milestone":             StatusInProgress,
+		"Started early":                StatusInProgress,
 		"Later milestone":              StatusPlanned,
 		"No milestone":                 StatusPlanned,
-		"All issues closed":            StatusReady,
+		"All issues closed":            StatusAvailable,
 		"Some issues closed":           StatusInProgress,
 		"Open issue, active milestone": StatusInProgress,
 		"Open issue, later milestone":  StatusPlanned,
@@ -63,50 +64,52 @@ func TestBuildRoadmapDerivesStatuses(t *testing.T) {
 			}
 		})
 	}
-	if got := r.Counts[string(StatusReady)] + r.Counts[string(StatusInProgress)] + r.Counts[string(StatusPlanned)]; got != len(want) {
-		t.Fatalf("got %d counted, want %d", got, len(want))
+	grouped := 0
+	for i, g := range r.Groups {
+		if g.Status != statuses[i] {
+			t.Fatalf("got group %d %s, want %s", i, g.Status, statuses[i])
+		}
+		for _, f := range g.Features {
+			if f.Status != g.Status {
+				t.Errorf("got %s (%s) in the %s group", f.Name, f.Status, g.Status)
+			}
+		}
+		if r.Counts[string(g.Status)] != len(g.Features) {
+			t.Errorf("got count %d for %s, want %d", r.Counts[string(g.Status)], g.Status, len(g.Features))
+		}
+		grouped += len(g.Features)
+	}
+	if grouped != len(want) {
+		t.Fatalf("got %d grouped, want %d", grouped, len(want))
 	}
 }
 
-func TestBuildRoadmapDerivesMilestoneStates(t *testing.T) {
-	r := BuildRoadmap(testRoadmapFile(), testGitHubData(), "o/r")
-	got := []string{}
-	for _, m := range r.Milestones {
-		got = append(got, m.Code+"="+string(m.State))
-	}
+func TestMilestoneStates(t *testing.T) {
+	states := milestoneStates(testRoadmapFile().Milestones, testGitHubData())
 	// The first open milestone is active, and so is a later one with closed
-	// issues; a later one with nothing closed is planned; one GitHub doesn't
-	// know keeps its roadmap.yaml title. The first active one is current.
-	want := "M0=done M1=active M2=planned M3=planned M4=active"
-	if strings.Join(got, " ") != want {
-		t.Fatalf("got %s, want %s", strings.Join(got, " "), want)
-	}
-	if r.Current == nil || r.Current.Code != "M1" {
-		t.Fatalf("got current %+v, want M1", r.Current)
-	}
-	if p := r.Milestones[1].Percent(); p != 33 {
-		t.Fatalf("got %d%%, want 33%%", p)
-	}
-	if p := r.Milestones[0].Percent(); p != 100 {
-		t.Fatalf("got %d%%, want 100%%", p)
+	// issues; a later one with nothing closed, or one GitHub doesn't know,
+	// is planned.
+	want := map[int]MilestoneState{1: MilestoneDone, 2: MilestoneActive, 3: MilestonePlanned, 4: MilestonePlanned, 5: MilestoneActive}
+	for n, w := range want {
+		if states[n] != w {
+			t.Errorf("milestone %d: got %s, want %s", n, states[n], w)
+		}
 	}
 }
 
-func TestBuildRoadmapWithoutGitHubLinksIssuesAnyway(t *testing.T) {
-	r := BuildRoadmap(testRoadmapFile(), nil, "o/r")
+func TestBuildRoadmapWithoutGitHubFallsBackToTheFile(t *testing.T) {
+	r := BuildRoadmap(testRoadmapFile(), nil)
 	if r.Live {
 		t.Fatal("got Live, want false without GitHub data")
 	}
 	for _, f := range r.Areas[0].Features {
-		if f.Name != "Unknown issue" {
-			continue
+		want := StatusPlanned
+		if f.Name == "Explicit" {
+			want = StatusAvailable
 		}
-		if got, want := f.Issues[0].URL, "https://github.com/o/r/issues/99"; got != want {
-			t.Fatalf("got %s, want %s", got, want)
+		if f.Status != want {
+			t.Errorf("%s: got %s, want %s", f.Name, f.Status, want)
 		}
-	}
-	if r.Milestones[3].Name != "Later" {
-		t.Fatalf("got name %q, want the roadmap.yaml title", r.Milestones[3].Name)
 	}
 }
 
@@ -125,23 +128,6 @@ func TestLoadRoadmapRejectsBadEntries(t *testing.T) {
 			}
 			if _, err := LoadRoadmap(p); err == nil {
 				t.Fatal("got nil error, want a validation error")
-			}
-		})
-	}
-}
-
-func TestSplitMilestoneTitle(t *testing.T) {
-	cases := map[string][2]string{
-		"M0: Guardrails":      {"M0", "Guardrails"},
-		"M1. Data model":      {"M1", "Data model"},
-		"Post-MVP clean-ups":  {"", "Post-MVP clean-ups"},
-		" M12 . Spaced out  ": {"M12", "Spaced out"},
-	}
-	for in, want := range cases {
-		t.Run(in, func(t *testing.T) {
-			code, name := splitMilestoneTitle(in)
-			if code != want[0] || name != want[1] {
-				t.Fatalf("got (%q, %q), want (%q, %q)", code, name, want[0], want[1])
 			}
 		})
 	}

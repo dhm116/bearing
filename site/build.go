@@ -531,16 +531,6 @@ func (b *Builder) funcs(from string) template.FuncMap {
 			}
 			return nil, fmt.Errorf("no collection %q", id)
 		},
-		"area": func(name string) (*AreaView, error) {
-			if b.Roadmap != nil {
-				for _, a := range b.Roadmap.Areas {
-					if a.Name == name {
-						return a, nil
-					}
-				}
-			}
-			return nil, fmt.Errorf("no roadmap area %q", name)
-		},
 		"asset": func(p string) (string, error) {
 			if !b.assets[p] {
 				repo, err := b.repoFS()
@@ -554,8 +544,9 @@ func (b *Builder) funcs(from string) template.FuncMap {
 			}
 			return b.Base + "assets/" + p, nil
 		},
-		"date": func(t time.Time) string { return t.UTC().Format("2006-01-02") },
-		"add":  func(a, c int) int { return a + c },
+		"lower": strings.ToLower,
+		"date":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
+		"add":   func(a, c int) int { return a + c },
 		"pct": func(n, d int) int {
 			if d == 0 {
 				return 0

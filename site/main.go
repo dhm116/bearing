@@ -1,6 +1,6 @@
 // Command site builds Bearing's website from the repository: the
-// specification and ADRs straight from docs/, the roadmap from
-// roadmap.yaml and GitHub milestones, and the hand-written pages in
+// specification straight from docs/spec, feature statuses from
+// roadmap.yaml and GitHub milestones and issues, and the hand-written pages in
 // templates/. See README.md.
 package main
 
@@ -65,7 +65,7 @@ func run(args []string, log *slog.Logger) error {
 
 	b := &Builder{
 		Root: *root, SiteDir: *siteDir, Out: *out, Base: normalizeBase(*base),
-		Config: cfg, Roadmap: BuildRoadmap(rf, gh, cfg.Repo),
+		Config: cfg, Roadmap: BuildRoadmap(rf, gh),
 		Build: BuildInfo{Commit: commit(*root), Time: time.Now().UTC()},
 	}
 	if err := b.Run(); err != nil {
