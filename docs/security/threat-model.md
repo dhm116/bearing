@@ -82,8 +82,10 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   model providers off, adapters granted nothing they did not declare,
   unmapped callers denied.
 - **C-GEN-3** Data entering Bearing (pushed events, adapter output, config,
-  API requests) is checked against its Protobuf type and protovalidate rules
-  at the edge, before use (ADR 6).
+  API requests) is checked against its Protobuf type and the validation
+  rules at the edge, before use (ADR 6). The rules are Go functions in
+  `pkg/model` (`ValidateObservation`, `ValidateDeclaration`,
+  `ValidateManualEvent`), not protovalidate annotations.
 - **C-GEN-4** Logs are structured. Source text appears only in attribute
   values, never in the message or in attribute keys, with control characters
   escaped.

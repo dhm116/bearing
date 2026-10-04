@@ -19,6 +19,7 @@ import (
 	"errors"
 	"time"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -40,10 +41,10 @@ type Entity struct {
 
 // Source is one piece of evidence behind a fact.
 type Source struct {
-	Adapter    string          `json:"adapter"`
-	Key        model.Key       `json:"key"`
-	Evidence   *model.Evidence `json:"evidence,omitempty"`
-	ObservedAt time.Time       `json:"observed_at"`
+	Adapter    string                  `json:"adapter"`
+	Key        model.Key               `json:"key"`
+	Evidence   *modelv1alpha1.Evidence `json:"evidence,omitempty"`
+	ObservedAt time.Time               `json:"observed_at"`
 }
 
 // Fact is a directed, typed edge between two entities with the evidence and
@@ -145,8 +146,8 @@ type Document struct {
 // Candidate is an entity or relation proposed by an extractor. Candidates
 // are never written to the graph until a Judge scores them.
 type Candidate struct {
-	Entity    model.Entity     `json:"entity"`
-	Relations []model.Relation `json:"relations,omitempty"`
+	Entity    *modelv1alpha1.Entity     `json:"entity"`
+	Relations []*modelv1alpha1.Relation `json:"relations,omitempty"`
 	// Span quotes the text that supports the candidate.
 	Span string `json:"span"`
 }

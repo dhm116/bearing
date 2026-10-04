@@ -1,0 +1,36 @@
+{
+  "specversion": "1.0",
+  "id": "authentik:group/5b0e2c1d@2026-10-02T06:00:00.000000Z",
+  "source": "adapter/authentik",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-10-02T06:00:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Team",
+      "key": "authentik:group/5b0e2c1d",
+      "aliases": [
+        "authentik:group_name/payments"
+      ],
+      "attributes": {
+        "name": "payments"
+      }
+    },
+    "relations": [
+      {
+        "type": "member_of",
+        "from": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+        "valid_from": "2026-03-01T00:00:00Z",
+        "valid_to": "2026-11-01T00:00:00Z"
+      }
+    ],
+    "snapshots": [
+      {
+        "direction": "DIRECTION_IN",
+        "predicates": [
+          "member_of"
+        ]
+      }
+    ]
+  }
+}

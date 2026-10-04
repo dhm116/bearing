@@ -1,5 +1,4 @@
 bin/
 *.ndjson
-!testdata/*.ndjson
 .env
 cover.out

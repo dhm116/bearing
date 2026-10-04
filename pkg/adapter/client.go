@@ -22,6 +22,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
 )
@@ -175,10 +176,11 @@ type Syncer interface {
 	Sync(context.Context, SyncParams) (SyncResult, error)
 }
 
-// SyncAll pages through a full sync, validating every observation and passing
-// it to emit. maxPages guards against adapters that never finish. The whole
+// SyncAll pages through a full sync, truncating every observation's times to
+// microseconds, validating it (model.ValidateObservation) and passing it to
+// emit. maxPages guards against adapters that never finish. The whole
 // sync runs in one span, with each page as a child.
-func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(model.Observation) error) (err error) {
+func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -213,11 +215,12 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 		pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
 		for _, o := range res.Observations {
-			if err := o.Validate(); err != nil {
+			model.TruncateTimes(o)
+			if err := model.ValidateObservation(o); err != nil {
 				observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
 				return fmt.Errorf("sync page %d: %w", pages, err)
 			}
-			observationsReceived.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name), attrKind.String(string(o.Data.Entity.Kind))))
+			observationsReceived.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name), attrKind.String(o.GetData().GetEntity().GetKind())))
 			accepted++
 			if err := emit(o); err != nil {
 				return err

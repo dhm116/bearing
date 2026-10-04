@@ -199,5 +199,5 @@ difference.
 
 ```sh
 bearing adapter describe -- ./my-adapter
-bearing adapter sync --config cfg.json -- ./my-adapter | bearing validate
+bearing adapter sync --config cfg.json -- ./my-adapter > obs.ndjson   # stops at the first invalid observation
 ```
