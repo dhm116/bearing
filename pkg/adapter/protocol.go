@@ -13,15 +13,18 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
 // ProtocolVersion is the adapter protocol version this package speaks.
-const ProtocolVersion = "0.1"
+const ProtocolVersion = "0.2"
 
 // Method names.
 const (
@@ -53,9 +56,50 @@ type SyncParams struct {
 
 // SyncResult is one page of a sync.
 type SyncResult struct {
-	Observations []model.Observation `json:"observations"`
-	NextCursor   string              `json:"next_cursor,omitempty"`
-	Done         bool                `json:"done"`
+	Observations Observations `json:"observations"`
+	NextCursor   string       `json:"next_cursor,omitempty"`
+	Done         bool         `json:"done"`
+}
+
+// Observations is a list of observations that encodes as a JSON array of
+// ProtoJSON objects (proto field names, enum value names), so JSON-RPC
+// results carry the generated types on the wire.
+type Observations []*eventv1alpha1.Observation
+
+// MarshalJSON implements json.Marshaler.
+func (o Observations) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('[')
+	for i, obs := range o {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		j, err := model.EncodeJSON(obs)
+		if err != nil {
+			return nil, fmt.Errorf("observation %d: %w", i, err)
+		}
+		b.Write(j)
+	}
+	b.WriteByte(']')
+	return b.Bytes(), nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler. It decodes but doesn't
+// validate; SyncAll validates.
+func (o *Observations) UnmarshalJSON(b []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(Observations, len(raw))
+	for i, r := range raw {
+		out[i] = &eventv1alpha1.Observation{}
+		if err := model.DecodeJSON(r, out[i]); err != nil {
+			return fmt.Errorf("observation %d: %w", i, err)
+		}
+	}
+	*o = out
+	return nil
 }
 
 // HandleParams carries one webhook delivery exactly as the core received it.
@@ -67,7 +111,7 @@ type HandleParams struct {
 
 // HandleResult holds the observations derived from a webhook.
 type HandleResult struct {
-	Observations []model.Observation `json:"observations"`
+	Observations Observations `json:"observations"`
 }
 
 // Adapter is what an adapter author implements. Serve exposes it over the

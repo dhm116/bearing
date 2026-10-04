@@ -1,0 +1,55 @@
+{
+  "name": "github",
+  "issuer_type": "github",
+  "kinds": [
+    {
+      "kind": "Repository",
+      "keys": [
+        { "key_type": "repo_node", "class": "KEY_CLASS_ID" },
+        { "key_type": "repo", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "redirects": true, "case": "KEY_CASE_INSENSITIVE" }
+      ],
+      "fields": [
+        { "predicate": "approves_changes", "authority": { "authoritative": true } },
+        { "predicate": "default_branch", "authority": { "authoritative": true } },
+        { "predicate": "name" },
+        { "predicate": "full_name" },
+        { "predicate": "url" },
+        { "predicate": "language" },
+        { "predicate": "topics" },
+        { "predicate": "archived" },
+        { "predicate": "description" },
+        { "predicate": "codeowners_rules", "type": "VALUE_TYPE_FLOAT", "cardinality": "CARDINALITY_ONE" }
+      ]
+    },
+    {
+      "kind": "Team",
+      "keys": [
+        { "key_type": "team_node", "class": "KEY_CLASS_ID" },
+        { "key_type": "team", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "case": "KEY_CASE_INSENSITIVE" }
+      ],
+      "fields": [
+        { "predicate": "name", "match": "MATCH_METHOD_NAME" },
+        { "predicate": "slug" },
+        { "predicate": "description" },
+        { "predicate": "member_of", "direction": "DIRECTION_IN", "match": "MATCH_METHOD_MEMBERS", "authority": { "authoritative": true } }
+      ]
+    },
+    {
+      "kind": "Person",
+      "keys": [
+        { "key_type": "user_node", "class": "KEY_CLASS_ID" },
+        { "key_type": "user", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "case": "KEY_CASE_INSENSITIVE" }
+      ],
+      "fields": [
+        { "predicate": "name", "match": "MATCH_METHOD_NAME" },
+        { "predicate": "verified_email", "match": "MATCH_METHOD_EMAIL" },
+        { "predicate": "commit_email", "match": "MATCH_METHOD_EMAIL" },
+        { "predicate": "login" },
+        { "predicate": "member_of" }
+      ],
+      "links": [
+        { "issuer_type": "saml", "key_type": "name_id", "authority": { "authoritative": true } }
+      ]
+    }
+  ]
+}

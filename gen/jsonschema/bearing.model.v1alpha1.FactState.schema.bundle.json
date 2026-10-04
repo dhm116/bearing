@@ -1,0 +1,513 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Evidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Evidence says where a person can check an observation's claims.",
+      "properties": {
+        "url": {
+          "default": "",
+          "description": "A link to the claims in the source.",
+          "type": "string"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactObject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactObject is a fact's object: { \"subject_id\" } for a relation, or\n { \"type\", \"value\" } for an attribute.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "subject_id": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type. Set with value.",
+          "title": "Value Type"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "An attribute's value, in canonical form. Set with type. string and time\n are strings (time in the 6-digit canonical form), float a number, bool\n a boolean, json any JSON value."
+        }
+      },
+      "title": "Fact Object",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactState.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactState is one as_of result: a fact's state at a valid and record time.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        },
+        "^(factId)$": {
+          "default": "",
+          "description": "The fact.",
+          "type": "string"
+        },
+        "^(statusReason)$": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The canonical subject ID.",
+          "type": "string"
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The maximal interval containing valid_at with an unchanged status."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of that interval; absent means unbounded."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        },
+        "fact_id": {
+          "default": "",
+          "description": "The fact.",
+          "type": "string"
+        },
+        "object": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json",
+          "description": "The object."
+        },
+        "precision": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Precision.schema.json",
+          "description": "Whether the answer comes from a summary."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^FACT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "FACT_STATUS_NONE",
+                "FACT_STATUS_ASSERTED",
+                "FACT_STATUS_CANDIDATE",
+                "FACT_STATUS_CONFLICTED",
+                "FACT_STATUS_OVERRIDDEN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status at the query's times.",
+          "title": "Fact Status"
+        },
+        "status_reason": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The canonical subject ID.",
+          "type": "string"
+        },
+        "supports": {
+          "description": "The live supports.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.Support.schema.json"
+          },
+          "type": "array"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The maximal interval containing valid_at with an unchanged status."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of that interval; absent means unbounded."
+        }
+      },
+      "title": "Fact State",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Precision.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Precision says whether an answer comes from full history or a summary.",
+      "patternProperties": {
+        "^(periodEnd)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "^(periodStart)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The detail answered from.",
+          "title": "Compaction Detail"
+        },
+        "period_end": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "period_start": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "title": "Precision",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Support.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Support is one support version: one source's state for a fact over one\n maximal valid-time interval, as recorded over one record-time interval.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "^(factId)$": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "^(lastConfirmedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "^(observationId)$": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "^(observedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "^(retractedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "adapter": {
+          "default": "",
+          "description": "Adapter name and version, e.g. \"github@0.2.0\". Empty for derived supports.",
+          "type": "string"
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Evidence.schema.json",
+          "description": "Where a person can check it."
+        },
+        "fact_id": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "last_confirmed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "observation_id": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "qualifiers": {
+          "description": "De-duplicated qualifier objects, sorted by JCS bytes.",
+          "items": {
+            "$ref": "#/$defs/google.protobuf.Struct.schema.json"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^SUPPORT_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "SUPPORT_REASON_ASSERT",
+                "SUPPORT_REASON_END",
+                "SUPPORT_REASON_SNAPSHOT",
+                "SUPPORT_REASON_DELETED",
+                "SUPPORT_REASON_WITHDRAWN",
+                "SUPPORT_REASON_MERGE",
+                "SUPPORT_REASON_UNMERGE",
+                "SUPPORT_REASON_DERIVED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Why it was written.",
+          "title": "Support Reason"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "retracted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "source": {
+          "default": "",
+          "description": "The configured source, \"manual\" or a \"core/...\" source.",
+          "type": "string"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        },
+        "via": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Via.schema.json",
+          "description": "The aliases the claim was resolved through."
+        }
+      },
+      "title": "Support",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Via.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Via is the aliases a claim's ends were resolved through.",
+      "properties": {
+        "object": {
+          "default": "",
+          "description": "The reference key for the other end.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The aliases the observation's entity carried.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Via",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.FactState.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.FactState.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

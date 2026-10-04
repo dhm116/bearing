@@ -24,9 +24,10 @@ its shape.
 
 1. Read `docs/spec/adapter-protocol.md` and `docs/spec/data-model.md`.
 2. List the entity kinds and relations the adapter will emit, using the
-   existing ones in `pkg/model/model.go`. If a new kind or relation is truly
-   needed, change the data model first (spec, `pkg/model`,
-   `schema/observation.v1.schema.json` together), as its own commit.
+   registered ones in `pkg/model/registry.go`. If a new kind or relation is
+   truly needed, change the data model first (spec, `proto/bearing/model`
+   with `make generate`, and the registry in `pkg/model` together), as its
+   own commit.
 3. Decide the key format for each entity, `<system>:<type>/<id>` like
    `github:repo/acme/payments-api` (see "Keys" in the data model spec).
    Adapters never resolve identities across systems; emit the source's own
@@ -73,6 +74,6 @@ its shape.
 make check
 bin/bearing adapter describe -- bin/bearing-adapter-<name>
 # with real read-only credentials, if available:
+# sync validates every observation and stops at the first invalid one
 bin/bearing adapter sync --config cfg.json -- bin/bearing-adapter-<name> > obs.ndjson
-bin/bearing validate obs.ndjson
 ```

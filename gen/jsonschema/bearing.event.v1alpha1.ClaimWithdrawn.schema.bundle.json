@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "OIDC subject or agent token ID.",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.ClaimWithdrawn.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ClaimWithdrawn withdraws one source's claims on one fact.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The fact's subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who asked."
+        },
+        "object": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json",
+          "description": "The fact's object."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The fact's predicate.",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "description": "The source whose claims are withdrawn.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The fact's subject.",
+          "type": "string"
+        }
+      },
+      "title": "Claim Withdrawn",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactObject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactObject is a fact's object: { \"subject_id\" } for a relation, or\n { \"type\", \"value\" } for an attribute.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "subject_id": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type. Set with value.",
+          "title": "Value Type"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "An attribute's value, in canonical form. Set with type. string and time\n are strings (time in the 6-digit canonical form), float a number, bool\n a boolean, json any JSON value."
+        }
+      },
+      "title": "Fact Object",
+      "type": "object"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.ClaimWithdrawn.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.ClaimWithdrawn.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

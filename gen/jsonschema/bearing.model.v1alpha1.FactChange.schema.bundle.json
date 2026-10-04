@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.FactChange.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactChange is one changes result: a fact whose status or confidence\n differs between two points.",
+      "patternProperties": {
+        "^(factId)$": {
+          "default": "",
+          "description": "The fact.",
+          "type": "string"
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The canonical subject ID at the later point.",
+          "type": "string"
+        },
+        "^(supportsChanged)$": {
+          "description": "Sources whose supports changed between the points.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "properties": {
+        "fact_id": {
+          "default": "",
+          "description": "The fact.",
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactPoint.schema.json",
+          "description": "The earlier point."
+        },
+        "object": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json",
+          "description": "The object."
+        },
+        "precision": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Precision.schema.json",
+          "description": "Whether the answer comes from a summary."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The canonical subject ID at the later point.",
+          "type": "string"
+        },
+        "supports_changed": {
+          "description": "Sources whose supports changed between the points.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "to": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactPoint.schema.json",
+          "description": "The later point."
+        }
+      },
+      "title": "Fact Change",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactObject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactObject is a fact's object: { \"subject_id\" } for a relation, or\n { \"type\", \"value\" } for an attribute.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "subject_id": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type. Set with value.",
+          "title": "Value Type"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "An attribute's value, in canonical form. Set with type. string and time\n are strings (time in the 6-digit canonical form), float a number, bool\n a boolean, json any JSON value."
+        }
+      },
+      "title": "Fact Object",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactPoint.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactPoint is a fact's status and confidence at one point.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^FACT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "FACT_STATUS_NONE",
+                "FACT_STATUS_ASSERTED",
+                "FACT_STATUS_CANDIDATE",
+                "FACT_STATUS_CONFLICTED",
+                "FACT_STATUS_OVERRIDDEN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status.",
+          "title": "Fact Status"
+        }
+      },
+      "title": "Fact Point",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Precision.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Precision says whether an answer comes from full history or a summary.",
+      "patternProperties": {
+        "^(periodEnd)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "^(periodStart)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The detail answered from.",
+          "title": "Compaction Detail"
+        },
+        "period_end": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's end."
+        },
+        "period_start": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Summaries only: the period's start."
+        }
+      },
+      "title": "Precision",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.FactChange.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.FactChange.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

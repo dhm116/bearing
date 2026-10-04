@@ -20,11 +20,11 @@ contracts.
   spec changes in the same PR.
 - **Spec writing.** RFC 2119 keywords used deliberately; `snake_case` JSON
   (CloudEvents envelope fields excepted); RFC 3339 UTC times; examples that
-  validate (`bin/bearing validate`, `testdata/observations.ndjson`).
+  validate (`testdata/observations/`, checked by `pkg/model`'s tests).
 - **Compatibility.** Adding is compatible; removing or changing meaning
   needs `v2` (data model) or a bumped `adapter.ProtocolVersion` (protocol).
-  Unknown fields tolerated by readers. Schema in
-  `schema/observation.v1.schema.json` lists every kind and relation.
+  Unknown fields tolerated by readers. JSON Schema is generated from
+  `proto/` into `gen/jsonschema`, never written by hand.
 - **Proto shape.** Package and file names versioned (`bearing.x.v1`);
   field numbers never reused and removed ones `reserved`; enums with an
   `_UNSPECIFIED` zero value; request/response messages per RPC; pagination
@@ -56,7 +56,7 @@ works.
   examples fed to the code.
 - Run `make lint test build`, and exercise the surface:
   `bin/bearing adapter describe -- bin/bearing-adapter-github`,
-  `bin/bearing validate testdata/observations.ndjson`, the changed CLI
+  `go test ./pkg/model/`, the changed CLI
   commands. If you could not run something, say so.
 - Stay read-only. Bash is for `git`, `go test`, `go vet`, `go build`,
   `make lint test build`, the built binaries and reading files; never

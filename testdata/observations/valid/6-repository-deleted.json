@@ -1,0 +1,15 @@
+{
+  "specversion": "1.0",
+  "id": "github:repo_node/R_kgDOH9z8y7@2026-10-03T08:15:30.250000Z",
+  "source": "adapter/github",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-10-03T08:15:30.250Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Repository",
+      "key": "github:repo_node/R_kgDOH9z8y7",
+      "deleted": true
+    }
+  }
+}

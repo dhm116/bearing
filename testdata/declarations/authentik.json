@@ -1,0 +1,33 @@
+{
+  "name": "authentik",
+  "issuer_type": "authentik",
+  "kinds": [
+    {
+      "kind": "Person",
+      "keys": [
+        { "key_type": "user", "class": "KEY_CLASS_ID" },
+        { "key_type": "username", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "case": "KEY_CASE_INSENSITIVE" },
+        { "issuer_type": "saml", "key_type": "name_id", "class": "KEY_CLASS_ID" }
+      ],
+      "fields": [
+        { "predicate": "name", "match": "MATCH_METHOD_NAME", "authority": { "authoritative": true } },
+        { "predicate": "email", "match": "MATCH_METHOD_EMAIL", "authority": { "authoritative": true } }
+      ],
+      "links": [
+        { "issuer_type": "github", "key_type": "user_node", "authority": { "authoritative": true } },
+        { "issuer_type": "github", "key_type": "user" }
+      ]
+    },
+    {
+      "kind": "Team",
+      "keys": [
+        { "key_type": "group", "class": "KEY_CLASS_ID" },
+        { "key_type": "group_name", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE" }
+      ],
+      "fields": [
+        { "predicate": "name", "match": "MATCH_METHOD_NAME" },
+        { "predicate": "member_of", "direction": "DIRECTION_IN", "match": "MATCH_METHOD_MEMBERS", "authority": { "authoritative": true } }
+      ]
+    }
+  ]
+}

@@ -13,9 +13,9 @@ log).
 ## What to check
 
 - **Data model.** Kinds, relations, keys and observation fields change in
-  `docs/spec/data-model.md`, `pkg/model/model.go`,
-  `schema/observation.v1.schema.json` and `testdata/observations.ndjson`
-  together. Adding is compatible; removing or changing meaning needs `v2`.
+  `docs/spec/data-model.md`, `proto/bearing/model` (and regenerated
+  `gen/`), the registry and validation in `pkg/model` and
+  `testdata/observations/` together. Adding is compatible; removing or changing meaning needs `v2`.
   Keys follow `<system>:<type>/<id>` and are stable across syncs.
 - **Graph is the source of truth.** Vectors point at graph entities and can
   be rebuilt from the graph. Ownership and policy answers read only

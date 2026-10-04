@@ -25,7 +25,10 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/structpb"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
@@ -151,7 +154,7 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 	}()
 	c := a.client(cfg)
 
-	var obs []model.Observation
+	var obs []*eventv1alpha1.Observation
 	var full bool
 	switch cur.Phase {
 	case "repos":
@@ -189,53 +192,60 @@ type ghRepo struct {
 	Description   string   `json:"description"`
 }
 
-func (a *Adapter) repoObservation(r ghRepo, rels []model.Relation, ev *model.Evidence) model.Observation {
-	attrs := map[string]any{
-		"name":           r.Name,
-		"full_name":      r.FullName,
-		"url":            r.HTMLURL,
-		"default_branch": r.DefaultBranch,
-		"archived":       r.Archived,
+func (a *Adapter) repoObservation(r ghRepo, rels []*modelv1alpha1.Relation) *eventv1alpha1.Observation {
+	attrs := map[string]*structpb.Value{
+		"name":           structpb.NewStringValue(r.Name),
+		"full_name":      structpb.NewStringValue(r.FullName),
+		"url":            structpb.NewStringValue(r.HTMLURL),
+		"default_branch": structpb.NewStringValue(r.DefaultBranch),
+		"archived":       structpb.NewBoolValue(r.Archived),
 	}
 	if r.Language != "" {
-		attrs["language"] = r.Language
+		attrs["language"] = structpb.NewStringValue(r.Language)
 	}
 	if len(r.Topics) > 0 {
-		attrs["topics"] = r.Topics
+		topics := make([]*structpb.Value, len(r.Topics))
+		for i, t := range r.Topics {
+			topics[i] = structpb.NewStringValue(t)
+		}
+		attrs["topics"] = structpb.NewListValue(&structpb.ListValue{Values: topics})
 	}
 	if r.Description != "" {
-		attrs["description"] = r.Description
+		attrs["description"] = structpb.NewStringValue(r.Description)
 	}
-	if ev == nil {
-		ev = &model.Evidence{URL: r.HTMLURL}
-	}
-	return model.NewObservation(Source, a.Now(), model.ObservationData{
-		Entity:    model.Entity{Kind: model.KindRepository, Key: repoKey(r.FullName), Attributes: attrs},
+	return model.NewObservation(Source, a.Now(), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{
+			Kind: string(model.KindRepository), Key: string(repoKey(r.FullName)), Attributes: attrs,
+		},
 		Relations: rels,
-		Evidence:  ev,
+		Evidence:  evidence(r.HTMLURL),
 	})
 }
 
-func (a *Adapter) syncRepos(ctx context.Context, c *client, page int) ([]model.Observation, bool, error) {
+func (a *Adapter) syncRepos(ctx context.Context, c *client, page int) ([]*eventv1alpha1.Observation, bool, error) {
 	var repos []ghRepo
 	path := fmt.Sprintf("/orgs/%s/repos?type=all&per_page=%d&page=%d", url.PathEscape(c.cfg.Org), c.cfg.PerPage, page)
 	if err := c.getJSON(ctx, path, &repos); err != nil {
 		return nil, false, err
 	}
-	obs := make([]model.Observation, 0, len(repos))
+	obs := make([]*eventv1alpha1.Observation, 0, len(repos))
 	for _, r := range repos {
 		owners, file, err := a.codeowners(ctx, c, r)
 		if err != nil {
 			return nil, false, err
 		}
-		var rels []model.Relation
+		var rels []*modelv1alpha1.Relation
 		for _, o := range owners {
-			rels = append(rels, model.Relation{
-				Type: model.RelOwnedBy, To: o,
-				Attributes: map[string]any{"pattern": "*", "file": file},
+			rels = append(rels, &modelv1alpha1.Relation{
+				Type: string(model.RelOwnedBy),
+				End:  &modelv1alpha1.Relation_To{To: string(o)},
+				Attributes: map[string]*structpb.Value{
+					"pattern": structpb.NewStringValue("*"),
+					"file":    structpb.NewStringValue(file),
+				},
 			})
 		}
-		obs = append(obs, a.repoObservation(r, rels, nil))
+		obs = append(obs, a.repoObservation(r, rels))
 	}
 	return obs, len(repos) == c.cfg.PerPage, nil
 }
@@ -304,13 +314,13 @@ type ghUser struct {
 	HTMLURL string `json:"html_url"`
 }
 
-func (a *Adapter) syncTeams(ctx context.Context, c *client, page int) ([]model.Observation, bool, error) {
+func (a *Adapter) syncTeams(ctx context.Context, c *client, page int) ([]*eventv1alpha1.Observation, bool, error) {
 	var teams []ghTeam
 	path := fmt.Sprintf("/orgs/%s/teams?per_page=%d&page=%d", url.PathEscape(c.cfg.Org), c.cfg.PerPage, page)
 	if err := c.getJSON(ctx, path, &teams); err != nil {
 		return nil, false, err
 	}
-	var obs []model.Observation
+	var obs []*eventv1alpha1.Observation
 	for _, t := range teams {
 		obs = append(obs, a.teamObservation(c.cfg.Org, t))
 		members, err := a.teamMembers(ctx, c, t.Slug)
@@ -324,28 +334,50 @@ func (a *Adapter) syncTeams(ctx context.Context, c *client, page int) ([]model.O
 	return obs, len(teams) == c.cfg.PerPage, nil
 }
 
-func (a *Adapter) teamObservation(org string, t ghTeam) model.Observation {
-	var rels []model.Relation
+func (a *Adapter) teamObservation(org string, t ghTeam) *eventv1alpha1.Observation {
+	var rels []*modelv1alpha1.Relation
 	if t.Parent != nil {
-		rels = append(rels, model.Relation{Type: model.RelMemberOf, To: teamKey(org, t.Parent.Slug)})
+		rels = append(rels, memberOf(org, t.Parent.Slug, false))
 	}
-	attrs := map[string]any{"name": t.Name, "slug": t.Slug}
+	attrs := map[string]*structpb.Value{
+		"name": structpb.NewStringValue(t.Name),
+		"slug": structpb.NewStringValue(t.Slug),
+	}
 	if t.Description != "" {
-		attrs["description"] = t.Description
+		attrs["description"] = structpb.NewStringValue(t.Description)
 	}
-	return model.NewObservation(Source, a.Now(), model.ObservationData{
-		Entity:    model.Entity{Kind: model.KindTeam, Key: teamKey(org, t.Slug), Attributes: attrs},
+	return model.NewObservation(Source, a.Now(), &modelv1alpha1.ObservationData{
+		Entity:    &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: string(teamKey(org, t.Slug)), Attributes: attrs},
 		Relations: rels,
-		Evidence:  &model.Evidence{URL: t.HTMLURL},
+		Evidence:  evidence(t.HTMLURL),
 	})
 }
 
-func (a *Adapter) memberObservation(org, teamSlug string, u ghUser, removed bool) model.Observation {
-	return model.NewObservation(Source, a.Now(), model.ObservationData{
-		Entity:    model.Entity{Kind: model.KindPerson, Key: userKey(u.Login), Attributes: map[string]any{"login": u.Login}},
-		Relations: []model.Relation{{Type: model.RelMemberOf, To: teamKey(org, teamSlug), Absent: removed}},
-		Evidence:  &model.Evidence{URL: u.HTMLURL},
+func (a *Adapter) memberObservation(org, teamSlug string, u ghUser, removed bool) *eventv1alpha1.Observation {
+	return model.NewObservation(Source, a.Now(), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{
+			Kind: string(model.KindPerson), Key: string(userKey(u.Login)),
+			Attributes: map[string]*structpb.Value{"login": structpb.NewStringValue(u.Login)},
+		},
+		Relations: []*modelv1alpha1.Relation{memberOf(org, teamSlug, removed)},
+		Evidence:  evidence(u.HTMLURL),
 	})
+}
+
+func memberOf(org, teamSlug string, absent bool) *modelv1alpha1.Relation {
+	return &modelv1alpha1.Relation{
+		Type:   string(model.RelMemberOf),
+		End:    &modelv1alpha1.Relation_To{To: string(teamKey(org, teamSlug))},
+		Absent: absent,
+	}
+}
+
+// evidence links to url, or is nil when GitHub gave no URL.
+func evidence(url string) *modelv1alpha1.Evidence {
+	if url == "" {
+		return nil
+	}
+	return &modelv1alpha1.Evidence{Url: url}
 }
 
 func (a *Adapter) teamMembers(ctx context.Context, c *client, slug string) ([]ghUser, error) {
@@ -408,9 +440,9 @@ func (a *Adapter) handle(_ context.Context, event string, p adapter.HandleParams
 		if err := json.Unmarshal(p.Body, &ev); err != nil {
 			return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: err.Error()}
 		}
-		o := a.repoObservation(ev.Repository, nil, nil)
-		o.Data.Entity.Deleted = ev.Action == "deleted"
-		return adapter.HandleResult{Observations: []model.Observation{o}}, nil
+		o := a.repoObservation(ev.Repository, nil)
+		o.GetData().GetEntity().Deleted = ev.Action == "deleted"
+		return adapter.HandleResult{Observations: adapter.Observations{o}}, nil
 	case "membership":
 		var ev struct {
 			Action string `json:"action"` // added or removed
@@ -428,7 +460,7 @@ func (a *Adapter) handle(_ context.Context, event string, p adapter.HandleParams
 			org = cfg.Org
 		}
 		o := a.memberObservation(org, ev.Team.Slug, ev.Member, ev.Action == "removed")
-		return adapter.HandleResult{Observations: []model.Observation{o}}, nil
+		return adapter.HandleResult{Observations: adapter.Observations{o}}, nil
 	default:
 		*result = "ignored"
 		return adapter.HandleResult{}, nil

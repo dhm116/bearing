@@ -1,0 +1,35 @@
+// Subjects: the things Bearing knows about (docs/spec/data-model.md,
+// "Subjects").
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// Subject is a thing Bearing knows about.
+message Subject {
+  // UUIDv7, canonical lowercase text. Minted only by the core.
+  string subject_id = 1;
+  // A registered subject kind, fixed at mint.
+  string kind = 2;
+  // Active or merged. Subjects are never deleted.
+  SubjectStatus status = 3;
+  // For merged subjects, the subject it was merged into.
+  string merged_into = 4;
+  // When the core minted it (record time).
+  google.protobuf.Timestamp minted_at = 5;
+  // What minted it.
+  MintedBy minted_by = 6;
+}
+
+// MintedBy records the event and rule that minted a subject.
+message MintedBy {
+  // The event whose apply minted the subject.
+  string event_id = 1;
+  // The minting rule.
+  MintRule rule = 2;
+}

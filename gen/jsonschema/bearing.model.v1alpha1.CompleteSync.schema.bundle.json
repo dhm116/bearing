@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.CompleteSync.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CompleteSync, on a sync's last page, says the sync visited every entity of\n these kinds the source can see.",
+      "properties": {
+        "kinds": {
+          "description": "Registered subject kinds.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Complete Sync",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.CompleteSync.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.CompleteSync.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

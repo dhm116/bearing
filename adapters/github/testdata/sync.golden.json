@@ -1,0 +1,117 @@
+[
+  {
+    "specversion": "1.0",
+    "id": "github:repo/acme/payments-api@2026-09-28T02:00:00.000000Z",
+    "source": "adapter/github",
+    "type": "dev.bearing.observation.v1",
+    "time": "2026-09-28T02:00:00Z",
+    "datacontenttype": "application/json",
+    "data": {
+      "entity": {
+        "kind": "Repository",
+        "key": "github:repo/acme/payments-api",
+        "attributes": {
+          "archived": false,
+          "default_branch": "main",
+          "full_name": "acme/payments-api",
+          "language": "Go",
+          "name": "payments-api",
+          "topics": [
+            "tier-1"
+          ],
+          "url": "https://github.com/acme/payments-api"
+        }
+      },
+      "relations": [
+        {
+          "type": "owned_by",
+          "to": "github:team/acme/payments",
+          "attributes": {
+            "file": ".github/CODEOWNERS",
+            "pattern": "*"
+          }
+        }
+      ],
+      "evidence": {
+        "url": "https://github.com/acme/payments-api"
+      }
+    }
+  },
+  {
+    "specversion": "1.0",
+    "id": "github:repo/acme/docs@2026-09-28T02:00:00.000000Z",
+    "source": "adapter/github",
+    "type": "dev.bearing.observation.v1",
+    "time": "2026-09-28T02:00:00Z",
+    "datacontenttype": "application/json",
+    "data": {
+      "entity": {
+        "kind": "Repository",
+        "key": "github:repo/acme/docs",
+        "attributes": {
+          "archived": false,
+          "default_branch": "main",
+          "full_name": "acme/docs",
+          "name": "docs",
+          "url": "https://github.com/acme/docs"
+        }
+      },
+      "evidence": {
+        "url": "https://github.com/acme/docs"
+      }
+    }
+  },
+  {
+    "specversion": "1.0",
+    "id": "github:team/acme/payments@2026-09-28T02:00:00.000000Z",
+    "source": "adapter/github",
+    "type": "dev.bearing.observation.v1",
+    "time": "2026-09-28T02:00:00Z",
+    "datacontenttype": "application/json",
+    "data": {
+      "entity": {
+        "kind": "Team",
+        "key": "github:team/acme/payments",
+        "attributes": {
+          "name": "Payments",
+          "slug": "payments"
+        }
+      },
+      "relations": [
+        {
+          "type": "member_of",
+          "to": "github:team/acme/engineering"
+        }
+      ],
+      "evidence": {
+        "url": "https://github.com/orgs/acme/teams/payments"
+      }
+    }
+  },
+  {
+    "specversion": "1.0",
+    "id": "github:user/jdoe@2026-09-28T02:00:00.000000Z",
+    "source": "adapter/github",
+    "type": "dev.bearing.observation.v1",
+    "time": "2026-09-28T02:00:00Z",
+    "datacontenttype": "application/json",
+    "data": {
+      "entity": {
+        "kind": "Person",
+        "key": "github:user/jdoe",
+        "attributes": {
+          "login": "jdoe"
+        }
+      },
+      "relations": [
+        {
+          "type": "member_of",
+          "to": "github:team/acme/payments"
+        }
+      ],
+      "evidence": {
+        "url": "https://github.com/jdoe"
+      }
+    }
+  }
+]

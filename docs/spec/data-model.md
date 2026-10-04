@@ -168,7 +168,7 @@ Adapters declare key types per kind ([Declarations](#declarations)):
 | `issuer_type` | Default: the adapter's own. |
 | `key_type` | The name in keys. Its kind is the kind it is declared under; one key type has one kind. |
 | `class` | `id`: assigned once, never changed or reassigned. `name`: can be renamed and later reused. |
-| `per_subject` | `name` only. `one`: binding a new name of this type to a subject releases its previous one. |
+| `per_subject` | `name` only. `one`: binding a new name of this type to a subject releases its previous one. `many` (the default): a subject may hold several names of this type at once. |
 | `redirects` | `name` only. A released name still resolves to its last subject (as GitHub does for repositories). |
 | `case` | `insensitive` external IDs are compared and stored after Unicode simple case folding. Default `sensitive`. |
 
@@ -596,6 +596,9 @@ Within one observation:
   `attributes` and `attribute_claims`, rejects the observation
   (`duplicate_claim`). An array for a `one` predicate rejects it
   (`cardinality_mismatch`).
+- Asserted claims of a `one` predicate with different objects whose
+  intervals overlap (after defaults: `valid_from` is `observed_at`,
+  `valid_to` open) reject the observation (`cardinality_mismatch`).
 
 ### Snapshot scopes
 
@@ -899,9 +902,9 @@ review (event and audit record).
 { "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e", "predicate": "owned_by",
   "valid_from": "2026-10-02T10:00:00Z",
   "positions": [ { "source_system": "github",  "authority": { "authoritative": false },
-                   "objects": ["0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70"] },
+                   "objects": [ { "subject_id": "0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70" } ] },
                  { "source_system": "catalog", "authority": { "authoritative": false },
-                   "objects": ["0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"] } ],
+                   "objects": [ { "subject_id": "0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f" } ] } ],
   "resolution": null }
 ```
 
@@ -989,6 +992,9 @@ person.
 
 People act through events on the log (ADR 7), each with an actor and a
 reason, applied and audited like any other event. Their source is `manual`.
+Every payload below also carries `actor { subject, agent }` (the OIDC
+subject or agent token ID, and whether it is an agent) and a non-empty
+`reason`.
 
 | Event | Payload | Effect |
 | --- | --- | --- |
@@ -1120,6 +1126,7 @@ applies.
 | `invalid_interval` | claim | [Claims](#claims) |
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset) |
+| `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates) |
 
 ## Wire mapping
 
@@ -1148,8 +1155,10 @@ proto field names, so JSON field names match the examples here.
 - Keys are strings in the form `<namespace>:<key_type>/<external_id>`.
 - Time fields are `google.protobuf.Timestamp`, truncated to microseconds
   on ingest.
-- A typed value is `TypedValue { ValueType type; google.protobuf.Value value; }`.
-  A protovalidate CEL rule ties `type` to the value's JSON kind: `string`
+- A fact's object is `FactObject { string subject_id; ValueType type;
+  google.protobuf.Value value; }`: `{ "subject_id" }` for a relation, or
+  `{ "type", "value" }` for an attribute. Validation at the edge, in Go
+  (`pkg/model`), ties `type` to the value's JSON kind: `string`
   and `time` are strings (`time` in the 6-digit canonical form), `float` a
   number, `bool` a boolean, `json` any JSON value (canonical as JCS). Note:
   with no integer type, `Value` loses nothing.
@@ -1343,8 +1352,8 @@ artifacts are replaced, not migrated:
 
 - `proto/bearing/model/`: the data model, events and declarations as
   Protobuf, with JSON Schema generated from it. Declarations are fields of
-  `DescribeResponse` in `proto/bearing/adapter/v1` (issue #11). ADR 6 says
-  `v1` packages, issue #11 says `v1alpha1`: reconcile.
+  `DescribeResponse` in `proto/bearing/adapter/v1alpha1` (issue #11).
+  Packages are `v1alpha1` until the MVP closes, then `v1` (ADR 6).
 - Delete `schema/observation.v1.schema.json`, the hand-written types in
   `pkg/model`, `testdata/observations.ndjson` and the `bearing validate`
   command (and its row in `AGENTS.md`'s commands table); replace them with

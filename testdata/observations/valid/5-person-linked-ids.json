@@ -1,0 +1,43 @@
+{
+  "specversion": "1.0",
+  "id": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74@2026-10-02T06:00:00.000000Z",
+  "source": "adapter/authentik",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-10-02T06:00:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Person",
+      "key": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+      "aliases": [
+        "authentik:username/jdoe",
+        "authentik-saml:name_id/jdoe@acme.example"
+      ],
+      "linked_ids": [
+        "github:user_node/U_kgDOA1b2c3"
+      ],
+      "attributes": {
+        "name": "Jane Doe",
+        "email": [
+          "jdoe@acme.example"
+        ]
+      }
+    },
+    "attribute_claims": [
+      {
+        "predicate": "login",
+        "value": "jdoe",
+        "valid_from": "2025-01-15T09:30:00.123456Z",
+        "confidence_ppm": 800000
+      },
+      {
+        "predicate": "verified_email",
+        "value": "jane@old.example",
+        "absent": true
+      }
+    ],
+    "evidence": {
+      "url": "https://auth.acme.example/if/admin/#/identity/users/42"
+    }
+  }
+}

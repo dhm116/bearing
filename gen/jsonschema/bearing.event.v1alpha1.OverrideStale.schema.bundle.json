@@ -1,0 +1,47 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.OverrideStale.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "OverrideStale flags an override whose non-manual supports changed after\n it was recorded.",
+      "patternProperties": {
+        "^(overrideRecordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the override was recorded."
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "override_recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the override was recorded."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject.",
+          "type": "string"
+        }
+      },
+      "title": "Override Stale",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.OverrideStale.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.OverrideStale.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

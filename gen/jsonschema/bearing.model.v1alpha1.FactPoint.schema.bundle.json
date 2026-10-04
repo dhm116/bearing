@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.FactPoint.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactPoint is a fact's status and confidence at one point.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present; 0 is explicit."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^FACT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "FACT_STATUS_NONE",
+                "FACT_STATUS_ASSERTED",
+                "FACT_STATUS_CANDIDATE",
+                "FACT_STATUS_CONFLICTED",
+                "FACT_STATUS_OVERRIDDEN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status.",
+          "title": "Fact Status"
+        }
+      },
+      "title": "Fact Point",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.FactPoint.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.FactPoint.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,21 +1,28 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
@@ -92,8 +99,8 @@ func TestSyncWalksReposThenTeams(t *testing.T) {
 	a := testAdapter(map[string]string{"GITHUB_TOKEN": "test-token"})
 	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL, PerPage: 1})
 
-	var got []model.Observation
-	err := adapter.SyncAll(context.Background(), a, cfg, 20, func(o model.Observation) error {
+	var got adapter.Observations
+	err := adapter.SyncAll(context.Background(), a, cfg, 20, func(o *eventv1alpha1.Observation) error {
 		got = append(got, o)
 		return nil
 	})
@@ -103,28 +110,75 @@ func TestSyncWalksReposThenTeams(t *testing.T) {
 
 	var keys []model.Key
 	for _, o := range got {
-		keys = append(keys, o.Data.Entity.Key)
+		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
 	}
 	want := []model.Key{"github:repo/acme/payments-api", "github:repo/acme/docs", "github:team/acme/payments", "github:user/jdoe"}
 	if !reflect.DeepEqual(keys, want) {
 		t.Fatalf("keys = %v, want %v", keys, want)
 	}
 
-	repo := got[0].Data
-	if len(repo.Relations) != 1 || repo.Relations[0].Type != model.RelOwnedBy || repo.Relations[0].To != "github:team/acme/payments" {
-		t.Fatalf("payments-api relations = %+v", repo.Relations)
+	repo := got[0].GetData()
+	if rels := repo.GetRelations(); len(rels) != 1 || rels[0].GetType() != string(model.RelOwnedBy) || rels[0].GetTo() != "github:team/acme/payments" {
+		t.Fatalf("payments-api relations = %v", rels)
 	}
-	if repo.Relations[0].Attributes["file"] != ".github/CODEOWNERS" {
-		t.Fatalf("missing CODEOWNERS provenance: %+v", repo.Relations[0].Attributes)
+	if file := repo.GetRelations()[0].GetAttributes()["file"].GetStringValue(); file != ".github/CODEOWNERS" {
+		t.Fatalf("got CODEOWNERS file %q, want .github/CODEOWNERS", file)
 	}
-	if len(got[1].Data.Relations) != 0 {
-		t.Fatalf("docs repo has no CODEOWNERS but got %+v", got[1].Data.Relations)
+	if rels := got[1].GetData().GetRelations(); len(rels) != 0 {
+		t.Fatalf("docs repo has no CODEOWNERS but got %v", rels)
 	}
-	if team := got[2].Data; len(team.Relations) != 1 || team.Relations[0].To != "github:team/acme/engineering" {
-		t.Fatalf("team parent relation = %+v", team.Relations)
+	if rels := got[2].GetData().GetRelations(); len(rels) != 1 || rels[0].GetTo() != "github:team/acme/engineering" {
+		t.Fatalf("team parent relation = %v", rels)
 	}
-	if person := got[3].Data; person.Relations[0].To != "github:team/acme/payments" {
-		t.Fatalf("membership = %+v", person.Relations)
+	if rels := got[3].GetData().GetRelations(); rels[0].GetTo() != "github:team/acme/payments" {
+		t.Fatalf("membership = %v", rels)
+	}
+	checkGolden(t, "sync.golden.json", got)
+}
+
+var update = flag.Bool("update", false, "rewrite the golden files in testdata")
+
+// checkGolden compares obs with a golden file of ProtoJSON observations and
+// checks the file round-trips: it decodes into the generated types, every
+// observation validates, and decoding gives back exactly obs.
+func checkGolden(t *testing.T, name string, obs adapter.Observations) {
+	t.Helper()
+	compact, err := json.Marshal(obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, compact, "", "  "); err != nil {
+		t.Fatal(err)
+	}
+	pretty.WriteByte('\n')
+	path := filepath.Join("testdata", name)
+	if *update {
+		if err := os.WriteFile(path, pretty.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile(path) //nolint:gosec // G304: a golden file under testdata
+	if err != nil {
+		t.Fatalf("%v (run go test ./adapters/github -update)", err)
+	}
+	if !bytes.Equal(golden, pretty.Bytes()) {
+		t.Fatalf("output differs from %s (run go test ./adapters/github -update and review the diff):\n%s", path, pretty.String())
+	}
+	var decoded adapter.Observations
+	if err := json.Unmarshal(golden, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded) != len(obs) {
+		t.Fatalf("got %d observations from %s, want %d", len(decoded), path, len(obs))
+	}
+	for i, o := range decoded {
+		if err := model.ValidateObservation(o); err != nil {
+			t.Errorf("%s[%d]: %v", path, i, err)
+		}
+		if !proto.Equal(o, obs[i]) {
+			t.Errorf("%s[%d] decodes to %v, want %v", path, i, o, obs[i])
+		}
 	}
 }
 
@@ -193,12 +247,13 @@ func TestHandleMembershipRemoved(t *testing.T) {
 		t.Fatalf("got %d observations", len(res.Observations))
 	}
 	o := res.Observations[0]
-	if err := o.Validate(); err != nil {
+	if err := model.ValidateObservation(o); err != nil {
 		t.Fatal(err)
 	}
-	if rel := o.Data.Relations[0]; rel.To != "github:team/acme/payments" || !rel.Absent {
-		t.Fatalf("relation = %+v, want absent membership", rel)
+	if rel := o.GetData().GetRelations()[0]; rel.GetTo() != "github:team/acme/payments" || !rel.GetAbsent() {
+		t.Fatalf("relation = %v, want absent membership", rel)
 	}
+	checkGolden(t, "handle-membership-removed.golden.json", res.Observations)
 }
 
 func TestHandleNeedsWebhookSecret(t *testing.T) {
@@ -238,9 +293,10 @@ func TestHandleRepositoryDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := res.Observations[0].Data.Entity; e.Key != "github:repo/acme/x" || !e.Deleted {
-		t.Fatalf("entity = %+v", e)
+	if e := res.Observations[0].GetData().GetEntity(); e.GetKey() != "github:repo/acme/x" || !e.GetDeleted() {
+		t.Fatalf("entity = %v", e)
 	}
+	checkGolden(t, "handle-repository-deleted.golden.json", res.Observations)
 }
 
 func TestHandleIgnoresUnknownEvents(t *testing.T) {

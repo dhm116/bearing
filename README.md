@@ -32,8 +32,9 @@ keeps the adapters that fetch it small.
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
-| [`schema/observation.v1.schema.json`](schema/observation.v1.schema.json) | JSON Schema for the observation envelope |
-| [`pkg/model`](pkg/model) | Go types for entity kinds, relations and observations |
+| [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`): the only source of truth for the data model and events |
+| [`gen/`](gen/) | Code generated from `proto/` by `make generate`: Go types in `gen/go`, JSON Schema in `gen/jsonschema` |
+| [`pkg/model`](pkg/model) | Helpers around the generated types: kind and predicate registry, keys, validation, `fact_id` |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
 | [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
@@ -47,14 +48,15 @@ keeps the adapters that fetch it small.
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
 | [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
-| [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck) and the coverage gate, in their own Go module |
+| [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
 ## Try it
 
 Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
 
 ```sh
-make check         # everything CI runs: lint, tests with the coverage gate, govulncheck, build
+make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
+make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
 make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # also run the SurrealDB suites
 make build         # builds bin/bearing and bin/bearing-adapter-github
@@ -62,11 +64,10 @@ make build         # builds bin/bearing and bin/bearing-adapter-github
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github
 
-# Sync an organization and validate the output
+# Sync an organization; observations are checked as they arrive
 export GITHUB_TOKEN=...   # read-only: metadata, contents, members
 echo '{"org":"your-org"}' > github.json
 bin/bearing adapter sync --config github.json -- bin/bearing-adapter-github > obs.ndjson
-bin/bearing validate obs.ndjson
 ```
 
 ## Design in one paragraph

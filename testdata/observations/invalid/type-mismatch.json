@@ -1,0 +1,48 @@
+{
+  "specversion": "1.0",
+  "id": "github:repo_node/R_kgDOH1a2b3@2026-09-28T01:30:00.000000Z",
+  "source": "adapter/github",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-09-28T01:30:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Repository",
+      "key": "github:repo_node/R_kgDOH1a2b3",
+      "aliases": [
+        "github:repo/acme/payments-api"
+      ],
+      "attributes": {
+        "name": "payments-api",
+        "default_branch": "main",
+        "language": "Go",
+        "topics": [],
+        "description": null,
+        "codeowners_rules": 1,
+        "archived": "yes"
+      }
+    },
+    "relations": [
+      {
+        "type": "approves_changes",
+        "to": "github:team/acme/payments",
+        "attributes": {
+          "pattern": "*",
+          "file": ".github/CODEOWNERS",
+          "line": 1
+        }
+      }
+    ],
+    "snapshots": [
+      {
+        "direction": "DIRECTION_OUT",
+        "predicates": [
+          "approves_changes"
+        ]
+      }
+    ],
+    "evidence": {
+      "url": "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS"
+    }
+  }
+}

@@ -19,7 +19,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -134,7 +133,7 @@ func dispatch(ctx context.Context, a Adapter, req request) (any, *Error) {
 			return nil, toError(err)
 		}
 		if res.Observations == nil {
-			res.Observations = []model.Observation{}
+			res.Observations = Observations{}
 		}
 		countEmitted(ctx, req.Method, res.Observations)
 		trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(res.Observations)), attribute.Bool("bearing.sync.done", res.Done))
@@ -149,7 +148,7 @@ func dispatch(ctx context.Context, a Adapter, req request) (any, *Error) {
 			return nil, toError(err)
 		}
 		if res.Observations == nil {
-			res.Observations = []model.Observation{}
+			res.Observations = Observations{}
 		}
 		countEmitted(ctx, req.Method, res.Observations)
 		trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(res.Observations)))
@@ -159,13 +158,13 @@ func dispatch(ctx context.Context, a Adapter, req request) (any, *Error) {
 	}
 }
 
-func countEmitted(ctx context.Context, method string, obs []model.Observation) {
-	byKind := map[model.Kind]int64{}
+func countEmitted(ctx context.Context, method string, obs Observations) {
+	byKind := map[string]int64{}
 	for _, o := range obs {
-		byKind[o.Data.Entity.Kind]++
+		byKind[o.GetData().GetEntity().GetKind()]++
 	}
 	for k, n := range byKind {
-		observationsEmitted.Add(ctx, n, metric.WithAttributes(semconv.RPCMethod(method), attrKind.String(string(k))))
+		observationsEmitted.Add(ctx, n, metric.WithAttributes(semconv.RPCMethod(method), attrKind.String(k)))
 	}
 }
 

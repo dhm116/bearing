@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "OIDC subject or agent token ID.",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.MergeRequested.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergeRequested merges two subjects (rule manual).",
+      "patternProperties": {
+        "^(clearDistinctFrom)$": {
+          "default": false,
+          "description": "Also withdraws a distinct_from between them.",
+          "type": "boolean"
+        },
+        "^(subjectIds)$": {
+          "description": "Exactly two subjects of one kind.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who asked."
+        },
+        "clear_distinct_from": {
+          "default": false,
+          "description": "Also withdraws a distinct_from between them.",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "subject_ids": {
+          "description": "Exactly two subjects of one kind.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Merge Requested",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.MergeRequested.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.MergeRequested.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

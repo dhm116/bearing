@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.MintedBy.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MintedBy records the event and rule that minted a subject.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply minted the subject.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply minted the subject.",
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "pattern": "^MINT_RULE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MINT_RULE_OBSERVATION",
+                "MINT_RULE_REFERENCE",
+                "MINT_RULE_SPLIT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The minting rule.",
+          "title": "Mint Rule"
+        }
+      },
+      "title": "Minted By",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.MintedBy.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.MintedBy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
