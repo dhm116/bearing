@@ -113,6 +113,7 @@ func buildFixture(t *testing.T, root string) (*Builder, string) {
 			{ID: "spec", Title: "Specification", Short: "Spec", Dir: "docs/spec", Path: "spec", Order: []string{"b.md"}},
 			{ID: "decisions", Title: "Decisions", Short: "Decisions", Dir: "docs/adr", Path: "decisions"},
 		},
+		Nav: []Link{{Label: "Spec", Href: "spec/"}, {Label: "Elsewhere", Href: "https://example.com/x"}},
 	}
 	out := filepath.Join(t.TempDir(), "_site")
 	b := &Builder{
@@ -133,7 +134,17 @@ func TestBuildReportsBrokenLinksAndAnchors(t *testing.T) {
 			"[missing](gone.md), ![image](missing.png), [root](/docs/spec/b.md#real)\n",
 		"docs/spec/b.md": "# B\n\n## Real\n\nText.\n",
 	})
-	b, _ := buildFixture(t, root)
+	b, out := buildFixture(t, root)
+	page, err := os.ReadFile(filepath.Join(out, "spec", "b", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{`<h1 id="b">`, `href="https://example.com/x"`} {
+		if !strings.Contains(string(page), w) {
+			t.Errorf("got spec/b/ without %s", w)
+		}
+	}
+	// The external nav link is used as is, so it adds no problem.
 	want := []string{
 		"/spec/a/: link to /spec/b/#nope, which has no such heading",
 		"docs/spec/a.md: link gone.md points at docs/spec/gone.md, which does not exist",

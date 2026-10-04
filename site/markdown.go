@@ -27,9 +27,11 @@ type Heading struct {
 // Rendered is one Markdown document turned into HTML.
 type Rendered struct {
 	Title string
-	HTML  string
-	TOC   []Heading
-	IDs   map[string]bool
+	// TitleID is the title's heading ID, which GitHub links can target.
+	TitleID string
+	HTML    string
+	TOC     []Heading
+	IDs     map[string]bool
 	// Lede is the first paragraph's text.
 	Lede string
 }
@@ -64,11 +66,10 @@ func RenderMarkdown(file string, src []byte, res Resolver) (*Rendered, error) {
 			if n.Level == 1 && title == nil {
 				// The title is removed from the body, but GitHub gives it an
 				// ID, so links to it and later repeats are numbered alike.
-				title, out.Title = n, txt
+				title, out.Title, out.TitleID = n, txt, id
 				return ast.WalkSkipChildren, nil
 			}
 			n.SetAttributeString("id", []byte(id))
-			out.IDs[id] = true
 			seenSection = true
 			if n.Level >= 2 && n.Level <= 3 {
 				out.TOC = append(out.TOC, Heading{Level: n.Level, ID: id, Text: txt})

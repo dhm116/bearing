@@ -5,7 +5,7 @@
   <article class="docs__main">
     <header class="dochead">
       <p class="crumbs"><a href="{{url (printf "%s/" .Collection.Path)}}">{{.Collection.Title}}</a>{{if not $doc.Index}}<span aria-hidden="true">/</span><span>{{if $doc.Number}}ADR {{$doc.Number}}{{else}}{{$doc.Title}}{{end}}</span>{{end}}</p>
-      <h1>{{$doc.Label}}</h1>
+      <h1{{with $doc.TitleID}} id="{{.}}"{{end}}>{{$doc.Label}}</h1>
       <div class="dochead__meta">
         {{if $doc.Version}}<span class="chip">Version {{$doc.Version}}</span>{{end}}
         {{if $doc.Status}}<span class="chip chip--adr-{{$doc.Status}}">{{$doc.Status}}</span>{{end}}
