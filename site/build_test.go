@@ -97,11 +97,11 @@ func TestResolveLinkReportsMissingTargets(t *testing.T) {
 func TestResolveLinkMapsRepoFiles(t *testing.T) {
 	b, _ := buildRepoSite(t, "/b/")
 	cases := map[string]string{
-		"data-model.md#terms":                     "/b/spec/data-model/#terms",
-		"../adr/0009-wasm-adapters.md":            "/b/decisions/0009-wasm-adapters/",
-		"../../pkg/model":                         "https://github.com/dhm116/bearing/tree/main/pkg/model",
-		"../../schema/observation.v1.schema.json": "https://github.com/dhm116/bearing/blob/main/schema/observation.v1.schema.json",
-		"https://example.com/":                    "https://example.com/",
+		"data-model.md#terms":          "/b/spec/data-model/#terms",
+		"../adr/0009-wasm-adapters.md": "/b/decisions/0009-wasm-adapters/",
+		"../../pkg/model":              "https://github.com/dhm116/bearing/tree/main/pkg/model",
+		"../../LICENSE":                "https://github.com/dhm116/bearing/blob/main/LICENSE",
+		"https://example.com/":         "https://example.com/",
 	}
 	for dest, want := range cases {
 		t.Run(dest, func(t *testing.T) {
