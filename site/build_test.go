@@ -71,17 +71,23 @@ func TestHandWrittenPagesStayInPlainTerms(t *testing.T) {
 	// Checked against the markup.
 	inMarkup := map[string]*regexp.Regexp{
 		"a link to a decision record": regexp.MustCompile(`href="[^"]*(?:/adr/|decisions/)`),
-		// Diagrams animate with CSS transforms, which replace an SVG
-		// transform attribute on the same element and move it to 0,0.
-		"a transform on an animated element": regexp.MustCompile(`<[^>]*class="[^"]*"[^>]*\stransform=|<[^>]*\stransform="[^"]*"[^>]*class=`),
+		// Diagrams animate classed elements with CSS transforms, which
+		// replace an SVG transform attribute on the same element and move
+		// it to 0,0. So position with a transform on an unclassed wrapper.
+		"a transform on a classed element": regexp.MustCompile(`<[^>]*class="[^"]*"[^>]*\stransform=|<[^>]*\stransform="[^"]*"[^>]*class=`),
 	}
 	tags := regexp.MustCompile(`<[^>]*>`)
-	for _, page := range []string{"index.html", "how-it-works/index.html", "roadmap/index.html"} {
+	// Attribute text people also read: screen readers, tooltips, images.
+	attrs := regexp.MustCompile(`\s(?:aria-label|title|alt|placeholder)="([^"]*)"`)
+	for _, page := range []string{"index.html", "how-it-works/index.html", "roadmap/index.html", "404.html"} {
 		raw, err := os.ReadFile(filepath.Join(out, page))
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := tags.ReplaceAll(raw, []byte(" "))
+		for _, m := range attrs.FindAllSubmatch(raw, -1) {
+			text = append(append(text, ' '), m[1]...)
+		}
 		for what, re := range inText {
 			if m := re.Find(text); m != nil {
 				t.Errorf("%s: got %s (%q)", page, what, m)

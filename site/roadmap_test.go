@@ -74,9 +74,6 @@ func TestBuildRoadmapDerivesStatuses(t *testing.T) {
 				t.Errorf("got %s (%s) in the %s group", f.Name, f.Status, g.Status)
 			}
 		}
-		if r.Counts[string(g.Status)] != len(g.Features) {
-			t.Errorf("got count %d for %s, want %d", r.Counts[string(g.Status)], g.Status, len(g.Features))
-		}
 		grouped += len(g.Features)
 	}
 	if grouped != len(want) {

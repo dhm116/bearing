@@ -547,12 +547,6 @@ func (b *Builder) funcs(from string) template.FuncMap {
 		"lower": strings.ToLower,
 		"date":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
 		"add":   func(a, c int) int { return a + c },
-		"pct": func(n, d int) int {
-			if d == 0 {
-				return 0
-			}
-			return n * 100 / d
-		},
 	}
 }
 

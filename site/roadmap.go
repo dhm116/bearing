@@ -70,7 +70,6 @@ type Roadmap struct {
 	Areas []*AreaView
 	// Groups holds every feature by status, in the order of statuses.
 	Groups []*StatusGroup
-	Counts map[string]int
 	// Live is false when GitHub couldn't be read; statuses are then guesses.
 	Live bool
 }
@@ -173,7 +172,7 @@ func (f *RoadmapFile) validate() error {
 // BuildRoadmap combines roadmap.yaml with GitHub's milestones and issues.
 // gh may be nil when GitHub can't be reached.
 func BuildRoadmap(f *RoadmapFile, gh *GitHubData) *Roadmap {
-	r := &Roadmap{Live: gh != nil, Counts: map[string]int{}}
+	r := &Roadmap{Live: gh != nil}
 	states := milestoneStates(f.Milestones, gh)
 	issues := map[int]string{}
 	if gh != nil {
@@ -198,7 +197,6 @@ func BuildRoadmap(f *RoadmapFile, gh *GitHubData) *Roadmap {
 			Area: areas[spec.Area], Links: spec.Links,
 		}
 		fv.Status = featureStatus(spec, states[spec.Milestone], issues)
-		r.Counts[string(fv.Status)]++
 		fv.Area.Features = append(fv.Area.Features, fv)
 		groups[fv.Status].Features = append(groups[fv.Status].Features, fv)
 	}
