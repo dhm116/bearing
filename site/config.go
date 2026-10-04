@@ -25,7 +25,7 @@ type Config struct {
 }
 
 // Link is a label and a target. Href is site-relative ("spec/") unless it
-// has a scheme.
+// has a scheme, in which case it is used as is.
 type Link struct {
 	Label string `yaml:"label"`
 	Href  string `yaml:"href"`

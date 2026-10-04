@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,7 +32,6 @@ type Builder struct {
 	Config  *Config
 	Roadmap *Roadmap
 	Build   BuildInfo
-	Log     *slog.Logger
 
 	docs     map[string]*DocPage // by repo path
 	cols     []*CollectionView
@@ -128,6 +126,24 @@ var (
 // Run builds the whole site. Broken internal links are reported as
 // problems; the caller decides whether they fail the build.
 func (b *Builder) Run() error {
+	if err := b.run(); err != nil {
+		return fmt.Errorf("site: build: %w", err)
+	}
+	return nil
+}
+
+// Close releases the repository handle that methods called after Run,
+// such as ResolveLink, open on demand.
+func (b *Builder) Close() error {
+	if b.repo == nil {
+		return nil
+	}
+	err := b.repo.Close()
+	b.repo = nil
+	return err
+}
+
+func (b *Builder) run() error {
 	b.docs = map[string]*DocPage{}
 	b.pageIDs = map[string]map[string]bool{}
 	b.assets = map[string]bool{}
@@ -139,7 +155,7 @@ func (b *Builder) Run() error {
 	if _, err := b.repoFS(); err != nil {
 		return err
 	}
-	defer func() { _ = b.repo.Close(); b.repo = nil }()
+	defer func() { _ = b.Close() }()
 	if err := b.copyStatic(); err != nil {
 		return err
 	}
@@ -482,6 +498,9 @@ func (b *Builder) funcs(from string) template.FuncMap {
 	return template.FuncMap{
 		// url makes a site path absolute and records it for the link check.
 		"url": func(p string) string {
+			if schemeRE.MatchString(p) {
+				return p
+			}
 			target, frag, _ := strings.Cut(p, "#")
 			b.links = append(b.links, linkRef{from: from, to: target, frag: frag})
 			return b.Base + p

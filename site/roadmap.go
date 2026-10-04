@@ -11,18 +11,25 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Feature statuses shown on the site.
+// Status is a feature's status on the site.
+type Status string
+
+// Feature statuses.
 const (
-	StatusReady      = "ready"
-	StatusInProgress = "in-progress"
-	StatusPlanned    = "planned"
+	StatusReady      Status = "ready"
+	StatusInProgress Status = "in-progress"
+	StatusPlanned    Status = "planned"
 )
 
-// Milestone states.
+// MilestoneState is where a milestone stands.
+type MilestoneState string
+
+// Milestone states. More than one milestone can be active: the first open
+// one, and any later one with closed issues.
 const (
-	MilestoneDone    = "done"
-	MilestoneActive  = "active"
-	MilestonePlanned = "planned"
+	MilestoneDone    MilestoneState = "done"
+	MilestoneActive  MilestoneState = "active"
+	MilestonePlanned MilestoneState = "planned"
 )
 
 // RoadmapFile is roadmap.yaml.
@@ -52,7 +59,7 @@ type FeatureSpec struct {
 	Name      string `yaml:"name"`
 	Area      string `yaml:"area"`
 	Summary   string `yaml:"summary"`
-	Status    string `yaml:"status"`
+	Status    Status `yaml:"status"`
 	Milestone int    `yaml:"milestone"`
 	Issues    []int  `yaml:"issues"`
 	Links     []Link `yaml:"links"`
@@ -74,7 +81,7 @@ type MilestoneView struct {
 	Code    string
 	Name    string
 	Summary string
-	State   string
+	State   MilestoneState
 	URL     string
 	Open    int
 	Closed  int
@@ -104,7 +111,7 @@ type FeatureView struct {
 	Name      string
 	Slug      string
 	Summary   string
-	Status    string
+	Status    Status
 	Milestone *MilestoneView
 	Issues    []IssueView
 	Links     []Link
@@ -119,7 +126,7 @@ type IssueView struct {
 }
 
 // StatusLabel is the human label for a status.
-func StatusLabel(s string) string {
+func StatusLabel(s Status) string {
 	switch s {
 	case StatusReady:
 		return "Ready"
@@ -128,23 +135,23 @@ func StatusLabel(s string) string {
 	case StatusPlanned:
 		return "Planned"
 	}
-	return s
+	return string(s)
 }
 
 // LoadRoadmap reads and checks roadmap.yaml.
 func LoadRoadmap(path string) (*RoadmapFile, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("roadmap: read: %w", err)
+		return nil, fmt.Errorf("site: read roadmap: %w", err)
 	}
 	var f RoadmapFile
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("roadmap: parse %s: %w", path, err)
+		return nil, fmt.Errorf("site: parse %s: %w", path, err)
 	}
 	if err := f.validate(); err != nil {
-		return nil, fmt.Errorf("roadmap: %s: %w", path, err)
+		return nil, fmt.Errorf("site: %s: %w", path, err)
 	}
 	return &f, nil
 }
@@ -250,7 +257,7 @@ func BuildRoadmap(f *RoadmapFile, gh *GitHubData, repo string) *Roadmap {
 			fv.Issues = append(fv.Issues, iv)
 		}
 		fv.Status = featureStatus(spec, fv)
-		r.Counts[fv.Status]++
+		r.Counts[string(fv.Status)]++
 		areas[spec.Area].Features = append(areas[spec.Area].Features, fv)
 	}
 	return r
@@ -262,7 +269,7 @@ func BuildRoadmap(f *RoadmapFile, gh *GitHubData, repo string) *Roadmap {
 //     milestone, is in progress; otherwise planned;
 //  3. with only a milestone: done is ready, active is in progress,
 //     otherwise planned.
-func featureStatus(spec FeatureSpec, fv *FeatureView) string {
+func featureStatus(spec FeatureSpec, fv *FeatureView) Status {
 	if spec.Status != "" {
 		return spec.Status
 	}

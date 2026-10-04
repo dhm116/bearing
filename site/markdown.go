@@ -59,11 +59,14 @@ func RenderMarkdown(file string, src []byte, res Resolver) (*Rendered, error) {
 		switch n := n.(type) {
 		case *ast.Heading:
 			txt := plainText(n, src)
+			id := slugs.slug(txt)
+			out.IDs[id] = true
 			if n.Level == 1 && title == nil {
+				// The title is removed from the body, but GitHub gives it an
+				// ID, so links to it and later repeats are numbered alike.
 				title, out.Title = n, txt
 				return ast.WalkSkipChildren, nil
 			}
-			id := slugs.slug(txt)
 			n.SetAttributeString("id", []byte(id))
 			out.IDs[id] = true
 			seenSection = true
@@ -199,10 +202,12 @@ func slugify(text string) string {
 
 var schemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`)
 
-// splitLink splits a relative link into its path and fragment. ok is false
-// for absolute URLs, fragments only and anything with a query.
+// splitLink splits a repository link into its path and fragment; a path
+// starting with "/" is relative to the repository root, as on GitHub. ok is
+// false for URLs with a scheme or host, fragments only and anything with a
+// query.
 func splitLink(dest string) (p, frag string, ok bool) {
-	if dest == "" || strings.HasPrefix(dest, "#") || strings.HasPrefix(dest, "/") || schemeRE.MatchString(dest) {
+	if dest == "" || strings.HasPrefix(dest, "#") || strings.HasPrefix(dest, "//") || schemeRE.MatchString(dest) {
 		return "", "", false
 	}
 	u, err := url.Parse(dest)
@@ -212,7 +217,11 @@ func splitLink(dest string) (p, frag string, ok bool) {
 	return u.Path, u.Fragment, true
 }
 
-// repoPath resolves a link path relative to the file at repo path src.
+// repoPath resolves a link path relative to the file at repo path src, or
+// to the repository root when it starts with "/".
 func repoPath(src, p string) string {
+	if strings.HasPrefix(p, "/") {
+		return path.Clean(strings.TrimPrefix(p, "/"))
+	}
 	return path.Clean(path.Join(path.Dir(src), p))
 }

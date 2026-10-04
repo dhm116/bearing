@@ -9,7 +9,7 @@ import (
 
 func testRoadmapFile() *RoadmapFile {
 	return &RoadmapFile{
-		Milestones: []MilestoneSpec{{Number: 1}, {Number: 2}, {Number: 3}, {Number: 4, Title: "M3. Later"}},
+		Milestones: []MilestoneSpec{{Number: 1}, {Number: 2}, {Number: 3}, {Number: 4, Title: "M3. Later"}, {Number: 5}},
 		Areas:      []AreaSpec{{Name: "Core"}},
 		Features: []FeatureSpec{
 			{Name: "Explicit", Area: "Core", Status: StatusReady},
@@ -32,6 +32,7 @@ func testGitHubData() *GitHubData {
 			{Number: 1, Title: "M0: Guardrails", State: "closed", Closed: 6, URL: "https://github.com/o/r/milestone/1"},
 			{Number: 2, Title: "M1. Data model", State: "open", Open: 2, Closed: 1},
 			{Number: 3, Title: "M2. Walking skeleton", State: "open", Open: 2},
+			{Number: 5, Title: "M4. Started early", State: "open", Open: 3, Closed: 1},
 		},
 		Issues: map[int]Issue{
 			10: {Number: 10, State: "closed", Title: "Ten", URL: "https://github.com/o/r/issues/10"},
@@ -43,7 +44,7 @@ func testGitHubData() *GitHubData {
 
 func TestBuildRoadmapDerivesStatuses(t *testing.T) {
 	r := BuildRoadmap(testRoadmapFile(), testGitHubData(), "o/r")
-	want := map[string]string{
+	want := map[string]Status{
 		"Explicit":                     StatusReady,
 		"Done milestone":               StatusReady,
 		"Active milestone":             StatusInProgress,
@@ -62,7 +63,7 @@ func TestBuildRoadmapDerivesStatuses(t *testing.T) {
 			}
 		})
 	}
-	if got := r.Counts[StatusReady] + r.Counts[StatusInProgress] + r.Counts[StatusPlanned]; got != len(want) {
+	if got := r.Counts[string(StatusReady)] + r.Counts[string(StatusInProgress)] + r.Counts[string(StatusPlanned)]; got != len(want) {
 		t.Fatalf("got %d counted, want %d", got, len(want))
 	}
 }
@@ -71,11 +72,12 @@ func TestBuildRoadmapDerivesMilestoneStates(t *testing.T) {
 	r := BuildRoadmap(testRoadmapFile(), testGitHubData(), "o/r")
 	got := []string{}
 	for _, m := range r.Milestones {
-		got = append(got, m.Code+"="+m.State)
+		got = append(got, m.Code+"="+string(m.State))
 	}
-	// The first open milestone is active; a later one with nothing closed
-	// is planned; one GitHub doesn't know keeps its roadmap.yaml title.
-	want := "M0=done M1=active M2=planned M3=planned"
+	// The first open milestone is active, and so is a later one with closed
+	// issues; a later one with nothing closed is planned; one GitHub doesn't
+	// know keeps its roadmap.yaml title. The first active one is current.
+	want := "M0=done M1=active M2=planned M3=planned M4=active"
 	if strings.Join(got, " ") != want {
 		t.Fatalf("got %s, want %s", strings.Join(got, " "), want)
 	}

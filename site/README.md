@@ -14,8 +14,9 @@ repository itself, so it stays current without edits here:
 | Home, How it works | Hand-written templates in [`templates/`](templates/); code samples on them are quoted from the spec at build time |
 | Logo, colors, type | [`docs/brand/`](../docs/brand/) (the logo SVGs are copied, the tokens are mirrored in [`static/css/tokens.css`](static/css/tokens.css)) |
 
-The site rebuilds on every push to `main` that touches `docs/`, `site/` or
-the README, and once a day so roadmap progress follows GitHub.
+The site rebuilds on every push to `main`, and once a day so roadmap
+progress follows GitHub. Pull requests build it without publishing, so a
+change that breaks a docs link fails there.
 
 ## Preview locally
 
@@ -50,8 +51,9 @@ Bearing, so it logs with plain `slog` and calls GitHub without `otelhttp`.
 
 **A spec document or ADR.** Add or edit the Markdown in `docs/`. Nothing to
 change here. Link between documents with relative `.md` links as you would
-for GitHub; the generator rewrites them to site pages, sends links to code
-and other files to GitHub, and checks every anchor. To set the order of
+for GitHub (relative, or from the repository root with a leading `/`); the
+generator rewrites them to site pages, sends links to code and other files
+to GitHub, and checks every anchor. To set the order of
 spec pages, edit `order` under the `spec` collection in
 [`site.yaml`](site.yaml); unlisted files follow alphabetically.
 
@@ -60,10 +62,13 @@ spec pages, edit `order` under the `spec` collection in
 either the GitHub `issues` that track it or the `milestone` it belongs to.
 Its status follows GitHub:
 
-- With issues: all closed is **ready**; some closed, or its milestone is the
-  one in progress, is **in progress**; otherwise **planned**.
+- With issues: all closed is **ready**; some closed, or its milestone is in
+  progress, is **in progress**; otherwise **planned**.
 - With only a milestone: closed is **ready**, in progress is **in
   progress**, otherwise **planned**.
+
+A milestone is in progress when it is the first open one, or when any of
+its issues are closed.
 
 Set `status` by hand only for work GitHub doesn't track: code that predates
 the milestones, or ideas for after the MVP. The build refuses unknown

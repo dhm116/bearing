@@ -65,7 +65,7 @@ func run(args []string, log *slog.Logger) error {
 
 	b := &Builder{
 		Root: *root, SiteDir: *siteDir, Out: *out, Base: normalizeBase(*base),
-		Config: cfg, Roadmap: BuildRoadmap(rf, gh, cfg.Repo), Log: log,
+		Config: cfg, Roadmap: BuildRoadmap(rf, gh, cfg.Repo),
 		Build: BuildInfo{Commit: commit(*root), Time: time.Now().UTC()},
 	}
 	if err := b.Run(); err != nil {

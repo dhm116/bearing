@@ -44,7 +44,8 @@ func TestSplitLinkKeepsOnlyRelativeLinks(t *testing.T) {
 		{"#terms", "", "", false},
 		{"https://example.com/x.md", "", "", false},
 		{"mailto:someone@example.com", "", "", false},
-		{"/abs/path.md", "", "", false},
+		{"/docs/spec/a.md#x", "/docs/spec/a.md", "x", true},
+		{"//example.com/x.md", "", "", false},
 		{"x.md?raw=1", "", "", false},
 	}
 	for _, c := range cases {

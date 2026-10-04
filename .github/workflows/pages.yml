@@ -4,21 +4,12 @@ name: Pages
 # requests build it, with links checked, but don't publish. The daily run
 # refreshes milestone progress and issue states on the roadmap.
 
+# No path filters: docs link to code anywhere in the repository, so any
+# change can break a link, and the build is cheap.
 on:
   push:
     branches: [main]
-    paths:
-      - "docs/**"
-      - "site/**"
-      - "README.md"
-      - ".github/workflows/pages.yml"
   pull_request:
-    paths:
-      - "docs/**"
-      - "site/**"
-      - "README.md"
-      - ".golangci.yml"
-      - ".github/workflows/pages.yml"
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
