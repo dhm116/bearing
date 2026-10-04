@@ -1,0 +1,204 @@
+# Features and milestones shown on the roadmap page.
+#
+# Milestone titles, open/closed state and progress come from GitHub at
+# build time; this file only adds a one-line summary. `number` is the
+# GitHub milestone number.
+#
+# A feature's status comes from GitHub unless `status` is set:
+#   - with `issues`: all closed is ready; some closed, or its milestone is
+#     active, is in progress; otherwise planned.
+#   - with only `milestone`: a closed milestone is ready, an active one is
+#     in progress, otherwise planned.
+# Set `status` (ready, in-progress, planned) only for work that GitHub
+# doesn't track, such as code that predates the milestones or ideas for
+# after the MVP.
+
+milestones:
+  - number: 1
+    title: "M0: Guardrails"
+    summary: CI that fails on lint findings, coverage drops and known vulnerabilities, plus the threat model, reviewer rubrics and test fakes.
+  - number: 2
+    title: "M1. Data model"
+    summary: Stable subjects and facts over time, written into the spec first, then as Protobuf types with generated Go.
+  - number: 3
+    title: "M2. Walking skeleton"
+    summary: The resolver turns observations into facts and applies them idempotently, and the CLI gives its first real answers.
+  - number: 4
+    title: "M3. Durable, always-on core"
+    summary: A server where every input is a durable event, every change is in a hash-chained audit log, and webhooks are verified before they are stored.
+  - number: 5
+    title: "M4. WASM adapters and capabilities"
+    summary: Adapters run as sandboxed WebAssembly modules that reach the outside world only through capabilities they were granted.
+  - number: 6
+    title: "M5. Configuration from files"
+    summary: Adapters and sources declared as resources in files, with secret references, validation against each adapter and a diff before applying.
+  - number: 7
+    title: "M6. Semantic search"
+    summary: A vector index beside the graph with a local embedding model, so fuzzy questions work without calling a hosted model.
+  - number: 8
+    title: "M7. The demo"
+    summary: GitHub and an identity directory answering for people through the CLI and for agents through MCP, from a one-command quick start.
+
+areas:
+  - name: Data model and spec
+    summary: The data worth having, written down so anyone can build an adapter or backend from the documents alone.
+  - name: Adapters
+    summary: Small, stateless readers of the tools an organization already runs.
+  - name: Core
+    summary: Turning observations into trustworthy facts, durably and with an audit trail.
+  - name: Storage and search
+    summary: Pluggable backends behind contracts, with one database to start.
+  - name: Surfaces
+    summary: Where people and agents ask their questions.
+  - name: Operations and quality
+    summary: What keeps Bearing observable, secure and consistent as it grows.
+
+features:
+  # Data model and spec
+  - name: Data model with stable subjects and facts over time
+    area: Data model and spec
+    summary: Subjects with Bearing-minted IDs, aliases from every source, and facts with valid time, provenance and confidence.
+    milestone: 2
+    issues: [13]
+    links:
+      - { label: Read the data model, href: spec/data-model/ }
+  - name: Protobuf model and event types
+    area: Data model and spec
+    summary: Protobuf as the single source of truth for every type, with generated Go and validation at every way in.
+    milestone: 2
+    issues: [11]
+    links:
+      - { label: ADR 6, href: decisions/0006-protobuf-contracts/ }
+  - name: Component contracts
+    area: Data model and spec
+    summary: Interfaces between core components, each with a default backend and a conformance suite any replacement must pass.
+    status: ready
+    links:
+      - { label: Read the contracts, href: spec/contracts/ }
+
+  # Adapters
+  - name: GitHub adapter
+    area: Adapters
+    summary: Repositories, CODEOWNERS, teams and members. Runs today as a local process; moves to WebAssembly in M4.
+    status: ready
+    links:
+      - { label: Adapter protocol, href: spec/adapter-protocol/ }
+  - name: WebAssembly adapter spike
+    area: Adapters
+    summary: Proved the GitHub adapter runs unchanged as a WASM module with identical output, and measured what it costs.
+    milestone: 1
+    issues: [7]
+    links:
+      - { label: ADR 9, href: decisions/0009-wasm-adapters/ }
+  - name: Sandboxed WebAssembly adapters
+    area: Adapters
+    summary: Adapters as WASM modules with deny-by-default capability grants, per-call limits and credentials the module never sees.
+    milestone: 5
+  - name: Identity directory adapter
+    area: Adapters
+    summary: People and groups from an identity directory such as Authentik, so a GitHub login and a directory account resolve to one person.
+    milestone: 8
+  - name: AWS adapter
+    area: Adapters
+    summary: Accounts, tagged resources and CloudTrail changes.
+    status: planned
+  - name: PagerDuty adapter
+    area: Adapters
+    summary: Services, schedules, escalation policies and incidents, with on-call shifts as time-bounded facts.
+    status: planned
+  - name: Backstage catalog import
+    area: Adapters
+    summary: Reads catalog-info.yaml as declared signals, so an existing Backstage install becomes an input rather than a migration.
+    status: planned
+
+  # Core
+  - name: Resolver and idempotent apply
+    area: Core
+    summary: Observations resolve to subjects and facts; applying the same event twice, or a sync and a webhook in either order, gives the same graph.
+    milestone: 3
+  - name: Durable event log
+    area: Core
+    summary: Every webhook and sync is logged before it is acknowledged, so the graph can be rebuilt by replaying the log.
+    milestone: 4
+    links:
+      - { label: ADR 7, href: decisions/0007-durable-event-log/ }
+  - name: Hash-chained audit log
+    area: Core
+    summary: Every change records who or what made it, written in the same transaction, with a verify command that finds tampering.
+    milestone: 4
+    links:
+      - { label: ADR 8, href: decisions/0008-audit-log/ }
+  - name: Verified webhook ingest
+    area: Core
+    summary: A separate ingest listener that checks size and signature before anything is stored.
+    milestone: 4
+  - name: Configuration as resources
+    area: Core
+    summary: Adapter and Source resources in files, secrets only as references, and a diff of settings and grants before they apply.
+    milestone: 6
+    links:
+      - { label: ADR 10, href: decisions/0010-configuration-as-resources/ }
+
+  # Storage and search
+  - name: Graph store and vector index contracts
+    area: Storage and search
+    summary: GraphStore and VectorIndex interfaces with conformance suites every backend must pass.
+    status: ready
+    links:
+      - { label: Contracts, href: spec/contracts/ }
+  - name: In-memory reference backend
+    area: Storage and search
+    summary: The mem:// store for tests and demos, and the reference every other backend is checked against.
+    status: ready
+  - name: SurrealDB backend
+    area: Storage and search
+    summary: One database for both the graph and vectors, as a server or embedded in the binary.
+    status: ready
+    links:
+      - { label: ADR 5, href: decisions/0005-one-store-to-start/ }
+  - name: Semantic search
+    area: Storage and search
+    summary: Fuzzy questions answered from a vector index, with every result verified against the graph.
+    milestone: 7
+
+  # Surfaces
+  - name: Developer CLI
+    area: Surfaces
+    summary: "bearing adapter describe, adapter sync and validate: run an adapter and check what it emits."
+    status: ready
+  - name: Ownership and lookup answers
+    area: Surfaces
+    summary: Ask who owns a repository or what Bearing knows about a subject, with the source, confidence and time behind each answer.
+    milestone: 3
+  - name: Read-only MCP server for agents
+    area: Surfaces
+    summary: The same answers for AI agents, with text from source systems marked as untrusted.
+    milestone: 8
+  - name: One-command quick start
+    area: Surfaces
+    summary: A demo that replays a fictional organization through the real pipeline, and a hardened docker compose file.
+    milestone: 8
+  - name: Web UI
+    area: Surfaces
+    summary: Browse subjects, facts and changes in a browser.
+    status: planned
+  - name: Policy-checked actions
+    area: Surfaces
+    summary: Run approved actions such as a rollback through the tools an organization already uses, with policy checks and audit.
+    status: planned
+
+  # Operations and quality
+  - name: OpenTelemetry everywhere
+    area: Operations and quality
+    summary: Logs, traces and metrics from every component; one sync is one trace across the CLI, the adapter and every upstream call.
+    status: ready
+  - name: CI guardrails
+    area: Operations and quality
+    summary: Lint, a changed-line coverage gate, govulncheck and the SurrealDB suites on every pull request.
+    milestone: 1
+    issues: [8]
+  - name: Threat model and security policy
+    area: Operations and quality
+    summary: Trust boundaries, threats and the controls that answer them, and a private way to report vulnerabilities.
+    milestone: 1
+    issues: [12]

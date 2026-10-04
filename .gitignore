@@ -3,3 +3,4 @@ bin/
 !testdata/*.ndjson
 .env
 cover.out
+site/_site/

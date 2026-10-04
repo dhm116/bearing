@@ -1,0 +1,16 @@
+{{/* Search dialog for the N13 pill. site.js loads search.json on first open. */}}
+<dialog class="cmdk" id="search" aria-label="Search">
+  <form class="cmdk__panel" method="dialog" role="search">
+    <div class="cmdk__field">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+      <input id="search-input" type="search" placeholder="Search subjects, facts, milestones…" autocomplete="off" spellcheck="false"
+        role="combobox" aria-expanded="true" aria-controls="search-results" aria-autocomplete="list">
+      <button class="cmdk__esc" value="close" aria-label="Close search"><kbd>esc</kbd></button>
+    </div>
+    <ul class="cmdk__results" id="search-results" role="listbox" aria-label="Results"></ul>
+    <p class="cmdk__empty" hidden>No matches. Try a predicate like <code>owned_by</code> or a milestone like <code>M3</code>.</p>
+    <div class="cmdk__foot" aria-hidden="true">
+      <span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span>
+    </div>
+  </form>
+</dialog>

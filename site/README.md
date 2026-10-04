@@ -1,0 +1,104 @@
+# Project site
+
+The Bearing website, published to GitHub Pages by
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml). A small Go
+generator (its own module, so the root module's dependencies don't change)
+reads the repository and writes static HTML. Most of the site is the
+repository itself, so it stays current without edits here:
+
+| Page | Comes from |
+| --- | --- |
+| Spec | Every Markdown file in [`docs/spec/`](../docs/spec/), rendered as is |
+| Decisions | Every ADR in [`docs/adr/`](../docs/adr/) except the template; status and date come from each ADR's `Date: … · Status: …` line |
+| Roadmap | [`roadmap.yaml`](roadmap.yaml) plus milestones and issues read from GitHub at build time |
+| Home, How it works | Hand-written templates in [`templates/`](templates/); code samples on them are quoted from the spec at build time |
+| Logo, colors, type | [`docs/brand/`](../docs/brand/) (the logo SVGs are copied, the tokens are mirrored in [`static/css/tokens.css`](static/css/tokens.css)) |
+
+The site rebuilds on every push to `main` that touches `docs/`, `site/` or
+the README, and once a day so roadmap progress follows GitHub.
+
+## Preview locally
+
+```sh
+cd site
+go run . -serve localhost:8080      # build into site/_site and serve it
+go run . -offline -serve localhost:8080  # without calling the GitHub API
+```
+
+Flags: `-out` (default `_site`, cleared on each build), `-base` (the URL
+path the site is served under; the workflow passes the Pages base path),
+`-strict` (fail on a broken link or anchor, or if GitHub can't be read; CI
+uses it), `-offline`. `GITHUB_TOKEN`, if set, only raises the API rate
+limit.
+
+Before pushing a change to the generator, run what the workflow runs:
+
+```sh
+cd site
+go vet ./... && go test ./...
+go run -modfile=../tools/go.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint run --config ../.golangci.yml ./...
+```
+
+`go test` builds the real site, so it also fails on broken links in
+`docs/`.
+
+## Common changes
+
+**A spec document or ADR.** Add or edit the Markdown in `docs/`. Nothing to
+change here. Link between documents with relative `.md` links as you would
+for GitHub; the generator rewrites them to site pages, sends links to code
+and other files to GitHub, and checks every anchor. To set the order of
+spec pages, edit `order` under the `spec` collection in
+[`site.yaml`](site.yaml); unlisted files follow alphabetically.
+
+**A roadmap feature.** Add an entry under `features` in
+[`roadmap.yaml`](roadmap.yaml) with its `area`, a one-line `summary` and
+either the GitHub `issues` that track it or the `milestone` it belongs to.
+Its status follows GitHub:
+
+- With issues: all closed is **ready**; some closed, or its milestone is the
+  one in progress, is **in progress**; otherwise **planned**.
+- With only a milestone: closed is **ready**, in progress is **in
+  progress**, otherwise **planned**.
+
+Set `status` by hand only for work GitHub doesn't track: code that predates
+the milestones, or ideas for after the MVP. The build refuses unknown
+areas, milestones, statuses and fields.
+
+**A milestone.** Create it on GitHub, then add its number and a one-line
+summary under `milestones` in `roadmap.yaml`. Titles, state and progress
+come from GitHub.
+
+**A new docs folder.** Add a collection to `site.yaml` (`dir`, `path`,
+titles) and, if it belongs in the top bar, a `nav` entry.
+
+**A hand-written page.** Add `templates/<name>.html` defining `main`, and a
+`pages` entry in `site.yaml` naming the template and its path.
+
+## How it fits together
+
+| File | Role |
+| --- | --- |
+| `main.go` | Flags, the GitHub fetch and the preview server |
+| `config.go` | Loads `site.yaml` |
+| `roadmap.go` | Loads `roadmap.yaml` and derives milestone and feature statuses |
+| `github.go` | Reads milestones and issues from the REST API |
+| `markdown.go` | Renders Markdown (GitHub-flavored, raw HTML off) with GitHub-style heading IDs |
+| `build.go` | Lays out pages, rewrites and checks links, writes `search.json` |
+| `templates/` | `base.html` wraps every page; `_*.html` are partials |
+| `static/` | CSS, the search and table-of-contents script, and self-hosted fonts |
+
+Templates get these functions besides Go's built-ins: `url` (a site path,
+checked at build time), `static` (a cache-busted asset URL), `snippet file
+heading-id` (the first code block under a heading in a repository file),
+`github kind path` (a link into the repository), `collection id` and `area
+name`.
+
+Pages follow the reader's light or dark system setting, as the logo and the
+ADR diagrams do. The design notes are at the top of
+[`static/css/site.css`](static/css/site.css).
+
+## Turning on Pages
+
+Once, in the repository's **Settings → Pages**, set **Source** to **GitHub
+Actions**. The workflow does the rest.

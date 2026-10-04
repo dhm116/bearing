@@ -1,0 +1,14 @@
+{{define "main"}}
+<section class="lost shell">
+  <img class="lost__mark" src="{{static "brand/bearing-mark-animated.svg"}}" alt="" width="160" height="160">
+  <div>
+    <h1>Lost your bearings?</h1>
+    <p class="lede">There's no page at this address. It may have moved when the docs were reorganized.</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="{{url ""}}">Go home</a>
+      <a class="btn" href="{{url "spec/"}}">Open the spec</a>
+      <button class="btn" type="button" data-search-open>Search</button>
+    </div>
+  </div>
+</section>
+{{end}}

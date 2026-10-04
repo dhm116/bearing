@@ -1,0 +1,60 @@
+# The site's shape. Pages under `pages` are hand-designed templates; each
+# collection publishes a docs/ directory as-is, so the site follows the repo.
+title: Bearing
+tagline: Get your bearings in any engineering org.
+description: >-
+  Bearing is an open-source foundation for a developer platform. It builds a
+  live map of an engineering organization from the tools it already uses,
+  with provenance on every fact.
+repo: dhm116/bearing
+branch: main
+# Logo files are copied from here, never redrawn.
+brand: docs/brand
+
+nav:
+  - { label: How it works, href: how-it-works/ }
+  - { label: Roadmap, href: roadmap/ }
+  - { label: Spec, href: spec/ }
+  - { label: Decisions, href: decisions/ }
+
+pages:
+  - template: home
+    path: ""
+    title: Bearing
+    description: >-
+      One live answer to what is this, who owns it, what changed, and how do
+      I safely change it, for every engineer and every agent.
+  - template: how
+    path: how-it-works/
+    title: How it works
+    description: >-
+      Adapters report what they see, the core resolves it into facts with
+      provenance, and every surface reads the same graph.
+  - template: roadmap
+    path: roadmap/
+    title: Roadmap
+    description: >-
+      What works today, what is being built now and what comes next, with
+      milestone progress read from GitHub.
+  - template: "404"
+    path: 404/
+    title: Page not found
+    description: This page doesn't exist.
+
+collections:
+  - id: spec
+    title: Specification
+    short: Spec
+    description: The data model, adapter protocol and component contracts.
+    dir: docs/spec
+    path: spec
+    order: [data-model.md, adapter-protocol.md, contracts.md]
+  - id: decisions
+    title: Architecture decisions
+    short: Decisions
+    description: >-
+      Each significant design choice, why it was made and what it costs.
+      Proposed decisions are open for discussion.
+    dir: docs/adr
+    path: decisions
+    exclude: [template.md]

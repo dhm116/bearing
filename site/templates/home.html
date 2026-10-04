@@ -1,0 +1,189 @@
+{{define "main"}}
+{{/* Home: Map / Diagram macrostructure. The org map is the page's centre of gravity. */}}
+<section class="hero shell">
+  <h1 class="hero__title">Get your bearings in any engineering org.</h1>
+  <div class="hero__aside">
+    <p class="lede">Bearing builds a live map of who owns what, what depends on what and what changed, from the tools your organization already runs. Every fact says where it came from, how sure Bearing is, and when it was true.</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="{{url "how-it-works/"}}">See how it works</a>
+      <a class="btn" href="{{url "spec/data-model/"}}">Read the data model</a>
+    </div>
+    <p class="fine">Open source under Apache 2.0 · Go · early, and designed in the open</p>
+  </div>
+</section>
+
+<section class="map shell" aria-labelledby="map-title">
+  <div class="map__head">
+    <h2 id="map-title">One repository. Four facts. Three sources.</h2>
+    <p>Pick a fact to see the evidence behind it. Nothing is asserted without a source.</p>
+  </div>
+  <div class="map__body">
+    <figure class="map__figure">
+      <svg class="orgmap" viewBox="0 0 640 400" role="img" aria-labelledby="orgmap-t orgmap-d">
+        <title id="orgmap-t">An example slice of the graph</title>
+        <desc id="orgmap-d">The repository payments-api requires approval from the team acme/payments, and is owned by it. Priya Nair is a member of acme/payments. Pull request 1182 was changed by Priya Nair.</desc>
+        <defs>
+          <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" class="orgmap__dot"/></pattern>
+        </defs>
+        <rect width="640" height="400" fill="url(#dots)"/>
+        <g class="orgmap__rose" aria-hidden="true">
+          <circle cx="318" cy="258" r="36"/>
+          <path d="M318 216v-8M318 300v8M276 258h-8M360 258h8"/>
+          <path class="orgmap__needle" d="M318 258 L341.1 230.4"/>
+          <circle cx="318" cy="258" r="3"/>
+        </g>
+
+        <g class="edge" data-fact="1">
+          <path d="M220 62 H410"/><path class="edge__head" d="M418 62 l-10 -5 v10 z"/>
+          <text x="317" y="52" text-anchor="middle" class="edge__label">approves_changes</text>
+          <text x="317" y="80" text-anchor="middle" class="edge__meta">GitHub · 1.00</text>
+        </g>
+        <g class="edge edge--derived" data-fact="2">
+          <path d="M210 106 C 270 168, 364 168, 424 106"/><path class="edge__head" d="M429 101 l-3.5 10.6 -6.6 -7.4 z"/>
+          <text x="317" y="166" text-anchor="middle" class="edge__label">owned_by</text>
+          <text x="317" y="180" text-anchor="middle" class="edge__meta">derived · 0.95</text>
+        </g>
+        <g class="edge" data-fact="3">
+          <path d="M560 290 V114"/><path class="edge__head" d="M560 106 l-5 10 h10 z"/>
+          <text x="548" y="196" text-anchor="end" class="edge__label">member_of</text>
+          <text x="548" y="210" text-anchor="end" class="edge__meta">directory · 1.00</text>
+        </g>
+        <g class="edge" data-fact="4">
+          <path d="M220 340 H410"/><path class="edge__head" d="M418 340 l-10 -5 v10 z"/>
+          <text x="317" y="330" text-anchor="middle" class="edge__label">changed_by</text>
+          <text x="317" y="358" text-anchor="middle" class="edge__meta">GitHub · 1.00</text>
+        </g>
+
+        <g class="node" data-in="1 2" transform="translate(24 40)">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Repository</text>
+          <text x="16" y="44" class="node__name">payments-api</text>
+          <text x="16" y="58" class="node__alias">2 aliases · github</text>
+        </g>
+        <g class="node" data-in="1 2 3" transform="translate(420 40)">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Team</text>
+          <text x="16" y="44" class="node__name">acme/payments</text>
+          <text x="16" y="58" class="node__alias">github:team/acme/payments</text>
+        </g>
+        <g class="node" data-in="3 4" transform="translate(420 290)">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Person</text>
+          <text x="16" y="44" class="node__name">Priya Nair</text>
+          <text x="16" y="58" class="node__alias">2 aliases · github, authentik</text>
+        </g>
+        <g class="node" data-in="4" transform="translate(24 307)">
+          <rect width="196" height="66" rx="10"/>
+          <text x="16" y="22" class="node__kind">Change</text>
+          <text x="16" y="44" class="node__name">PR #1182</text>
+          <text x="16" y="58" class="node__alias">github · merged Oct 2</text>
+        </g>
+      </svg>
+      <figcaption>An invented organization, drawn with the data model's real predicates and rules. See the <a href="{{url "spec/data-model/#worked-examples"}}">worked examples</a>.</figcaption>
+    </figure>
+
+    <fieldset class="facts">
+      <legend>Facts about payments-api and the people around it</legend>
+      <label class="fact"><input type="radio" name="fact" id="fact-1" checked>
+        <span class="fact__triple">payments-api <code>approves_changes</code> acme/payments</span><span class="fact__conf">1.00</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-2">
+        <span class="fact__triple">payments-api <code>owned_by</code> acme/payments</span><span class="fact__conf">0.95</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-3">
+        <span class="fact__triple">Priya Nair <code>member_of</code> acme/payments</span><span class="fact__conf">1.00</span></label>
+      <label class="fact"><input type="radio" name="fact" id="fact-4">
+        <span class="fact__triple">PR #1182 <code>changed_by</code> Priya Nair</span><span class="fact__conf">1.00</span></label>
+
+      <div class="evidence" data-fact="1">
+        <dl>
+          <dt>Source</dt><dd><code>github-acme</code>, the GitHub adapter</dd>
+          <dt>Evidence</dt><dd><code>.github/CODEOWNERS</code> line 1: <code>* @acme/payments</code></dd>
+          <dt>Status</dt><dd><span class="chip chip--good">asserted</span> since 2026-09-28 01:30 UTC</dd>
+        </dl>
+        <p>CODEOWNERS names who must approve changes. Bearing reports exactly that, and doesn't call it ownership.</p>
+      </div>
+      <div class="evidence" data-fact="2">
+        <dl>
+          <dt>Source</dt><dd><code>core/derive/codeowners</code></dd>
+          <dt>Evidence</dt><dd>Derived from <code>approves_changes</code>: the file is a single <code>*</code> rule naming one team</dd>
+          <dt>Status</dt><dd><span class="chip chip--good">asserted</span> at 0.95, above the 0.90 threshold</dd>
+        </dl>
+        <p>Had the file also had path rules, this would be 0.70 and stay a candidate until another source agreed.</p>
+      </div>
+      <div class="evidence" data-fact="3">
+        <dl>
+          <dt>Source</dt><dd><code>authentik-corp</code>, the identity directory</dd>
+          <dt>Evidence</dt><dd>Group <code>payments</code>; the directory is the source of record for membership</dd>
+          <dt>Status</dt><dd><span class="chip chip--good">asserted</span>, valid from 2026-03-02</dd>
+        </dl>
+        <p>Priya's GitHub login and directory account are two aliases of one person. Adapters never decide that; the core does.</p>
+      </div>
+      <div class="evidence" data-fact="4">
+        <dl>
+          <dt>Source</dt><dd><code>github-acme</code>, from a <code>pull_request</code> webhook</dd>
+          <dt>Evidence</dt><dd>PR #1182 merged 2026-10-02 14:05 UTC</dd>
+          <dt>Status</dt><dd><span class="chip chip--good">asserted</span></dd>
+        </dl>
+        <p>A webhook and a full sync can arrive in either order. The newest observation from each source wins, so a stale sync can't undo it.</p>
+      </div>
+    </fieldset>
+  </div>
+</section>
+
+<section class="why shell" aria-labelledby="why-title">
+  <div class="why__story">
+    <h2 id="why-title">The answers already exist. They're scattered, and they go stale.</h2>
+    <p>Ownership lives in CODEOWNERS files, directory groups, paging schedules and people's heads. Deploy history sits in CI, incidents in another tool, runbooks in a wiki. Portals try to collect all of it by hand, so catalogs drift and engineers stop trusting them.</p>
+    <p>AI agents now write a large share of the code, and they can't see any of this context either. They need the same answers people do, with the evidence attached.</p>
+    <p class="why__question">“What is this, who owns it, what changed, and how do I safely change it?”</p>
+  </div>
+  <dl class="why__principles">
+    <div><dt>Infer first, declare to override</dt><dd>The graph is built from signals that already exist. Metadata files correct it; they're never required to create it.</dd></div>
+    <div><dt>Show the evidence</dt><dd>Every fact carries its source, confidence and the time it was true. When sources disagree, Bearing shows the dispute instead of picking one.</dd></div>
+    <div><dt>Integrate, don't replace</dt><dd>Small adapters read the tools you run, Backstage included. Bearing defines the data worth having and leaves the rest alone.</dd></div>
+    <div><dt>Contracts first</dt><dd>Every component sits behind a published interface with a conformance suite, so any backend that passes can replace the default.</dd></div>
+    <div><dt>One answer, everywhere</dt><dd>The same graph answers on the command line, in an agent session through MCP, and later in a browser.</dd></div>
+  </dl>
+</section>
+
+{{with .Roadmap}}
+<section class="pulse shell" aria-labelledby="pulse-title">
+  <div class="pulse__head">
+    <h2 id="pulse-title">Built in the open</h2>
+    {{with .Current}}<p>Now building <strong>{{.Code}} · {{.Name}}</strong>{{if gt (add .Open .Closed) 0}}, {{.Closed}} of {{add .Open .Closed}} issues closed{{end}}.</p>{{else}}<p>Milestone progress comes from GitHub when the site is built.</p>{{end}}
+    <a class="link-arrow" href="{{url "roadmap/"}}">Follow the roadmap</a>
+  </div>
+  <ol class="track track--compact">
+    {{range .Milestones}}
+    <li class="track__step track__step--{{.State}}"><span class="track__code">{{.Code}}</span><span class="track__name">{{.Name}}</span></li>
+    {{end}}
+  </ol>
+  <p class="pulse__counts">
+    <a href="{{url "roadmap/"}}#ready"><span class="dot dot--ready"></span>{{index .Counts "ready"}} ready</a>
+    <a href="{{url "roadmap/"}}#in-progress"><span class="dot dot--in-progress"></span>{{index .Counts "in-progress"}} in progress</a>
+    <a href="{{url "roadmap/"}}#planned"><span class="dot dot--planned"></span>{{index .Counts "planned"}} planned</a>
+  </p>
+</section>
+{{end}}
+
+{{with collection "spec"}}
+<section class="read shell" aria-labelledby="read-title">
+  <h2 id="read-title">Start with the specification</h2>
+  <p class="read__intro">The spec is the product. Anyone should be able to write an adapter or a backend from these documents alone.</p>
+  <ul class="read__list">
+    {{range .Pages}}
+    <li><a class="read__item" href="{{url .Path}}">
+      <span class="read__title">{{.Title}}</span>
+      {{if .Version}}<span class="chip">v{{.Version}}</span>{{end}}
+      <span class="read__lede">{{clip .Summary 160}}</span>
+    </a></li>
+    {{end}}
+    {{with collection "decisions"}}
+    <li><a class="read__item" href="{{url "decisions/"}}">
+      <span class="read__title">{{.Title}}</span><span class="chip">{{len .Pages}} ADRs</span>
+      <span class="read__lede">{{.Description}}</span>
+    </a></li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+{{end}}

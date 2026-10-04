@@ -1,0 +1,143 @@
+{{define "main"}}
+<header class="pagehead shell">
+  <h1>How it works</h1>
+  <p class="lede">Source systems in, one graph of facts out, and every surface reads the same graph. Adapters stay small because everything hard happens once, in the core.</p>
+</header>
+
+<nav class="pipeline shell" aria-label="The path a fact takes">
+  <ol>
+    <li><a href="#adapters"><span class="pipeline__n">1</span><span class="pipeline__name">Adapters read</span><span class="pipeline__sub">GitHub, a directory, later AWS</span></a></li>
+    <li><a href="#observations"><span class="pipeline__n">2</span><span class="pipeline__name">Observations</span><span class="pipeline__sub">what one source saw, and when</span></a></li>
+    <li><a href="#resolve"><span class="pipeline__n">3</span><span class="pipeline__name">Resolve identity</span><span class="pipeline__sub">many keys, one subject</span></a></li>
+    <li><a href="#facts"><span class="pipeline__n">4</span><span class="pipeline__name">Facts</span><span class="pipeline__sub">provenance, time, confidence</span></a></li>
+    <li><a href="#store"><span class="pipeline__n">5</span><span class="pipeline__name">The graph</span><span class="pipeline__sub">source of truth, plus search</span></a></li>
+    <li><a href="#surfaces"><span class="pipeline__n">6</span><span class="pipeline__name">Surfaces</span><span class="pipeline__sub">CLI, agents, later the web</span></a></li>
+  </ol>
+</nav>
+
+<section class="stage shell" id="adapters" aria-labelledby="adapters-t">
+  <div class="stage__text">
+    <h2 id="adapters-t">Adapters read the tools you already run</h2>
+    <p>An adapter has one job: read one system and report what it sees. It is stateless and read-only against its source, and it declares up front which kinds of subject and which predicates it emits, so the core can check everything it sends.</p>
+    <p>Adapters never decide that two accounts are the same person. That is the core's job, done once with one set of rules for every source.</p>
+    <p>From M4, adapters run as sandboxed WebAssembly modules that reach the outside world only through capabilities they were granted, and never see the credentials they use.</p>
+    <p class="stage__links"><a href="{{url "spec/adapter-protocol/"}}">Adapter protocol</a> <a href="{{url "decisions/0009-wasm-adapters/"}}">ADR 9: WASM adapters</a></p>
+  </div>
+  {{with area "Adapters"}}
+  <ul class="statuslist" aria-label="Adapters and their status">
+    {{range .Features}}
+    <li><span class="statuslist__name">{{.Name}}</span><span class="chip chip--{{.Status}}">{{statusLabel .Status}}</span><span class="statuslist__sum">{{.Summary}}</span></li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+
+<section class="stage shell" id="observations" aria-labelledby="observations-t">
+  <div class="stage__text">
+    <h2 id="observations-t">They report observations</h2>
+    <p>An observation is one source's report about one entity at one moment: its keys, its attributes and its relations, plus evidence a person can check. It travels as a CloudEvent, so any queue can carry it.</p>
+    <p>Keys stay in the source's own namespace. A snapshot scope says "this is the complete set", which is how a stateless adapter tells the core that something was removed.</p>
+    <p class="stage__links"><a href="{{url "spec/data-model/#observations"}}">Observations in the spec</a></p>
+  </div>
+  <figure class="codefig">
+    <pre><code class="language-json">{{snippet "docs/spec/data-model.md" "observations"}}</code></pre>
+    <figcaption>Quoted from the data model at build time, so it always matches the spec.</figcaption>
+  </figure>
+</section>
+
+<section class="stage shell" id="resolve" aria-labelledby="resolve-t">
+  <div class="stage__text">
+    <h2 id="resolve-t">The core resolves identity</h2>
+    <p>Every key becomes an alias of a subject, and each subject has an ID Bearing minted that never changes. A renamed repository keeps its subject; a reused name gets a new one.</p>
+    <p>One matcher scores pairs of the same kind across sources. Teams merge on a good score. People need authoritative evidence or a human's confirmation, and every merge and un-merge is audited and reversible.</p>
+    <p class="stage__links"><a href="{{url "spec/data-model/#identifiers-and-aliases"}}">Identifiers and aliases</a> <a href="{{url "spec/data-model/#identity-across-systems"}}">Identity across systems</a></p>
+  </div>
+  <div class="aliases" role="img" aria-label="Three aliases from GitHub and the directory resolve to one person subject">
+    <ul class="aliases__keys">
+      <li><code>github:user_node/U_kgDOB7x</code><span>GitHub, immutable ID</span></li>
+      <li><code>github:user/pnair</code><span>GitHub login, can change</span></li>
+      <li><code>authentik:user/7f3c2a9e…</code><span>Identity directory</span></li>
+    </ul>
+    <div class="aliases__subject">
+      <span class="aliases__kind">Person</span>
+      <span class="aliases__name">Priya Nair</span>
+      <code>0192b2d0-1a01-7e70-b261-ad5e6f708192</code>
+    </div>
+  </div>
+</section>
+
+<section class="stage shell" id="facts" aria-labelledby="facts-t">
+  <div class="stage__text">
+    <h2 id="facts-t">…and records facts with their evidence</h2>
+    <p>Everything Bearing knows is a fact: a subject, a predicate and an object. Each fact keeps every source's support separately, with when it was true in the world and when Bearing learned it.</p>
+    <p>Confidence is the strongest claim within one source system, combined across independent systems, so corroboration counts once per system. A fact is asserted only above its threshold, and conflicting owners are shown as disputed rather than silently resolved.</p>
+    <p class="stage__links"><a href="{{url "spec/data-model/#facts-and-supports"}}">Facts and supports</a> <a href="{{url "spec/data-model/#confidence"}}">Confidence</a></p>
+  </div>
+  <table class="anatomy">
+    <caption>Anatomy of one fact</caption>
+    <tbody>
+      <tr><th scope="row">Subject</th><td>payments-api</td><td>a Repository, by its subject ID</td></tr>
+      <tr><th scope="row">Predicate</th><td><code>owned_by</code></td><td>from one registry of predicates</td></tr>
+      <tr><th scope="row">Object</th><td>acme/payments</td><td>a Team</td></tr>
+      <tr><th scope="row">Valid time</th><td>from 2026-09-28 01:30</td><td>when it was true in the world</td></tr>
+      <tr><th scope="row">Record time</th><td>from 2026-09-28 01:31</td><td>when Bearing held it</td></tr>
+      <tr><th scope="row">Supports</th><td><code>core/derive/codeowners</code></td><td>one entry per source</td></tr>
+      <tr><th scope="row">Confidence</th><td>950000 ppm</td><td>above the 900000 threshold</td></tr>
+      <tr><th scope="row">Status</th><td><span class="chip chip--good">asserted</span></td><td>or candidate, disputed, withdrawn</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="stage shell" id="store" aria-labelledby="store-t">
+  <div class="stage__text">
+    <h2 id="store-t">The graph is the source of truth</h2>
+    <p>Facts live in a graph store. A semantic index sits beside it for fuzzy questions, and every result it returns is checked against the graph. The index can always be rebuilt from the graph; the graph is never rebuilt from the index.</p>
+    <p>Each component sits behind an interface with a conformance suite. One SurrealDB database serves both the graph and vectors by default, chosen by a store URL, and any backend that passes the suite can replace it.</p>
+    <p class="stage__links"><a href="{{url "spec/contracts/"}}">Component contracts</a> <a href="{{url "decisions/0002-graph-is-source-of-truth/"}}">ADR 2</a> <a href="{{url "decisions/0005-one-store-to-start/"}}">ADR 5</a></p>
+  </div>
+  {{with area "Storage and search"}}
+  <ul class="statuslist" aria-label="Storage and search features and their status">
+    {{range .Features}}
+    <li><span class="statuslist__name">{{.Name}}</span><span class="chip chip--{{.Status}}">{{statusLabel .Status}}</span><span class="statuslist__sum">{{.Summary}}</span></li>
+    {{end}}
+  </ul>
+  {{end}}
+</section>
+
+<section class="stage shell" id="surfaces" aria-labelledby="surfaces-t">
+  <div class="stage__text">
+    <h2 id="surfaces-t">Every surface asks the same graph</h2>
+    <p>Surfaces hold no logic of their own. Today that is a developer CLI that runs adapters and checks their output. Ownership answers on the command line come next, then the same answers for AI agents through a read-only MCP server.</p>
+    <p>This is what runs on main today, quoted from the README:</p>
+    {{with area "Surfaces"}}
+    <ul class="statuslist statuslist--tight" aria-label="Surfaces and their status">
+      {{range .Features}}
+      <li><span class="statuslist__name">{{.Name}}</span><span class="chip chip--{{.Status}}">{{statusLabel .Status}}</span></li>
+      {{end}}
+    </ul>
+    {{end}}
+  </div>
+  <figure class="codefig">
+    <pre><code class="language-sh">{{snippet "README.md" "try-it"}}</code></pre>
+    <figcaption>From the README's “Try it”, quoted at build time.</figcaption>
+  </figure>
+</section>
+
+<section class="arch shell" aria-labelledby="arch-t">
+  <div class="arch__head">
+    <h2 id="arch-t">The architecture, as proposed</h2>
+    <p>The always-on core described in ADRs 6 to 11: durable events, a separate audit log, sandboxed adapters and configuration as resources. Decisions marked proposed are still open.</p>
+  </div>
+  <figure class="arch__figure">
+    <img src="{{asset "docs/adr/diagrams/overview.svg"}}" width="960" height="480" loading="lazy"
+      alt="Source systems send webhooks to ingest, which appends to the event log with the scheduler; workers run WASM adapters through capabilities and apply changes to one store, which people reach through the query and config API.">
+  </figure>
+  {{with collection "decisions"}}
+  <ul class="adrlist">
+    {{range .Pages}}{{if ge (len .Number) 1}}
+    <li><a href="{{url .Path}}"><span class="adrlist__n">{{.Number}}</span><span class="adrlist__t">{{.Label}}</span>{{if .Status}}<span class="chip chip--adr-{{.Status}}">{{.Status}}</span>{{end}}</a></li>
+    {{end}}{{end}}
+  </ul>
+  {{end}}
+</section>
+{{end}}

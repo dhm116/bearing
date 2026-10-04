@@ -1,0 +1,14 @@
+{{$path := .Path}}
+<aside class="docs__nav" aria-label="Documents">
+  {{range .Collections}}
+  <details class="docnav"{{if eq .ID $.Section}} open{{end}}>
+    <summary>{{.Title}}</summary>
+    <ol>
+      {{if .Index}}<li><a href="{{url .Index.Path}}"{{if eq .Index.Path $path}} aria-current="page"{{end}}>Overview</a></li>
+      {{else}}<li><a href="{{url (printf "%s/" .Path)}}"{{if eq (printf "%s/" .Path) $path}} aria-current="page"{{end}}>All decisions</a></li>{{end}}
+      {{range .Pages}}<li><a href="{{url .Path}}"{{if eq .Path $path}} aria-current="page"{{end}}>{{if .Number}}<span class="docnav__n">{{.Number}}</span>{{end}}{{.Label}}</a></li>
+      {{end}}
+    </ol>
+  </details>
+  {{end}}
+</aside>

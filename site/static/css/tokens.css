@@ -1,0 +1,141 @@
+/* Bearing site tokens. Colors and type are the brand's (docs/brand/README.md);
+ * change them there first. Every color and font in site.css comes from here.
+ * The site follows the reader's system light or dark setting, as the logo
+ * and the ADR diagrams do. */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("../fonts/bricolage-grotesque.woff2") format("woff2");
+  font-weight: 500 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans.woff2") format("woff2");
+  font-weight: 400 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Brand core */
+  --ink: #18242A;
+  --accent: #1D5E74;
+  --accent-soft: #E2EEF1;
+  --background: #F5F7F6;
+  --surface: #FFFFFF;
+  --sunk: #EDF1F0;
+  --muted: #55646B;
+  --line: #D3DCDA;
+  /* Between muted and line, from the diagram profile */
+  --soft: #6B7C82;
+  --on-accent: #FFFFFF;
+
+  /* Brand status */
+  --good: #2F6B45;
+  --good-soft: #E3F0E7;
+  --warn: #A5561A;
+  --warn-soft: #F7EBDF;
+  --bad: #A33A3A;
+  --bad-soft: #F6E3E3;
+
+  --shadow: rgb(24 36 42 / 0.08);
+  --scrim: rgb(17 25 28 / 0.42);
+
+  /* Type */
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: clamp(1.625rem, 1.2rem + 1.4vw, 2.125rem);
+  --text-3xl: clamp(2rem, 1.3rem + 2.4vw, 3rem);
+  --text-display: clamp(2.6rem, 1.4rem + 4.4vw, 5.25rem);
+
+  /* Space: 4 pt scale */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  --gutter: clamp(1rem, 3.2vw, 2.75rem);
+  --shell-max: 104rem;
+  --measure: 46rem;
+  --nav-h: 3.75rem;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --rule: 1px solid var(--line);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  /* Layers */
+  --z-raised: 10;
+  --z-sticky: 200;
+  --z-modal: 400;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #E4ECEA;
+    --accent: #7FC0D6;
+    --accent-soft: #1B3740;
+    --background: #11191C;
+    --surface: #172226;
+    --sunk: #131C1F;
+    --muted: #98A8AD;
+    --line: #2A383D;
+    --soft: #7C8F94;
+    --on-accent: #0C1316;
+
+    --good: #8DCB9F;
+    --good-soft: #1C3325;
+    --warn: #E3A56E;
+    --warn-soft: #3A2819;
+    --bad: #E89A9A;
+    --bad-soft: #3B1F1F;
+
+    --shadow: rgb(0 0 0 / 0.35);
+    --scrim: rgb(5 9 10 / 0.6);
+  }
+}

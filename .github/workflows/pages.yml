@@ -1,0 +1,91 @@
+name: Pages
+
+# Builds the project site (site/) and publishes it to GitHub Pages. Pull
+# requests build it, with links checked, but don't publish. The daily run
+# refreshes milestone progress and issue states on the roadmap.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "site/**"
+      - "README.md"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "site/**"
+      - "README.md"
+      - ".golangci.yml"
+      - ".github/workflows/pages.yml"
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: site/go.mod
+          cache-dependency-path: |
+            site/go.sum
+            tools/go.sum
+
+      - name: Lint and test the generator
+        run: |
+          go vet ./...
+          go test ./...
+          go run -modfile=../tools/go.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint run --config ../.golangci.yml ./...
+
+      - id: pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      # -strict fails on a broken link or anchor in the docs, or when GitHub
+      # can't be read. The token only raises the API rate limit.
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: go run . -strict -base "${BASE_PATH:-/}" -out _site
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/_site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -1,0 +1,23 @@
+{{/* Footer: Ft1 mast-headed. */}}
+<footer class="foot">
+  <div class="foot__inner shell">
+    <div class="foot__mast">
+      <img src="{{static "brand/bearing-mark.svg"}}" alt="" width="40" height="40">
+      <div>
+        <p class="wordmark wordmark--lg">bear<span class="wordmark__i">i</span>ng</p>
+        <p class="foot__tagline">{{.Site.Tagline}}</p>
+      </div>
+    </div>
+    <nav class="foot__links" aria-label="Footer">
+      <a href="{{repoURL}}">Source on GitHub</a>
+      <a href="{{github "blob" "CONTRIBUTING.md"}}">Contributing</a>
+      <a href="{{github "blob" "SECURITY.md"}}">Security</a>
+      <a href="{{github "tree" "docs/brand"}}">Brand</a>
+    </nav>
+    <p class="foot__meta">
+      Apache License 2.0 · Built from
+      <a href="{{repoURL}}/commit/{{.Build.Commit}}"><code>{{.Build.ShortCommit}}</code></a>
+      on <time datetime="{{.Build.Time.Format "2006-01-02T15:04:05Z07:00"}}">{{date .Build.Time}}</time>
+    </p>
+  </div>
+</footer>

@@ -1,0 +1,90 @@
+{{define "main"}}
+{{with .Roadmap}}
+<header class="pagehead shell">
+  <h1>Roadmap</h1>
+  <div class="pagehead__aside">
+    <p class="lede">What works on main today, what is being built now and what comes after. Milestone progress and issue states are read from GitHub each time the site is built.</p>
+    <p class="tally">
+      <span><span class="dot dot--ready"></span><strong>{{index .Counts "ready"}}</strong> ready</span>
+      <span><span class="dot dot--in-progress"></span><strong>{{index .Counts "in-progress"}}</strong> in progress</span>
+      <span><span class="dot dot--planned"></span><strong>{{index .Counts "planned"}}</strong> planned</span>
+    </p>
+  </div>
+</header>
+
+{{if not .Live}}
+<p class="notice shell" role="status">GitHub couldn't be read when this page was built, so milestone progress is missing and statuses come from <code>roadmap.yaml</code> alone.</p>
+{{end}}
+
+<section class="milestones shell" aria-labelledby="ms-title">
+  <h2 id="ms-title">Milestones to the MVP</h2>
+  <ol class="track">
+    {{range .Milestones}}
+    <li class="track__step track__step--{{.State}}">
+      <div class="track__top">
+        <span class="track__code">{{.Code}}</span>
+        <span class="track__state">{{if eq .State "done"}}Done{{else if eq .State "active"}}Now{{else}}Next{{end}}</span>
+      </div>
+      <h3 class="track__name">{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</h3>
+      <p class="track__sum">{{.Summary}}</p>
+      {{if gt (add .Open .Closed) 0}}
+      <div class="meter" role="meter" aria-valuemin="0" aria-valuemax="{{add .Open .Closed}}" aria-valuenow="{{.Closed}}" aria-label="{{.Code}} issues closed">
+        <span style="--pct: {{.Percent}}%"></span>
+      </div>
+      <p class="track__count">{{.Closed}} of {{add .Open .Closed}} issues closed</p>
+      {{else if eq .State "done"}}
+      <div class="meter" aria-hidden="true"><span style="--pct: 100%"></span></div>
+      <p class="track__count">Closed</p>
+      {{else}}
+      <p class="track__count">No issues filed yet</p>
+      {{end}}
+    </li>
+    {{end}}
+  </ol>
+</section>
+
+<section class="features shell" aria-labelledby="ft-title">
+  <div class="features__head">
+    <h2 id="ft-title">Features</h2>
+    <fieldset class="filter">
+      <legend class="sr">Show features that are</legend>
+      <label><input type="radio" name="status" value="all" checked> All</label>
+      <label><input type="radio" name="status" value="ready" id="ready"> <span class="dot dot--ready"></span>Ready</label>
+      <label><input type="radio" name="status" value="in-progress" id="in-progress"> <span class="dot dot--in-progress"></span>In progress</label>
+      <label><input type="radio" name="status" value="planned" id="planned"> <span class="dot dot--planned"></span>Planned</label>
+    </fieldset>
+  </div>
+  {{range .Areas}}
+  <div class="area" id="area-{{.Slug}}">
+    <div class="area__head">
+      <h3>{{.Name}}</h3>
+      <p>{{.Summary}}</p>
+    </div>
+    <ul class="area__list">
+      {{range .Features}}
+      <li class="feature" id="{{.Slug}}" data-status="{{.Status}}">
+        <div class="feature__main">
+          <h4 class="feature__name">{{.Name}}</h4>
+          <p class="feature__sum">{{.Summary}}</p>
+          {{if or .Links .Issues}}
+          <p class="feature__links">
+            {{range .Links}}<a href="{{url .Href}}">{{.Label}}</a>{{end}}
+            {{range .Issues}}<a class="issue issue--{{if .State}}{{.State}}{{else}}unknown{{end}}" href="{{.URL}}" {{if .Title}}title="{{.Title}}"{{end}}>#{{.Number}}{{if .State}} {{.State}}{{end}}</a>{{end}}
+          </p>
+          {{end}}
+        </div>
+        <div class="feature__meta">
+          <span class="chip chip--{{.Status}}">{{statusLabel .Status}}</span>
+          <span class="feature__ms">{{with .Milestone}}{{if .URL}}<a href="{{.URL}}">{{.Code}}</a>{{else}}{{.Code}}{{end}}{{else}}{{if eq .Status "ready"}}On main{{else}}After the MVP{{end}}{{end}}</span>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+  </div>
+  {{end}}
+  <p class="features__none" hidden>No features with this status.</p>
+</section>
+
+<p class="source-note shell">Edit <a href="{{github "blob" "site/roadmap.yaml"}}"><code>site/roadmap.yaml</code></a> to add a feature. Statuses follow the GitHub issues and milestones it names; see <a href="{{github "blob" "site/README.md"}}">the site README</a>.</p>
+{{end}}
+{{end}}

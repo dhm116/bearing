@@ -1,0 +1,28 @@
+{{define "main"}}
+<div class="docs docs--wide shell">
+  {{template "_docnav.html" .}}
+  <div class="docs__main">
+    <header class="dochead">
+      <h1>{{.Collection.Title}}</h1>
+      <p class="lede">{{.Collection.Description}}</p>
+    </header>
+    <ol class="adrtable">
+      {{range .Collection.Pages}}
+      <li>
+        <a href="{{url .Path}}">
+          <span class="adrtable__n">{{.Number}}</span>
+          <span class="adrtable__body">
+            <span class="adrtable__t">{{.Label}}</span>
+            <span class="adrtable__sum">{{clip .Summary 220}}</span>
+          </span>
+          <span class="adrtable__meta">
+            {{if .Status}}<span class="chip chip--adr-{{.Status}}">{{.Status}}</span>{{end}}
+            {{if .Date}}<time datetime="{{.Date}}">{{.Date}}</time>{{end}}
+          </span>
+        </a>
+      </li>
+      {{end}}
+    </ol>
+  </div>
+</div>
+{{end}}
