@@ -31,14 +31,15 @@
   };
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // Splits the raw text on the terms and escapes each piece, so a term can
+  // never match inside an entity or a <mark> added for another term.
   const highlight = (text, terms) => {
-    let out = escape(text);
-    terms.forEach((t) => {
-      if (t.length < 2) return;
-      const re = new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
-      out = out.replace(re, "<mark>$1</mark>");
-    });
-    return out;
+    const words = terms.filter((t) => t.length >= 2).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    if (!words.length) return escape(text);
+    return text
+      .split(new RegExp("(" + words.join("|") + ")", "ig"))
+      .map((part, i) => (i % 2 ? "<mark>" + escape(part) + "</mark>" : escape(part)))
+      .join("");
   };
 
   const score = (e, terms, q) => {

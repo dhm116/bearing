@@ -42,6 +42,9 @@ type Builder struct {
 	assets   map[string]bool // repo paths copied to assets/
 	static   map[string]string
 	problems []string
+	// repo reads repository files; os.Root refuses paths, symlinks
+	// included, that lead outside Root, so nothing outside it is published.
+	repo *os.Root
 }
 
 // BuildInfo says what the site was built from.
@@ -133,6 +136,10 @@ func (b *Builder) Run() error {
 	if err := b.prepareOut(); err != nil {
 		return err
 	}
+	if _, err := b.repoFS(); err != nil {
+		return err
+	}
+	defer func() { _ = b.repo.Close(); b.repo = nil }()
 	if err := b.copyStatic(); err != nil {
 		return err
 	}
@@ -170,6 +177,13 @@ func (b *Builder) prepareOut() error {
 	if within(abs, root) || within(abs, site) {
 		return fmt.Errorf("refusing to clear output directory %s: it contains the sources", abs)
 	}
+	// Only clear a directory a previous build wrote, marked by .nojekyll.
+	entries, err := os.ReadDir(abs)
+	if err == nil && len(entries) > 0 {
+		if _, err := os.Stat(filepath.Join(abs, ".nojekyll")); err != nil {
+			return fmt.Errorf("refusing to clear output directory %s: it isn't empty and wasn't written by a site build", abs)
+		}
+	}
 	if err := os.RemoveAll(abs); err != nil {
 		return err
 	}
@@ -182,46 +196,83 @@ func within(dir, p string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// repoFS is the repository as an fs.FS confined to Root.
+func (b *Builder) repoFS() (fs.FS, error) {
+	if b.repo == nil {
+		r, err := os.OpenRoot(b.Root)
+		if err != nil {
+			return nil, fmt.Errorf("open repository: %w", err)
+		}
+		b.repo = r
+	}
+	return b.repo.FS(), nil
+}
+
+// readRepo reads a file at a slash-separated repository path.
+func (b *Builder) readRepo(rel string) ([]byte, error) {
+	fsys, err := b.repoFS()
+	if err != nil {
+		return nil, err
+	}
+	return fs.ReadFile(fsys, rel)
+}
+
 // copyStatic copies static/ and the brand marks, remembering a content
 // hash per file for cache busting.
 func (b *Builder) copyStatic() error {
-	src := filepath.Join(b.SiteDir, "static")
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	site, err := os.OpenRoot(b.SiteDir)
+	if err != nil {
+		return fmt.Errorf("copy static: %w", err)
+	}
+	defer func() { _ = site.Close() }()
+	static, err := fs.Sub(site.FS(), "static")
+	if err != nil {
+		return fmt.Errorf("copy static: %w", err)
+	}
+	err = fs.WalkDir(static, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		rel, _ := filepath.Rel(src, p)
-		return b.copyFile(p, filepath.Join("static", rel))
+		return b.copyFile(static, p, path.Join("static", p))
 	})
 	if err != nil {
 		return fmt.Errorf("copy static: %w", err)
 	}
-	marks, _ := filepath.Glob(filepath.Join(b.Root, b.Config.Brand, "bearing-mark*.svg"))
+	repo, err := b.repoFS()
+	if err != nil {
+		return err
+	}
+	marks, _ := fs.Glob(repo, path.Join(b.Config.Brand, "bearing-mark*.svg"))
 	if len(marks) == 0 {
 		return fmt.Errorf("no bearing-mark*.svg in %s", b.Config.Brand)
 	}
 	for _, m := range marks {
-		if err := b.copyFile(m, filepath.Join("static", "brand", filepath.Base(m))); err != nil {
+		if err := b.copyFile(repo, m, path.Join("static", "brand", path.Base(m))); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (b *Builder) copyFile(from, rel string) error {
-	data, err := os.ReadFile(from)
+// copyFile copies from in fsys to rel under Out.
+func (b *Builder) copyFile(fsys fs.FS, from, rel string) error {
+	data, err := fs.ReadFile(fsys, from)
 	if err != nil {
 		return err
 	}
 	sum := sha256.Sum256(data)
-	b.static[filepath.ToSlash(rel)] = hex.EncodeToString(sum[:4])
-	return b.writeOut(filepath.ToSlash(rel), data)
+	b.static[rel] = hex.EncodeToString(sum[:4])
+	return b.writeOut(rel, data)
 }
 
 func (b *Builder) collectDocs() error {
 	for i := range b.Config.Collections {
 		col := &b.Config.Collections[i]
-		entries, err := os.ReadDir(filepath.Join(b.Root, col.Dir))
+		repo, err := b.repoFS()
+		if err != nil {
+			return err
+		}
+		entries, err := fs.ReadDir(repo, col.Dir)
 		if err != nil {
 			return fmt.Errorf("collection %s: %w", col.ID, err)
 		}
@@ -267,7 +318,7 @@ func (b *Builder) renderDocs() error {
 			pages = append([]*DocPage{cv.Index}, pages...)
 		}
 		for _, dp := range pages {
-			raw, err := os.ReadFile(filepath.Join(b.Root, dp.Source))
+			raw, err := b.readRepo(dp.Source)
 			if err != nil {
 				return err
 			}
@@ -336,7 +387,7 @@ var readmeEntryRE = regexp.MustCompile(`(?m)^\s*(?:\d+\.|[-*])\s+\[[^\]]+\]\(([^
 func (b *Builder) summarize(cv *CollectionView) {
 	fromReadme := map[string]string{}
 	if cv.Index != nil {
-		raw, err := os.ReadFile(filepath.Join(b.Root, cv.Index.Source))
+		raw, err := b.readRepo(cv.Index.Source)
 		if err == nil {
 			for _, m := range readmeEntryRE.FindAllSubmatch(raw, -1) {
 				fromReadme[path.Join(cv.Dir, string(m[1]))] = strings.TrimSpace(string(m[2]))
@@ -473,7 +524,11 @@ func (b *Builder) funcs(from string) template.FuncMap {
 		},
 		"asset": func(p string) (string, error) {
 			if !b.assets[p] {
-				if err := b.copyFile(filepath.Join(b.Root, p), path.Join("assets", p)); err != nil {
+				repo, err := b.repoFS()
+				if err != nil {
+					return "", err
+				}
+				if err := b.copyFile(repo, p, path.Join("assets", p)); err != nil {
 					return "", fmt.Errorf("asset %s: %w", p, err)
 				}
 				b.assets[p] = true
@@ -495,7 +550,7 @@ func (b *Builder) funcs(from string) template.FuncMap {
 // given ID in a repository Markdown file, so pages can quote the spec
 // without copying it.
 func (b *Builder) snippet(file, id string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(b.Root, file))
+	raw, err := b.readRepo(file)
 	if err != nil {
 		return "", fmt.Errorf("snippet: %w", err)
 	}
@@ -554,13 +609,17 @@ func (b *Builder) ResolveLink(src, dest string, image bool) string {
 		return u
 	}
 	if image {
-		if _, err := os.Stat(filepath.Join(b.Root, rp)); err != nil {
+		repo, err := b.repoFS()
+		if err == nil {
+			_, err = fs.Stat(repo, rp)
+		}
+		if err != nil {
 			b.problem("%s: image %s does not exist", src, dest)
 			return dest
 		}
 		if !b.assets[rp] {
 			b.assets[rp] = true
-			if err := b.copyFile(filepath.Join(b.Root, rp), path.Join("assets", rp)); err != nil {
+			if err := b.copyFile(repo, rp, path.Join("assets", rp)); err != nil {
 				b.problem("%s: copy %s: %v", src, rp, err)
 			}
 		}
@@ -574,7 +633,11 @@ func (b *Builder) ResolveLink(src, dest string, image bool) string {
 		b.links = append(b.links, linkRef{from: from, to: target.Path, frag: frag})
 		return withFrag(b.Base + target.Path)
 	}
-	info, err := os.Stat(filepath.Join(b.Root, rp))
+	var info fs.FileInfo
+	repo, err := b.repoFS()
+	if err == nil {
+		info, err = fs.Stat(repo, rp)
+	}
 	if err != nil {
 		b.problem("%s: link %s points at %s, which does not exist", src, dest, rp)
 		return dest

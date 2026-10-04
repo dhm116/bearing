@@ -54,7 +54,7 @@ type Collection struct {
 }
 
 var (
-	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	repoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 )
 

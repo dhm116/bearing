@@ -37,7 +37,11 @@ Before pushing a change to the generator, run what the workflow runs:
 cd site
 go vet ./... && go test ./...
 go run -modfile=../tools/go.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint run --config ../.golangci.yml ./...
+go run -modfile=../tools/go.mod golang.org/x/vuln/cmd/govulncheck ./...
 ```
+
+The generator is a developer command like those in `tools/`, not part of
+Bearing, so it logs with plain `slog` and calls GitHub without `otelhttp`.
 
 `go test` builds the real site, so it also fails on broken links in
 `docs/`.

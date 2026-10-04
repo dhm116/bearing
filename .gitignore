@@ -3,3 +3,4 @@ bin/
 .env
 cover.out
 site/_site/
+site/site

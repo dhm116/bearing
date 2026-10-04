@@ -140,8 +140,55 @@ func TestPrepareOutRefusesSourceDirectories(t *testing.T) {
 			t.Errorf("got nil error clearing %s, want a refusal", out)
 		}
 	}
-	b := &Builder{Root: repo, SiteDir: site, Out: filepath.Join(site, "_site")}
+	docs := filepath.Join(repo, "docs")
+	if err := os.MkdirAll(docs, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "spec.md"), []byte("# Spec\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &Builder{Root: repo, SiteDir: site, Out: docs}
+	if err := b.prepareOut(); err == nil {
+		t.Error("got nil error clearing docs/, want a refusal for a directory no build wrote")
+	}
+	if _, err := os.Stat(filepath.Join(docs, "spec.md")); err != nil {
+		t.Fatalf("got docs/spec.md removed: %v", err)
+	}
+
+	out := filepath.Join(site, "_site")
+	b = &Builder{Root: repo, SiteDir: site, Out: out}
 	if err := b.prepareOut(); err != nil {
-		t.Fatalf("got %v clearing site/_site, want nil", err)
+		t.Fatalf("got %v clearing a new site/_site, want nil", err)
+	}
+	for _, f := range []string{".nojekyll", "old.html"} {
+		if err := os.WriteFile(filepath.Join(out, f), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.prepareOut(); err != nil {
+		t.Fatalf("got %v clearing an earlier build, want nil", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "old.html")); err == nil {
+		t.Fatal("got old.html left behind, want the earlier build cleared")
+	}
+}
+
+func TestRepoReadsStayInsideTheRepository(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.svg"), []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := os.Symlink(filepath.Join(outside, "secret.svg"), filepath.Join(repo, "map.svg")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	out := t.TempDir()
+	b := &Builder{Root: repo, Out: out, Base: "/", assets: map[string]bool{}, static: map[string]string{}}
+	got := b.ResolveLink("README.md", "map.svg", true)
+	if got != "map.svg" || len(b.problems) != 1 {
+		t.Fatalf("got %q and problems %v, want the link refused", got, b.problems)
+	}
+	if _, err := os.Stat(filepath.Join(out, "assets", "map.svg")); err == nil {
+		t.Fatal("got the file outside the repository copied into the site")
 	}
 }
