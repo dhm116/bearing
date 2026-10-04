@@ -26,6 +26,7 @@ func ValidSubjectID(id string) bool { return subjectIDPattern.MatchString(id) }
 // are checked on apply. It returns a *ValidationError.
 func ValidateManualEvent(m proto.Message) error {
 	c := &checker{}
+	c.enums("", m)
 	switch m := m.(type) {
 	case *eventv1alpha1.MergeRequested:
 		c.who(m.GetActor(), m.GetReason())
@@ -114,8 +115,13 @@ func (c *checker) predicate(path, name string) {
 	switch {
 	case name == "":
 		c.add(codeMalformed, path, "is required")
-	case !ValidAttributeName(name) && !validNamespacedAttribute(name):
+	case validNamespacedAttribute(name):
+	case !ValidAttributeName(name):
 		c.add(codeMalformed, path, "%q is not a predicate name", name)
+	default:
+		if _, ok := LookupPredicate(name); !ok && !IsCorePredicate(name) {
+			c.add(codeMalformed, path, "%q is not registered; name an unregistered attribute <namespace>.<attribute>", name)
+		}
 	}
 }
 

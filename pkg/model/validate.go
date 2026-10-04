@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -21,6 +23,19 @@ const MaxConfidence = 1_000_000
 // MaxFutureSkew is how far observed_at may be after ingest time.
 const MaxFutureSkew = 5 * time.Minute
 
+// Limits on google.protobuf.Value trees (attributes, qualifiers, claim
+// values), so validating one is linear in its size and bounded.
+const (
+	// MaxValueDepth is the deepest nesting of lists and objects accepted.
+	MaxValueDepth = 32
+	// MaxValueEntries is the most elements one list or object may hold.
+	MaxValueEntries = 10_000
+)
+
+// MaxProblems is how many problems a ValidationError lists; the rest are
+// counted.
+const MaxProblems = 20
+
 // Problem is one reason an event, or part of it, is rejected.
 type Problem struct {
 	Code modelv1alpha1.RejectionCode
@@ -34,27 +49,38 @@ func (p Problem) String() string {
 	return fmt.Sprintf("%s: %s (%s)", p.Path, p.Message, ShortName(p.Code))
 }
 
-// ValidationError lists every problem found, so one pass reports them all.
+// ValidationError lists the problems found, so one pass reports them all.
+// It holds at most MaxProblems; More counts the rest.
 type ValidationError struct {
 	Problems []Problem
+	More     int
+	// codes holds the distinct codes of every problem, listed or not.
+	codes []modelv1alpha1.RejectionCode
 }
 
-// Error lists every problem.
+// Error lists the problems.
 func (e *ValidationError) Error() string {
 	parts := make([]string, len(e.Problems))
 	for i, p := range e.Problems {
 		parts[i] = p.String()
 	}
-	return "invalid: " + strings.Join(parts, "; ")
+	s := "invalid: " + strings.Join(parts, "; ")
+	if e.More > 0 {
+		s += fmt.Sprintf("; and %d more", e.More)
+	}
+	return s
 }
 
-// Has reports whether any problem has code.
+// Has reports whether any problem, listed or not, has code.
 func (e *ValidationError) Has(code modelv1alpha1.RejectionCode) bool {
-	return slices.ContainsFunc(e.Problems, func(p Problem) bool { return p.Code == code })
+	return slices.Contains(e.Codes(), code)
 }
 
-// Codes returns the distinct codes of the problems, in order of first use.
+// Codes returns the distinct codes of all problems, in order of first use.
 func (e *ValidationError) Codes() []modelv1alpha1.RejectionCode {
+	if e.codes != nil {
+		return e.codes
+	}
 	var codes []modelv1alpha1.RejectionCode
 	for _, p := range e.Problems {
 		if !slices.Contains(codes, p.Code) {
@@ -65,17 +91,84 @@ func (e *ValidationError) Codes() []modelv1alpha1.RejectionCode {
 }
 
 // checker collects problems.
-type checker struct{ problems []Problem }
+type checker struct {
+	problems []Problem
+	more     int
+	codes    []modelv1alpha1.RejectionCode
+}
+
+// full reports whether the problem list is full, recording code either way.
+func (c *checker) full(code modelv1alpha1.RejectionCode) bool {
+	if !slices.Contains(c.codes, code) {
+		c.codes = append(c.codes, code)
+	}
+	if len(c.problems) >= MaxProblems {
+		c.more++
+		return true
+	}
+	return false
+}
 
 func (c *checker) add(code modelv1alpha1.RejectionCode, path, format string, args ...any) {
+	if c.full(code) {
+		return
+	}
 	c.problems = append(c.problems, Problem{Code: code, Path: path, Message: fmt.Sprintf(format, args...)})
 }
 
+// addAt is add with a lazily formatted path, for deep value trees.
+func (c *checker) addAt(code modelv1alpha1.RejectionCode, p *vpath, format string, args ...any) {
+	if c.full(code) {
+		return
+	}
+	c.problems = append(c.problems, Problem{Code: code, Path: p.String(), Message: fmt.Sprintf(format, args...)})
+}
+
 func (c *checker) err() error {
-	if len(c.problems) == 0 {
+	if len(c.problems) == 0 && c.more == 0 {
 		return nil
 	}
-	return &ValidationError{Problems: c.problems}
+	return &ValidationError{Problems: c.problems, More: c.more, codes: c.codes}
+}
+
+// vpath is a path into a value tree, formatted only when a problem needs
+// it, so walking a deep tree stays linear.
+type vpath struct {
+	parent *vpath
+	base   string // the root's path
+	key    string // object member name
+	index  int    // list index, when isIndex
+	isIdx  bool
+}
+
+func rootPath(base string) *vpath { return &vpath{base: base} }
+
+func (p *vpath) member(k string) *vpath { return &vpath{parent: p, key: k} }
+
+func (p *vpath) elem(i int) *vpath { return &vpath{parent: p, index: i, isIdx: true} }
+
+func (p *vpath) String() string {
+	if p.parent == nil {
+		return p.base
+	}
+	var segs []*vpath
+	for q := p; q.parent != nil; q = q.parent {
+		segs = append(segs, q)
+	}
+	var b strings.Builder
+	q := p
+	for q.parent != nil {
+		q = q.parent
+	}
+	b.WriteString(q.base)
+	for i := len(segs) - 1; i >= 0; i-- {
+		if segs[i].isIdx {
+			b.WriteString("[" + strconv.Itoa(segs[i].index) + "]")
+		} else {
+			b.WriteString("[" + strconv.Quote(segs[i].key) + "]")
+		}
+	}
+	return b.String()
 }
 
 const (
@@ -93,12 +186,30 @@ const (
 )
 
 // ValidateObservation checks what can be checked of an observation without
-// configuration or state: the envelope, keys, the registry's kinds,
-// relations and attribute types, confidence, intervals and duplicate
-// claims. The core checks declarations, namespaces and identity on apply.
-// It returns a *ValidationError.
+// configuration or state: the envelope, keys, enum values, the registry's
+// kinds, relations and attribute types, value trees, confidence, intervals,
+// duplicate claims and cardinality within the observation. The core checks
+// declarations, namespaces and identity on apply. It returns a
+// *ValidationError.
 func ValidateObservation(o *eventv1alpha1.Observation) error {
 	c := &checker{}
+	c.observation(o)
+	return c.err()
+}
+
+// ValidateAdapterObservation is ValidateObservation for observations an
+// adapter returned: it also rejects bearingsource, which only the core sets.
+func ValidateAdapterObservation(o *eventv1alpha1.Observation) error {
+	c := &checker{}
+	if o.GetBearingsource() != "" {
+		c.add(codeMalformed, "bearingsource", "is set by the core, never by adapters")
+	}
+	c.observation(o)
+	return c.err()
+}
+
+func (c *checker) observation(o *eventv1alpha1.Observation) {
+	c.enums("", o)
 	if o.GetSpecversion() != SpecVersion {
 		c.add(codeMalformed, "specversion", "must be %q", SpecVersion)
 	}
@@ -118,10 +229,9 @@ func ValidateObservation(o *eventv1alpha1.Observation) error {
 	}
 	if o.GetData() == nil {
 		c.add(codeMalformed, "data", "is required")
-		return c.err()
+		return
 	}
-	c.observationData("data", o.GetData())
-	return c.err()
+	c.observationData("data", o.GetData(), o.GetTime())
 }
 
 // CheckObservedAt rejects an observation whose observed_at is more than
@@ -136,7 +246,46 @@ func CheckObservedAt(o *eventv1alpha1.Observation, ingestedAt time.Time) error {
 	return nil
 }
 
-func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData) {
+// claim is a claim's effective times, confidence and state, with the
+// defaults applied, for comparing duplicates and checking cardinality.
+type claim struct {
+	path     string
+	object   string
+	from, to int64 // microseconds; to is math.MaxInt64 when open
+	conf     uint32
+	absent   bool
+}
+
+func effective(path, object string, observedAt, from, to *timestamppb.Timestamp, conf *uint32, absent bool) claim {
+	cl := claim{path: path, object: object, from: micros(observedAt), to: math.MaxInt64, conf: MaxConfidence, absent: absent}
+	if from != nil {
+		cl.from = micros(from)
+	}
+	if to != nil {
+		cl.to = micros(to)
+	}
+	if conf != nil {
+		cl.conf = *conf
+	}
+	return cl
+}
+
+func (a claim) sameAs(b claim) bool {
+	return a.from == b.from && a.to == b.to && a.conf == b.conf && a.absent == b.absent
+}
+
+// asserting reports whether the claim asserts its fact somewhere: not an
+// ending, and not "only valid_to at or before observed_at".
+func (a claim) asserting() bool { return !a.absent && a.to > a.from }
+
+func micros(ts *timestamppb.Timestamp) int64 {
+	if ts == nil {
+		return 0
+	}
+	return ts.AsTime().UnixMicro()
+}
+
+func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData, observedAt *timestamppb.Timestamp) {
 	e := d.GetEntity()
 	if e == nil {
 		c.add(codeMalformed, path+".entity", "is required")
@@ -161,54 +310,61 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData)
 		c.attribute(fmt.Sprintf("%s.attributes[%q]", ep, name), kind, name, e.GetAttributes()[name], true)
 	}
 
-	type claimTimes struct {
-		from, to *timestamppb.Timestamp
-		conf     *uint32
-		absent   bool
-	}
-	same := func(a, b claimTimes) bool {
-		return sameTime(a.from, b.from) && sameTime(a.to, b.to) && equalPtr(a.conf, b.conf) && a.absent == b.absent
-	}
-
-	seenRel := map[string]claimTimes{}
+	seenRel := map[string]claim{}
+	oneRels := map[string][]claim{}
 	for i, r := range d.GetRelations() {
 		rp := fmt.Sprintf("%s.relations[%d]", path, i)
 		c.relation(rp, kind, r)
-		ct := claimTimes{r.GetValidFrom(), r.GetValidTo(), r.ConfidencePpm, r.GetAbsent()}
-		id := fmt.Sprintf("%s\x00%t\x00%s%s", r.GetType(), isFrom(r), r.GetTo(), r.GetFrom())
-		if prev, ok := seenRel[id]; ok && !same(prev, ct) {
+		object := r.GetTo() + r.GetFrom()
+		cl := effective(rp, object, observedAt, r.GetValidFrom(), r.GetValidTo(), r.ConfidencePpm, r.GetAbsent())
+		id := fmt.Sprintf("%s\x00%t\x00%s", r.GetType(), isFrom(r), object)
+		if prev, ok := seenRel[id]; ok && !prev.sameAs(cl) {
 			c.add(codeDuplicateClaim, rp, "claims the same fact as an earlier relation with different times, confidence or absent")
 		}
-		seenRel[id] = ct
+		seenRel[id] = cl
+		if reg, ok := LookupPredicate(r.GetType()); ok && reg.Relation && reg.Cardinality == one && !isFrom(r) && cl.asserting() {
+			oneRels[r.GetType()] = append(oneRels[r.GetType()], cl)
+		}
+	}
+	for _, name := range sortedKeys(oneRels) {
+		c.overlapping(name, oneRels[name])
 	}
 
-	seenAttr := map[string]claimTimes{}
+	seenAttr := map[string]claim{}
+	oneAttrs := map[string][]claim{}
 	for i, a := range d.GetAttributeClaims() {
 		ap := fmt.Sprintf("%s.attribute_claims[%d]", path, i)
 		name := a.GetPredicate()
-		switch {
-		case name == "":
+		if name == "" {
 			c.add(codeMalformed, ap+".predicate", "is required")
 			continue
-		case a.GetValue() == nil && !a.GetAbsent():
-			c.add(codeMalformed, ap+".value", "is required unless absent")
 		}
 		if _, ok := e.GetAttributes()[name]; ok {
 			c.add(codeDuplicateClaim, ap, "%q is also in entity.attributes", name)
 		}
-		if a.GetValue() != nil {
-			c.attribute(ap+".value", kind, name, a.GetValue(), false)
-		} else {
+		if a.GetValue() == nil {
+			c.add(codeMalformed, ap+".value", "is required")
 			c.attributeName(ap+".predicate", kind, name)
+		} else {
+			c.attribute(ap+".value", kind, name, a.GetValue(), false)
 		}
 		c.claimTimes(ap, a.GetValidFrom(), a.GetValidTo(), a.ConfidencePpm)
-		ct := claimTimes{a.GetValidFrom(), a.GetValidTo(), a.ConfidencePpm, a.GetAbsent()}
-		valueJSON, _ := a.GetValue().MarshalJSON()
+		valueJSON, err := EncodeJSON(a.GetValue())
+		if err != nil {
+			continue // already reported as an invalid value
+		}
+		cl := effective(ap, string(valueJSON), observedAt, a.GetValidFrom(), a.GetValidTo(), a.ConfidencePpm, a.GetAbsent())
 		id := name + "\x00" + string(valueJSON)
-		if prev, ok := seenAttr[id]; ok && !same(prev, ct) {
+		if prev, ok := seenAttr[id]; ok && !prev.sameAs(cl) {
 			c.add(codeDuplicateClaim, ap, "claims the same fact as an earlier attribute claim with different times, confidence or absent")
 		}
-		seenAttr[id] = ct
+		seenAttr[id] = cl
+		if reg, ok := LookupPredicate(name); ok && !reg.Relation && reg.Cardinality == one && cl.asserting() {
+			oneAttrs[name] = append(oneAttrs[name], cl)
+		}
+	}
+	for _, name := range sortedKeys(oneAttrs) {
+		c.overlapping(name, oneAttrs[name])
 	}
 
 	for i, s := range d.GetSnapshots() {
@@ -238,9 +394,57 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData)
 	}
 }
 
+// overlapping rejects asserted claims of different objects of one `one`
+// predicate whose valid times overlap. It sorts by start and keeps, for the
+// two objects with the latest ends seen so far, their latest end, so it is
+// O(n log n).
+func (c *checker) overlapping(predicate string, claims []claim) {
+	slices.SortStableFunc(claims, func(a, b claim) int {
+		switch {
+		case a.from < b.from:
+			return -1
+		case a.from > b.from:
+			return 1
+		}
+		return 0
+	})
+	type latest struct {
+		object string
+		end    int64
+		set    bool
+	}
+	var first, second latest
+	for _, cl := range claims {
+		other := first
+		if first.set && first.object == cl.object {
+			other = second
+		}
+		if other.set && other.end > cl.from {
+			c.add(codeCardinality, cl.path, "%q takes one value at a time; this claim overlaps another with a different value", predicate)
+		}
+		switch {
+		case first.set && first.object == cl.object:
+			first.end = max(first.end, cl.to)
+		case second.set && second.object == cl.object:
+			second.end = max(second.end, cl.to)
+			if second.end > first.end {
+				first, second = second, first
+			}
+		case !first.set || cl.to > first.end:
+			second, first = first, latest{cl.object, cl.to, true}
+		case !second.set || cl.to > second.end:
+			second = latest{cl.object, cl.to, true}
+		}
+	}
+}
+
 func (c *checker) key(path, k string) {
 	if k == "" {
 		c.add(codeMalformed, path, "is required")
+		return
+	}
+	if !utf8.ValidString(k) {
+		c.add(codeMalformed, path, "is not valid UTF-8")
 		return
 	}
 	if _, _, _, err := Key(k).Parse(); err != nil {
@@ -302,7 +506,7 @@ func (c *checker) relation(path string, entity Kind, r *modelv1alpha1.Relation) 
 		c.add(codeDomainMismatch, path+".type", "a %s can't be the subject of %q", entity, name)
 	}
 	for _, q := range sortedKeys(r.GetAttributes()) {
-		c.finite(fmt.Sprintf("%s.attributes[%q]", path, q), r.GetAttributes()[q])
+		c.tree(rootPath(fmt.Sprintf("%s.attributes[%q]", path, q)), r.GetAttributes()[q], 0)
 	}
 	c.claimTimes(path, r.GetValidFrom(), r.GetValidTo(), r.ConfidencePpm)
 }
@@ -320,6 +524,9 @@ func (c *checker) attributeName(path string, entity Kind, name string) (Predicat
 	case IsCorePredicate(name):
 		c.add(codeCorePredicate, path, "only the core claims %q", name)
 		return reg, false
+	case name == PredicateExists:
+		c.add(codeMalformed, path, "exists is implicit in every observation; don't send it")
+		return reg, false
 	case ok && reg.Relation:
 		c.add(codeTypeMismatch, path, "%q is a relation, not an attribute", name)
 		return reg, false
@@ -336,8 +543,7 @@ func (c *checker) attributeName(path string, entity Kind, name string) (Predicat
 // list is the complete set of a many attribute and null means none.
 func (c *checker) attribute(path string, entity Kind, name string, v *structpb.Value, list bool) {
 	reg, registered := c.attributeName(path, entity, name)
-	if !registered {
-		c.finite(path, v)
+	if !c.tree(rootPath(path), v, 0) || !registered {
 		return
 	}
 	switch k := v.GetKind().(type) {
@@ -346,16 +552,16 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 			c.add(codeMalformed, path, "is null; end the fact with absent instead")
 		}
 	case *structpb.Value_ListValue:
-		if reg.Type == tJSON {
-			c.finite(path, v)
-			return
-		}
-		if !list || reg.Cardinality != many {
+		switch {
+		case reg.Type == tJSON:
+		case !list && reg.Cardinality == many:
+			c.add(codeCardinality, path, "each claim is one value; send one claim per value of %q", name)
+		case reg.Cardinality != many:
 			c.add(codeCardinality, path, "%q takes one value, not a list", name)
-			return
-		}
-		for i, e := range k.ListValue.GetValues() {
-			c.typedValue(fmt.Sprintf("%s[%d]", path, i), reg.Type, e)
+		default:
+			for i, e := range k.ListValue.GetValues() {
+				c.typedValue(fmt.Sprintf("%s[%d]", path, i), reg.Type, e)
+			}
 		}
 	default:
 		c.typedValue(path, reg.Type, v)
@@ -374,23 +580,56 @@ func (c *checker) typedValue(path string, t modelv1alpha1.ValueType, v *structpb
 	}
 }
 
-// finite rejects NaN and infinities anywhere in v.
-func (c *checker) finite(path string, v *structpb.Value) {
+// tree checks a value tree: nesting at most MaxValueDepth, at most
+// MaxValueEntries per list or object, valid UTF-8, and finite numbers. It
+// reports whether the tree passed, and stops descending where it fails.
+func (c *checker) tree(p *vpath, v *structpb.Value, depth int) bool {
+	if depth > MaxValueDepth {
+		c.addAt(codeMalformed, p, "is nested more than %d deep", MaxValueDepth)
+		return false
+	}
+	ok := true
 	switch k := v.GetKind().(type) {
 	case *structpb.Value_NumberValue:
 		if math.IsNaN(k.NumberValue) || math.IsInf(k.NumberValue, 0) {
-			c.add(codeInvalidValue, path, "number is NaN or infinite")
+			c.addAt(codeInvalidValue, p, "number is NaN or infinite")
+			ok = false
+		}
+	case *structpb.Value_StringValue:
+		if !utf8.ValidString(k.StringValue) {
+			c.addAt(codeMalformed, p, "is not valid UTF-8")
+			ok = false
 		}
 	case *structpb.Value_ListValue:
-		for i, e := range k.ListValue.GetValues() {
-			c.finite(fmt.Sprintf("%s[%d]", path, i), e)
+		values := k.ListValue.GetValues()
+		if len(values) > MaxValueEntries {
+			c.addAt(codeMalformed, p, "has %d elements, more than %d", len(values), MaxValueEntries)
+			return false
+		}
+		for i, e := range values {
+			if !c.tree(p.elem(i), e, depth+1) {
+				ok = false
+			}
 		}
 	case *structpb.Value_StructValue:
 		fields := k.StructValue.GetFields()
+		if len(fields) > MaxValueEntries {
+			c.addAt(codeMalformed, p, "has %d members, more than %d", len(fields), MaxValueEntries)
+			return false
+		}
 		for _, name := range sortedKeys(fields) {
-			c.finite(fmt.Sprintf("%s[%q]", path, name), fields[name])
+			child := p.member(name)
+			if !utf8.ValidString(name) {
+				c.addAt(codeMalformed, child, "member name is not valid UTF-8")
+				ok = false
+				continue
+			}
+			if !c.tree(child, fields[name], depth+1) {
+				ok = false
+			}
 		}
 	}
+	return ok
 }
 
 func sortedKeys[V any](m map[string]V) []string {
@@ -403,17 +642,3 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 func micro(ts *timestamppb.Timestamp) time.Time { return ts.AsTime().Truncate(time.Microsecond) }
-
-func sameTime(a, b *timestamppb.Timestamp) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return micro(a).Equal(micro(b))
-}
-
-func equalPtr(a, b *uint32) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}

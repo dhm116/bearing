@@ -349,7 +349,7 @@ type AttributeClaim struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The attribute. Required.
 	Predicate string `protobuf:"bytes,1,opt,name=predicate,proto3" json:"predicate,omitempty"`
-	// The value. Required unless absent.
+	// The value. Required, also when absent: an ending ends this value only.
 	Value *structpb.Value `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	// Absent: observed_at.
 	ValidFrom *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`

@@ -124,6 +124,11 @@ func TestValidateManualEvent(t *testing.T) {
 		}, codeTypeMismatch},
 		{&eventv1alpha1.OverrideSet{Actor: actor, Reason: "r", SubjectId: a, Predicate: "name", ValidFrom: at, ValidTo: at}, codeInvalidInterval},
 		{&eventv1alpha1.OverrideCleared{Actor: actor, Reason: "r", Predicate: "name"}, codeMalformed},
+		{&eventv1alpha1.OverrideCleared{Actor: actor, Reason: "r", SubjectId: a, Predicate: "codeowners_rules"}, codeMalformed},
+		{&eventv1alpha1.ClaimWithdrawn{
+			Actor: actor, Reason: "r", Source: "s", SubjectId: a, Predicate: "owned_by",
+			Object: &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType(42), Value: structpb.NewBoolValue(true)},
+		}, codeMalformed},
 		{&eventv1alpha1.SyncRequested{}, codeMalformed},
 		{nil, codeMalformed},
 	}

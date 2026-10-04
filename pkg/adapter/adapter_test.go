@@ -239,3 +239,53 @@ func TestObservationsJSONRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// coreFields emits observations an adapter must not send: Sync sets
+// bearingsource, and Handle returns one with a bad key unless the body is
+// "ok", and nanosecond times either way.
+type coreFields struct{ pager }
+
+func (coreFields) Sync(context.Context, SyncParams) (SyncResult, error) {
+	o := model.NewObservation("adapter/x", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "x:team/a"},
+	})
+	o.Bearingsource = "github-acme"
+	return SyncResult{Observations: Observations{o}, Done: true}, nil
+}
+
+func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error) {
+	key := "no key"
+	if string(p.Body) == "ok" {
+		key = "x:team/a"
+	}
+	o := model.NewObservation("adapter/x", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: key},
+	})
+	o.Time.Nanos = 123_456_789
+	return HandleResult{Observations: Observations{o}}, nil
+}
+
+func TestSyncAllRejectsBearingSource(t *testing.T) {
+	c := connect(t, coreFields{})
+	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !strings.Contains(err.Error(), "bearingsource") {
+		t.Fatalf("got %v, want bearingsource rejected", err)
+	}
+}
+
+func TestClientHandleValidatesAndTruncates(t *testing.T) {
+	c := connect(t, coreFields{})
+	_, err := c.Handle(context.Background(), HandleParams{Body: []byte("bad")})
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) {
+		t.Fatalf("got %v, want a malformed-key rejection", err)
+	}
+	res, err := c.Handle(context.Background(), HandleParams{Body: []byte("ok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
+		t.Fatalf("got nanos %d, want 123456000", got)
+	}
+}

@@ -59,7 +59,7 @@
         },
         "value": {
           "$ref": "#/$defs/google.protobuf.Value.schema.json",
-          "description": "An attribute's value, in canonical form. Set with type."
+          "description": "An attribute's value, in canonical form. Set with type. string and time\n are strings (time in the 6-digit canonical form), float a number, bool\n a boolean, json any JSON value."
         }
       },
       "title": "Fact Object",

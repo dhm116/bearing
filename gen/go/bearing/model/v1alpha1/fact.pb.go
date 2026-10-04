@@ -26,62 +26,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// TypedValue is an attribute value with its type.
-type TypedValue struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The value type. Required.
-	Type ValueType `protobuf:"varint,1,opt,name=type,proto3,enum=bearing.model.v1alpha1.ValueType" json:"type,omitempty"`
-	// string and time are strings (time in the 6-digit canonical form), float
-	// a number, bool a boolean, json any JSON value.
-	Value         *structpb.Value `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TypedValue) Reset() {
-	*x = TypedValue{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TypedValue) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TypedValue) ProtoMessage() {}
-
-func (x *TypedValue) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TypedValue.ProtoReflect.Descriptor instead.
-func (*TypedValue) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *TypedValue) GetType() ValueType {
-	if x != nil {
-		return x.Type
-	}
-	return ValueType_VALUE_TYPE_UNSPECIFIED
-}
-
-func (x *TypedValue) GetValue() *structpb.Value {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
 // FactObject is a fact's object: { "subject_id" } for a relation, or
 // { "type", "value" } for an attribute.
 type FactObject struct {
@@ -90,7 +34,9 @@ type FactObject struct {
 	SubjectId string `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
 	// An attribute's value type. Set with value.
 	Type ValueType `protobuf:"varint,2,opt,name=type,proto3,enum=bearing.model.v1alpha1.ValueType" json:"type,omitempty"`
-	// An attribute's value, in canonical form. Set with type.
+	// An attribute's value, in canonical form. Set with type. string and time
+	// are strings (time in the 6-digit canonical form), float a number, bool
+	// a boolean, json any JSON value.
 	Value         *structpb.Value `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -98,7 +44,7 @@ type FactObject struct {
 
 func (x *FactObject) Reset() {
 	*x = FactObject{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[1]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -110,7 +56,7 @@ func (x *FactObject) String() string {
 func (*FactObject) ProtoMessage() {}
 
 func (x *FactObject) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[1]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -123,7 +69,7 @@ func (x *FactObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactObject.ProtoReflect.Descriptor instead.
 func (*FactObject) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{1}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *FactObject) GetSubjectId() string {
@@ -165,7 +111,7 @@ type Fact struct {
 
 func (x *Fact) Reset() {
 	*x = Fact{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[2]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -177,7 +123,7 @@ func (x *Fact) String() string {
 func (*Fact) ProtoMessage() {}
 
 func (x *Fact) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[2]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -190,7 +136,7 @@ func (x *Fact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Fact.ProtoReflect.Descriptor instead.
 func (*Fact) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{2}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Fact) GetFactId() string {
@@ -234,7 +180,7 @@ type Via struct {
 
 func (x *Via) Reset() {
 	*x = Via{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[3]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +192,7 @@ func (x *Via) String() string {
 func (*Via) ProtoMessage() {}
 
 func (x *Via) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[3]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +205,7 @@ func (x *Via) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Via.ProtoReflect.Descriptor instead.
 func (*Via) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{3}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Via) GetSubject() []string {
@@ -318,7 +264,7 @@ type Support struct {
 
 func (x *Support) Reset() {
 	*x = Support{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[4]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +276,7 @@ func (x *Support) String() string {
 func (*Support) ProtoMessage() {}
 
 func (x *Support) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[4]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +289,7 @@ func (x *Support) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Support.ProtoReflect.Descriptor instead.
 func (*Support) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{4}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Support) GetFactId() string {
@@ -473,7 +419,7 @@ type Precision struct {
 
 func (x *Precision) Reset() {
 	*x = Precision{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[5]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -485,7 +431,7 @@ func (x *Precision) String() string {
 func (*Precision) ProtoMessage() {}
 
 func (x *Precision) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[5]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -498,7 +444,7 @@ func (x *Precision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Precision.ProtoReflect.Descriptor instead.
 func (*Precision) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{5}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Precision) GetDetail() CompactionDetail {
@@ -553,7 +499,7 @@ type FactState struct {
 
 func (x *FactState) Reset() {
 	*x = FactState{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[6]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +511,7 @@ func (x *FactState) String() string {
 func (*FactState) ProtoMessage() {}
 
 func (x *FactState) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[6]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +524,7 @@ func (x *FactState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactState.ProtoReflect.Descriptor instead.
 func (*FactState) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{6}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FactState) GetFactId() string {
@@ -671,7 +617,7 @@ type FactPoint struct {
 
 func (x *FactPoint) Reset() {
 	*x = FactPoint{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[7]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -683,7 +629,7 @@ func (x *FactPoint) String() string {
 func (*FactPoint) ProtoMessage() {}
 
 func (x *FactPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[7]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -696,7 +642,7 @@ func (x *FactPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactPoint.ProtoReflect.Descriptor instead.
 func (*FactPoint) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{7}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FactPoint) GetStatus() FactStatus {
@@ -739,7 +685,7 @@ type FactChange struct {
 
 func (x *FactChange) Reset() {
 	*x = FactChange{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[8]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -751,7 +697,7 @@ func (x *FactChange) String() string {
 func (*FactChange) ProtoMessage() {}
 
 func (x *FactChange) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[8]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -764,7 +710,7 @@ func (x *FactChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactChange.ProtoReflect.Descriptor instead.
 func (*FactChange) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{8}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FactChange) GetFactId() string {
@@ -838,7 +784,7 @@ type ConflictPosition struct {
 
 func (x *ConflictPosition) Reset() {
 	*x = ConflictPosition{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[9]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -850,7 +796,7 @@ func (x *ConflictPosition) String() string {
 func (*ConflictPosition) ProtoMessage() {}
 
 func (x *ConflictPosition) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[9]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -863,7 +809,7 @@ func (x *ConflictPosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConflictPosition.ProtoReflect.Descriptor instead.
 func (*ConflictPosition) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{9}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ConflictPosition) GetSourceSystem() string {
@@ -908,7 +854,7 @@ type Conflict struct {
 
 func (x *Conflict) Reset() {
 	*x = Conflict{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[10]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -920,7 +866,7 @@ func (x *Conflict) String() string {
 func (*Conflict) ProtoMessage() {}
 
 func (x *Conflict) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[10]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -933,7 +879,7 @@ func (x *Conflict) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Conflict.ProtoReflect.Descriptor instead.
 func (*Conflict) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{10}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Conflict) GetSubjectId() string {
@@ -995,7 +941,7 @@ type DataQualityIssue struct {
 
 func (x *DataQualityIssue) Reset() {
 	*x = DataQualityIssue{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[11]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +953,7 @@ func (x *DataQualityIssue) String() string {
 func (*DataQualityIssue) ProtoMessage() {}
 
 func (x *DataQualityIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[11]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +966,7 @@ func (x *DataQualityIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataQualityIssue.ProtoReflect.Descriptor instead.
 func (*DataQualityIssue) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{11}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DataQualityIssue) GetIssue() IssueType {
@@ -1073,7 +1019,7 @@ type CompactionSummary struct {
 
 func (x *CompactionSummary) Reset() {
 	*x = CompactionSummary{}
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[12]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1085,7 +1031,7 @@ func (x *CompactionSummary) String() string {
 func (*CompactionSummary) ProtoMessage() {}
 
 func (x *CompactionSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[12]
+	mi := &file_bearing_model_v1alpha1_fact_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1098,7 +1044,7 @@ func (x *CompactionSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactionSummary.ProtoReflect.Descriptor instead.
 func (*CompactionSummary) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{12}
+	return file_bearing_model_v1alpha1_fact_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CompactionSummary) GetPeriodStart() *timestamppb.Timestamp {
@@ -1147,11 +1093,7 @@ var File_bearing_model_v1alpha1_fact_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_fact_proto_rawDesc = "" +
 	"\n" +
-	"!bearing/model/v1alpha1/fact.proto\x12\x16bearing.model.v1alpha1\x1a(bearing/model/v1alpha1/declaration.proto\x1a\"bearing/model/v1alpha1/enums.proto\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"q\n" +
-	"\n" +
-	"TypedValue\x125\n" +
-	"\x04type\x18\x01 \x01(\x0e2!.bearing.model.v1alpha1.ValueTypeR\x04type\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value\"\x90\x01\n" +
+	"!bearing/model/v1alpha1/fact.proto\x12\x16bearing.model.v1alpha1\x1a(bearing/model/v1alpha1/declaration.proto\x1a\"bearing/model/v1alpha1/enums.proto\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x90\x01\n" +
 	"\n" +
 	"FactObject\x12\x1d\n" +
 	"\n" +
@@ -1270,83 +1212,80 @@ func file_bearing_model_v1alpha1_fact_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_fact_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_fact_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_bearing_model_v1alpha1_fact_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_bearing_model_v1alpha1_fact_proto_goTypes = []any{
-	(*TypedValue)(nil),            // 0: bearing.model.v1alpha1.TypedValue
-	(*FactObject)(nil),            // 1: bearing.model.v1alpha1.FactObject
-	(*Fact)(nil),                  // 2: bearing.model.v1alpha1.Fact
-	(*Via)(nil),                   // 3: bearing.model.v1alpha1.Via
-	(*Support)(nil),               // 4: bearing.model.v1alpha1.Support
-	(*Precision)(nil),             // 5: bearing.model.v1alpha1.Precision
-	(*FactState)(nil),             // 6: bearing.model.v1alpha1.FactState
-	(*FactPoint)(nil),             // 7: bearing.model.v1alpha1.FactPoint
-	(*FactChange)(nil),            // 8: bearing.model.v1alpha1.FactChange
-	(*ConflictPosition)(nil),      // 9: bearing.model.v1alpha1.ConflictPosition
-	(*Conflict)(nil),              // 10: bearing.model.v1alpha1.Conflict
-	(*DataQualityIssue)(nil),      // 11: bearing.model.v1alpha1.DataQualityIssue
-	(*CompactionSummary)(nil),     // 12: bearing.model.v1alpha1.CompactionSummary
-	(ValueType)(0),                // 13: bearing.model.v1alpha1.ValueType
-	(*structpb.Value)(nil),        // 14: google.protobuf.Value
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
-	(SupportReason)(0),            // 16: bearing.model.v1alpha1.SupportReason
-	(*structpb.Struct)(nil),       // 17: google.protobuf.Struct
-	(*Evidence)(nil),              // 18: bearing.model.v1alpha1.Evidence
-	(CompactionDetail)(0),         // 19: bearing.model.v1alpha1.CompactionDetail
-	(FactStatus)(0),               // 20: bearing.model.v1alpha1.FactStatus
-	(StatusReason)(0),             // 21: bearing.model.v1alpha1.StatusReason
-	(*Authority)(nil),             // 22: bearing.model.v1alpha1.Authority
-	(ConflictResolution)(0),       // 23: bearing.model.v1alpha1.ConflictResolution
-	(IssueType)(0),                // 24: bearing.model.v1alpha1.IssueType
+	(*FactObject)(nil),            // 0: bearing.model.v1alpha1.FactObject
+	(*Fact)(nil),                  // 1: bearing.model.v1alpha1.Fact
+	(*Via)(nil),                   // 2: bearing.model.v1alpha1.Via
+	(*Support)(nil),               // 3: bearing.model.v1alpha1.Support
+	(*Precision)(nil),             // 4: bearing.model.v1alpha1.Precision
+	(*FactState)(nil),             // 5: bearing.model.v1alpha1.FactState
+	(*FactPoint)(nil),             // 6: bearing.model.v1alpha1.FactPoint
+	(*FactChange)(nil),            // 7: bearing.model.v1alpha1.FactChange
+	(*ConflictPosition)(nil),      // 8: bearing.model.v1alpha1.ConflictPosition
+	(*Conflict)(nil),              // 9: bearing.model.v1alpha1.Conflict
+	(*DataQualityIssue)(nil),      // 10: bearing.model.v1alpha1.DataQualityIssue
+	(*CompactionSummary)(nil),     // 11: bearing.model.v1alpha1.CompactionSummary
+	(ValueType)(0),                // 12: bearing.model.v1alpha1.ValueType
+	(*structpb.Value)(nil),        // 13: google.protobuf.Value
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(SupportReason)(0),            // 15: bearing.model.v1alpha1.SupportReason
+	(*structpb.Struct)(nil),       // 16: google.protobuf.Struct
+	(*Evidence)(nil),              // 17: bearing.model.v1alpha1.Evidence
+	(CompactionDetail)(0),         // 18: bearing.model.v1alpha1.CompactionDetail
+	(FactStatus)(0),               // 19: bearing.model.v1alpha1.FactStatus
+	(StatusReason)(0),             // 20: bearing.model.v1alpha1.StatusReason
+	(*Authority)(nil),             // 21: bearing.model.v1alpha1.Authority
+	(ConflictResolution)(0),       // 22: bearing.model.v1alpha1.ConflictResolution
+	(IssueType)(0),                // 23: bearing.model.v1alpha1.IssueType
 }
 var file_bearing_model_v1alpha1_fact_proto_depIdxs = []int32{
-	13, // 0: bearing.model.v1alpha1.TypedValue.type:type_name -> bearing.model.v1alpha1.ValueType
-	14, // 1: bearing.model.v1alpha1.TypedValue.value:type_name -> google.protobuf.Value
-	13, // 2: bearing.model.v1alpha1.FactObject.type:type_name -> bearing.model.v1alpha1.ValueType
-	14, // 3: bearing.model.v1alpha1.FactObject.value:type_name -> google.protobuf.Value
-	1,  // 4: bearing.model.v1alpha1.Fact.object:type_name -> bearing.model.v1alpha1.FactObject
-	15, // 5: bearing.model.v1alpha1.Support.observed_at:type_name -> google.protobuf.Timestamp
-	15, // 6: bearing.model.v1alpha1.Support.last_confirmed_at:type_name -> google.protobuf.Timestamp
-	15, // 7: bearing.model.v1alpha1.Support.valid_from:type_name -> google.protobuf.Timestamp
-	15, // 8: bearing.model.v1alpha1.Support.valid_to:type_name -> google.protobuf.Timestamp
-	15, // 9: bearing.model.v1alpha1.Support.recorded_at:type_name -> google.protobuf.Timestamp
-	15, // 10: bearing.model.v1alpha1.Support.retracted_at:type_name -> google.protobuf.Timestamp
-	16, // 11: bearing.model.v1alpha1.Support.reason:type_name -> bearing.model.v1alpha1.SupportReason
-	3,  // 12: bearing.model.v1alpha1.Support.via:type_name -> bearing.model.v1alpha1.Via
-	17, // 13: bearing.model.v1alpha1.Support.qualifiers:type_name -> google.protobuf.Struct
-	18, // 14: bearing.model.v1alpha1.Support.evidence:type_name -> bearing.model.v1alpha1.Evidence
-	19, // 15: bearing.model.v1alpha1.Precision.detail:type_name -> bearing.model.v1alpha1.CompactionDetail
-	15, // 16: bearing.model.v1alpha1.Precision.period_start:type_name -> google.protobuf.Timestamp
-	15, // 17: bearing.model.v1alpha1.Precision.period_end:type_name -> google.protobuf.Timestamp
-	1,  // 18: bearing.model.v1alpha1.FactState.object:type_name -> bearing.model.v1alpha1.FactObject
-	20, // 19: bearing.model.v1alpha1.FactState.status:type_name -> bearing.model.v1alpha1.FactStatus
-	21, // 20: bearing.model.v1alpha1.FactState.status_reason:type_name -> bearing.model.v1alpha1.StatusReason
-	15, // 21: bearing.model.v1alpha1.FactState.valid_from:type_name -> google.protobuf.Timestamp
-	15, // 22: bearing.model.v1alpha1.FactState.valid_to:type_name -> google.protobuf.Timestamp
-	5,  // 23: bearing.model.v1alpha1.FactState.precision:type_name -> bearing.model.v1alpha1.Precision
-	4,  // 24: bearing.model.v1alpha1.FactState.supports:type_name -> bearing.model.v1alpha1.Support
-	20, // 25: bearing.model.v1alpha1.FactPoint.status:type_name -> bearing.model.v1alpha1.FactStatus
-	1,  // 26: bearing.model.v1alpha1.FactChange.object:type_name -> bearing.model.v1alpha1.FactObject
-	7,  // 27: bearing.model.v1alpha1.FactChange.from:type_name -> bearing.model.v1alpha1.FactPoint
-	7,  // 28: bearing.model.v1alpha1.FactChange.to:type_name -> bearing.model.v1alpha1.FactPoint
-	5,  // 29: bearing.model.v1alpha1.FactChange.precision:type_name -> bearing.model.v1alpha1.Precision
-	22, // 30: bearing.model.v1alpha1.ConflictPosition.authority:type_name -> bearing.model.v1alpha1.Authority
-	1,  // 31: bearing.model.v1alpha1.ConflictPosition.objects:type_name -> bearing.model.v1alpha1.FactObject
-	15, // 32: bearing.model.v1alpha1.Conflict.valid_from:type_name -> google.protobuf.Timestamp
-	15, // 33: bearing.model.v1alpha1.Conflict.valid_to:type_name -> google.protobuf.Timestamp
-	9,  // 34: bearing.model.v1alpha1.Conflict.positions:type_name -> bearing.model.v1alpha1.ConflictPosition
-	23, // 35: bearing.model.v1alpha1.Conflict.resolution:type_name -> bearing.model.v1alpha1.ConflictResolution
-	24, // 36: bearing.model.v1alpha1.DataQualityIssue.issue:type_name -> bearing.model.v1alpha1.IssueType
-	4,  // 37: bearing.model.v1alpha1.DataQualityIssue.supports:type_name -> bearing.model.v1alpha1.Support
-	15, // 38: bearing.model.v1alpha1.CompactionSummary.period_start:type_name -> google.protobuf.Timestamp
-	15, // 39: bearing.model.v1alpha1.CompactionSummary.period_end:type_name -> google.protobuf.Timestamp
-	1,  // 40: bearing.model.v1alpha1.CompactionSummary.value_at_end:type_name -> bearing.model.v1alpha1.FactObject
-	1,  // 41: bearing.model.v1alpha1.CompactionSummary.distinct_values:type_name -> bearing.model.v1alpha1.FactObject
-	15, // 42: bearing.model.v1alpha1.CompactionSummary.compacted_at:type_name -> google.protobuf.Timestamp
-	43, // [43:43] is the sub-list for method output_type
-	43, // [43:43] is the sub-list for method input_type
-	43, // [43:43] is the sub-list for extension type_name
-	43, // [43:43] is the sub-list for extension extendee
-	0,  // [0:43] is the sub-list for field type_name
+	12, // 0: bearing.model.v1alpha1.FactObject.type:type_name -> bearing.model.v1alpha1.ValueType
+	13, // 1: bearing.model.v1alpha1.FactObject.value:type_name -> google.protobuf.Value
+	0,  // 2: bearing.model.v1alpha1.Fact.object:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 3: bearing.model.v1alpha1.Support.observed_at:type_name -> google.protobuf.Timestamp
+	14, // 4: bearing.model.v1alpha1.Support.last_confirmed_at:type_name -> google.protobuf.Timestamp
+	14, // 5: bearing.model.v1alpha1.Support.valid_from:type_name -> google.protobuf.Timestamp
+	14, // 6: bearing.model.v1alpha1.Support.valid_to:type_name -> google.protobuf.Timestamp
+	14, // 7: bearing.model.v1alpha1.Support.recorded_at:type_name -> google.protobuf.Timestamp
+	14, // 8: bearing.model.v1alpha1.Support.retracted_at:type_name -> google.protobuf.Timestamp
+	15, // 9: bearing.model.v1alpha1.Support.reason:type_name -> bearing.model.v1alpha1.SupportReason
+	2,  // 10: bearing.model.v1alpha1.Support.via:type_name -> bearing.model.v1alpha1.Via
+	16, // 11: bearing.model.v1alpha1.Support.qualifiers:type_name -> google.protobuf.Struct
+	17, // 12: bearing.model.v1alpha1.Support.evidence:type_name -> bearing.model.v1alpha1.Evidence
+	18, // 13: bearing.model.v1alpha1.Precision.detail:type_name -> bearing.model.v1alpha1.CompactionDetail
+	14, // 14: bearing.model.v1alpha1.Precision.period_start:type_name -> google.protobuf.Timestamp
+	14, // 15: bearing.model.v1alpha1.Precision.period_end:type_name -> google.protobuf.Timestamp
+	0,  // 16: bearing.model.v1alpha1.FactState.object:type_name -> bearing.model.v1alpha1.FactObject
+	19, // 17: bearing.model.v1alpha1.FactState.status:type_name -> bearing.model.v1alpha1.FactStatus
+	20, // 18: bearing.model.v1alpha1.FactState.status_reason:type_name -> bearing.model.v1alpha1.StatusReason
+	14, // 19: bearing.model.v1alpha1.FactState.valid_from:type_name -> google.protobuf.Timestamp
+	14, // 20: bearing.model.v1alpha1.FactState.valid_to:type_name -> google.protobuf.Timestamp
+	4,  // 21: bearing.model.v1alpha1.FactState.precision:type_name -> bearing.model.v1alpha1.Precision
+	3,  // 22: bearing.model.v1alpha1.FactState.supports:type_name -> bearing.model.v1alpha1.Support
+	19, // 23: bearing.model.v1alpha1.FactPoint.status:type_name -> bearing.model.v1alpha1.FactStatus
+	0,  // 24: bearing.model.v1alpha1.FactChange.object:type_name -> bearing.model.v1alpha1.FactObject
+	6,  // 25: bearing.model.v1alpha1.FactChange.from:type_name -> bearing.model.v1alpha1.FactPoint
+	6,  // 26: bearing.model.v1alpha1.FactChange.to:type_name -> bearing.model.v1alpha1.FactPoint
+	4,  // 27: bearing.model.v1alpha1.FactChange.precision:type_name -> bearing.model.v1alpha1.Precision
+	21, // 28: bearing.model.v1alpha1.ConflictPosition.authority:type_name -> bearing.model.v1alpha1.Authority
+	0,  // 29: bearing.model.v1alpha1.ConflictPosition.objects:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 30: bearing.model.v1alpha1.Conflict.valid_from:type_name -> google.protobuf.Timestamp
+	14, // 31: bearing.model.v1alpha1.Conflict.valid_to:type_name -> google.protobuf.Timestamp
+	8,  // 32: bearing.model.v1alpha1.Conflict.positions:type_name -> bearing.model.v1alpha1.ConflictPosition
+	22, // 33: bearing.model.v1alpha1.Conflict.resolution:type_name -> bearing.model.v1alpha1.ConflictResolution
+	23, // 34: bearing.model.v1alpha1.DataQualityIssue.issue:type_name -> bearing.model.v1alpha1.IssueType
+	3,  // 35: bearing.model.v1alpha1.DataQualityIssue.supports:type_name -> bearing.model.v1alpha1.Support
+	14, // 36: bearing.model.v1alpha1.CompactionSummary.period_start:type_name -> google.protobuf.Timestamp
+	14, // 37: bearing.model.v1alpha1.CompactionSummary.period_end:type_name -> google.protobuf.Timestamp
+	0,  // 38: bearing.model.v1alpha1.CompactionSummary.value_at_end:type_name -> bearing.model.v1alpha1.FactObject
+	0,  // 39: bearing.model.v1alpha1.CompactionSummary.distinct_values:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 40: bearing.model.v1alpha1.CompactionSummary.compacted_at:type_name -> google.protobuf.Timestamp
+	41, // [41:41] is the sub-list for method output_type
+	41, // [41:41] is the sub-list for method input_type
+	41, // [41:41] is the sub-list for extension type_name
+	41, // [41:41] is the sub-list for extension extendee
+	0,  // [0:41] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_fact_proto_init() }
@@ -1357,16 +1296,16 @@ func file_bearing_model_v1alpha1_fact_proto_init() {
 	file_bearing_model_v1alpha1_declaration_proto_init()
 	file_bearing_model_v1alpha1_enums_proto_init()
 	file_bearing_model_v1alpha1_observation_proto_init()
-	file_bearing_model_v1alpha1_fact_proto_msgTypes[4].OneofWrappers = []any{}
+	file_bearing_model_v1alpha1_fact_proto_msgTypes[3].OneofWrappers = []any{}
+	file_bearing_model_v1alpha1_fact_proto_msgTypes[5].OneofWrappers = []any{}
 	file_bearing_model_v1alpha1_fact_proto_msgTypes[6].OneofWrappers = []any{}
-	file_bearing_model_v1alpha1_fact_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_fact_proto_rawDesc), len(file_bearing_model_v1alpha1_fact_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

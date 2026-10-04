@@ -2,6 +2,14 @@
 
 Date: 2026-09-29 · Status: proposed
 
+> Amended in part by a lead decision on
+> [issue #11](https://github.com/dhm116/bearing/issues/11)
+> ([PR #34](https://github.com/dhm116/bearing/pull/34)): validation is Go
+> code in `pkg/model`, run on the host at the edges, not `buf.validate`
+> annotations checked with protovalidate. Many rules depend on the
+> registry and the declarations in force, which annotations can't express.
+> Where this record says protovalidate, read that validation.
+
 ## Context
 
 Today the observation format is a hand-written JSON Schema

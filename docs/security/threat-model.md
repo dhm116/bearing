@@ -676,7 +676,7 @@ Assets: A5, A2, A6, the container and host.
 | T-OPS-6 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
 | T-OPS-7 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
 
-- **C-OPS-1** Config apply validates types, protovalidate rules, adapter
+- **C-OPS-1** Config apply validates types, validation rules (C-GEN-3), adapter
   settings and grants (ADR 10). `bearing diff` shows grant changes
   separately from other changes.
 - **C-OPS-2** Config changes need the `admin` role (or the local socket),

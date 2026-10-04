@@ -63,7 +63,7 @@
         },
         "value": {
           "$ref": "#/$defs/google.protobuf.Value.schema.json",
-          "description": "The value. Required unless absent."
+          "description": "The value. Required, also when absent: an ending ends this value only."
         }
       },
       "title": "Attribute Claim",

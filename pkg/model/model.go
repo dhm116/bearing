@@ -67,7 +67,8 @@ var timestampName = (&timestamppb.Timestamp{}).ProtoReflect().Descriptor().FullN
 
 func truncate(m protoreflect.Message) {
 	if m.Descriptor().FullName() == timestampName {
-		if ts, ok := m.Interface().(*timestamppb.Timestamp); ok {
+		// An invalid timestamp is left for validation to reject.
+		if ts, ok := m.Interface().(*timestamppb.Timestamp); ok && ts.IsValid() {
 			ts.Nanos -= ts.Nanos % 1000
 		}
 		return

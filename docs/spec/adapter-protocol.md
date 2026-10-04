@@ -100,6 +100,8 @@ These declarations are specified for the Protobuf adapter service that
 replaces this transport ([ADR 9](../adr/0009-wasm-adapters.md)): they
 become fields of its `DescribeResponse`. The JSON above writes enum values
 in short form (`id`); on the wire they are ProtoJSON enum names.
+Until the adapter service lands, the scaffold's stdio adapters do not send
+these 0.2 declarations; their `bearing.describe` still returns `emits`.
 
 `access` lists the permissions the adapter needs, in the source system's own
 terms, so an operator can grant exactly those and nothing more. Adapters

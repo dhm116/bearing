@@ -161,10 +161,32 @@ func (c *Client) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
 }
 
 // Handle calls bearing.handle.
+// Like SyncAll, it validates every observation and truncates its times to
+// microseconds, and fails on the first invalid one.
 func (c *Client) Handle(ctx context.Context, p HandleParams) (HandleResult, error) {
 	var res HandleResult
-	err := c.call(ctx, MethodHandle, p, &res)
-	return res, err
+	if err := c.call(ctx, MethodHandle, p, &res); err != nil {
+		return res, err
+	}
+	for i, o := range res.Observations {
+		if err := checkObservation(ctx, c.name, o); err != nil {
+			return HandleResult{}, fmt.Errorf("%s: observation %d: %w", MethodHandle, i, err)
+		}
+	}
+	return res, nil
+}
+
+// checkObservation validates an adapter's observation on the host
+// (model.ValidateAdapterObservation), counting failures, and only then
+// truncates its times to microseconds, so an invalid timestamp is rejected
+// rather than repaired.
+func checkObservation(ctx context.Context, adapterName string, o *eventv1alpha1.Observation) error {
+	if err := model.ValidateAdapterObservation(o); err != nil {
+		observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(adapterName)))
+		return err
+	}
+	model.TruncateTimes(o)
+	return nil
 }
 
 // ErrTooManyPages is returned by SyncAll when an adapter never reports done.
@@ -176,9 +198,9 @@ type Syncer interface {
 	Sync(context.Context, SyncParams) (SyncResult, error)
 }
 
-// SyncAll pages through a full sync, truncating every observation's times to
-// microseconds, validating it (model.ValidateObservation) and passing it to
-// emit. maxPages guards against adapters that never finish. The whole
+// SyncAll pages through a full sync, validating every observation
+// (model.ValidateAdapterObservation), truncating its times to microseconds
+// and passing it to emit. maxPages guards against adapters that never finish. The whole
 // sync runs in one span, with each page as a child.
 func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (err error) {
 	name := "in-process"
@@ -215,9 +237,7 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 		pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
 		for _, o := range res.Observations {
-			model.TruncateTimes(o)
-			if err := model.ValidateObservation(o); err != nil {
-				observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
+			if err := checkObservation(ctx, name, o); err != nil {
 				return fmt.Errorf("sync page %d: %w", pages, err)
 			}
 			observationsReceived.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name), attrKind.String(o.GetData().GetEntity().GetKind())))

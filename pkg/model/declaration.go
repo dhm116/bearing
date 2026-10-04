@@ -12,6 +12,7 @@ import (
 // configuration apply. It returns a *ValidationError.
 func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 	c := &checker{}
+	c.enums("", d)
 	if d.GetName() == "" {
 		c.add(codeMalformed, "name", "is required")
 	}

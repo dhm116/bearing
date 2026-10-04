@@ -72,7 +72,7 @@ message Relation {
 message AttributeClaim {
   // The attribute. Required.
   string predicate = 1;
-  // The value. Required unless absent.
+  // The value. Required, also when absent: an ending ends this value only.
   google.protobuf.Value value = 2;
   // Absent: observed_at.
   google.protobuf.Timestamp valid_from = 3;

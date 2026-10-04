@@ -10,10 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // errNonFinite is returned for NaN and infinities, which JSON can't hold.
 var errNonFinite = errors.New("number is NaN or infinite")
+
+// errInvalidUTF8 is returned for strings that are not valid UTF-8, which
+// JCS would otherwise turn into U+FFFD and so collide with other strings.
+var errInvalidUTF8 = errors.New("string is not valid UTF-8")
 
 // canonicalJSON returns the RFC 8785 (JCS) form of v, a value as decoded by
 // encoding/json into any: nil, bool, float64, string, []any or
@@ -48,6 +53,9 @@ func writeJCS(b *bytes.Buffer, v any) error {
 		}
 		b.WriteString(s)
 	case string:
+		if !utf8.ValidString(v) {
+			return errInvalidUTF8
+		}
 		writeJCSString(b, v)
 	case []any:
 		b.WriteByte('[')
@@ -63,6 +71,9 @@ func writeJCS(b *bytes.Buffer, v any) error {
 	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for k := range v {
+			if !utf8.ValidString(k) {
+				return errInvalidUTF8
+			}
 			keys = append(keys, k)
 		}
 		// JCS sorts member names by their UTF-16 code units.
