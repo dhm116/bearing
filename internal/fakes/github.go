@@ -2,20 +2,25 @@ package fakes
 
 import (
 	"cmp"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 // GitHubOptions configures the GitHub fake.
 type GitHubOptions struct {
-	// Token, if set, must be sent as "Authorization: Bearer <Token>";
-	// other requests get GitHub's 401.
+	// Token is the one token accepted, as "Authorization: Bearer <Token>"
+	// or "Authorization: token <Token>"; any other gets GitHub's 401.
+	// Empty accepts any token. A request with no Authorization header is
+	// anonymous either way: REST serves public data only and GraphQL
+	// answers 401.
 	Token string
 	// WebhookSecret signs deliveries; empty leaves them unsigned.
 	WebhookSecret string
@@ -26,23 +31,31 @@ type GitHubOptions struct {
 type GitHub struct {
 	*server
 	org    *Org
+	token  string
 	secret string
+
+	rateMu  sync.Mutex
+	used    int // requests counted against the rate limit
+	limited int // requests still to answer with a rate-limit error
 }
 
 // githubAPI is the API base URL in webhook payloads, which aren't tied to a
 // request to the fake.
 const githubAPI = "https://api.github.com"
 
+// rateLimit is the hourly request budget the fake reports.
+const rateLimit = 5000
+
+// anonymousKey marks a request context as unauthenticated.
+type anonymousKey struct{}
+
+// anonymous reports whether r was sent without credentials.
+func anonymous(r *http.Request) bool { return r.Context().Value(anonymousKey{}) != nil }
+
 // NewGitHub starts the GitHub fake for org. It is closed when the test ends.
 func NewGitHub(t testing.TB, org *Org, opts GitHubOptions) *GitHub {
 	t.Helper()
-	g := &GitHub{
-		server: &server{token: opts.Token, unauthorized: func(w http.ResponseWriter) {
-			ghError(w, http.StatusUnauthorized, "Bad credentials")
-		}},
-		org:    org,
-		secret: opts.WebhookSecret,
-	}
+	g := &GitHub{server: &server{}, org: org, token: opts.Token, secret: opts.WebhookSecret}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /orgs/{org}/repos", g.listRepos)
 	mux.HandleFunc("GET /orgs/{org}/teams", g.listTeams)
@@ -55,16 +68,66 @@ func NewGitHub(t testing.TB, org *Org, opts GitHubOptions) *GitHub {
 	mux.HandleFunc("POST /graphql", g.graphQL)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { ghError(w, http.StatusNotFound, "Not Found") })
 	g.start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource := "core"
-		if r.URL.Path == "/graphql" {
-			resource = "graphql"
+		if !g.rateHeaders(w, r) {
+			// GitHub's primary rate limit reply.
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"message":           "API rate limit exceeded for user ID 1000001.",
+				"documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api",
+				"status":            "403",
+			})
+			return
 		}
-		w.Header().Set("X-RateLimit-Limit", "5000")
-		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(max(0, 5000-len(g.Requests()))))
-		w.Header().Set("X-RateLimit-Resource", resource)
-		mux.ServeHTTP(w, r)
+		tok, sent := credential(r, "Bearer", "token")
+		switch {
+		case !sent && r.URL.Path == "/graphql":
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"message":           "This endpoint requires you to be authenticated.",
+				"documentation_url": "https://docs.github.com/graphql/guides/forming-calls-with-graphql#authenticating-with-graphql",
+			})
+		case !sent:
+			mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), anonymousKey{}, true)))
+		case tok == "" || (g.token != "" && tok != g.token):
+			ghError(w, http.StatusUnauthorized, "Bad credentials")
+		default:
+			mux.ServeHTTP(w, r)
+		}
 	}))
 	return g
+}
+
+// RateLimitNext makes the next n requests fail with GitHub's 403 rate-limit
+// reply and X-RateLimit-Remaining: 0.
+func (g *GitHub) RateLimitNext(n int) {
+	g.rateMu.Lock()
+	defer g.rateMu.Unlock()
+	g.limited = n
+}
+
+// rateHeaders counts r against the rate limit and sets GitHub's rate-limit
+// headers. It reports false if r is to be refused.
+func (g *GitHub) rateHeaders(w http.ResponseWriter, r *http.Request) bool {
+	g.rateMu.Lock()
+	defer g.rateMu.Unlock()
+	resource := "core"
+	if r.URL.Path == "/graphql" {
+		resource = "graphql"
+	}
+	ok := g.limited <= 0
+	remaining := 0
+	if ok {
+		g.used++
+		remaining = max(0, rateLimit-g.used)
+	} else {
+		g.limited--
+	}
+	reset := g.org.clock.Now().Add(time.Hour).Unix()
+	h := w.Header()
+	h.Set("X-RateLimit-Limit", strconv.Itoa(rateLimit))
+	h.Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+	h.Set("X-RateLimit-Used", strconv.Itoa(rateLimit-remaining))
+	h.Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+	h.Set("X-RateLimit-Resource", resource)
+	return ok
 }
 
 func ghError(w http.ResponseWriter, status int, msg string) {
@@ -131,7 +194,7 @@ func orgJSON(api string, next bool) map[string]any {
 func repoJSON(api string, r Repo, next bool) map[string]any {
 	return map[string]any{
 		"id": r.DatabaseID, "node_id": repoNodeID(r, next), "name": r.Name, "full_name": r.FullName(),
-		"private": true, "visibility": "internal", "fork": false,
+		"private": r.Visibility != "public", "visibility": r.Visibility, "fork": false,
 		"owner":    map[string]any{"login": OrgLogin, "id": orgDatabaseID, "node_id": orgNodeID(next), "type": "Organization"},
 		"html_url": "https://github.com/" + r.FullName(), "url": api + "/repos/" + r.FullName(),
 		"description": nullable(r.Description), "language": nullable(r.Language),
@@ -210,6 +273,9 @@ func (g *GitHub) listRepos(w http.ResponseWriter, r *http.Request) {
 	g.org.mu.Lock()
 	repos := g.org.sortedRepos()
 	g.org.mu.Unlock()
+	if anonymous(r) {
+		repos = slices.DeleteFunc(repos, func(rp Repo) bool { return rp.Visibility != "public" })
+	}
 	out := []map[string]any{}
 	for _, rp := range restPage(w, r, repos) {
 		out = append(out, repoJSON(baseURL(r), rp, nextIDs(r)))
@@ -242,7 +308,7 @@ func (o *Org) githubTeams() []Team {
 }
 
 func (g *GitHub) listTeams(w http.ResponseWriter, r *http.Request) {
-	if !isOrg(r.PathValue("org")) {
+	if !isOrg(r.PathValue("org")) || anonymous(r) {
 		ghError(w, http.StatusNotFound, "Not Found")
 		return
 	}
@@ -259,7 +325,7 @@ func (g *GitHub) getTeam(w http.ResponseWriter, r *http.Request) {
 	g.org.mu.Lock()
 	defer g.org.mu.Unlock()
 	t := g.org.githubTeam(r.PathValue("slug"))
-	if !isOrg(r.PathValue("org")) || t == nil {
+	if !isOrg(r.PathValue("org")) || t == nil || anonymous(r) {
 		ghError(w, http.StatusNotFound, "Not Found")
 		return
 	}
@@ -290,7 +356,7 @@ func (o *Org) githubMembers(team string, direct, child bool) []teamMember {
 		out = append(out, teamMember{user: *p.GitHub, name: p.Name, role: role})
 	}
 	if direct {
-		for _, m := range o.members(team, now) {
+		for _, m := range o.members(team, now, Membership.OnGitHubAt) {
 			add(m, m.Role)
 		}
 	}
@@ -301,7 +367,7 @@ func (o *Org) githubMembers(team string, direct, child bool) []teamMember {
 				if t := o.teamByID(c); t == nil || t.GitHub == nil || t.GitHub.Deleted {
 					continue
 				}
-				for _, m := range o.members(c, now) {
+				for _, m := range o.members(c, now, Membership.OnGitHubAt) {
 					add(m, "member")
 				}
 				walk(c)
@@ -319,7 +385,7 @@ func (g *GitHub) listMembers(w http.ResponseWriter, r *http.Request) {
 	g.org.mu.Lock()
 	defer g.org.mu.Unlock()
 	t := g.org.githubTeam(r.PathValue("slug"))
-	if !isOrg(r.PathValue("org")) || t == nil {
+	if !isOrg(r.PathValue("org")) || t == nil || anonymous(r) {
 		ghError(w, http.StatusNotFound, "Not Found")
 		return
 	}
@@ -330,9 +396,18 @@ func (g *GitHub) listMembers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// findRepo resolves the {owner}/{repo} or {id} in r's path. moved is set
+// findRepo resolves the {owner}/{repo} or {id} in r's path, hiding
+// repositories that aren't public from anonymous requests. moved is set
 // when the name is a previous name, which GitHub redirects.
 func (g *GitHub) findRepo(r *http.Request) (rp *Repo, moved bool) {
+	rp, moved = g.lookupRepo(r)
+	if rp != nil && anonymous(r) && rp.Visibility != "public" {
+		return nil, false
+	}
+	return rp, moved
+}
+
+func (g *GitHub) lookupRepo(r *http.Request) (rp *Repo, moved bool) {
 	if id := r.PathValue("id"); id != "" {
 		for _, x := range g.org.repos {
 			if strconv.FormatInt(x.DatabaseID, 10) == id {

@@ -68,6 +68,15 @@ linters:
           deny:
             - pkg: bearing.example/internal/testkit
               desc: testkit is for tests only
+        # Nor the fake source systems.
+        fakes:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/fakes/**"
+          deny:
+            - pkg: bearing.example/internal/fakes
+              desc: fakes are for tests only
         # Only internal/surrealstore talks to SurrealDB.
         surrealdb:
           files:

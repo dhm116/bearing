@@ -19,8 +19,9 @@ var (
 	TeamRenamedAt = time.Date(2026, 10, 3, 10, 0, 0, 0, time.UTC)
 	// TeamDeletedAt is when the Legacy Ops team is deleted.
 	TeamDeletedAt = time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC)
-	// MembershipEndsAt is when jdoe's membership of payments ends, as
-	// seeded: nothing happens at this time, the membership simply stops.
+	// MembershipEndsAt is when lfischer's engineering membership ends in
+	// the directory, as recorded in advance: nothing changes at this time,
+	// the directory simply stops listing it. GitHub never sees it.
 	MembershipEndsAt = day(2026, 11, 1)
 )
 
@@ -48,7 +49,7 @@ func Story() []Step {
 		{At: TeamDeletedAt, Name: "delete team legacy-ops", Apply: func(o *Org) error {
 			return o.DeleteTeam("legacy-ops")
 		}},
-		{At: MembershipEndsAt, Name: "jdoe's payments membership ends"},
+		{At: MembershipEndsAt, Name: "lfischer's engineering membership ends in the directory"},
 	}
 }
 
@@ -57,18 +58,18 @@ func seedPeople() []*Person {
 		{
 			ID: "jdoe", Name: "Jane Doe", Email: "jdoe@acme.example",
 			GitHub:    &GitHubUser{DatabaseID: 56030835, Login: "jdoe", VerifiedEmails: []string{"jdoe@acme.example"}},
-			Directory: &DirectoryUser{PK: 42, UUID: "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74", Username: "jdoe", LinkNodeID: true, LinkLogin: true},
+			Directory: &DirectoryUser{PK: 42, UUID: "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74", Username: "jdoe", GitHubConnection: true, LinkLogin: true},
 		},
 		{
 			ID: "rpatel", Name: "Raj Patel", Email: "rpatel@acme.example",
 			GitHub:    &GitHubUser{DatabaseID: 56030901, Login: "rpatel", VerifiedEmails: []string{"rpatel@acme.example"}},
-			Directory: &DirectoryUser{PK: 43, UUID: "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6", Username: "rpatel", LinkNodeID: true, LinkLogin: true},
+			Directory: &DirectoryUser{PK: 43, UUID: "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6", Username: "rpatel", GitHubConnection: true, LinkLogin: true},
 		},
 		{
 			// Different usernames in the two systems: only the link joins them.
 			ID: "mchen", Name: "Mei Chen", Email: "mchen@acme.example",
 			GitHub:    &GitHubUser{DatabaseID: 41022233, Login: "meichen", VerifiedEmails: []string{"mchen@acme.example"}},
-			Directory: &DirectoryUser{PK: 44, UUID: "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d", Username: "mchen", LinkNodeID: true, LinkLogin: true},
+			Directory: &DirectoryUser{PK: 44, UUID: "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d", Username: "mchen", GitHubConnection: true, LinkLogin: true},
 		},
 		{
 			// The directory records only the GitHub login: not authoritative.
@@ -121,20 +122,24 @@ func seedRepos() []*Repo {
 	return []*Repo{
 		{
 			DatabaseID: 412009871, Name: "ops-scripts", Description: "Retired operations scripts",
-			Language: "Shell", Archived: true, DefaultBranch: "main",
+			Language: "Shell", Archived: true, DefaultBranch: "main", Visibility: "internal",
 			CreatedAt: day(2021, 3, 4), UpdatedAt: day(2024, 6, 30), PushedAt: day(2024, 6, 30),
-			Files: map[string]string{".github/CODEOWNERS": "* @acme/legacy-ops\n"},
+			// .github/CODEOWNERS wins; the root file is stale and ignored.
+			Files: map[string]string{
+				".github/CODEOWNERS": "* @acme/legacy-ops\n",
+				"CODEOWNERS":         "* @acme/platform\n",
+			},
 		},
 		{
 			DatabaseID: 525776495, Name: "payments-api", Description: "Payment processing API",
-			Language: "Go", Topics: []string{"payments", "tier-1"}, DefaultBranch: "main",
+			Language: "Go", Topics: []string{"payments", "tier-1"}, DefaultBranch: "main", Visibility: "private",
 			CreatedAt: day(2023, 1, 9), UpdatedAt: day(2026, 9, 20), PushedAt: day(2026, 9, 20),
 			Files: map[string]string{".github/CODEOWNERS": "# Payments service\n* @acme/payments\n"},
 		},
 		{
 			// The root CODEOWNERS wins; docs/CODEOWNERS is stale and ignored.
 			DatabaseID: 525776502, Name: "web", Description: "Customer web app",
-			Language: "TypeScript", Topics: []string{"frontend"}, DefaultBranch: "main",
+			Language: "TypeScript", Topics: []string{"frontend"}, DefaultBranch: "main", Visibility: "private",
 			CreatedAt: day(2023, 1, 10), UpdatedAt: day(2026, 9, 25), PushedAt: day(2026, 9, 25),
 			Files: map[string]string{
 				"CODEOWNERS":      "* @acme/platform\n/docs/ @jdoe\n",
@@ -144,12 +149,12 @@ func seedRepos() []*Repo {
 		{
 			// Only path rules, one naming the team that is renamed later.
 			DatabaseID: 525776510, Name: "handbook", Description: "Engineering handbook",
-			DefaultBranch: "main",
-			CreatedAt:     day(2023, 2, 1), UpdatedAt: day(2026, 8, 14), PushedAt: day(2026, 8, 14),
+			DefaultBranch: "main", Visibility: "public",
+			CreatedAt: day(2023, 2, 1), UpdatedAt: day(2026, 8, 14), PushedAt: day(2026, 8, 14),
 			Files: map[string]string{"docs/CODEOWNERS": "/guides/ @acme/platform\n/runbooks/ @acme/sre\n"},
 		},
 		{
-			DatabaseID: 601233458, Name: "sandbox", DefaultBranch: "trunk",
+			DatabaseID: 601233458, Name: "sandbox", DefaultBranch: "trunk", Visibility: "public",
 			CreatedAt: day(2025, 7, 1), UpdatedAt: day(2025, 7, 1), PushedAt: day(2025, 7, 1),
 			Files: map[string]string{"README.md": "# sandbox\n"},
 		},
@@ -158,13 +163,15 @@ func seedRepos() []*Repo {
 
 func seedMemberships() []*Membership {
 	return []*Membership{
-		{Person: "jdoe", Team: "payments", Role: "maintainer", From: day(2026, 3, 1), Until: MembershipEndsAt},
+		{Person: "jdoe", Team: "payments", Role: "maintainer", From: day(2026, 3, 1)},
 		{Person: "rpatel", Team: "payments", Role: "member", From: day(2025, 6, 1)},
 		{Person: "mchen", Team: "platform", Role: "maintainer", From: day(2024, 2, 12)},
 		{Person: "tbecker", Team: "platform", Role: "member", From: day(2026, 1, 5)},
 		{Person: "tbecker", Team: "sre", Role: "member", From: day(2025, 11, 1)},
 		{Person: "sokafor", Team: "sre", Role: "member", From: day(2026, 8, 15)},
 		{Person: "sokafor", Team: "legacy-ops", Role: "maintainer", From: day(2023, 4, 1)},
-		{Person: "lfischer", Team: "engineering", Role: "maintainer", From: day(2024, 1, 1)},
+		// Directory only: lfischer has no GitHub account, and GitHub has no
+		// scheduled ends. The directory records the end in advance.
+		{Person: "lfischer", Team: "engineering", Role: "maintainer", From: day(2024, 1, 1), Until: MembershipEndsAt},
 	}
 }

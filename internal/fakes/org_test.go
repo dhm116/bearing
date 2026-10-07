@@ -64,26 +64,32 @@ func TestStoryIsInOrderAndApplies(t *testing.T) {
 	}
 }
 
-func TestMembershipActiveAt(t *testing.T) {
-	m := Membership{From: day(2026, 3, 1), Until: day(2026, 11, 1)}
+func TestMembershipEndsOnlyInTheDirectoryUntilRemoved(t *testing.T) {
+	scheduled := Membership{From: day(2026, 3, 1), Until: MembershipEndsAt}
+	removed := Membership{From: day(2026, 3, 1), Ended: day(2026, 10, 10)}
 	tests := []struct {
-		at   time.Time
-		want bool
+		name                string
+		m                   Membership
+		at                  time.Time
+		directory, onGitHub bool
 	}{
-		{day(2026, 2, 28), false},
-		{day(2026, 3, 1), true},
-		{MembershipEndsAt.Add(-time.Microsecond), true},
-		{MembershipEndsAt, false},
+		{"before start", scheduled, day(2026, 2, 28), false, false},
+		{"at start", scheduled, day(2026, 3, 1), true, true},
+		{"just before the scheduled end", scheduled, MembershipEndsAt.Add(-time.Microsecond), true, true},
+		{"at the scheduled end", scheduled, MembershipEndsAt, false, true},
+		{"before removal", removed, day(2026, 10, 9), true, true},
+		{"at removal", removed, day(2026, 10, 10), false, false},
+		{"unbounded", Membership{}, Start, true, true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.at.Format(time.RFC3339Nano), func(t *testing.T) {
-			if got := m.ActiveAt(tt.at); got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.m.InDirectoryAt(tt.at); got != tt.directory {
+				t.Errorf("InDirectoryAt: got %v, want %v", got, tt.directory)
+			}
+			if got := tt.m.OnGitHubAt(tt.at); got != tt.onGitHub {
+				t.Errorf("OnGitHubAt: got %v, want %v", got, tt.onGitHub)
 			}
 		})
-	}
-	if !(Membership{}).ActiveAt(Start) {
-		t.Fatal("an unbounded membership is not active")
 	}
 }
 
@@ -106,10 +112,10 @@ func TestMembershipChangesUseTheClock(t *testing.T) {
 	}
 	var ended, added bool
 	for _, m := range o.Memberships() {
-		if m.Person == "rpatel" && m.Team == "payments" && m.Until.Equal(day(2026, 10, 10)) {
+		if m.Person == "rpatel" && m.Team == "payments" && m.Ended.Equal(day(2026, 10, 10)) {
 			ended = true
 		}
-		if m.Person == "rpatel" && m.Team == "platform" && m.From.Equal(day(2026, 10, 12)) && m.Until.IsZero() {
+		if m.Person == "rpatel" && m.Team == "platform" && m.From.Equal(day(2026, 10, 12)) && m.Ended.IsZero() {
 			added = true
 		}
 	}

@@ -69,7 +69,7 @@ func (g *GitHub) Deliveries() []Delivery {
 		if payload == nil {
 			continue
 		}
-		payload["organization"] = orgJSON(githubAPI, true)
+		payload["organization"] = orgJSON(githubAPI, false)
 		payload["sender"] = map[string]any{"login": "acme-admin", "id": 1000001, "type": "User"}
 		body, err := json.Marshal(payload)
 		if err != nil {
@@ -84,34 +84,44 @@ func (g *GitHub) Deliveries() []Delivery {
 	return out
 }
 
-// webhookPayload renders c as GitHub would, with next-format node IDs: a
-// webhook request carries no header to choose them. The caller holds o.mu.
+// webhookPayload renders c as GitHub would. Its node_ids are legacy-format:
+// no header selects the format for webhooks, so an adapter derives the
+// next-format ID from the numeric id. The caller holds o.mu.
 func (o *Org) webhookPayload(c change) (string, map[string]any) {
 	switch c.kind {
 	case repoRenamed:
 		return "repository", map[string]any{
 			"action":     "renamed",
 			"changes":    map[string]any{"repository": map[string]any{"name": map[string]any{"from": c.from}}},
-			"repository": repoJSON(githubAPI, c.repo, true),
+			"repository": repoJSON(githubAPI, c.repo, false),
 		}
 	case filePushed:
+		admin := map[string]any{"name": "acme-admin", "email": "admin@acme.example", "username": "acme-admin"}
 		commit := map[string]any{
 			"id": commitSHA(c), "message": "Update " + c.path, "timestamp": ghTime(c.at),
+			"author": admin, "committer": admin,
 			"added": []string{}, "removed": []string{}, "modified": []string{},
+		}
+		// A push payload's repository differs from the others: times are
+		// Unix seconds, and the owner has a name and email.
+		repo := repoJSON(githubAPI, c.repo, false)
+		repo["created_at"], repo["pushed_at"] = c.repo.CreatedAt.Unix(), c.repo.PushedAt.Unix()
+		if owner, ok := repo["owner"].(map[string]any); ok {
+			owner["name"], owner["email"] = OrgLogin, nil
 		}
 		commit[c.op] = []string{c.path}
 		return "push", map[string]any{
 			"ref": "refs/heads/" + c.repo.DefaultBranch, "before": parentSHA(c), "after": commitSHA(c),
 			"created": false, "deleted": false, "forced": false,
 			"commits": []any{commit}, "head_commit": commit,
-			"repository": repoJSON(githubAPI, c.repo, true),
+			"repository": repo,
 			"pusher":     map[string]any{"name": "acme-admin", "email": "admin@acme.example"},
 		}
 	case teamRenamed, teamDeleted:
 		if c.team.GitHub == nil {
 			return "", nil
 		}
-		p := map[string]any{"action": "deleted", "team": o.teamJSON(githubAPI, c.team, true)}
+		p := map[string]any{"action": "deleted", "team": o.teamJSON(githubAPI, c.team, false)}
 		if c.kind == teamRenamed {
 			p["action"] = "edited"
 			p["changes"] = map[string]any{"name": map[string]any{"from": c.from}}
@@ -127,8 +137,8 @@ func (o *Org) webhookPayload(c change) (string, map[string]any) {
 		}
 		return "membership", map[string]any{
 			"action": action, "scope": "team",
-			"member": userJSON(githubAPI, *c.person.GitHub, true),
-			"team":   o.teamJSON(githubAPI, c.team, true),
+			"member": userJSON(githubAPI, *c.person.GitHub, false),
+			"team":   o.teamJSON(githubAPI, c.team, false),
 		}
 	}
 }

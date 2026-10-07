@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -21,15 +22,12 @@ type Request struct {
 	Body   []byte
 }
 
-// server is an httptest.Server that records every request and checks a
-// bearer token, if one is set. It is closed when the test ends.
+// server is an httptest.Server that records every request. It is closed
+// when the test ends.
 type server struct {
 	*httptest.Server
-	token string
-	// unauthorized writes the API's own reply to a bad or missing token.
-	unauthorized func(http.ResponseWriter)
-	mu           sync.Mutex
-	reqs         []Request
+	mu   sync.Mutex
+	reqs []Request
 }
 
 func (s *server) start(t testing.TB, h http.Handler) {
@@ -43,10 +41,6 @@ func (s *server) start(t testing.TB, h http.Handler) {
 		s.mu.Lock()
 		s.reqs = append(s.reqs, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Header: r.Header.Clone(), Body: body})
 		s.mu.Unlock()
-		if s.token != "" && r.Header.Get("Authorization") != "Bearer "+s.token {
-			s.unauthorized(w)
-			return
-		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.ServeHTTP(w, r)
 	}))
@@ -58,6 +52,22 @@ func (s *server) Requests() []Request {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.reqs)
+}
+
+// credential returns the token in r's Authorization header for one of
+// schemes ("Bearer", "token"), and whether the header was sent at all.
+func credential(r *http.Request, schemes ...string) (token string, sent bool) {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return "", false
+	}
+	scheme, tok, _ := strings.Cut(h, " ")
+	for _, s := range schemes {
+		if strings.EqualFold(scheme, s) {
+			return strings.TrimSpace(tok), true
+		}
+	}
+	return "", true
 }
 
 // writeJSON writes v as a JSON response with status.

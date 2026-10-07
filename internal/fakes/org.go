@@ -50,11 +50,13 @@ type DirectoryUser struct {
 	PK       int
 	UUID     string
 	Username string
-	// LinkNodeID and LinkLogin say which GitHub identifiers the directory
-	// records for the user (in its attributes); they are the explicit links
-	// between the two systems.
-	LinkNodeID bool
-	LinkLogin  bool
+	// GitHubConnection and LinkLogin are the explicit links between the two
+	// systems. GitHubConnection: the user signed in through the
+	// directory's GitHub OAuth source, which records their numeric GitHub
+	// user ID. LinkLogin: an admin recorded their GitHub login in the
+	// user's attributes ("github": {"login": …}).
+	GitHubConnection bool
+	LinkLogin        bool
 }
 
 // Team is a team in GitHub, a group in the directory, or both.
@@ -96,9 +98,12 @@ type Repo struct {
 	Topics        []string
 	Archived      bool
 	DefaultBranch string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	PushedAt      time.Time
+	// Visibility is "public", "internal" or "private". Requests without a
+	// token see only public repositories.
+	Visibility string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	PushedAt   time.Time
 	// Files maps paths on the default branch to their contents.
 	Files map[string]string
 }
@@ -109,9 +114,14 @@ func (r Repo) NodeID() string { return nextNodeID("R", r.DatabaseID) }
 // FullName returns "acme/<name>".
 func (r Repo) FullName() string { return OrgLogin + "/" + r.Name }
 
-// Membership puts a person in a team. It is active on [From, Until); a
-// zero time is unbounded. Both systems list it while it is active, if the
-// person and the team exist there.
+// Membership puts a person in a team from From (zero: always). Each system
+// lists it where the person and the team exist there.
+//
+// Until is an end date the directory records in advance: the directory
+// stops listing the membership then, with no change to the org. GitHub has
+// no scheduled ends and ignores it. Ended is set by [Org.EndMembership]:
+// both systems stop listing the membership, and GitHub sends a
+// membership.removed delivery.
 type Membership struct {
 	Person string // Person.ID
 	Team   string // Team.ID
@@ -119,12 +129,22 @@ type Membership struct {
 	Role  string
 	From  time.Time
 	Until time.Time
+	Ended time.Time
 }
 
-// ActiveAt reports whether the membership is active at t.
-func (m Membership) ActiveAt(t time.Time) bool {
-	return (m.From.IsZero() || !t.Before(m.From)) && (m.Until.IsZero() || t.Before(m.Until))
+// started reports whether the membership has begun and not been ended by
+// EndMembership at t.
+func (m Membership) started(t time.Time) bool {
+	return (m.From.IsZero() || !t.Before(m.From)) && (m.Ended.IsZero() || t.Before(m.Ended))
 }
+
+// InDirectoryAt reports whether the directory lists the membership at t.
+func (m Membership) InDirectoryAt(t time.Time) bool {
+	return m.started(t) && (m.Until.IsZero() || t.Before(m.Until))
+}
+
+// OnGitHubAt reports whether GitHub lists the membership at t.
+func (m Membership) OnGitHubAt(t time.Time) bool { return m.started(t) }
 
 // Org is the fictional organization: the one state both fakes serve. It is
 // safe for concurrent use. Mutations take their time from the clock, so a
@@ -334,7 +354,8 @@ func (o *Org) AddMembership(person, team, role string) error {
 	return nil
 }
 
-// EndMembership ends person's active membership in team now.
+// EndMembership removes person from team now, in both systems, as an
+// admin would; GitHub sends a membership.removed delivery.
 func (o *Org) EndMembership(person, team string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -347,7 +368,7 @@ func (o *Org) EndMembership(person, team string) error {
 	if m == nil {
 		return fmt.Errorf("active membership %s in %s: %w", person, team, ErrNotFound)
 	}
-	m.Until = now
+	m.Ended = now
 	o.record(change{kind: memberRemoved, at: now, person: copyPerson(p), team: copyTeam(t)})
 	return nil
 }
@@ -356,7 +377,7 @@ func (o *Org) record(c change) { o.changes = append(o.changes, c) }
 
 func (o *Org) activeMembership(person, team string, at time.Time) *Membership {
 	for _, m := range o.memberships {
-		if m.Person == person && m.Team == team && m.ActiveAt(at) {
+		if m.Person == person && m.Team == team && m.started(at) {
 			return m
 		}
 	}
@@ -422,11 +443,12 @@ func (o *Org) personByID(id string) *Person {
 	return nil
 }
 
-// members returns the active memberships of team at t, in seed order.
-func (o *Org) members(team string, at time.Time) []*Membership {
+// members returns the memberships of team that listed reports at t, in
+// seed order.
+func (o *Org) members(team string, at time.Time, listed func(Membership, time.Time) bool) []*Membership {
 	var out []*Membership
 	for _, m := range o.memberships {
-		if m.Team == team && m.ActiveAt(at) {
+		if m.Team == team && listed(*m, at) {
 			out = append(out, m)
 		}
 	}

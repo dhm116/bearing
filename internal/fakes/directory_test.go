@@ -1,10 +1,10 @@
 package fakes
 
 import (
-	"context"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"bearing.example/internal/testkit"
@@ -41,8 +41,7 @@ type akUser struct {
 	IsActive   bool   `json:"is_active"`
 	Attributes struct {
 		GitHub *struct {
-			NodeID string `json:"node_id"`
-			Login  string `json:"login"`
+			Login string `json:"login"`
 		} `json:"github"`
 	} `json:"attributes"`
 	Groups    []string         `json:"groups"`
@@ -73,7 +72,11 @@ func listAll[T any](t *testing.T, base, path string) []T {
 	t.Helper()
 	var all []T
 	for page := 1; page < 20; page++ {
-		resp, body := do(t, http.MethodGet, base+path+"?page_size=2&page="+strconv.Itoa(page), nil)
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		resp, body := do(t, http.MethodGet, base+path+sep+"page_size=2&page="+strconv.Itoa(page), nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET %s: %d %s", path, resp.StatusCode, body)
 		}
@@ -90,16 +93,20 @@ func listAll[T any](t *testing.T, base, path string) []T {
 	return nil
 }
 
-func TestDirectoryRejectsMissingToken(t *testing.T) {
+func TestDirectoryRejectsBadTokens(t *testing.T) {
 	d, _, _ := newDirectory(t)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, d.URL+"/api/v3/core/users/", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct{ name, auth, detail string }{
+		{"missing", "", "Authentication credentials were not provided."},
+		{"wrong", "Bearer wrong", "Token invalid/expired"},
+		{"GitHub's scheme", "token " + testToken, "Token invalid/expired"},
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("got %d, want 403", resp.StatusCode)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, body := do(t, http.MethodGet, d.URL+"/api/v3/core/users/", nil, "Authorization", tt.auth)
+			if got := decode[map[string]any](t, body)["detail"]; resp.StatusCode != http.StatusForbidden || got != tt.detail {
+				t.Fatalf("got %d %s, want 403 with detail %q", resp.StatusCode, body, tt.detail)
+			}
+		})
 	}
 }
 
@@ -114,15 +121,14 @@ func TestDirectoryListsUsersWithLinks(t *testing.T) {
 		t.Fatalf("got %v, want %v", names, want)
 	}
 	jdoe, mchen, tbecker, lfischer := users[0], users[2], users[3], users[4]
-	if jdoe.UUID != "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" || jdoe.Attributes.GitHub == nil ||
-		jdoe.Attributes.GitHub.NodeID != "U_kgDOA1b2cw" || jdoe.Attributes.GitHub.Login != "jdoe" {
+	if jdoe.UUID != "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" || jdoe.Attributes.GitHub == nil || jdoe.Attributes.GitHub.Login != "jdoe" {
 		t.Fatalf("jdoe = %+v", jdoe)
 	}
 	if mchen.Attributes.GitHub.Login != "meichen" {
 		t.Fatalf("mchen's GitHub login = %q, want meichen", mchen.Attributes.GitHub.Login)
 	}
-	if tbecker.Attributes.GitHub.NodeID != "" || tbecker.Attributes.GitHub.Login != "tbecker" {
-		t.Fatalf("tbecker links = %+v, want the login only", tbecker.Attributes.GitHub)
+	if tbecker.Attributes.GitHub.Login != "tbecker" {
+		t.Fatalf("tbecker links = %+v, want the login", tbecker.Attributes.GitHub)
 	}
 	if lfischer.Attributes.GitHub != nil {
 		t.Fatalf("lfischer links = %+v, want none", lfischer.Attributes.GitHub)
@@ -153,19 +159,23 @@ func TestDirectoryGroupsCarryMembershipPeriods(t *testing.T) {
 	if !slices.Equal(pay.Users, []int{42, 43}) || len(pay.UsersObj) != 2 {
 		t.Fatalf("payments users = %v", pay.Users)
 	}
-	p := pay.Attributes.MembershipPeriods
-	if len(p) != 2 || p[0].User != 42 || *p[0].Start != "2026-03-01T00:00:00Z" || *p[0].End != "2026-11-01T00:00:00Z" || p[1].End != nil {
+	if p := pay.Attributes.MembershipPeriods; len(p) != 2 || p[0].User != 42 || *p[0].Start != "2026-03-01T00:00:00Z" || p[0].End != nil {
 		t.Fatalf("payments periods = %+v", p)
 	}
-
-	c.Set(MembershipEndsAt)
-	_, body := do(t, http.MethodGet, d.URL+"/api/v3/core/groups/"+pay.PK+"/", nil)
-	if got := decode[akGroup](t, body); !slices.Equal(got.Users, []int{43}) {
-		t.Fatalf("payments at %v: users %v, want [43]", MembershipEndsAt, got.Users)
+	eng := groups[0]
+	if p := eng.Attributes.MembershipPeriods; !slices.Equal(eng.Users, []int{46}) || len(p) != 1 || *p[0].End != "2026-11-01T00:00:00Z" {
+		t.Fatalf("engineering = %+v, want lfischer until 2026-11-01", eng)
 	}
-	_, body = do(t, http.MethodGet, d.URL+"/api/v3/core/users/42/", nil)
+
+	// The recorded end passes with no change to the org.
+	c.Set(MembershipEndsAt)
+	_, body := do(t, http.MethodGet, d.URL+"/api/v3/core/groups/"+eng.PK+"/", nil)
+	if got := decode[akGroup](t, body); len(got.Users) != 0 || got.Attributes.MembershipPeriods != nil {
+		t.Fatalf("engineering at %v: %+v, want no users", MembershipEndsAt, got)
+	}
+	_, body = do(t, http.MethodGet, d.URL+"/api/v3/core/users/46/", nil)
 	if got := decode[akUser](t, body); len(got.Groups) != 0 {
-		t.Fatalf("jdoe at %v: groups %v, want none", MembershipEndsAt, got.Groups)
+		t.Fatalf("lfischer at %v: groups %v, want none", MembershipEndsAt, got.Groups)
 	}
 	_, body = do(t, http.MethodGet, d.URL+"/api/v3/core/groups/?include_users=false", nil)
 	if got := decode[akList[akGroup]](t, body).Results[0]; got.UsersObj != nil {
@@ -183,5 +193,43 @@ func TestDirectoryNotFound(t *testing.T) {
 	_, body := do(t, http.MethodGet, d.URL+"/api/v3/core/users/?page=9", nil)
 	if l := decode[akList[akUser]](t, body); len(l.Results) != 0 || l.Pagination.Previous != 8 || l.Pagination.StartIndex != 0 {
 		t.Fatalf("page past the end = %+v", l)
+	}
+}
+
+func TestDirectoryServesGitHubOAuthConnections(t *testing.T) {
+	d, _, _ := newDirectory(t)
+	type conn struct {
+		PK         int    `json:"pk"`
+		User       int    `json:"user"`
+		Identifier string `json:"identifier"`
+		Source     struct {
+			Slug string `json:"slug"`
+		} `json:"source"`
+	}
+	all := listAll[conn](t, d.URL, "/api/v3/sources/user_connections/oauth/")
+	got := map[int]string{}
+	for _, c := range all {
+		if c.Source.Slug != "github" {
+			t.Fatalf("connection %+v isn't to the github source", c)
+		}
+		got[c.User] = c.Identifier
+	}
+	// jdoe, rpatel and mchen signed in with GitHub; tbecker didn't.
+	want := map[int]string{42: "56030835", 43: "56030901", 44: "41022233"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for u, id := range want {
+		if got[u] != id {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	_, body := do(t, http.MethodGet, d.URL+"/api/v3/sources/user_connections/oauth/?user=44&source__slug=github", nil)
+	if l := decode[akList[conn]](t, body); len(l.Results) != 1 || l.Results[0].Identifier != "41022233" {
+		t.Fatalf("filtered by user: got %+v", l)
+	}
+	_, body = do(t, http.MethodGet, d.URL+"/api/v3/sources/user_connections/oauth/?source__slug=google", nil)
+	if l := decode[akList[conn]](t, body); len(l.Results) != 0 {
+		t.Fatalf("filtered by another source: got %+v", l)
 	}
 }

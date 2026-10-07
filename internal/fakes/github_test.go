@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,17 +73,76 @@ func field(m map[string]any, path ...string) any {
 	return v
 }
 
-func TestGitHubRejectsBadToken(t *testing.T) {
+func TestGitHubAuthentication(t *testing.T) {
 	g, _, _ := newGitHub(t)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, g.URL+"/orgs/acme/repos", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name, method, path, auth string
+		want                     int
+	}{
+		{"wrong token", http.MethodGet, "/orgs/acme/repos", "Bearer wrong", http.StatusUnauthorized},
+		{"unknown scheme", http.MethodGet, "/orgs/acme/repos", "Basic " + testToken, http.StatusUnauthorized},
+		{"token scheme", http.MethodGet, "/repos/acme/web", "token " + testToken, http.StatusOK},
+		{"anonymous public repo", http.MethodGet, "/repos/acme/handbook", "", http.StatusOK},
+		{"anonymous public contents", http.MethodGet, "/repos/acme/handbook/contents/docs/CODEOWNERS", "", http.StatusOK},
+		{"anonymous private repo", http.MethodGet, "/repos/acme/web", "", http.StatusNotFound},
+		{"anonymous internal contents", http.MethodGet, "/repos/acme/ops-scripts/contents/CODEOWNERS", "", http.StatusNotFound},
+		{"anonymous private by id", http.MethodGet, "/repositories/525776495", "", http.StatusNotFound},
+		{"anonymous teams", http.MethodGet, "/orgs/acme/teams", "", http.StatusNotFound},
+		{"anonymous team", http.MethodGet, "/orgs/acme/teams/payments", "", http.StatusNotFound},
+		{"anonymous members", http.MethodGet, "/orgs/acme/teams/payments/members", "", http.StatusNotFound},
+		{"anonymous GraphQL", http.MethodPost, "/graphql", "", http.StatusUnauthorized},
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("got %d, want 401", resp.StatusCode)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, body := do(t, tt.method, g.URL+tt.path, []byte(`{"query":"query Teams { x }"}`), "Authorization", tt.auth)
+			if resp.StatusCode != tt.want {
+				t.Fatalf("got %d %s, want %d", resp.StatusCode, body, tt.want)
+			}
+			if resp.Header.Get("X-RateLimit-Remaining") == "" || resp.Header.Get("X-RateLimit-Reset") == "" {
+				t.Fatalf("got headers %v, want the rate-limit headers on every response", resp.Header)
+			}
+		})
+	}
+	_, body := do(t, http.MethodGet, g.URL+"/orgs/acme/repos", nil, "Authorization", "")
+	var names []string
+	for _, r := range decode[[]map[string]any](t, body) {
+		names = append(names, str(r["name"]))
+		if r["private"] != false || r["visibility"] != "public" {
+			t.Fatalf("anonymous listing shows %v", r)
+		}
+	}
+	if want := []string{"handbook", "sandbox"}; !slices.Equal(names, want) {
+		t.Fatalf("anonymous listing: got %v, want %v", names, want)
+	}
+	// Any token is accepted when none is configured.
+	open := NewGitHub(t, NewOrg(nil), GitHubOptions{})
+	if resp, body := do(t, http.MethodGet, open.URL+"/orgs/acme/teams", nil, "Authorization", "Bearer anything"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("no configured token: got %d %s, want 200", resp.StatusCode, body)
+	}
+}
+
+func TestGitHubRateLimitNext(t *testing.T) {
+	g, _, c := newGitHub(t)
+	resp, _ := do(t, http.MethodGet, g.URL+"/repos/acme/web", nil)
+	if got := resp.Header.Get("X-RateLimit-Remaining"); got != "4999" {
+		t.Fatalf("first request: remaining %s, want 4999", got)
+	}
+	g.RateLimitNext(2)
+	for i := range 2 {
+		resp, body := do(t, http.MethodPost, g.URL+"/graphql", []byte(`{}`))
+		if resp.StatusCode != http.StatusForbidden || resp.Header.Get("X-RateLimit-Remaining") != "0" ||
+			!strings.Contains(string(body), "API rate limit exceeded") {
+			t.Fatalf("limited request %d: got %d %v %s", i, resp.StatusCode, resp.Header, body)
+		}
+		if want := strconv.FormatInt(c.Now().Add(time.Hour).Unix(), 10); resp.Header.Get("X-RateLimit-Reset") != want {
+			t.Fatalf("got reset %s, want %s", resp.Header.Get("X-RateLimit-Reset"), want)
+		}
+		if resp.Header.Get("X-RateLimit-Resource") != "graphql" {
+			t.Fatalf("got resource %s, want graphql", resp.Header.Get("X-RateLimit-Resource"))
+		}
+	}
+	if resp, _ := do(t, http.MethodGet, g.URL+"/repos/acme/web", nil); resp.StatusCode != http.StatusOK || resp.Header.Get("X-RateLimit-Remaining") != "4998" {
+		t.Fatalf("after the limit: got %d, remaining %s; want 200, 4998", resp.StatusCode, resp.Header.Get("X-RateLimit-Remaining"))
 	}
 }
 
@@ -220,9 +280,16 @@ func TestGitHubTeamsAndMembers(t *testing.T) {
 		t.Fatalf("engineering: got %v, want %v", got, want)
 	}
 
-	play(t, o, c, MembershipEndsAt)
-	if got, want := members("payments"), []string{"rpatel"}; !slices.Equal(got, want) {
+	play(t, o, c, MembershipEndsAt.Add(time.Hour))
+	// GitHub has no scheduled ends: only an explicit removal ends one.
+	if got, want := members("payments"), []string{"jdoe", "rpatel"}; !slices.Equal(got, want) {
 		t.Fatalf("payments after %v: got %v, want %v", MembershipEndsAt, got, want)
+	}
+	if err := o.EndMembership("jdoe", "payments"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := members("payments"), []string{"rpatel"}; !slices.Equal(got, want) {
+		t.Fatalf("payments after removing jdoe: got %v, want %v", got, want)
 	}
 	if got := members("sre"); got != nil {
 		t.Fatalf("renamed sre: got %v, want 404", got)
@@ -469,13 +536,26 @@ func TestGitHubDeliveriesAreSigned(t *testing.T) {
 	var rename map[string]any
 	_ = json.Unmarshal(ds[0].Body, &rename)
 	if field(rename, "changes", "repository", "name", "from") != "payments-api" ||
-		field(rename, "repository", "node_id") != "R_kgDOH1a2bw" || field(rename, "repository", "name") != "payments" {
+		field(rename, "repository", "node_id") != "MDEwOlJlcG9zaXRvcnk1MjU3NzY0OTU=" || // legacy: no header for webhooks
+		field(rename, "repository", "id") != float64(525776495) || field(rename, "repository", "name") != "payments" ||
+		field(rename, "repository", "created_at") != "2023-01-09T00:00:00Z" {
 		t.Fatalf("rename delivery = %s", ds[0].Body)
 	}
 	var push map[string]any
 	_ = json.Unmarshal(ds[5].Body, &push)
 	if got := toStrings(field(push, "head_commit", "removed")); !slices.Equal(got, []string{"docs/CODEOWNERS"}) {
 		t.Fatalf("push removed = %v", got)
+	}
+	pushedAt := float64(TeamDeletedAt.Add(time.Hour).Unix())
+	if field(push, "repository", "created_at") != float64(day(2023, 1, 10).Unix()) || field(push, "repository", "pushed_at") != pushedAt ||
+		field(push, "repository", "owner", "name") != "acme" || field(push, "head_commit", "author", "email") != "admin@acme.example" ||
+		field(push, "head_commit", "committer", "username") != "acme-admin" {
+		t.Fatalf("push delivery = %s", ds[5].Body)
+	}
+	var removed map[string]any
+	_ = json.Unmarshal(ds[4].Body, &removed)
+	if field(removed, "member", "node_id") != legacyNodeID("User", 56030835) || field(removed, "team", "node_id") != legacyNodeID("Team", 1920002) {
+		t.Fatalf("membership delivery = %s", ds[4].Body)
 	}
 	req, err := ds[0].Request(context.Background(), "http://example.invalid/hook")
 	if err != nil || req.Method != http.MethodPost || req.Header.Get("X-GitHub-Event") != "repository" || req.Header.Get("X-GitHub-Delivery") != ds[0].ID {

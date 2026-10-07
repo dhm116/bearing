@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,18 @@ func recordFeed(t *testing.T, d *Directory, at time.Time) []*eventv1alpha1.Obser
 	t.Helper()
 	users := listAll[akUser](t, d.URL, "/api/v3/core/users/")
 	groups := listAll[akGroup](t, d.URL, "/api/v3/core/groups/")
+	type conn struct {
+		User       int    `json:"user"`
+		Identifier string `json:"identifier"`
+	}
+	githubID := map[int]int64{} // user pk -> numeric GitHub user ID
+	for _, c := range listAll[conn](t, d.URL, "/api/v3/sources/user_connections/oauth/?source__slug=github") {
+		id, err := strconv.ParseInt(c.Identifier, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		githubID[c.User] = id
+	}
 	var obs []*eventv1alpha1.Observation
 	userKey := map[int]string{}
 	for _, u := range users {
@@ -50,13 +63,13 @@ func recordFeed(t *testing.T, d *Directory, at time.Time) []*eventv1alpha1.Obser
 				"email": structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue(u.Email)}}),
 			},
 		}
-		if gh := u.Attributes.GitHub; gh != nil {
-			if gh.NodeID != "" {
-				e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", gh.NodeID)))
-			}
-			if gh.Login != "" {
-				e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user", gh.Login)))
-			}
+		// The OAuth connection is the authoritative link: the next-format
+		// node ID derives from the numeric ID it records.
+		if id, ok := githubID[u.PK]; ok {
+			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", nextNodeID("U", id))))
+		}
+		if gh := u.Attributes.GitHub; gh != nil && gh.Login != "" {
+			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user", gh.Login)))
 		}
 		obs = append(obs, model.NewObservation(directorySource, at, &modelv1alpha1.ObservationData{
 			Entity: e, Evidence: &modelv1alpha1.Evidence{Url: UserURL(u.PK)},
@@ -237,8 +250,8 @@ func cmpOrStr(a, b string) string {
 
 // TestDirectoryFeedLinksMatchGitHub checks the feed lines up with the
 // GitHub side: every linked node ID and login is the account the GitHub
-// fake serves for the same person, and jdoe's payments membership carries
-// its known end.
+// fake serves for the same person, and lfischer's engineering membership
+// carries its known end.
 func TestDirectoryFeedLinksMatchGitHub(t *testing.T) {
 	o := NewOrg(testkit.NewClock(DirectorySyncAt))
 	g := NewGitHub(t, o, GitHubOptions{Token: testToken})
@@ -249,7 +262,7 @@ func TestDirectoryFeedLinksMatchGitHub(t *testing.T) {
 		served[str(u["login"])] = str(u["node_id"])
 	}
 	links := 0
-	var jdoeEnd *timestamppb.Timestamp
+	var lfischerEnd *timestamppb.Timestamp
 	for _, ob := range readFeed(t) {
 		e := ob.GetData().GetEntity()
 		if e.GetKind() == string(model.KindPerson) {
@@ -267,8 +280,8 @@ func TestDirectoryFeedLinksMatchGitHub(t *testing.T) {
 			}
 		}
 		for _, r := range ob.GetData().GetRelations() {
-			if e.GetAliases()[0] == "authentik:group_name/payments" && r.GetFrom() == "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" {
-				jdoeEnd = r.GetValidTo()
+			if e.GetAliases()[0] == "authentik:group_name/engineering" && r.GetFrom() == "authentik:user/9e8d7c6b-5a49-4382-b716-05f4e3d2c1b0" {
+				lfischerEnd = r.GetValidTo()
 			}
 		}
 	}
@@ -276,7 +289,7 @@ func TestDirectoryFeedLinksMatchGitHub(t *testing.T) {
 	if links != 7 {
 		t.Fatalf("got %d links, want 7", links)
 	}
-	if jdoeEnd == nil || !jdoeEnd.AsTime().Equal(MembershipEndsAt) {
-		t.Fatalf("jdoe's payments membership ends at %v, want %v", jdoeEnd, MembershipEndsAt)
+	if lfischerEnd == nil || !lfischerEnd.AsTime().Equal(MembershipEndsAt) {
+		t.Fatalf("lfischer's engineering membership ends at %v, want %v", lfischerEnd, MembershipEndsAt)
 	}
 }

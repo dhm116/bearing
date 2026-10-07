@@ -19,8 +19,8 @@ type DirectoryOptions struct {
 }
 
 // Directory is an httptest server that serves the org's identity directory
-// as a subset of Authentik's core API (/api/v3/core/users/ and
-// /api/v3/core/groups/). See the package documentation.
+// as a subset of Authentik's API (core users and groups, OAuth user
+// connections). See the package documentation.
 type Directory struct {
 	*server
 	org *Org
@@ -29,25 +29,40 @@ type Directory struct {
 // directoryUI is the admin UI base that evidence links point at.
 const directoryUI = "https://auth.acme.example/if/admin/#/identity"
 
+// githubSourceUUID is the pk of the directory's GitHub OAuth source.
+const githubSourceUUID = "4d3c2b1a-0f9e-4d8c-b7a6-958473625140"
+
+// connectionsCreated is when the seeded OAuth connections were made.
+var connectionsCreated = day(2025, 1, 6)
+
 // NewDirectory starts the directory fake for org. It is closed when the
 // test ends.
 func NewDirectory(t testing.TB, org *Org, opts DirectoryOptions) *Directory {
 	t.Helper()
-	d := &Directory{
-		server: &server{token: opts.Token, unauthorized: func(w http.ResponseWriter) {
-			writeJSON(w, http.StatusForbidden, map[string]any{"detail": "Authentication credentials were not provided."})
-		}},
-		org: org,
-	}
+	d := &Directory{server: &server{}, org: org}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/core/users/{$}", d.listUsers)
 	mux.HandleFunc("GET /api/v3/core/users/{pk}/{$}", d.getUser)
 	mux.HandleFunc("GET /api/v3/core/groups/{$}", d.listGroups)
 	mux.HandleFunc("GET /api/v3/core/groups/{uuid}/{$}", d.getGroup)
+	mux.HandleFunc("GET /api/v3/sources/user_connections/oauth/{$}", d.listConnections)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found."})
 	})
-	d.start(t, mux)
+	d.start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if opts.Token != "" {
+			// Authentik's replies, both 403 with a detail.
+			switch tok, sent := credential(r, "Bearer"); {
+			case !sent:
+				writeJSON(w, http.StatusForbidden, map[string]any{"detail": "Authentication credentials were not provided."})
+				return
+			case tok != opts.Token:
+				writeJSON(w, http.StatusForbidden, map[string]any{"detail": "Token invalid/expired"})
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	return d
 }
 
@@ -102,7 +117,7 @@ type groupMember struct {
 // caller holds o.mu.
 func (o *Org) groupMembers(team string) []groupMember {
 	var out []groupMember
-	for _, m := range o.members(team, o.now()) {
+	for _, m := range o.members(team, o.now(), Membership.InDirectoryAt) {
 		if p := o.personByID(m.Person); p != nil && p.Directory != nil {
 			out = append(out, groupMember{dirUser{copyPerson(p), *p.Directory}, *m})
 		}
@@ -116,24 +131,25 @@ func (o *Org) groupMembers(team string) []groupMember {
 func (o *Org) groupsOf(person string) []dirGroup {
 	var out []dirGroup
 	for _, g := range o.directoryGroups() {
-		if o.activeMembership(person, g.t.ID, o.now()) != nil {
+		if o.inGroup(person, g.t.ID) {
 			out = append(out, g)
 		}
 	}
 	return out
 }
 
+// inGroup reports whether the directory lists person in team now; the
+// caller holds o.mu.
+func (o *Org) inGroup(person, team string) bool {
+	return slices.ContainsFunc(o.members(team, o.now(), Membership.InDirectoryAt), func(m *Membership) bool {
+		return m.Person == person
+	})
+}
+
 func userSummaryJSON(u dirUser) map[string]any {
 	attrs := map[string]any{}
-	gh := map[string]any{}
-	if u.p.GitHub != nil && u.u.LinkNodeID {
-		gh["node_id"] = u.p.GitHub.NodeID()
-	}
 	if u.p.GitHub != nil && u.u.LinkLogin {
-		gh["login"] = u.p.GitHub.Login
-	}
-	if len(gh) > 0 {
-		attrs["github"] = gh
+		attrs["github"] = map[string]any{"login": u.p.GitHub.Login}
 	}
 	sum := sha256.Sum256([]byte(u.u.UUID))
 	return map[string]any{
@@ -296,4 +312,39 @@ func (d *Directory) getGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusNotFound, map[string]any{"detail": "No Group matches the given query."})
+}
+
+// listConnections serves Authentik's OAuth user connections: one per user
+// who signed in through the GitHub source, whose identifier is their
+// numeric GitHub user ID. It filters by user (pk) and source__slug.
+func (d *Directory) listConnections(w http.ResponseWriter, r *http.Request) {
+	d.org.mu.Lock()
+	defer d.org.mu.Unlock()
+	q := r.URL.Query()
+	var conns []dirUser
+	for _, u := range d.org.directoryUsers() {
+		if !u.u.GitHubConnection || u.p.GitHub == nil {
+			continue
+		}
+		if s := q.Get("user"); s != "" && s != strconv.Itoa(u.u.PK) {
+			continue
+		}
+		if s := q.Get("source__slug"); s != "" && s != "github" {
+			continue
+		}
+		conns = append(conns, u)
+	}
+	created := connectionsCreated.Format(time.RFC3339)
+	writeJSON(w, http.StatusOK, akPage(r, conns, func(u dirUser) map[string]any {
+		return map[string]any{
+			"pk": 1000 + u.u.PK, "user": u.u.PK,
+			"source": map[string]any{
+				"pk": githubSourceUUID, "name": "GitHub", "slug": "github", "enabled": true,
+				"component": "ak-source-oauth-form", "verbose_name": "OAuth Source",
+				"meta_model_name": "authentik_sources_oauth.oauthsource",
+			},
+			"identifier": strconv.FormatInt(u.p.GitHub.DatabaseID, 10),
+			"created":    created, "last_updated": created,
+		}
+	}))
 }

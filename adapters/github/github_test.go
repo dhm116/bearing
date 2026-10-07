@@ -284,6 +284,19 @@ func TestHandleRejectsBadSignature(t *testing.T) {
 	}
 }
 
+func TestHandleRejectsMissingSignature(t *testing.T) {
+	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
+	_, err := a.Handle(context.Background(), adapter.HandleParams{
+		Config:  json.RawMessage(`{"org":"acme"}`),
+		Headers: map[string][]string{"X-GitHub-Event": {"repository"}},
+		Body:    []byte(`{"action":"deleted","repository":{"full_name":"acme/x"}}`),
+	})
+	var rpcErr *adapter.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeInvalidParams || !strings.Contains(err.Error(), "signature") {
+		t.Fatalf("got %v, want an invalid-params signature error", err)
+	}
+}
+
 func TestHandleRepositoryDeleted(t *testing.T) {
 	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
 	body := []byte(`{"action":"deleted","repository":{"name":"x","full_name":"acme/x","html_url":"https://github.com/acme/x"}}`)
