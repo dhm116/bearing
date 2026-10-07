@@ -12,36 +12,29 @@ import (
 // empty index each time it is called. Vectors in the suite have 4 dimensions
 // and scores are compared by order only, so any similarity where higher means
 // closer passes.
-//
-// Some backends (a graph store that also indexes vectors) require every point
-// to reference an entity that exists. Pass a seed function that creates the
-// entities the suite uses, or nil if the index has no such requirement.
-func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex, seed func(t *testing.T, ids ...contracts.EntityID)) {
+func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex) {
 	ctx := context.Background()
 	points := []contracts.VectorPoint{
 		{
-			ID: "payments-api:readme", EntityID: "payments-api", Vector: []float32{1, 0, 0, 0},
+			ID: "payments-api:readme", SubjectID: "payments-api", Vector: []float32{1, 0, 0, 0},
 			Text: "Handles card payments and refunds", Payload: map[string]any{"kind": string(model.KindComponent)},
 		},
 		{
-			ID: "payments-api:runbook", EntityID: "payments-api", Vector: []float32{0.9, 0.1, 0, 0},
+			ID: "payments-api:runbook", SubjectID: "payments-api", Vector: []float32{0.9, 0.1, 0, 0},
 			Text: "Refund runbook", Payload: map[string]any{"kind": string(model.KindDocument)},
 		},
 		{
-			ID: "team-payments", EntityID: "team-payments", Vector: []float32{0.7, 0.7, 0, 0},
+			ID: "team-payments", SubjectID: "team-payments", Vector: []float32{0.7, 0.7, 0, 0},
 			Text: "Payments team", Payload: map[string]any{"kind": string(model.KindTeam)},
 		},
 		{
-			ID: "search-api", EntityID: "search-api", Vector: []float32{0, 0, 1, 0},
+			ID: "search-api", SubjectID: "search-api", Vector: []float32{0, 0, 1, 0},
 			Text: "Product search", Payload: map[string]any{"kind": string(model.KindComponent)},
 		},
 	}
 	fresh := func(t *testing.T) contracts.VectorIndex {
 		t.Helper()
 		ix := newIndex(t)
-		if seed != nil {
-			seed(t, "payments-api", "team-payments", "search-api")
-		}
 		if err := ix.Upsert(ctx, points); err != nil {
 			t.Fatalf("Upsert: %v", err)
 		}
@@ -68,7 +61,7 @@ func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex
 			t.Fatalf("scores not descending: %v, %v", hits[0].Score, hits[1].Score)
 		}
 		p := hits[0].Point
-		if p.EntityID != "payments-api" || p.Text == "" || p.Payload["kind"] != string(model.KindComponent) || len(p.Vector) != 4 {
+		if p.SubjectID != "payments-api" || p.Text == "" || p.Payload["kind"] != string(model.KindComponent) || len(p.Vector) != 4 {
 			t.Fatalf("point not returned intact: %+v", p)
 		}
 	})
@@ -110,9 +103,9 @@ func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex
 		}
 	})
 
-	t.Run("DeleteByEntity removes every point for the entity", func(t *testing.T) {
+	t.Run("DeleteBySubject removes every point for the subject", func(t *testing.T) {
 		ix := fresh(t)
-		if err := ix.DeleteByEntity(ctx, "payments-api"); err != nil {
+		if err := ix.DeleteBySubject(ctx, "payments-api"); err != nil {
 			t.Fatal(err)
 		}
 		hits, err := ix.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0, 0, 0}, Limit: 10})
@@ -120,12 +113,34 @@ func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex
 			t.Fatal(err)
 		}
 		for _, h := range hits {
-			if h.Point.EntityID == "payments-api" {
+			if h.Point.SubjectID == "payments-api" {
 				t.Fatalf("point %s survived delete", h.Point.ID)
 			}
 		}
 		if len(hits) != 2 {
 			t.Fatalf("got %v, want the 2 other points", ids(hits))
+		}
+	})
+	t.Run("Repoint moves a merged subject's points to the survivor", func(t *testing.T) {
+		ix := fresh(t)
+		if err := ix.Repoint(ctx, "payments-api", "team-payments"); err != nil {
+			t.Fatal(err)
+		}
+		hits, err := ix.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0, 0, 0}, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		moved := 0
+		for _, h := range hits {
+			if h.Point.SubjectID == "payments-api" {
+				t.Fatalf("point %s still points at the merged subject", h.Point.ID)
+			}
+			if h.Point.SubjectID == "team-payments" {
+				moved++
+			}
+		}
+		if moved != 3 || len(hits) != len(points) {
+			t.Fatalf("got %d points on the survivor of %d, want 3 of %d", moved, len(hits), len(points))
 		}
 	})
 }

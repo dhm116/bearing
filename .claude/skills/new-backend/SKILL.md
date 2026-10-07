@@ -25,7 +25,8 @@ server and embedded modes, and one backend serving two contracts.
       default binary stays CGO-free.
 - [ ] Conformance test in the backend's package:
       `conformance.GraphStore(t, newStore)` and/or
-      `conformance.VectorIndex(t, newIndex, seed)`. A backend that needs
+      `conformance.VectorIndex(t, newIndex)`; `newStore` returns the store
+      and the `conformance.Clock` it reads (a `testkit.FakeClock`). A backend that needs
       a live service skips unless an env var like `BEARING_TEST_<NAME>` is
       set, and gets a Makefile target like `test-surrealdb`.
 - [ ] Wire a URL scheme into `pkg/store` (`open`), and add it to the package

@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Mint.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Mint creates a subject (docs/spec/data-model.md, \"Minting\").",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "Set by the store: the minted ID.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "A registered subject kind.",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "description": "The ref (\"new:\u003clabel\u003e\") the rest of the ChangeSet uses for it.",
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "pattern": "^MINT_RULE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MINT_RULE_OBSERVATION",
+                "MINT_RULE_REFERENCE",
+                "MINT_RULE_SPLIT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "observation or reference; split comes from an Unmerge.",
+          "title": "Mint Rule"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "Set by the store: the minted ID.",
+          "type": "string"
+        }
+      },
+      "title": "Mint",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Mint.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Mint.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

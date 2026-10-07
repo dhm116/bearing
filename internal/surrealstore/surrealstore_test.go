@@ -73,65 +73,20 @@ func TestDialRejectsBadCredentials(t *testing.T) {
 	}
 }
 
+// The v0.3 GraphStore arrives in issue #44; until then pkg/store refuses to
+// open a SurrealDB graph.
 func TestGraphConformance(t *testing.T) {
-	conformance.GraphStore(t, func(t *testing.T) contracts.GraphStore { return newTestStore(t) })
+	t.Skip(ErrGraphNotImplemented.Error())
 }
 
 func TestVectorConformance(t *testing.T) {
-	var current *Store
-	conformance.VectorIndex(t,
-		func(t *testing.T) contracts.VectorIndex {
-			current = newTestStore(t)
-			return current
-		},
-		// Vectors link to graph entities, so the entities must exist.
-		func(t *testing.T, ids ...contracts.EntityID) {
-			for _, id := range ids {
-				if err := current.UpsertEntity(context.Background(), contracts.Entity{ID: id, Kind: "Component"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-		})
-}
-
-// One store answers a question that needs both halves: which team owns the
-// component closest to a query vector.
-func TestGraphAndVectorsTogether(t *testing.T) {
-	ctx := context.Background()
-	s := newTestStore(t)
-	for _, e := range []contracts.Entity{{ID: "payments-api", Kind: "Component"}, {ID: "team-payments", Kind: "Team"}} {
-		if err := s.UpsertEntity(ctx, e); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.UpsertFact(ctx, contracts.Fact{Subject: "payments-api", Relation: "owned_by", Object: "team-payments", Confidence: 0.95, Asserted: true}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Upsert(ctx, []contracts.VectorPoint{{ID: "p", EntityID: "payments-api", Vector: []float32{1, 0}, Text: "refunds"}}); err != nil {
-		t.Fatal(err)
-	}
-	res, err := s.q.Query(ctx, `
-SELECT VALUE (entity->fact[WHERE relation = 'owned_by' AND asserted]->entity).map(|$e| record::id($e))
-FROM vector WHERE vector <|1,40|> $v`, map[string]any{"v": []float32{0.9, 0.1}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var owners [][]string
-	if err := decode(res[0], &owners); err != nil {
-		t.Fatal(err)
-	}
-	if len(owners) != 1 || len(owners[0]) != 1 || owners[0][0] != "team-payments" {
-		t.Fatalf("owners = %v", owners)
-	}
+	conformance.VectorIndex(t, func(t *testing.T) contracts.VectorIndex { return newTestStore(t) })
 }
 
 func TestReopenKeepsVectorDimension(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	if err := s.UpsertEntity(ctx, contracts.Entity{ID: "a", Kind: "Team"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Upsert(ctx, []contracts.VectorPoint{{ID: "a", EntityID: "a", Vector: []float32{1, 0, 0}}}); err != nil {
+	if err := s.Upsert(ctx, []contracts.VectorPoint{{ID: "a", SubjectID: "a", Vector: []float32{1, 0, 0}}}); err != nil {
 		t.Fatal(err)
 	}
 	again, err := New(ctx, s.q)
@@ -141,7 +96,7 @@ func TestReopenKeepsVectorDimension(t *testing.T) {
 	if again.dim != 3 {
 		t.Fatalf("dim = %d, want 3", again.dim)
 	}
-	if err := again.Upsert(ctx, []contracts.VectorPoint{{ID: "b", EntityID: "a", Vector: []float32{1, 0}}}); err == nil {
+	if err := again.Upsert(ctx, []contracts.VectorPoint{{ID: "b", SubjectID: "a", Vector: []float32{1, 0}}}); err == nil {
 		t.Fatal("expected a dimension mismatch error")
 	}
 }

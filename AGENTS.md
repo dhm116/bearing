@@ -166,7 +166,7 @@ what it doesn't catch.
 - Name packages for what they provide (`memstore`, `telemetry`), never
   `util` or `common`.
 - Typed strings for domain values: `model.Kind`, `model.Key`,
-  `contracts.EntityID`, with `Kind…`/`Rel…` constants.
+  `contracts.SubjectID`, with `Kind…`/`Rel…` constants.
 - Assert interface satisfaction at compile time:
   `var _ contracts.GraphStore = (*Store)(nil)`.
 
@@ -192,7 +192,7 @@ what it doesn't catch.
   `main`) that says its role and where it fits.
 - Every exported identifier has a doc comment, including methods that
   implement an interface (revive enforces it). For those one line is
-  enough: `// UpsertEntity implements contracts.GraphStore.`
+  enough: `// Apply implements contracts.GraphStore.`
 - Short. Say why, a constraint, or a non-obvious default, not what the code
   already says: `// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.`
   Match the surrounding comment density.
