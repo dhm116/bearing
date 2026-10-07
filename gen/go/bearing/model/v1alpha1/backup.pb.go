@@ -141,6 +141,10 @@ type BackupHeader struct {
 	Head *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=head,proto3" json:"head,omitempty"`
 	// The last subject ID the store minted; empty if none.
 	LastSubjectId string `protobuf:"bytes,4,opt,name=last_subject_id,json=lastSubjectId,proto3" json:"last_subject_id,omitempty"`
+	// The store's clock when it wrote the backup, or its head if that was
+	// later. No record in the backup is later than this, whatever the clock
+	// of the store that restores it says.
+	TakenAt       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=taken_at,json=takenAt,proto3" json:"taken_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -201,6 +205,13 @@ func (x *BackupHeader) GetLastSubjectId() string {
 		return x.LastSubjectId
 	}
 	return ""
+}
+
+func (x *BackupHeader) GetTakenAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.TakenAt
+	}
+	return nil
 }
 
 // BackupTrailer closes a backup stream. A stream without one is truncated.
@@ -408,12 +419,13 @@ const file_bearing_model_v1alpha1_backup_proto_rawDesc = "" +
 	"\x06header\x18\x01 \x01(\v2$.bearing.model.v1alpha1.BackupHeaderH\x00R\x06header\x12\x18\n" +
 	"\x06record\x18\x02 \x01(\fH\x00R\x06record\x12A\n" +
 	"\atrailer\x18\x03 \x01(\v2%.bearing.model.v1alpha1.BackupTrailerH\x00R\atrailerB\a\n" +
-	"\x05frame\"\x98\x01\n" +
+	"\x05frame\"\xcf\x01\n" +
 	"\fBackupHeader\x12\x16\n" +
 	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12.\n" +
 	"\x04head\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04head\x12&\n" +
-	"\x0flast_subject_id\x18\x04 \x01(\tR\rlastSubjectId\"A\n" +
+	"\x0flast_subject_id\x18\x04 \x01(\tR\rlastSubjectId\x125\n" +
+	"\btaken_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\atakenAt\"A\n" +
 	"\rBackupTrailer\x12\x18\n" +
 	"\arecords\x18\x01 \x01(\x04R\arecords\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\fR\x06sha256\"\x97\x03\n" +
@@ -460,16 +472,17 @@ var file_bearing_model_v1alpha1_backup_proto_depIdxs = []int32{
 	1, // 0: bearing.model.v1alpha1.BackupFrame.header:type_name -> bearing.model.v1alpha1.BackupHeader
 	2, // 1: bearing.model.v1alpha1.BackupFrame.trailer:type_name -> bearing.model.v1alpha1.BackupTrailer
 	6, // 2: bearing.model.v1alpha1.BackupHeader.head:type_name -> google.protobuf.Timestamp
-	7, // 3: bearing.model.v1alpha1.JournalEntry.change_set:type_name -> bearing.model.v1alpha1.ChangeSet
-	5, // 4: bearing.model.v1alpha1.JournalEntry.subjects:type_name -> bearing.model.v1alpha1.JournalEntry.SubjectsEntry
-	8, // 5: bearing.model.v1alpha1.JournalEntry.minted:type_name -> bearing.model.v1alpha1.Subject
-	9, // 6: bearing.model.v1alpha1.JournalEntry.merges:type_name -> bearing.model.v1alpha1.MergeRecord
-	4, // 7: bearing.model.v1alpha1.JournalEntry.unmerges:type_name -> bearing.model.v1alpha1.UnmergeOutcome
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	6, // 3: bearing.model.v1alpha1.BackupHeader.taken_at:type_name -> google.protobuf.Timestamp
+	7, // 4: bearing.model.v1alpha1.JournalEntry.change_set:type_name -> bearing.model.v1alpha1.ChangeSet
+	5, // 5: bearing.model.v1alpha1.JournalEntry.subjects:type_name -> bearing.model.v1alpha1.JournalEntry.SubjectsEntry
+	8, // 6: bearing.model.v1alpha1.JournalEntry.minted:type_name -> bearing.model.v1alpha1.Subject
+	9, // 7: bearing.model.v1alpha1.JournalEntry.merges:type_name -> bearing.model.v1alpha1.MergeRecord
+	4, // 8: bearing.model.v1alpha1.JournalEntry.unmerges:type_name -> bearing.model.v1alpha1.UnmergeOutcome
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_backup_proto_init() }

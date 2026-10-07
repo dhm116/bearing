@@ -670,13 +670,14 @@ Assets: A1, A3, A4, A5, A6.
   (docs/spec/contracts.md, "Backup"). Every frame is at most
   `contracts.MaxChangeSetBytes`. The reference store replays its change
   journal and refuses any apply that decides differently, an entry with no
-  record time or one in the future. These checks are in the store
+  record time or one later than the header's `taken_at`, which it doesn't
+  compare with its own clock. These checks are in the store
   contract today. **Planned**, with the restore entry point, which doesn't
   exist yet: that entry point caps the backup's total size; it is an admin
   operation (admin role only, C-API-4) never reachable from API or MCP
   input without these checks; and each restore is audited per C-AUDIT-1
   with the actor and the backup's SHA-256. The SHA-256 catches corruption
-  and truncation, not a forger who recomputes it: the audited hash will let
+  and truncation, not a forger who recomputes it or sets `taken_at`: the audited hash will let
   an operator compare the restored backup with the one they took.
 
 ### B7. Operators and configuration

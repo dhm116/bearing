@@ -18,7 +18,7 @@ import (
 // accepts, and the largest frame Restore reads. A store also refuses an
 // apply whose backup record would be larger, so every backup it writes can
 // be restored.
-const MaxChangeSetBytes = 4 << 20
+const MaxChangeSetBytes = 16 << 20
 
 // BackupWriter writes a backup stream (docs/spec/contracts.md, "Backup"):
 // a header, the store's records, and a trailer with the record count and a

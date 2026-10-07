@@ -4,14 +4,14 @@
 // several interfaces; by default SurrealDB serves both GraphStore and
 // VectorIndex (see docs/adr/0005-one-store-to-start.md and pkg/store).
 //
-//	Interface      Default         Alternatives
-//	GraphStore     SurrealDB       PostgreSQL, Neo4j, Apache AGE, Memgraph
-//	VectorIndex    SurrealDB       Qdrant, pgvector, OpenSearch, Weaviate
-//	EventBus       NATS JetStream  Kafka, SQS/SNS, Postgres queue
-//	Extractor      any LLM API     hosted or local models
-//	Judge          Kev 4B          Jev hosted API
-//	PolicyDecider  OPA             Cedar
-//	Executor       Temporal        Postgres job runner
+//	Interface      Default            Alternatives
+//	GraphStore     SurrealDB          PostgreSQL, Neo4j, Apache AGE, Memgraph
+//	VectorIndex    SurrealDB          Qdrant, pgvector, OpenSearch, Weaviate
+//	EventBus       NATS JetStream     Kafka, SQS/SNS, Postgres queue
+//	Extractor      self-hosted model  hosted models, only when an operator opts in
+//	Judge          Kev 4B             Jev hosted API
+//	PolicyDecider  OPA                Cedar
+//	Executor       Temporal           Postgres job runner
 package contracts
 
 import (
@@ -86,6 +86,7 @@ type Candidate struct {
 }
 
 // Extractor proposes candidates from unstructured text, usually with an LLM.
+// By default the model is self-hosted; a hosted one needs an operator opt-in.
 type Extractor interface {
 	Extract(ctx context.Context, doc Document) ([]Candidate, error)
 }
