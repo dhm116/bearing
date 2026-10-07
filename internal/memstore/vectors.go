@@ -19,8 +19,8 @@ func (s *Store) Upsert(_ context.Context, points []contracts.VectorPoint) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, p := range points {
-		if p.ID == "" || p.EntityID == "" {
-			return fmt.Errorf("vector point needs an id and an entity id")
+		if p.ID == "" || p.SubjectID == "" {
+			return fmt.Errorf("vector point needs an id and a subject id")
 		}
 		p.Vector = slices.Clone(p.Vector)
 		s.vectors[p.ID] = p
@@ -55,13 +55,26 @@ func (s *Store) Search(_ context.Context, q contracts.VectorQuery) ([]contracts.
 	return hits, nil
 }
 
-// DeleteByEntity implements contracts.VectorIndex.
-func (s *Store) DeleteByEntity(_ context.Context, id contracts.EntityID) error {
+// DeleteBySubject implements contracts.VectorIndex.
+func (s *Store) DeleteBySubject(_ context.Context, id contracts.SubjectID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, p := range s.vectors {
-		if p.EntityID == id {
+		if p.SubjectID == id {
 			delete(s.vectors, k)
+		}
+	}
+	return nil
+}
+
+// Repoint implements contracts.VectorIndex.
+func (s *Store) Repoint(_ context.Context, from, to contracts.SubjectID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, p := range s.vectors {
+		if p.SubjectID == from {
+			p.SubjectID = to
+			s.vectors[k] = p
 		}
 	}
 	return nil

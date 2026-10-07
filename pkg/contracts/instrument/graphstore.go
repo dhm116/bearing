@@ -6,13 +6,16 @@ package instrument
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/anypb"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
@@ -27,24 +30,28 @@ var (
 	opDuration = must(meter.Float64Histogram("bearing.graph.operation.duration",
 		metric.WithDescription("Duration of graph store operations, by operation and backend."),
 		metric.WithUnit("s")))
-	factsWritten = must(meter.Int64Counter("bearing.graph.facts.written",
-		metric.WithDescription("Facts created or updated, by relation and whether they are asserted."),
-		metric.WithUnit("{fact}")))
-	factsRetracted = must(meter.Int64Counter("bearing.graph.facts.retracted",
-		metric.WithDescription("Facts removed because a source reported them gone."),
-		metric.WithUnit("{fact}")))
+	applies = must(meter.Int64Counter("bearing.graph.applies",
+		metric.WithDescription("ChangeSets applied, by result (applied, duplicate, stale, error). Many stale results mean writers contend for the apply clock."),
+		metric.WithUnit("{apply}")))
+	minted = must(meter.Int64Counter("bearing.graph.subjects.minted",
+		metric.WithDescription("Subjects minted, by rule (observation, reference, split)."),
+		metric.WithUnit("{subject}")))
+	merged = must(meter.Int64Counter("bearing.graph.subjects.merged",
+		metric.WithDescription("Subjects merged into another, by rule."),
+		metric.WithUnit("{merge}")))
 	keyLookups = must(meter.Int64Counter("bearing.graph.key.lookups",
-		metric.WithDescription("Source keys resolved to entities, by result (hit, miss). A high miss rate means identity resolution is behind."),
+		metric.WithDescription("Keys resolved to subjects, by result (hit, miss). A high miss rate means identity resolution is behind."),
 		metric.WithUnit("{lookup}")))
 )
 
 const (
 	attrBackend   = attribute.Key("db.system.name")
 	attrOperation = attribute.Key("db.operation.name")
-	attrRelation  = attribute.Key("bearing.fact.relation")
-	attrAsserted  = attribute.Key("bearing.fact.asserted")
-	attrEntity    = attribute.Key("bearing.entity.id")
+	attrSubject   = attribute.Key("bearing.subject.id")
+	attrEvent     = attribute.Key("bearing.event.id")
 	attrResult    = attribute.Key("bearing.result")
+	attrRule      = attribute.Key("bearing.rule")
+	attrCount     = attribute.Key("bearing.results.count")
 )
 
 func must[T any](v T, err error) T {
@@ -65,8 +72,9 @@ type graphStore struct {
 	backend string
 }
 
-// observe runs fn in a span and records its duration. ErrNotFound is an
-// expected outcome, not a failure, so it doesn't mark the span as an error.
+// observe runs fn in a span and records its duration. ErrNotFound and
+// ErrStale are expected outcomes, not failures, so they don't mark the span
+// as an error.
 func (g *graphStore) observe(ctx context.Context, op string, attrs []attribute.KeyValue, fn func(context.Context) error) error {
 	base := []attribute.KeyValue{attrBackend.String(g.backend), attrOperation.String(op)}
 	ctx, span := tracer.Start(ctx, "graph."+op, trace.WithSpanKind(trace.SpanKindClient),
@@ -74,7 +82,7 @@ func (g *graphStore) observe(ctx context.Context, op string, attrs []attribute.K
 	defer span.End()
 	start := time.Now()
 	err := fn(ctx)
-	if err != nil && !errors.Is(err, contracts.ErrNotFound) {
+	if err != nil && !errors.Is(err, contracts.ErrNotFound) && !errors.Is(err, contracts.ErrStale) {
 		base = append(base, semconv.ErrorTypeKey.String(telemetry.ErrorType(err)))
 		telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "graph store operation failed", err, append(base, attrs...)...)
 	}
@@ -82,69 +90,157 @@ func (g *graphStore) observe(ctx context.Context, op string, attrs []attribute.K
 	return err
 }
 
-func (g *graphStore) UpsertEntity(ctx context.Context, e contracts.Entity) error {
-	return g.observe(ctx, "upsert_entity", []attribute.KeyValue{attrEntity.String(string(e.ID))}, func(ctx context.Context) error {
-		return g.next.UpsertEntity(ctx, e)
-	})
+// count records how many results a query returned on its span.
+func count[T any](ctx context.Context, out []T) {
+	trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(out)))
 }
 
-func (g *graphStore) GetEntity(ctx context.Context, id contracts.EntityID) (e contracts.Entity, err error) {
-	err = g.observe(ctx, "get_entity", []attribute.KeyValue{attrEntity.String(string(id))}, func(ctx context.Context) error {
-		e, err = g.next.GetEntity(ctx, id)
+// Apply implements contracts.GraphStore.
+func (g *graphStore) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (res contracts.ApplyResult, err error) {
+	err = g.observe(ctx, "apply", []attribute.KeyValue{attrEvent.String(cs.GetEventId())}, func(ctx context.Context) error {
+		res, err = g.next.Apply(ctx, cs)
+		result := "applied"
+		switch {
+		case errors.Is(err, contracts.ErrStale):
+			result = "stale"
+		case err != nil:
+			result = "error"
+		case res.Duplicate:
+			result = "duplicate"
+		}
+		applies.Add(ctx, 1, metric.WithAttributes(attrBackend.String(g.backend), attrResult.String(result)))
+		if result != "applied" {
+			return err
+		}
+		for _, sub := range res.Minted {
+			minted.Add(ctx, 1, metric.WithAttributes(attrRule.String(model.ShortName(sub.GetMintedBy().GetRule()))))
+		}
+		for _, m := range res.Merges {
+			merged.Add(ctx, 1, metric.WithAttributes(attrRule.String(model.ShortName(m.GetRule()))))
+		}
+		return nil
+	})
+	return res, err
+}
+
+// Head implements contracts.GraphStore.
+func (g *graphStore) Head(ctx context.Context) (t time.Time, err error) {
+	err = g.observe(ctx, "head", nil, func(ctx context.Context) error {
+		t, err = g.next.Head(ctx)
 		return err
 	})
-	return e, err
+	return t, err
 }
 
-func (g *graphStore) ResolveKey(ctx context.Context, key model.Key) (e contracts.Entity, err error) {
+// Subject implements contracts.GraphStore.
+func (g *graphStore) Subject(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) (s *modelv1alpha1.Subject, err error) {
+	err = g.observe(ctx, "subject", []attribute.KeyValue{attrSubject.String(string(id))}, func(ctx context.Context) error {
+		s, err = g.next.Subject(ctx, id, recordedAt)
+		return err
+	})
+	return s, err
+}
+
+// ResolveKey implements contracts.GraphStore.
+func (g *graphStore) ResolveKey(ctx context.Context, key model.Key, validAt, recordedAt time.Time) (s *modelv1alpha1.Subject, err error) {
 	err = g.observe(ctx, "resolve_key", nil, func(ctx context.Context) error {
-		e, err = g.next.ResolveKey(ctx, key)
+		s, err = g.next.ResolveKey(ctx, key, validAt, recordedAt)
 		result := "hit"
 		if errors.Is(err, contracts.ErrNotFound) {
 			result = "miss"
 		}
-		system, _, _, _ := key.Parse()
-		keyLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String(result), attribute.String("bearing.key.system", system)))
+		namespace, _, _, _ := key.Parse()
+		keyLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String(result), attribute.String("bearing.key.namespace", namespace)))
 		return err
 	})
-	return e, err
+	return s, err
 }
 
-func (g *graphStore) UpsertFact(ctx context.Context, f contracts.Fact) error {
-	attrs := []attribute.KeyValue{attrRelation.String(string(f.Relation)), attrAsserted.Bool(f.Asserted)}
-	return g.observe(ctx, "upsert_fact", attrs, func(ctx context.Context) error {
-		if err := g.next.UpsertFact(ctx, f); err != nil {
-			return err
-		}
-		factsWritten.Add(ctx, 1, metric.WithAttributes(attrs...))
-		return nil
-	})
-}
-
-func (g *graphStore) RetractFact(ctx context.Context, subject contracts.EntityID, rel model.RelationType, object contracts.EntityID) error {
-	attrs := []attribute.KeyValue{attrRelation.String(string(rel))}
-	return g.observe(ctx, "retract_fact", attrs, func(ctx context.Context) error {
-		if err := g.next.RetractFact(ctx, subject, rel, object); err != nil {
-			return err
-		}
-		factsRetracted.Add(ctx, 1, metric.WithAttributes(attrs...))
-		return nil
-	})
-}
-
-func (g *graphStore) Facts(ctx context.Context, q contracts.FactQuery) (facts []contracts.Fact, err error) {
-	err = g.observe(ctx, "query_facts", nil, func(ctx context.Context) error {
-		facts, err = g.next.Facts(ctx, q)
-		trace.SpanFromContext(ctx).SetAttributes(attribute.Int("bearing.facts.count", len(facts)))
+// Bindings implements contracts.GraphStore.
+func (g *graphStore) Bindings(ctx context.Context, aliases []model.Key, subjects []contracts.SubjectID, recordedAt time.Time) (out []*modelv1alpha1.Binding, err error) {
+	err = g.observe(ctx, "bindings", nil, func(ctx context.Context) error {
+		out, err = g.next.Bindings(ctx, aliases, subjects, recordedAt)
+		count(ctx, out)
 		return err
 	})
-	return facts, err
+	return out, err
 }
 
-func (g *graphStore) History(ctx context.Context, subject contracts.EntityID) (h []contracts.FactVersion, err error) {
-	err = g.observe(ctx, "history", []attribute.KeyValue{attrEntity.String(string(subject))}, func(ctx context.Context) error {
-		h, err = g.next.History(ctx, subject)
+// Merges implements contracts.GraphStore.
+func (g *graphStore) Merges(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) (out []*modelv1alpha1.MergeRecord, err error) {
+	err = g.observe(ctx, "merges", []attribute.KeyValue{attrSubject.String(string(id))}, func(ctx context.Context) error {
+		out, err = g.next.Merges(ctx, id, recordedAt)
+		count(ctx, out)
 		return err
 	})
-	return h, err
+	return out, err
+}
+
+// Supports implements contracts.GraphStore.
+func (g *graphStore) Supports(ctx context.Context, f contracts.SupportFilter, recordedAt time.Time) (out []*modelv1alpha1.SupportTimeline, err error) {
+	err = g.observe(ctx, "supports", nil, func(ctx context.Context) error {
+		out, err = g.next.Supports(ctx, f, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// State implements contracts.GraphStore.
+func (g *graphStore) State(ctx context.Context, keys []string, recordedAt time.Time) (out map[string]*anypb.Any, err error) {
+	err = g.observe(ctx, "state", nil, func(ctx context.Context) error {
+		out, err = g.next.State(ctx, keys, recordedAt)
+		return err
+	})
+	return out, err
+}
+
+// AsOf implements contracts.GraphStore.
+func (g *graphStore) AsOf(ctx context.Context, f contracts.FactFilter, validAt, recordedAt time.Time) (out []*modelv1alpha1.FactState, err error) {
+	err = g.observe(ctx, "as_of", nil, func(ctx context.Context) error {
+		out, err = g.next.AsOf(ctx, f, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Changes implements contracts.GraphStore.
+func (g *graphStore) Changes(ctx context.Context, f contracts.FactFilter, t1, t2 time.Time, axis contracts.Axis) (out []*modelv1alpha1.FactChange, err error) {
+	err = g.observe(ctx, "changes", nil, func(ctx context.Context) error {
+		out, err = g.next.Changes(ctx, f, t1, t2, axis)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Conflicts implements contracts.GraphStore.
+func (g *graphStore) Conflicts(ctx context.Context, subject contracts.SubjectID, predicate string, validAt, recordedAt time.Time) (out []*modelv1alpha1.Conflict, err error) {
+	err = g.observe(ctx, "conflicts", nil, func(ctx context.Context) error {
+		out, err = g.next.Conflicts(ctx, subject, predicate, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// DataQuality implements contracts.GraphStore.
+func (g *graphStore) DataQuality(ctx context.Context, f contracts.IssueFilter, validAt, recordedAt time.Time) (out []*modelv1alpha1.DataQualityIssue, err error) {
+	err = g.observe(ctx, "data_quality", nil, func(ctx context.Context) error {
+		out, err = g.next.DataQuality(ctx, f, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Backup implements contracts.GraphStore.
+func (g *graphStore) Backup(ctx context.Context, w io.Writer) error {
+	return g.observe(ctx, "backup", nil, func(ctx context.Context) error { return g.next.Backup(ctx, w) })
+}
+
+// Restore implements contracts.GraphStore.
+func (g *graphStore) Restore(ctx context.Context, r io.Reader) error {
+	return g.observe(ctx, "restore", nil, func(ctx context.Context) error { return g.next.Restore(ctx, r) })
 }

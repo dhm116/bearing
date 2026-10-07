@@ -13,6 +13,8 @@
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main).
+// Until issue #44 a SurrealDB URL serves only vectors: opening it as the
+// graph fails with surrealstore.ErrGraphNotImplemented.
 // The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
 // carries one, so it never ends up in config files, process lists or logs.
 package store
@@ -87,7 +89,11 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	}
 	s.closers = append(s.closers, g.close)
 	if g.graph == nil {
-		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
+		err := fmt.Errorf("store: %s can't be a graph store", redact(c.Graph))
+		if g.name == "surrealdb" {
+			err = fmt.Errorf("store: %w", surrealstore.ErrGraphNotImplemented)
+		}
+		return nil, errors.Join(err, s.Close(ctx))
 	}
 	v := g
 	if c.Vectors != c.Graph {
@@ -117,7 +123,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		db = v
 	}
 	surreal := func(st *surrealstore.Store) backend {
-		return backend{name: "surrealdb", graph: st, vector: st, close: st.Close}
+		return backend{name: "surrealdb", vector: st, close: st.Close}
 	}
 
 	switch scheme := u.Scheme; {

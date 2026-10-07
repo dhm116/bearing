@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/surrealstore"
 	"bearing.example/pkg/contracts"
 )
@@ -21,10 +21,10 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
-	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "a", Kind: "Team"}); err != nil {
+	if _, err := s.Graph.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "e"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "a", EntityID: "a", Vector: []float32{1}}}); err != nil {
+	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "a", SubjectID: "a", Vector: []float32{1}}}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1}, Limit: 1})
@@ -182,27 +182,19 @@ func TestOpenSurrealServer(t *testing.T) {
 		return ""
 	}
 	ctx := context.Background()
-	s, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if _, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
+		t.Fatalf("got %v, want ErrGraphNotImplemented until #44", err)
+	}
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
-	at := time.Date(2026, 9, 29, 1, 2, 3, 456000000, time.UTC)
-	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{
-		ID: "t", Kind: "Team", UpdatedAt: at,
-		Attributes: map[string]any{"name": "Payments"},
-	}); err != nil {
+	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "t", SubjectID: "t", Vector: []float32{1, 0}}}); err != nil {
 		t.Fatal(err)
 	}
-	e, err := s.Graph.GetEntity(ctx, "t")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !e.UpdatedAt.Equal(at) || e.Attributes["name"] != "Payments" {
-		t.Fatalf("entity did not round-trip: %+v", e)
-	}
-	if _, err := s.Graph.GetEntity(ctx, "missing"); !errors.Is(err, contracts.ErrNotFound) {
-		t.Fatalf("got %v, want ErrNotFound", err)
+	if hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0}, Limit: 1}); err != nil || len(hits) != 1 {
+		t.Fatalf("got %v, %v, want the point back", hits, err)
 	}
 }
 
@@ -229,19 +221,19 @@ func TestOpenEmbeddedOnDisk(t *testing.T) {
 
 func onDiskPhase(t *testing.T, phase, url string) {
 	ctx := context.Background()
-	s, err := Open(ctx, Config{Graph: url})
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: url})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
 	if phase == "write" {
-		if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "t", Kind: "Team"}); err != nil {
+		if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "t", SubjectID: "t", Vector: []float32{1, 0}}}); err != nil {
 			t.Fatal(err)
 		}
 		return
 	}
-	if _, err := s.Graph.GetEntity(ctx, "t"); err != nil {
-		t.Fatalf("entity lost after restart: %v", err)
+	if hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0}, Limit: 1}); err != nil || len(hits) != 1 {
+		t.Fatalf("got %v, %v: point lost after restart", hits, err)
 	}
 }
 

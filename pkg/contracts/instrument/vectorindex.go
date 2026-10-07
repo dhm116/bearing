@@ -67,8 +67,14 @@ func (v *vectorIndex) Search(ctx context.Context, q contracts.VectorQuery) (hits
 	return hits, err
 }
 
-func (v *vectorIndex) DeleteByEntity(ctx context.Context, id contracts.EntityID) error {
-	return v.observe(ctx, "delete_by_entity", []attribute.KeyValue{attrEntity.String(string(id))}, func(ctx context.Context) error {
-		return v.next.DeleteByEntity(ctx, id)
+func (v *vectorIndex) DeleteBySubject(ctx context.Context, id contracts.SubjectID) error {
+	return v.observe(ctx, "delete_by_subject", []attribute.KeyValue{attrSubject.String(string(id))}, func(ctx context.Context) error {
+		return v.next.DeleteBySubject(ctx, id)
+	})
+}
+
+func (v *vectorIndex) Repoint(ctx context.Context, from, to contracts.SubjectID) error {
+	return v.observe(ctx, "repoint", []attribute.KeyValue{attrSubject.String(string(from))}, func(ctx context.Context) error {
+		return v.next.Repoint(ctx, from, to)
 	})
 }
