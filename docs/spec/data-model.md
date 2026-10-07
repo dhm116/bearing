@@ -188,9 +188,10 @@ Adapters declare key types per kind ([Declarations](#declarations)):
   override, that changes them.
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted.
-  Webhook payloads carry legacy-format `node_id`s, and no header selects
-  the format there: the adapter derives the next-format ID from the
-  object's numeric `id`. Node IDs survive renames, transfers and login
+  Webhook payloads may carry legacy-format `node_id`s, and no header
+  selects the format there: the adapter derives the next-format ID from
+  the numeric `id` (and the org's `id` for teams) or re-reads the object
+  with the header. Node IDs survive renames, transfers and login
   changes. Directory `id` keys are an immutable identifier the directory
   never reassigns (Authentik: user `uuid`, group `pk`).
 
