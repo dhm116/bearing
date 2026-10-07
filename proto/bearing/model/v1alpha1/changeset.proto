@@ -20,7 +20,7 @@ option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1
 // creates; the store replaces them with the minted IDs. Items apply in this
 // order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
 //
-// Every timeline item (bindings for now) replaces the current timeline of its series: rows equal to a current row
+// Every timeline item (bindings, supports, facts) replaces the current timeline of its series: rows equal to a current row
 // are kept, current rows not repeated are retracted, and new rows are
 // recorded. An empty timeline retracts the series.
 message ChangeSet {
@@ -40,8 +40,12 @@ message ChangeSet {
   repeated Merge merges = 6;
   // Un-merges, applied in order.
   repeated Unmerge unmerges = 7;
-  // Fields 8 to 11 are kept for the claim-store timelines (issue #37).
-  reserved 8 to 11;
+  // Support version timelines.
+  repeated SupportTimeline supports = 8;
+  // Fact status timelines.
+  repeated FactTimeline facts = 9;
+  // Fields 10 and 11 are kept for conflict and issue timelines (issue #37).
+  reserved 10, 11;
   // The resolver's own state.
   repeated StateEntry state = 12;
 }
@@ -114,6 +118,51 @@ message BindingTimeline {
   string alias = 1;
   // Rows that don't overlap in valid time. Their alias must match.
   repeated Binding bindings = 2;
+}
+
+// SupportTimeline is one source's complete support timeline for one fact
+// as written: its subject and object are kept as written, and reads
+// canonicalize them (docs/spec/data-model.md, "Merge" step 3).
+message SupportTimeline {
+  // The source.
+  string source = 1;
+  // The subject as written.
+  string subject_id = 2;
+  // The predicate.
+  string predicate = 3;
+  // The object as written.
+  FactObject object = 4;
+  // Live support versions that don't overlap in valid time. fact_id,
+  // recorded_at and retracted_at are set by the store; last_confirmed_at
+  // may change without a new version.
+  repeated Support versions = 5;
+}
+
+// FactSpan is a fact's status over one valid-time interval.
+message FactSpan {
+  // The status.
+  FactStatus status = 1;
+  // The status step that decided it.
+  StatusReason status_reason = 2;
+  // The fact's confidence.
+  uint32 confidence_ppm = 3;
+  // Start of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_from = 4;
+  // End of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 5;
+}
+
+// FactTimeline is one fact's complete status timeline. Valid times no span
+// covers have status none.
+message FactTimeline {
+  // The subject as written.
+  string subject_id = 1;
+  // The predicate.
+  string predicate = 2;
+  // The object as written.
+  FactObject object = 3;
+  // Spans that don't overlap in valid time.
+  repeated FactSpan spans = 4;
 }
 
 // StateEntry is one entry of the resolver's own state: ordering keys,

@@ -176,10 +176,40 @@ func (g *graphStore) Merges(ctx context.Context, id contracts.SubjectID, recorde
 	return out, err
 }
 
+// Supports implements contracts.GraphStore.
+func (g *graphStore) Supports(ctx context.Context, f contracts.SupportFilter, recordedAt time.Time) (out []*modelv1alpha1.SupportTimeline, err error) {
+	err = g.observe(ctx, "supports", nil, func(ctx context.Context) error {
+		out, err = g.next.Supports(ctx, f, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
 // State implements contracts.GraphStore.
 func (g *graphStore) State(ctx context.Context, keys []string, recordedAt time.Time) (out map[string]*anypb.Any, err error) {
 	err = g.observe(ctx, "state", nil, func(ctx context.Context) error {
 		out, err = g.next.State(ctx, keys, recordedAt)
+		return err
+	})
+	return out, err
+}
+
+// AsOf implements contracts.GraphStore.
+func (g *graphStore) AsOf(ctx context.Context, f contracts.FactFilter, validAt, recordedAt time.Time) (out []*modelv1alpha1.FactState, err error) {
+	err = g.observe(ctx, "as_of", nil, func(ctx context.Context) error {
+		out, err = g.next.AsOf(ctx, f, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Changes implements contracts.GraphStore.
+func (g *graphStore) Changes(ctx context.Context, f contracts.FactFilter, t1, t2 time.Time, axis contracts.Axis) (out []*modelv1alpha1.FactChange, err error) {
+	err = g.observe(ctx, "changes", nil, func(ctx context.Context) error {
+		out, err = g.next.Changes(ctx, f, t1, t2, axis)
+		count(ctx, out)
 		return err
 	})
 	return out, err

@@ -34,7 +34,7 @@ const (
 // creates; the store replaces them with the minted IDs. Items apply in this
 // order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
 //
-// Every timeline item (bindings for now) replaces the current timeline of its series: rows equal to a current row
+// Every timeline item (bindings, supports, facts) replaces the current timeline of its series: rows equal to a current row
 // are kept, current rows not repeated are retracted, and new rows are
 // recorded. An empty timeline retracts the series.
 type ChangeSet struct {
@@ -55,6 +55,10 @@ type ChangeSet struct {
 	Merges []*Merge `protobuf:"bytes,6,rep,name=merges,proto3" json:"merges,omitempty"`
 	// Un-merges, applied in order.
 	Unmerges []*Unmerge `protobuf:"bytes,7,rep,name=unmerges,proto3" json:"unmerges,omitempty"`
+	// Support version timelines.
+	Supports []*SupportTimeline `protobuf:"bytes,8,rep,name=supports,proto3" json:"supports,omitempty"`
+	// Fact status timelines.
+	Facts []*FactTimeline `protobuf:"bytes,9,rep,name=facts,proto3" json:"facts,omitempty"`
 	// The resolver's own state.
 	State         []*StateEntry `protobuf:"bytes,12,rep,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -136,6 +140,20 @@ func (x *ChangeSet) GetMerges() []*Merge {
 func (x *ChangeSet) GetUnmerges() []*Unmerge {
 	if x != nil {
 		return x.Unmerges
+	}
+	return nil
+}
+
+func (x *ChangeSet) GetSupports() []*SupportTimeline {
+	if x != nil {
+		return x.Supports
+	}
+	return nil
+}
+
+func (x *ChangeSet) GetFacts() []*FactTimeline {
+	if x != nil {
+		return x.Facts
 	}
 	return nil
 }
@@ -536,6 +554,248 @@ func (x *BindingTimeline) GetBindings() []*Binding {
 	return nil
 }
 
+// SupportTimeline is one source's complete support timeline for one fact
+// as written: its subject and object are kept as written, and reads
+// canonicalize them (docs/spec/data-model.md, "Merge" step 3).
+type SupportTimeline struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The source.
+	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// The subject as written.
+	SubjectId string `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	// The predicate.
+	Predicate string `protobuf:"bytes,3,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	// The object as written.
+	Object *FactObject `protobuf:"bytes,4,opt,name=object,proto3" json:"object,omitempty"`
+	// Live support versions that don't overlap in valid time. fact_id,
+	// recorded_at and retracted_at are set by the store; last_confirmed_at
+	// may change without a new version.
+	Versions      []*Support `protobuf:"bytes,5,rep,name=versions,proto3" json:"versions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SupportTimeline) Reset() {
+	*x = SupportTimeline{}
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SupportTimeline) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SupportTimeline) ProtoMessage() {}
+
+func (x *SupportTimeline) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SupportTimeline.ProtoReflect.Descriptor instead.
+func (*SupportTimeline) Descriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SupportTimeline) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *SupportTimeline) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *SupportTimeline) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *SupportTimeline) GetObject() *FactObject {
+	if x != nil {
+		return x.Object
+	}
+	return nil
+}
+
+func (x *SupportTimeline) GetVersions() []*Support {
+	if x != nil {
+		return x.Versions
+	}
+	return nil
+}
+
+// FactSpan is a fact's status over one valid-time interval.
+type FactSpan struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The status.
+	Status FactStatus `protobuf:"varint,1,opt,name=status,proto3,enum=bearing.model.v1alpha1.FactStatus" json:"status,omitempty"`
+	// The status step that decided it.
+	StatusReason StatusReason `protobuf:"varint,2,opt,name=status_reason,json=statusReason,proto3,enum=bearing.model.v1alpha1.StatusReason" json:"status_reason,omitempty"`
+	// The fact's confidence.
+	ConfidencePpm uint32 `protobuf:"varint,3,opt,name=confidence_ppm,json=confidencePpm,proto3" json:"confidence_ppm,omitempty"`
+	// Start of valid time; absent means unbounded.
+	ValidFrom *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`
+	// End of valid time; absent means unbounded.
+	ValidTo       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=valid_to,json=validTo,proto3" json:"valid_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FactSpan) Reset() {
+	*x = FactSpan{}
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FactSpan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FactSpan) ProtoMessage() {}
+
+func (x *FactSpan) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FactSpan.ProtoReflect.Descriptor instead.
+func (*FactSpan) Descriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FactSpan) GetStatus() FactStatus {
+	if x != nil {
+		return x.Status
+	}
+	return FactStatus_FACT_STATUS_UNSPECIFIED
+}
+
+func (x *FactSpan) GetStatusReason() StatusReason {
+	if x != nil {
+		return x.StatusReason
+	}
+	return StatusReason_STATUS_REASON_UNSPECIFIED
+}
+
+func (x *FactSpan) GetConfidencePpm() uint32 {
+	if x != nil {
+		return x.ConfidencePpm
+	}
+	return 0
+}
+
+func (x *FactSpan) GetValidFrom() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ValidFrom
+	}
+	return nil
+}
+
+func (x *FactSpan) GetValidTo() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ValidTo
+	}
+	return nil
+}
+
+// FactTimeline is one fact's complete status timeline. Valid times no span
+// covers have status none.
+type FactTimeline struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The subject as written.
+	SubjectId string `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	// The predicate.
+	Predicate string `protobuf:"bytes,2,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	// The object as written.
+	Object *FactObject `protobuf:"bytes,3,opt,name=object,proto3" json:"object,omitempty"`
+	// Spans that don't overlap in valid time.
+	Spans         []*FactSpan `protobuf:"bytes,4,rep,name=spans,proto3" json:"spans,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FactTimeline) Reset() {
+	*x = FactTimeline{}
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FactTimeline) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FactTimeline) ProtoMessage() {}
+
+func (x *FactTimeline) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FactTimeline.ProtoReflect.Descriptor instead.
+func (*FactTimeline) Descriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *FactTimeline) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *FactTimeline) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *FactTimeline) GetObject() *FactObject {
+	if x != nil {
+		return x.Object
+	}
+	return nil
+}
+
+func (x *FactTimeline) GetSpans() []*FactSpan {
+	if x != nil {
+		return x.Spans
+	}
+	return nil
+}
+
 // StateEntry is one entry of the resolver's own state: ordering keys,
 // watermarks, sync progress and the like. It is primary state, backed up
 // with the graph, and versioned by record time like everything else.
@@ -551,7 +811,7 @@ type StateEntry struct {
 
 func (x *StateEntry) Reset() {
 	*x = StateEntry{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[6]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +823,7 @@ func (x *StateEntry) String() string {
 func (*StateEntry) ProtoMessage() {}
 
 func (x *StateEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[6]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +836,7 @@ func (x *StateEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateEntry.ProtoReflect.Descriptor instead.
 func (*StateEntry) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{6}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StateEntry) GetKey() string {
@@ -625,7 +885,7 @@ type MergeRecord struct {
 
 func (x *MergeRecord) Reset() {
 	*x = MergeRecord{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[7]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -637,7 +897,7 @@ func (x *MergeRecord) String() string {
 func (*MergeRecord) ProtoMessage() {}
 
 func (x *MergeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[7]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -650,7 +910,7 @@ func (x *MergeRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergeRecord.ProtoReflect.Descriptor instead.
 func (*MergeRecord) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{7}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MergeRecord) GetSurvivorId() string {
@@ -734,7 +994,7 @@ var File_bearing_model_v1alpha1_changeset_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\n" +
-	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd6\x03\n" +
+	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdd\x04\n" +
 	"\tChangeSet\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12D\n" +
 	"\x10base_recorded_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0ebaseRecordedAt\x12;\n" +
@@ -743,8 +1003,11 @@ const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\x05mints\x18\x04 \x03(\v2\x1c.bearing.model.v1alpha1.MintR\x05mints\x12C\n" +
 	"\bbindings\x18\x05 \x03(\v2'.bearing.model.v1alpha1.BindingTimelineR\bbindings\x125\n" +
 	"\x06merges\x18\x06 \x03(\v2\x1d.bearing.model.v1alpha1.MergeR\x06merges\x12;\n" +
-	"\bunmerges\x18\a \x03(\v2\x1f.bearing.model.v1alpha1.UnmergeR\bunmerges\x128\n" +
-	"\x05state\x18\f \x03(\v2\".bearing.model.v1alpha1.StateEntryR\x05stateJ\x04\b\b\x10\f\"\x81\x01\n" +
+	"\bunmerges\x18\a \x03(\v2\x1f.bearing.model.v1alpha1.UnmergeR\bunmerges\x12C\n" +
+	"\bsupports\x18\b \x03(\v2'.bearing.model.v1alpha1.SupportTimelineR\bsupports\x12:\n" +
+	"\x05facts\x18\t \x03(\v2$.bearing.model.v1alpha1.FactTimelineR\x05facts\x128\n" +
+	"\x05state\x18\f \x03(\v2\".bearing.model.v1alpha1.StateEntryR\x05stateJ\x04\b\n" +
+	"\x10\vJ\x04\b\v\x10\f\"\x81\x01\n" +
 	"\x04Mint\x12\x10\n" +
 	"\x03ref\x18\x01 \x01(\tR\x03ref\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x124\n" +
@@ -777,7 +1040,27 @@ const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\fretracted_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\vretractedAt\"d\n" +
 	"\x0fBindingTimeline\x12\x14\n" +
 	"\x05alias\x18\x01 \x01(\tR\x05alias\x12;\n" +
-	"\bbindings\x18\x02 \x03(\v2\x1f.bearing.model.v1alpha1.BindingR\bbindings\"J\n" +
+	"\bbindings\x18\x02 \x03(\v2\x1f.bearing.model.v1alpha1.BindingR\bbindings\"\xdf\x01\n" +
+	"\x0fSupportTimeline\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12\x1c\n" +
+	"\tpredicate\x18\x03 \x01(\tR\tpredicate\x12:\n" +
+	"\x06object\x18\x04 \x01(\v2\".bearing.model.v1alpha1.FactObjectR\x06object\x12;\n" +
+	"\bversions\x18\x05 \x03(\v2\x1f.bearing.model.v1alpha1.SupportR\bversions\"\xaa\x02\n" +
+	"\bFactSpan\x12:\n" +
+	"\x06status\x18\x01 \x01(\x0e2\".bearing.model.v1alpha1.FactStatusR\x06status\x12I\n" +
+	"\rstatus_reason\x18\x02 \x01(\x0e2$.bearing.model.v1alpha1.StatusReasonR\fstatusReason\x12%\n" +
+	"\x0econfidence_ppm\x18\x03 \x01(\rR\rconfidencePpm\x129\n" +
+	"\n" +
+	"valid_from\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tvalidFrom\x125\n" +
+	"\bvalid_to\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\avalidTo\"\xbf\x01\n" +
+	"\fFactTimeline\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x1c\n" +
+	"\tpredicate\x18\x02 \x01(\tR\tpredicate\x12:\n" +
+	"\x06object\x18\x03 \x01(\v2\".bearing.model.v1alpha1.FactObjectR\x06object\x126\n" +
+	"\x05spans\x18\x04 \x03(\v2 .bearing.model.v1alpha1.FactSpanR\x05spans\"J\n" +
 	"\n" +
 	"StateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
@@ -811,7 +1094,7 @@ func file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_changeset_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_bearing_model_v1alpha1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_bearing_model_v1alpha1_changeset_proto_goTypes = []any{
 	(*ChangeSet)(nil),             // 0: bearing.model.v1alpha1.ChangeSet
 	(*Mint)(nil),                  // 1: bearing.model.v1alpha1.Mint
@@ -819,40 +1102,56 @@ var file_bearing_model_v1alpha1_changeset_proto_goTypes = []any{
 	(*Unmerge)(nil),               // 3: bearing.model.v1alpha1.Unmerge
 	(*Binding)(nil),               // 4: bearing.model.v1alpha1.Binding
 	(*BindingTimeline)(nil),       // 5: bearing.model.v1alpha1.BindingTimeline
-	(*StateEntry)(nil),            // 6: bearing.model.v1alpha1.StateEntry
-	(*MergeRecord)(nil),           // 7: bearing.model.v1alpha1.MergeRecord
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
-	(MintRule)(0),                 // 9: bearing.model.v1alpha1.MintRule
-	(MergeRule)(0),                // 10: bearing.model.v1alpha1.MergeRule
-	(*Support)(nil),               // 11: bearing.model.v1alpha1.Support
-	(*anypb.Any)(nil),             // 12: google.protobuf.Any
+	(*SupportTimeline)(nil),       // 6: bearing.model.v1alpha1.SupportTimeline
+	(*FactSpan)(nil),              // 7: bearing.model.v1alpha1.FactSpan
+	(*FactTimeline)(nil),          // 8: bearing.model.v1alpha1.FactTimeline
+	(*StateEntry)(nil),            // 9: bearing.model.v1alpha1.StateEntry
+	(*MergeRecord)(nil),           // 10: bearing.model.v1alpha1.MergeRecord
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
+	(MintRule)(0),                 // 12: bearing.model.v1alpha1.MintRule
+	(MergeRule)(0),                // 13: bearing.model.v1alpha1.MergeRule
+	(*Support)(nil),               // 14: bearing.model.v1alpha1.Support
+	(*FactObject)(nil),            // 15: bearing.model.v1alpha1.FactObject
+	(FactStatus)(0),               // 16: bearing.model.v1alpha1.FactStatus
+	(StatusReason)(0),             // 17: bearing.model.v1alpha1.StatusReason
+	(*anypb.Any)(nil),             // 18: google.protobuf.Any
 }
 var file_bearing_model_v1alpha1_changeset_proto_depIdxs = []int32{
-	8,  // 0: bearing.model.v1alpha1.ChangeSet.base_recorded_at:type_name -> google.protobuf.Timestamp
-	8,  // 1: bearing.model.v1alpha1.ChangeSet.recorded_at:type_name -> google.protobuf.Timestamp
+	11, // 0: bearing.model.v1alpha1.ChangeSet.base_recorded_at:type_name -> google.protobuf.Timestamp
+	11, // 1: bearing.model.v1alpha1.ChangeSet.recorded_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: bearing.model.v1alpha1.ChangeSet.mints:type_name -> bearing.model.v1alpha1.Mint
 	5,  // 3: bearing.model.v1alpha1.ChangeSet.bindings:type_name -> bearing.model.v1alpha1.BindingTimeline
 	2,  // 4: bearing.model.v1alpha1.ChangeSet.merges:type_name -> bearing.model.v1alpha1.Merge
 	3,  // 5: bearing.model.v1alpha1.ChangeSet.unmerges:type_name -> bearing.model.v1alpha1.Unmerge
-	6,  // 6: bearing.model.v1alpha1.ChangeSet.state:type_name -> bearing.model.v1alpha1.StateEntry
-	9,  // 7: bearing.model.v1alpha1.Mint.rule:type_name -> bearing.model.v1alpha1.MintRule
-	10, // 8: bearing.model.v1alpha1.Merge.rule:type_name -> bearing.model.v1alpha1.MergeRule
-	11, // 9: bearing.model.v1alpha1.Merge.evidence:type_name -> bearing.model.v1alpha1.Support
-	8,  // 10: bearing.model.v1alpha1.Binding.valid_from:type_name -> google.protobuf.Timestamp
-	8,  // 11: bearing.model.v1alpha1.Binding.valid_to:type_name -> google.protobuf.Timestamp
-	8,  // 12: bearing.model.v1alpha1.Binding.recorded_at:type_name -> google.protobuf.Timestamp
-	8,  // 13: bearing.model.v1alpha1.Binding.retracted_at:type_name -> google.protobuf.Timestamp
-	4,  // 14: bearing.model.v1alpha1.BindingTimeline.bindings:type_name -> bearing.model.v1alpha1.Binding
-	12, // 15: bearing.model.v1alpha1.StateEntry.value:type_name -> google.protobuf.Any
-	10, // 16: bearing.model.v1alpha1.MergeRecord.rule:type_name -> bearing.model.v1alpha1.MergeRule
-	11, // 17: bearing.model.v1alpha1.MergeRecord.evidence:type_name -> bearing.model.v1alpha1.Support
-	8,  // 18: bearing.model.v1alpha1.MergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
-	8,  // 19: bearing.model.v1alpha1.MergeRecord.unmerged_at:type_name -> google.protobuf.Timestamp
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	6,  // 6: bearing.model.v1alpha1.ChangeSet.supports:type_name -> bearing.model.v1alpha1.SupportTimeline
+	8,  // 7: bearing.model.v1alpha1.ChangeSet.facts:type_name -> bearing.model.v1alpha1.FactTimeline
+	9,  // 8: bearing.model.v1alpha1.ChangeSet.state:type_name -> bearing.model.v1alpha1.StateEntry
+	12, // 9: bearing.model.v1alpha1.Mint.rule:type_name -> bearing.model.v1alpha1.MintRule
+	13, // 10: bearing.model.v1alpha1.Merge.rule:type_name -> bearing.model.v1alpha1.MergeRule
+	14, // 11: bearing.model.v1alpha1.Merge.evidence:type_name -> bearing.model.v1alpha1.Support
+	11, // 12: bearing.model.v1alpha1.Binding.valid_from:type_name -> google.protobuf.Timestamp
+	11, // 13: bearing.model.v1alpha1.Binding.valid_to:type_name -> google.protobuf.Timestamp
+	11, // 14: bearing.model.v1alpha1.Binding.recorded_at:type_name -> google.protobuf.Timestamp
+	11, // 15: bearing.model.v1alpha1.Binding.retracted_at:type_name -> google.protobuf.Timestamp
+	4,  // 16: bearing.model.v1alpha1.BindingTimeline.bindings:type_name -> bearing.model.v1alpha1.Binding
+	15, // 17: bearing.model.v1alpha1.SupportTimeline.object:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 18: bearing.model.v1alpha1.SupportTimeline.versions:type_name -> bearing.model.v1alpha1.Support
+	16, // 19: bearing.model.v1alpha1.FactSpan.status:type_name -> bearing.model.v1alpha1.FactStatus
+	17, // 20: bearing.model.v1alpha1.FactSpan.status_reason:type_name -> bearing.model.v1alpha1.StatusReason
+	11, // 21: bearing.model.v1alpha1.FactSpan.valid_from:type_name -> google.protobuf.Timestamp
+	11, // 22: bearing.model.v1alpha1.FactSpan.valid_to:type_name -> google.protobuf.Timestamp
+	15, // 23: bearing.model.v1alpha1.FactTimeline.object:type_name -> bearing.model.v1alpha1.FactObject
+	7,  // 24: bearing.model.v1alpha1.FactTimeline.spans:type_name -> bearing.model.v1alpha1.FactSpan
+	18, // 25: bearing.model.v1alpha1.StateEntry.value:type_name -> google.protobuf.Any
+	13, // 26: bearing.model.v1alpha1.MergeRecord.rule:type_name -> bearing.model.v1alpha1.MergeRule
+	14, // 27: bearing.model.v1alpha1.MergeRecord.evidence:type_name -> bearing.model.v1alpha1.Support
+	11, // 28: bearing.model.v1alpha1.MergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
+	11, // 29: bearing.model.v1alpha1.MergeRecord.unmerged_at:type_name -> google.protobuf.Timestamp
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_changeset_proto_init() }
@@ -868,7 +1167,7 @@ func file_bearing_model_v1alpha1_changeset_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_changeset_proto_rawDesc), len(file_bearing_model_v1alpha1_changeset_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

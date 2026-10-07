@@ -323,8 +323,11 @@ func (s *Store) write(undo *[]func(), t table, key string, head proto.Message, r
 	return nil
 }
 
-// writeClaims writes the resolver's state.
+// writeClaims writes the claim-store timelines and the resolver's state.
 func (s *Store) writeClaims(undo *[]func(), cs *modelv1alpha1.ChangeSet, r time.Time) error {
+	if err := s.writeFacts(undo, cs, r); err != nil {
+		return err
+	}
 	for _, e := range cs.GetState() {
 		if e.GetKey() == "" {
 			return errors.New("state entry: key is required")

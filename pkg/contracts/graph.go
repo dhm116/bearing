@@ -37,16 +37,48 @@ type ApplyResult struct {
 	Merges []*modelv1alpha1.MergeRecord
 }
 
+// FactFilter selects facts. Empty fields match anything.
+type FactFilter struct {
+	// SubjectID matches the canonical subject.
+	SubjectID SubjectID
+	// Key resolves to a subject through the bindings at the query's times;
+	// a key that resolves to nothing matches nothing.
+	Key       model.Key
+	Predicate string
+	Object    *modelv1alpha1.FactObject
+	Statuses  []modelv1alpha1.FactStatus
+}
+
+// Axis picks the two points Changes compares (docs/spec/data-model.md,
+// "What changed").
+type Axis int
+
+// The axes of Changes.
+const (
+	// AxisValid compares (t1, now) with (t2, now).
+	AxisValid Axis = iota
+	// AxisRecord compares (t1, t1) with (t2, t2).
+	AxisRecord
+)
+
+// SupportFilter selects support timelines. Empty fields match anything.
+type SupportFilter struct {
+	// SubjectID matches timelines whose subject or object canonicalizes to it.
+	SubjectID SubjectID
+	Predicate string
+	Source    string
+}
+
 // GraphStore holds Bearing's state bitemporally: the identity store
-// (subjects, alias bindings, merges) and the resolver's own state. The
-// claim store (supports, fact statuses, conflicts, data-quality issues)
-// joins it in later changes for issue #37. The resolver decides what
+// (subjects, alias bindings, merges), the claim store (supports and fact
+// statuses; conflicts and data-quality issues follow) and the resolver's
+// own state. The resolver decides what
 // to write; the store applies it atomically and answers queries. See
 // docs/spec/contracts.md, "GraphStore", for which side owns each rule of
 // the data model.
 //
 // Every read takes a record time and returns what was recorded at or
-// before it; ResolveKey also takes a valid time. A zero time means now, from the
+// before it; most also take a valid time. A zero time means now, from the
 // store's clock. Subject IDs in results are canonical (followed through
 // merges recorded by the record time) unless a method says otherwise.
 type GraphStore interface {
@@ -72,10 +104,21 @@ type GraphStore interface {
 	// Merges returns the merge records involving the subject, merged or
 	// un-merged, as recorded at recordedAt, oldest first.
 	Merges(ctx context.Context, id SubjectID, recordedAt time.Time) ([]*modelv1alpha1.MergeRecord, error)
+	// Supports returns support timelines as recorded at recordedAt. Subject
+	// and object are as written; each version's fact_id is canonical.
+	Supports(ctx context.Context, f SupportFilter, recordedAt time.Time) ([]*modelv1alpha1.SupportTimeline, error)
 	// State returns the resolver's state entries for keys as recorded at
 	// recordedAt. Missing keys are left out.
 	State(ctx context.Context, keys []string, recordedAt time.Time) (map[string]*anypb.Any, error)
 
+	// AsOf returns the facts matching f at validAt as recorded at
+	// recordedAt, with their live supports (docs/spec/data-model.md, "As
+	// of").
+	AsOf(ctx context.Context, f FactFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.FactState, error)
+	// Changes returns the facts matching f whose status or confidence
+	// differs between the two points of axis (docs/spec/data-model.md,
+	// "What changed"). t1 must not be after t2.
+	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
 	// Backup writes the store's complete state to w: every applied
 	// ChangeSet in apply order, as length-delimited protobuf.
 	Backup(ctx context.Context, w io.Writer) error
