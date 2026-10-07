@@ -8,6 +8,10 @@ After:
 
 <!-- The approach, and anything a reviewer should look at first. -->
 
+## Review
+
+<!-- The lead posts a "Review N" comment after every review (see AGENTS.md, "Review and merge process"). -->
+
 ## Checklist
 
 - [ ] `make check` passes

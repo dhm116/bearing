@@ -296,15 +296,20 @@ Both are plain Markdown checklists; any agent can follow them.
   linked from the PR before merging.
 - **Rounds.** A round is one push answering the findings plus the
   reviewers' re-review. Up to five rounds per PR. After the fifth round
-  with blocking findings open, the lead stops, comments on the PR listing
-  them, and mentions @dhm116 (Doug, the maintainer).
-- **Review summary.** After each round, the lead posts one PR comment
-  headed "Review round N": each reviewer's verdict; each blocking finding
-  and the commit that fixed it; each non-blocking finding and where it went
-  (fixed in this PR, or the follow-up issue). Someone reading only the PR
-  sees what the reviewers caught and how it was settled.
-- **Merge.** The lead merges once CI passes (or the change needs no tests)
-  and the assigned reviewers approve.
+  with blocking findings open, the lead stops and mentions @dhm116 (Doug,
+  the maintainer) in that review's summary comment.
+- **Review summary.** After every review, including the first and one
+  that approves outright, the lead posts one PR comment headed "Review N"
+  (the first review is 1). It gives each reviewer's verdict, then each
+  finding with its status: blocking ones open, fixed in a named commit, or
+  withdrawn with the reason; non-blocking ones fixed in a named commit,
+  filed as a follow-up issue, or open until that issue is filed. When a
+  later push settles an open item, the lead edits that comment. Someone
+  reading only the PR sees what the reviewers caught and how each item was
+  settled.
+- **Merge.** The lead merges once CI passes (or the change needs no tests),
+  the assigned reviewers approve, and every review summary shows each
+  finding as fixed, withdrawn or linked to an issue.
 - **Milestones** close only with Doug's review and approval.
 - **Shared files** are owned by the lead: `proto/`, `gen/go`,
   `pkg/contracts`, `docs/spec/contracts.md`, `go.mod`/`go.sum`, `Makefile`,
