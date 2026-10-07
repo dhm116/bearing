@@ -125,7 +125,7 @@ A subject with no `exists` claim ever recorded (only referenced) is a
 
 ```
 <namespace>:<key_type>/<external_id>
-github:repo_node/R_kgDOH1a2b3
+github:repo_node/R_kgDOH1a2bw
 authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74
 ```
 
@@ -187,9 +187,13 @@ Adapters declare key types per kind ([Declarations](#declarations)):
   configuration apply rejects a declaration, or an `issues[].key_classes`
   override, that changes them.
 - GitHub `id` keys are next-format global node IDs (the adapter sends
-  `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted. Node
-  IDs survive renames, transfers and login changes. Directory `id` keys are
-  the directory's immutable primary keys.
+  `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted.
+  Webhook payloads may carry legacy-format `node_id`s, and no header
+  selects the format there: the adapter derives the next-format ID from
+  the numeric `id` (and the org's `id` for teams) or re-reads the object
+  with the header. Node IDs survive renames, transfers and login
+  changes. Directory `id` keys are an immutable identifier the directory
+  never reassigns (Authentik: user `uuid`, group `pk`).
 
 ### Declarations
 
@@ -507,13 +511,13 @@ Example (CloudEvents envelope fields `specversion`, `type`,
 
 ```json
 {
-  "id": "github:repo_node/R_kgDOH1a2b3@2026-09-28T01:30:00.000000Z",
+  "id": "github:repo_node/R_kgDOH1a2bw@2026-09-28T01:30:00.000000Z",
   "source": "adapter/github",
   "time": "2026-09-28T01:30:00Z",
   "data": {
     "entity": {
       "kind": "Repository",
-      "key": "github:repo_node/R_kgDOH1a2b3",
+      "key": "github:repo_node/R_kgDOH1a2bw",
       "aliases": ["github:repo/acme/payments-api"],
       "attributes": { "name": "payments-api", "default_branch": "main", "language": "Go",
                       "topics": [], "description": null, "codeowners_rules": 1 }
@@ -702,11 +706,11 @@ versions**:
 
 ```json
 { "fact_id": "9b1e…", "source": "github-acme", "adapter": "github@0.2.0",
-  "event_id": "github-acme/9f2c…", "observation_id": "github:repo_node/R_kgDOH1a2b3@2026-09-28T01:30:00.000000Z",
+  "event_id": "github-acme/9f2c…", "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-09-28T01:30:00.000000Z",
   "observed_at": "2026-09-28T01:30:00Z", "last_confirmed_at": "2026-10-01T06:00:00Z",
   "confidence_ppm": 1000000, "valid_from": "2026-09-28T01:30:00Z", "valid_to": null,
   "recorded_at": "2026-09-28T01:30:02Z", "retracted_at": null, "reason": "assert",
-  "via": { "subject": ["github:repo_node/R_kgDOH1a2b3", "github:repo/acme/payments-api"],
+  "via": { "subject": ["github:repo_node/R_kgDOH1a2bw", "github:repo/acme/payments-api"],
            "object": "github:team/acme/payments" },
   "qualifiers": [ { "file": ".github/CODEOWNERS", "line": 1, "pattern": "*" } ],
   "evidence": { "url": "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS" } }
@@ -1189,7 +1193,7 @@ form. Examples use the default configuration and the reference
 The [observation above](#observations), from `github-acme`,
 `observed_at` 2026-09-28T01:30:00Z, nothing bound yet. CODEOWNERS is the
 single line `* @acme/payments`. The same full sync requested the teams page
-at 01:29 and observed the team (key `github:team_node/T_kwDOAB12cd`, alias
+at 01:29 and observed the team (key `github:team_node/T_kwDOBNeKh84AHUwC`, alias
 `github:team/acme/payments`).
 
 1. Both repo keys are unbound: mint R, bind them.
@@ -1208,15 +1212,15 @@ at 01:29 and observed the team (key `github:team_node/T_kwDOAB12cd`, alias
    depend on the order. Had the file also had path rules, `owned_by` would
    be 700000, a `candidate`.
 5. The scope `(github-acme, R, out, [approves_changes])` has watermark key
-   `(2026-09-28T01:30:00Z, "github:repo_node/R_kgDOH1a2b3@…", "github-acme/…", <hash>)`.
+   `(2026-09-28T01:30:00Z, "github:repo_node/R_kgDOH1a2bw@…", "github-acme/…", <hash>)`.
 
 ### 2. Repository rename
 
 `acme/payments-api` becomes `acme/payments` at 2026-10-01T12:00:00Z:
 
 ```json
-{ "id": "github:repo_node/R_kgDOH1a2b3@2026-10-01T12:00:00.000000Z", "time": "2026-10-01T12:00:00Z",
-  "data": { "entity": { "kind": "Repository", "key": "github:repo_node/R_kgDOH1a2b3",
+{ "id": "github:repo_node/R_kgDOH1a2bw@2026-10-01T12:00:00.000000Z", "time": "2026-10-01T12:00:00Z",
+  "data": { "entity": { "kind": "Repository", "key": "github:repo_node/R_kgDOH1a2bw",
                         "aliases": ["github:repo/acme/payments"], "attributes": { "name": "payments" } } } }
 ```
 
@@ -1233,8 +1237,8 @@ A full sync requests R's CODEOWNERS at 2026-10-02T09:00:00Z; it is now the
 single line `* @acme/platform`:
 
 ```json
-{ "id": "github:repo_node/R_kgDOH1a2b3@2026-10-02T09:00:00.000000Z", "time": "2026-10-02T09:00:00Z",
-  "data": { "entity": { "kind": "Repository", "key": "github:repo_node/R_kgDOH1a2b3",
+{ "id": "github:repo_node/R_kgDOH1a2bw@2026-10-02T09:00:00.000000Z", "time": "2026-10-02T09:00:00Z",
+  "data": { "entity": { "kind": "Repository", "key": "github:repo_node/R_kgDOH1a2bw",
                         "aliases": ["github:repo/acme/payments"], "attributes": { "codeowners_rules": 1 } },
             "relations": [ { "type": "approves_changes", "to": "github:team/acme/platform",
                              "attributes": { "pattern": "*", "file": ".github/CODEOWNERS", "line": 1 } } ],
@@ -1330,7 +1334,7 @@ ownership would end.
 ### 7. Matching across GitHub and the directory
 
 - jdoe's Authentik record links their GitHub node ID
-  (`linked_ids: ["github:user_node/U_kgDOA1b2c3"]`): authoritative evidence
+  (`linked_ids: ["github:user_node/U_kgDOA1b2cw"]`): authoritative evidence
   at 1000000, so the Authentik person and J merge (rule `authoritative`; the
   earlier mint survives).
   A matching email alone would leave a `candidate` to confirm.

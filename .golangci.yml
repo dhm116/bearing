@@ -42,8 +42,9 @@ linters:
           deny:
             - pkg: bearing.example/internal
               desc: depend on pkg/contracts; open backends through pkg/store
-        # Other tests may use the in-memory reference backend and the
-        # testkit fakes, nothing else from internal/.
+        # Other tests may use the in-memory reference backend, the testkit
+        # fakes and the fake source systems in internal/fakes, nothing else
+        # from internal/.
         internal-packages-in-tests:
           list-mode: lax
           files:
@@ -52,6 +53,7 @@ linters:
             - "!**/internal/testkit/**"
             - "!**/pkg/store/**"
           allow:
+            - bearing.example/internal/fakes
             - bearing.example/internal/memstore
             - bearing.example/internal/testkit
           deny:
@@ -66,6 +68,15 @@ linters:
           deny:
             - pkg: bearing.example/internal/testkit
               desc: testkit is for tests only
+        # Nor the fake source systems.
+        fakes:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/fakes/**"
+          deny:
+            - pkg: bearing.example/internal/fakes
+              desc: fakes are for tests only
         # Only internal/surrealstore talks to SurrealDB.
         surrealdb:
           files:

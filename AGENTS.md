@@ -72,6 +72,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `internal/memstore` | In-memory reference backend for both contracts. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
+| `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, and `adapter sync`, which validates every observation and prints them as ProtoJSON NDJSON. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |

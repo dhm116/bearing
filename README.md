@@ -45,6 +45,7 @@ keeps the adapters that fetch it small.
 | [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation |
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
+| [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
