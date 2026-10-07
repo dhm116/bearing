@@ -428,6 +428,9 @@ func (s *Store) writeClaims(undo *[]func(), cs *modelv1alpha1.ChangeSet, r time.
 	if err := s.writeFacts(undo, cs, r); err != nil {
 		return err
 	}
+	if err := s.writeConflicts(undo, cs, r); err != nil {
+		return err
+	}
 	keys := map[string]bool{}
 	for _, e := range cs.GetState() {
 		if e.GetKey() == "" {

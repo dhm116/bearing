@@ -7,7 +7,7 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses and the resolver's state, bitemporally; conflicts and data-quality issues to follow ([below](#graphstore)). The source of truth. | SurrealDB (PR #78; in-memory until it merges) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (PR #78; in-memory until it merges) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
@@ -52,8 +52,8 @@ be written in any language. Those wire definitions will live in `proto/`.
 
 `GraphStore` holds the state of the [data model](data-model.md): the
 identity store (subjects, alias bindings, merge and un-merge records) and
-the claim store (supports and fact statuses; conflicts and data-quality
-issues follow in a later change for issue #37). The work is split in two:
+the claim store (supports, fact statuses, conflicts, data-quality
+issues). The work is split in two:
 
 - The **resolver** (issue #43) reads the store, applies the data model's
   rules to one event, and writes the outcome as a `ChangeSet`.
@@ -76,6 +76,8 @@ is one event's writes:
 | `bindings` | Alias binding timelines. |
 | `supports` | Support timelines: one source's versions of its support for one fact, with subject and object as written. |
 | `facts` | Fact status timelines: status, reason and confidence per valid-time span. Valid times no span covers have status `none`. |
+| `conflicts` | Conflict timelines, one per (subject, predicate). |
+| `issues` | Data-quality issue timelines, each under a key the resolver chooses. |
 | `merges` | Applied in order, each seeing the merges before it. Each needs a rule. |
 | `unmerges` | Each un-merge's target is resolved against the state before the `ChangeSet`, not after the un-merges listed before it, and two un-merges may not claim the same merge record or subject. An un-merge has a ref (`new:<label>`, required, unique among the `ChangeSet`'s mints and un-merges) for the subject its aliases move to. |
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
@@ -89,7 +91,7 @@ timeline retracts the series. An alias or state key appears at most once
 in a `ChangeSet`. A support's `last_confirmed_at` is the exception to
 versioning: a confirmation updates it in place, without a new version, so
 it is not bitemporal. Items apply in this order: mints, un-merge targets,
-bindings, merges, un-merges, supports, facts, state.
+bindings, merges, un-merges, supports, facts, conflicts, issues, state.
 
 A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support and a
@@ -101,9 +103,9 @@ so every backend refuses the same `ChangeSet`s:
 
 | Limit | Value | Applies to |
 | --- | --- | --- |
-| `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts and state |
+| `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts, conflicts, issues and state |
 | `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
-| `MaxTimelineRows` | 256 | Rows in one binding, support or fact timeline; aliases in one un-merge |
+| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions, objects, subjects and supports of one conflict or issue |
 
 The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
 thousands of rows, or thousands of merges, costs a naive store time
@@ -227,13 +229,14 @@ References are to sections of the [data model](data-model.md).
 | Vector points re-pointed on merge | Core, through `VectorIndex.Repoint` |
 | Supports and fact statuses as timelines; reads that canonicalize subject, object and `fact_id` through merges; `last_confirmed_at` updated in place without a new version | Store (`Supports`, `AsOf`, `Changes`) |
 | Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, audit | Resolver, which writes the resulting support and fact timelines. The ordering keys of writes, which the support rows don't carry, are the resolver's state ([State keys](#state-keys)). |
-| Conflicts and data-quality issues | Resolver; the store's part arrives in a later change |
+| Conflicts and data-quality issues as timelines, canonicalized on read | Store (`Conflicts`, `DataQuality`) |
+| Detecting conflicts and data-quality issues, and when they end | Resolver, which writes the resulting timelines |
 
 ### Reads
 
 Every read takes a record time and returns what was recorded at or before
-it; `ResolveKey` and `AsOf` also take a valid time, and `Changes`
-compares two points on the valid or the record axis. A zero time means now,
+it; `ResolveKey`, `AsOf`, `Conflicts` and `DataQuality` also take a valid
+time, and `Changes` compares two points on the valid or the record axis. A zero time means now,
 for either point of `Changes` too. Subject IDs in answers are canonical as of
 the record time, except where a method returns rows as written (`Bindings`,
 `Supports`). The resolver reads the head with `Head`, reads at that record
@@ -262,6 +265,23 @@ every time and in every backend:
 - A `FactFilter` whose `Object` is not a valid fact object, and a `Changes`
   call with an unknown axis, are errors, never a filter that matches
   everything.
+- `Conflicts` returns the conflicts covering the valid time, ordered by
+  canonical subject ID, predicate, then the key of the timeline as written
+  (subject ID as written). Timelines written under different subjects can
+  canonicalize to one (subject, predicate) after a merge; each still
+  answers. Objects in a position that a merge makes equal are named once,
+  keeping the first.
+- `DataQuality` returns the issues covering the valid time, ordered by the
+  key of their timeline. Subject IDs are canonical, and a subject that
+  several merged subjects canonicalize to is named once. An `IssueFilter`
+  with an unspecified or unknown issue type is an error. `Kinds` matches an
+  issue naming a subject of one of those kinds, `Sources` one with a support
+  from one of those sources.
+- What `Apply` accepts: a conflict timeline needs a subject and a predicate,
+  none twice in a `ChangeSet`; each conflict in it is for that subject and
+  predicate, with at least one position, each with a `source_system` and
+  valid objects. An issue timeline needs a key, none twice; each span needs
+  a known issue type, and each support in it a source.
 
 ## Rules that apply to every component
 

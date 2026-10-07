@@ -81,6 +81,9 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Supports come back in a fixed order", g.supportsOrder},
 		{"Changes across a merge matches one fact and compares its supports", g.mergeChanges},
 		{"Reads canonicalize a merged object and an un-merge restores it", g.mergedObject},
+		{"Conflicts and DataQuality are bitemporal", g.conflicts},
+		{"Conflicts and issues of merged subjects answer in a fixed order", g.mergedConflicts},
+		{"DataQuality refuses an unknown issue type", g.badIssueFilter},
 		{"Backup and Restore keep primary state", g.backup},
 		{"Restore refuses a damaged backup", g.damaged},
 		{"Apply refuses what a backup cannot hold", g.unwritable},
@@ -474,6 +477,7 @@ func (g *suite) checks(t *testing.T) {
 	s, _ := g.store(t)
 	r, p, l := seed(t, s)
 	val, _ := anypb.New(wrapperspb.String("v"))
+	onePosition := []*modelv1alpha1.ConflictPosition{position("github", ref(p))}
 	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
 		"merge without a rule":       {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}}}},
 		"alias twice":                {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "")), bind("github:team/acme/x", row(p, "", ""))}},
@@ -503,10 +507,30 @@ func (g *suite) checks(t *testing.T) {
 		"span confidence too big":    {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), span(asserted, 1_000_001, "", ""))}},
 		"support confidence too big": {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 1_000_001, "", ""))}},
 		"invalid UTF-8":              {State: []*modelv1alpha1.StateEntry{{Key: "k\xff", Value: val}}},
-		"state without key":          {State: []*modelv1alpha1.StateEntry{{}}},
-		"merge of one":               {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
-		"unmerge of one alias":       {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
-		"unmerge of no subject":      {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"conflict mismatch":          {Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{{SubjectId: p, Predicate: "owned_by", Positions: onePosition}}}}},
+		"conflict without subject":   {Conflicts: []*modelv1alpha1.ConflictTimeline{{Predicate: "owned_by"}}},
+		"conflict without positions": {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "")}},
+		"position without system":    {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "", position("", ref(p)))}},
+		"nil position":               {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "", nil)}},
+		"nil conflict":               {Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{nil}}}},
+		"bad conflict object":        {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "", position("github", &modelv1alpha1.FactObject{}))}},
+		"unknown ref in a conflict":  {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "", position("github", ref("new:x")))}},
+		"conflict twice":             {Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, "owned_by", "", onePosition...), conflictOn(r, "owned_by", "", onePosition...)}},
+		"overlapping conflicts": {Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{
+			{SubjectId: r, Predicate: "owned_by", ValidTo: ts("2026-10-01T00:00:00Z"), Positions: onePosition}, {SubjectId: r, Predicate: "owned_by", Positions: onePosition},
+		}}}},
+		"issue without key":            {Issues: []*modelv1alpha1.IssueTimeline{{}}},
+		"issue twice":                  {Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", unobserved, r), issueOf("i", unobserved, r)}},
+		"issue without a type":         {Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", modelv1alpha1.IssueType_ISSUE_TYPE_UNSPECIFIED, r)}},
+		"unknown issue type":           {Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", 9999, r)}},
+		"span without an issue":        {Issues: []*modelv1alpha1.IssueTimeline{{Key: "i", Spans: []*modelv1alpha1.IssueSpan{{}}}}},
+		"issue support without source": {Issues: []*modelv1alpha1.IssueTimeline{{Key: "i", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{Issue: unobserved, Supports: []*modelv1alpha1.Support{nil}}}}}}},
+		"unknown subject in issue":     {Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", unobserved, "new:x")}},
+		"empty issue interval":         {Issues: []*modelv1alpha1.IssueTimeline{{Key: "i", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{Issue: unobserved}, ValidFrom: ts("2026-10-01T00:00:00Z"), ValidTo: ts("2026-10-01T00:00:00Z")}}}}},
+		"state without key":            {State: []*modelv1alpha1.StateEntry{{}}},
+		"merge of one":                 {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
+		"unmerge of one alias":         {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"unmerge of no subject":        {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
 	} {
 		if name != "no event ID" {
 			cs.EventId = "bad/" + name
@@ -902,6 +926,14 @@ func dump(t *testing.T, s contracts.GraphStore, ids []string, v, r time.Time) st
 	for _, st := range states {
 		add(st, err)
 	}
+	conflicts, err := s.Conflicts(ctx, "", "", v, r)
+	for _, c := range conflicts {
+		add(c, err)
+	}
+	issues, err := s.DataQuality(ctx, contracts.IssueFilter{}, v, r)
+	for _, i := range issues {
+		add(i, err)
+	}
 	for _, id := range ids {
 		add(s.Subject(ctx, contracts.SubjectID(id), r))
 		merges, err := s.Merges(ctx, contracts.SubjectID(id), r)
@@ -948,10 +980,14 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/payments-api", row(r, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
 			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
 			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
-			State:    []*modelv1alpha1.StateEntry{{Key: "k"}},
+			Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{
+				{SubjectId: r, Predicate: "owned_by", ValidFrom: ts("2026-10-02T10:00:00Z"), Positions: []*modelv1alpha1.ConflictPosition{position("github", ref(p))}},
+			}}},
+			State: []*modelv1alpha1.StateEntry{{Key: "k"}},
 		},
 		{
 			Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{"new:g", p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}, Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")},
+			Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", unobserved, l)},
 		},
 	} {
 		clk.Set(clk.Now().Add(time.Hour))

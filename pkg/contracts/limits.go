@@ -18,7 +18,7 @@ import (
 // bounded by MaxChangeSetBytes alone.
 const (
 	// MaxChangeSetItems is the most entries in each of a ChangeSet's lists:
-	// mints, bindings, supports, facts and state.
+	// mints, bindings, supports, facts, conflicts, issues and state.
 	//
 	// In the reference store the work is linear in the items: 50,000
 	// single-row binding timelines apply in under a second.
@@ -28,8 +28,9 @@ const (
 	// the alias sets of the subjects it names: in the reference store 250
 	// merges in a store of 50,000 aliases take under a second.
 	MaxChangeSetMerges = 250
-	// MaxTimelineRows is the most rows in one timeline (a binding, support or
-	// fact timeline) and aliases in one un-merge. A naive store compares old
+	// MaxTimelineRows is the most rows in one timeline (a binding, support,
+	// fact, conflict or issue timeline), aliases in one un-merge, and the
+	// positions, objects, subjects and supports of one conflict or issue. A naive store compares old
 	// and new rows pairwise, which at 1,000 rows costs about 0.5 s per
 	// timeline whose every row changes. The reference store matches rows
 	// by content: 400 full timelines, all changed, take about a second.
@@ -47,6 +48,8 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 		{"bindings", len(cs.GetBindings())},
 		{"supports", len(cs.GetSupports())},
 		{"facts", len(cs.GetFacts())},
+		{"conflicts", len(cs.GetConflicts())},
+		{"issues", len(cs.GetIssues())},
 		{"state", len(cs.GetState())},
 	} {
 		if l.n > MaxChangeSetItems {
@@ -79,6 +82,32 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 	for _, t := range cs.GetFacts() {
 		if err := over("fact timeline", t.GetSubjectId()+" "+t.GetPredicate(), len(t.GetSpans())); err != nil {
 			return err
+		}
+	}
+	for _, t := range cs.GetConflicts() {
+		of := t.GetSubjectId() + " " + t.GetPredicate()
+		if err := over("conflict timeline", of, len(t.GetConflicts())); err != nil {
+			return err
+		}
+		for _, c := range t.GetConflicts() {
+			if err := over("conflict", of, len(c.GetPositions())); err != nil {
+				return err
+			}
+			for _, p := range c.GetPositions() {
+				if err := over("conflict position", of, len(p.GetObjects())); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	for _, t := range cs.GetIssues() {
+		if err := over("issue timeline", t.GetKey(), len(t.GetSpans())); err != nil {
+			return err
+		}
+		for _, sp := range t.GetSpans() {
+			if err := over("issue", t.GetKey(), max(len(sp.GetIssue().GetSubjectIds()), len(sp.GetIssue().GetSupports()), len(sp.GetIssue().GetAliases()))); err != nil {
+				return err
+			}
 		}
 	}
 	for _, u := range cs.GetUnmerges() {
