@@ -7,7 +7,7 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses and the resolver's state, bitemporally; conflicts and data-quality issues to follow ([below](#graphstore)). The source of truth. | SurrealDB (from issue #44; in-memory until then) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (from issue #44; in-memory until then) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | Any chat-completions style LLM API | Hosted or local models | Planned |
@@ -51,8 +51,8 @@ be written in any language. Those wire definitions will live in `proto/`.
 
 `GraphStore` holds the state of the [data model](data-model.md): the
 identity store (subjects, alias bindings, merge and un-merge records) and
-the claim store (supports and fact statuses; conflicts and data-quality
-issues follow in a later change for issue #37). The work is split in two:
+the claim store (supports, fact statuses, conflicts, data-quality
+issues). The work is split in two:
 
 - The **resolver** (issue #43) reads the store, applies the data model's
   rules to one event, and writes the outcome as a `ChangeSet`.
@@ -75,6 +75,8 @@ is one event's writes:
 | `bindings` | Alias binding timelines. |
 | `supports` | Support timelines: one source's versions of its support for one fact, with subject and object as written. |
 | `facts` | Fact status timelines: status, reason and confidence per valid-time span. Valid times no span covers have status `none`. |
+| `conflicts` | Conflict timelines, one per (subject, predicate). |
+| `issues` | Data-quality issue timelines, each under a key the resolver chooses. |
 | `merges`, `unmerges` | Applied in order. An un-merge also has a ref for the subject its aliases move to. |
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. |
 
@@ -84,7 +86,7 @@ A timeline item replaces its series' current timeline: rows equal to a
 current row keep their `recorded_at`, other current rows are retracted at
 this apply's record time, new rows are recorded at it, and an empty
 timeline retracts the series. Items apply in this order: mints, un-merge
-targets, bindings, merges, un-merges, supports, facts, state.
+targets, bindings, merges, un-merges, supports, facts, conflicts, issues, state.
 
 The store keeps every applied `ChangeSet` with the IDs it minted. That
 journal is the audit trail of what each event changed and the format of
@@ -112,12 +114,14 @@ References are to sections of the [data model](data-model.md).
 | Vector points re-pointed on merge | Core, through `VectorIndex.Repoint` |
 | Supports and fact statuses as timelines; reads that canonicalize subject, object and `fact_id` through merges; `last_confirmed_at` updated in place without a new version | Store (`Supports`, `AsOf`, `Changes`) |
 | Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, audit | Resolver, which writes the resulting support and fact timelines |
-| Conflicts and data-quality issues | Resolver; the store's part arrives in a later change |
+| Conflicts and data-quality issues as timelines, canonicalized on read | Store (`Conflicts`, `DataQuality`) |
+| Detecting conflicts and data-quality issues, and when they end | Resolver, which writes the resulting timelines |
 
 ### Reads
 
 Every read takes a record time and returns what was recorded at or before
-it; `ResolveKey` and `AsOf` also take a valid time, and `Changes`
+it; `ResolveKey`, `AsOf`, `Conflicts` and `DataQuality` also take a
+valid time, and `Changes`
 compares two points on the valid or the record axis. A zero time means now. Subject
 IDs in answers are canonical as of the record time, except where a method
 returns rows as written (`Bindings`, `Supports`). The resolver reads the head with

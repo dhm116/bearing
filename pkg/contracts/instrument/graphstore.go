@@ -215,6 +215,26 @@ func (g *graphStore) Changes(ctx context.Context, f contracts.FactFilter, t1, t2
 	return out, err
 }
 
+// Conflicts implements contracts.GraphStore.
+func (g *graphStore) Conflicts(ctx context.Context, subject contracts.SubjectID, predicate string, validAt, recordedAt time.Time) (out []*modelv1alpha1.Conflict, err error) {
+	err = g.observe(ctx, "conflicts", nil, func(ctx context.Context) error {
+		out, err = g.next.Conflicts(ctx, subject, predicate, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// DataQuality implements contracts.GraphStore.
+func (g *graphStore) DataQuality(ctx context.Context, f contracts.IssueFilter, validAt, recordedAt time.Time) (out []*modelv1alpha1.DataQualityIssue, err error) {
+	err = g.observe(ctx, "data_quality", nil, func(ctx context.Context) error {
+		out, err = g.next.DataQuality(ctx, f, validAt, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
 // Backup implements contracts.GraphStore.
 func (g *graphStore) Backup(ctx context.Context, w io.Writer) error {
 	return g.observe(ctx, "backup", nil, func(ctx context.Context) error { return g.next.Backup(ctx, w) })

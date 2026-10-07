@@ -69,10 +69,18 @@ type SupportFilter struct {
 	Source    string
 }
 
+// IssueFilter selects data-quality issues. Empty fields match anything.
+type IssueFilter struct {
+	// Kinds matches issues naming a subject of one of these kinds.
+	Kinds []string
+	// Sources matches issues with a support from one of these sources.
+	Sources []string
+	Issues  []modelv1alpha1.IssueType
+}
+
 // GraphStore holds Bearing's state bitemporally: the identity store
-// (subjects, alias bindings, merges), the claim store (supports and fact
-// statuses; conflicts and data-quality issues follow) and the resolver's
-// own state. The resolver decides what
+// (subjects, alias bindings, merges), the claim store (supports, fact
+// statuses, conflicts, data-quality issues) and the resolver's own state. The resolver decides what
 // to write; the store applies it atomically and answers queries. See
 // docs/spec/contracts.md, "GraphStore", for which side owns each rule of
 // the data model.
@@ -119,6 +127,13 @@ type GraphStore interface {
 	// differs between the two points of axis (docs/spec/data-model.md,
 	// "What changed"). t1 must not be after t2.
 	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
+	// Conflicts returns the conflicts on (subject, predicate) at validAt as
+	// recorded at recordedAt. Empty arguments match anything.
+	Conflicts(ctx context.Context, subject SubjectID, predicate string, validAt, recordedAt time.Time) ([]*modelv1alpha1.Conflict, error)
+	// DataQuality returns the issues matching f at validAt as recorded at
+	// recordedAt (docs/spec/data-model.md, "Data quality").
+	DataQuality(ctx context.Context, f IssueFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.DataQualityIssue, error)
+
 	// Backup writes the store's complete state to w: every applied
 	// ChangeSet in apply order, as length-delimited protobuf.
 	Backup(ctx context.Context, w io.Writer) error

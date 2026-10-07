@@ -64,6 +64,7 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"AsOf answers both sides of a time-bounded fact", g.asOf},
 		{"A snapshot ending one source's support leaves another's", g.snapshot},
 		{"Changes compares two points on either axis", g.changes},
+		{"Conflicts and DataQuality are bitemporal", g.conflicts},
 		{"Backup and Restore keep primary state", g.backup},
 		{"Apply order of independent ChangeSets doesn't change valid-time state", g.order},
 	} {
@@ -310,6 +311,8 @@ func (g *suite) checks(t *testing.T) {
 		"support without source": {Supports: []*modelv1alpha1.SupportTimeline{supports("", r, "name", str("a"))}},
 		"zero confidence":        {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 0, "", ""))}},
 		"other source":           {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("t", 1, "", ""))}},
+		"conflict mismatch":      {Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{{SubjectId: p, Predicate: "owned_by"}}}}},
+		"issue without key":      {Issues: []*modelv1alpha1.IssueTimeline{{}}},
 		"state without key":      {State: []*modelv1alpha1.StateEntry{{}}},
 		"merge of one":           {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
 		"unmerge of one alias":   {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
@@ -642,6 +645,14 @@ func dump(t *testing.T, s contracts.GraphStore, ids []string, v, r time.Time) st
 	for _, st := range states {
 		add(st, err)
 	}
+	conflicts, err := s.Conflicts(ctx, "", "", v, r)
+	for _, c := range conflicts {
+		add(c, err)
+	}
+	issues, err := s.DataQuality(ctx, contracts.IssueFilter{}, v, r)
+	for _, i := range issues {
+		add(i, err)
+	}
 	for _, id := range ids {
 		add(s.Subject(ctx, contracts.SubjectID(id), r))
 		merges, err := s.Merges(ctx, contracts.SubjectID(id), r)
@@ -688,10 +699,14 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/payments-api", row(r, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
 			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
 			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
-			State:    []*modelv1alpha1.StateEntry{{Key: "k"}},
+			Conflicts: []*modelv1alpha1.ConflictTimeline{{SubjectId: r, Predicate: "owned_by", Conflicts: []*modelv1alpha1.Conflict{
+				{SubjectId: r, Predicate: "owned_by", ValidFrom: ts("2026-10-02T10:00:00Z")},
+			}}},
+			State: []*modelv1alpha1.StateEntry{{Key: "k"}},
 		},
 		{
 			Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{"new:g", p}}}, Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")},
+			Issues: []*modelv1alpha1.IssueTimeline{{Key: "i", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{SubjectIds: []string{l}}}}}},
 		},
 	} {
 		clk.Set(clk.Now().Add(time.Hour))

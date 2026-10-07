@@ -20,7 +20,7 @@ option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1
 // creates; the store replaces them with the minted IDs. Items apply in this
 // order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
 //
-// Every timeline item (bindings, supports, facts) replaces the current timeline of its series: rows equal to a current row
+// Every timeline item (bindings, supports, facts, conflicts, issues) replaces the current timeline of its series: rows equal to a current row
 // are kept, current rows not repeated are retracted, and new rows are
 // recorded. An empty timeline retracts the series.
 message ChangeSet {
@@ -44,8 +44,10 @@ message ChangeSet {
   repeated SupportTimeline supports = 8;
   // Fact status timelines.
   repeated FactTimeline facts = 9;
-  // Fields 10 and 11 are kept for conflict and issue timelines (issue #37).
-  reserved 10, 11;
+  // Conflict timelines.
+  repeated ConflictTimeline conflicts = 10;
+  // Data-quality issue timelines.
+  repeated IssueTimeline issues = 11;
   // The resolver's own state.
   repeated StateEntry state = 12;
 }
@@ -163,6 +165,36 @@ message FactTimeline {
   FactObject object = 3;
   // Spans that don't overlap in valid time.
   repeated FactSpan spans = 4;
+}
+
+// ConflictTimeline is the complete conflict timeline of one
+// (subject, predicate).
+message ConflictTimeline {
+  // The subject as written.
+  string subject_id = 1;
+  // The predicate.
+  string predicate = 2;
+  // Conflicts that don't overlap in valid time, each with this subject
+  // and predicate.
+  repeated Conflict conflicts = 3;
+}
+
+// IssueSpan is a data-quality issue over one valid-time interval.
+message IssueSpan {
+  // The issue.
+  DataQualityIssue issue = 1;
+  // Start of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_from = 2;
+  // End of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 3;
+}
+
+// IssueTimeline is the complete timeline of one data-quality issue.
+message IssueTimeline {
+  // The resolver's key for the issue, e.g. its type and subjects.
+  string key = 1;
+  // Spans that don't overlap in valid time.
+  repeated IssueSpan spans = 2;
 }
 
 // StateEntry is one entry of the resolver's own state: ordering keys,
