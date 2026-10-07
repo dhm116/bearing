@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
@@ -297,6 +299,86 @@ func TestHandleRepositoryDeleted(t *testing.T) {
 		t.Fatalf("entity = %v", e)
 	}
 	checkGolden(t, "handle-repository-deleted.golden.json", res.Observations)
+}
+
+// TestSyncFollowsTheFictionalOrg runs today's adapter against the shared
+// fake: a full sync, then the rename and CODEOWNERS change of the story,
+// another sync, and a webhook delivery the fake signed.
+func TestSyncFollowsTheFictionalOrg(t *testing.T) {
+	c := testkit.NewClock(fakes.Start)
+	org := fakes.NewOrg(c)
+	srv := fakes.NewGitHub(t, org, fakes.GitHubOptions{Token: "test-token", WebhookSecret: "s3cret"})
+	a := &Adapter{
+		HTTP: srv.Client(), Now: c.Now,
+		Getenv: func(k string) string {
+			return map[string]string{"GITHUB_TOKEN": "test-token", "GITHUB_WEBHOOK_SECRET": "s3cret"}[k]
+		},
+	}
+	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL, PerPage: 2})
+	sync := func() map[string][]string {
+		t.Helper()
+		got := map[string][]string{} // entity key -> its relations, "type to (file)"
+		err := adapter.SyncAll(context.Background(), a, cfg, 50, func(o *eventv1alpha1.Observation) error {
+			key := o.GetData().GetEntity().GetKey()
+			got[key] = append(got[key], "seen")
+			for _, r := range o.GetData().GetRelations() {
+				got[key] = append(got[key], r.GetType()+" "+r.GetTo()+" "+r.GetAttributes()["file"].GetStringValue())
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	first := sync()
+	wantFirst := map[string][]string{
+		"github:repo/acme/payments-api": {"seen", "owned_by github:team/acme/payments .github/CODEOWNERS"},
+		"github:repo/acme/web":          {"seen", "owned_by github:team/acme/platform CODEOWNERS"},
+		"github:repo/acme/handbook":     {"seen"},
+		"github:repo/acme/ops-scripts":  {"seen", "owned_by github:team/acme/legacy-ops .github/CODEOWNERS"},
+		"github:repo/acme/sandbox":      {"seen"},
+		"github:team/acme/payments":     {"seen", "member_of github:team/acme/engineering "},
+	}
+	for key, want := range wantFirst {
+		if !reflect.DeepEqual(first[key], want) {
+			t.Errorf("first sync %s: got %v, want %v", key, first[key], want)
+		}
+	}
+	// Today's adapter reads REST team members, which include child teams'
+	// members, so jdoe is reported in engineering too.
+	if got := first["github:user/jdoe"]; !slices.Contains(got, "member_of github:team/acme/engineering ") {
+		t.Errorf("first sync jdoe: got %v, want engineering among the teams", got)
+	}
+
+	for _, step := range fakes.Story()[:2] {
+		c.Set(step.At)
+		if err := step.Apply(org); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second := sync()
+	if _, ok := second["github:repo/acme/payments-api"]; ok {
+		t.Error("second sync still reports the old repository name")
+	}
+	if got, want := second["github:repo/acme/payments"], []string{"seen", "owned_by github:team/acme/platform .github/CODEOWNERS"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("second sync payments: got %v, want %v", got, want)
+	}
+
+	c.Set(fakes.Story()[1].At.Add(time.Hour))
+	if err := org.EndMembership("jdoe", "payments"); err != nil {
+		t.Fatal(err)
+	}
+	deliveries := srv.Deliveries()
+	d := deliveries[len(deliveries)-1]
+	res, err := a.Handle(context.Background(), adapter.HandleParams{Config: cfg, Headers: d.Header(), Body: d.Body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel := res.Observations[0].GetData().GetRelations()[0]; rel.GetTo() != "github:team/acme/payments" || !rel.GetAbsent() {
+		t.Fatalf("membership delivery: got %v, want jdoe's payments membership ended", rel)
+	}
 }
 
 func TestHandleIgnoresUnknownEvents(t *testing.T) {
