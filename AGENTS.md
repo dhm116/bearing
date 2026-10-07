@@ -298,6 +298,11 @@ Both are plain Markdown checklists; any agent can follow them.
   reviewers' re-review. Up to five rounds per PR. After the fifth round
   with blocking findings open, the lead stops, comments on the PR listing
   them, and mentions @dhm116 (Doug, the maintainer).
+- **Review summary.** After each round, the lead posts one PR comment
+  headed "Review round N": each reviewer's verdict; each blocking finding
+  and the commit that fixed it; each non-blocking finding and where it went
+  (fixed in this PR, or the follow-up issue). Someone reading only the PR
+  sees what the reviewers caught and how it was settled.
 - **Merge.** The lead merges once CI passes (or the change needs no tests)
   and the assigned reviewers approve.
 - **Milestones** close only with Doug's review and approval.
