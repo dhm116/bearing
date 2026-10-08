@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,9 +21,9 @@ import (
 // queryEnv is what the query commands take from outside the process, so
 // tests supply a store and a clock.
 type queryEnv struct {
-	// Open connects to the graph store at a URL and returns it with a close
-	// function.
-	Open   func(ctx context.Context, url string) (contracts.GraphStore, func(context.Context) error, error)
+	// Open connects to the graph store at a URL, reading its password
+	// variable through getenv, and returns it with a close function.
+	Open   func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error)
 	Getenv func(string) string
 	// Now is the time durations such as --since 72h count back from.
 	Now func() time.Time
@@ -31,8 +32,8 @@ type queryEnv struct {
 // defaultQueryEnv reads the real store, environment and clock.
 func defaultQueryEnv() queryEnv {
 	return queryEnv{
-		Open: func(ctx context.Context, url string) (contracts.GraphStore, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url})
+		Open: func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+			s, err := store.Open(ctx, store.Config{Graph: url, Getenv: getenv})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -64,10 +65,14 @@ type queryFlags struct {
 	json     bool
 }
 
-func (q *queryFlags) register(fs *flag.FlagSet, withRecorded bool) {
-	fs.StringVar(&q.store, "store", "", "graph store URL (default $"+storeEnv+")")
-	fs.StringVar(&q.asOf, "as-of", "", "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)")
-	if withRecorded {
+func (q *queryFlags) register(fs *flag.FlagSet, name string) {
+	fs.StringVar(&q.store, "store", "", "graph store URL (default $"+storeEnv+"); only mem:// opens until the SurrealDB backend lands")
+	asOf := "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)"
+	if name == "changes" {
+		asOf = "end of the window (same forms; default now)"
+	}
+	fs.StringVar(&q.asOf, "as-of", "", asOf)
+	if name != "changes" {
 		fs.StringVar(&q.recorded, "recorded-at", "", "answer as Bearing knew it at this time (same forms; default now)")
 	}
 	fs.BoolVar(&q.json, "json", false, "write JSON instead of text")
@@ -77,7 +82,7 @@ func (q *queryFlags) register(fs *flag.FlagSet, withRecorded bool) {
 func queryCmd(ctx context.Context, env queryEnv, name string, args []string, stdout io.Writer) (err error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var qf queryFlags
-	qf.register(fs, name != "changes")
+	qf.register(fs, name)
 	var namespace, predicate, since, axis string
 	switch name {
 	case "owner":
@@ -93,7 +98,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		return nil // the flag package has printed the usage
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", err, errUsage)
 	}
 	wantArgs := map[string]string{"get": "a subject", "owner": "a repository", "related": "a subject"}
 	if want, ok := wantArgs[name]; ok && len(pos) != 1 {
@@ -115,12 +120,12 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	if err != nil {
 		return fmt.Errorf("--recorded-at: %w", err)
 	}
-	graph, closeStore, err := env.Open(ctx, url)
+	graph, closeStore, err := env.Open(ctx, url, env.Getenv)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	q := &query.Querier{Graph: graph, Now: env.Now}
+	q := &query.Querier{Graph: graph}
 	p := query.Point{Valid: asOf, Recorded: recorded}
 
 	var answer any
@@ -179,16 +184,20 @@ func repoRef(arg, namespace string) string {
 }
 
 // parseFlags parses flags that may come before, between or after the
-// positional arguments, and returns the positional ones.
+// positional arguments, and returns the positional ones. Everything after a
+// bare -- is positional, as with the flag package.
 func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
-	var pos []string
+	var pos, tail []string
+	if i := slices.Index(args, "--"); i >= 0 {
+		args, tail = args[:i], args[i+1:]
+	}
 	for {
 		if err := fs.Parse(args); err != nil {
 			return nil, err
 		}
 		args = fs.Args()
 		if len(args) == 0 {
-			return pos, nil
+			return append(pos, tail...), nil
 		}
 		pos = append(pos, args[0])
 		args = args[1:]

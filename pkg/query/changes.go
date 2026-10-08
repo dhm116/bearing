@@ -69,14 +69,15 @@ func (q *Querier) Changes(ctx context.Context, ref string, since, until time.Tim
 		return nil, fmt.Errorf("unknown axis %q: want %s or %s", axis, AxisValid, AxisRecord)
 	}
 	if !until.IsZero() && since.After(until) {
-		return nil, errors.New("--since is after the end of the window")
+		return nil, errors.New("the window starts after it ends")
 	}
-	l := q.labeler(Point{Valid: until, Recorded: until})
+	end := pointAt(until, axis)
+	l := q.labeler(end)
 	out := &Changes{Axis: axis, Since: since, Until: until, Changes: []Change{}}
 	var filter contracts.FactFilter
 	if ref != "" {
 		// The subject is looked up as the world stands at the window's end.
-		id, err := q.Resolve(ctx, ref, Point{Valid: until})
+		id, err := q.Resolve(ctx, ref, end)
 		if err != nil {
 			return nil, err
 		}

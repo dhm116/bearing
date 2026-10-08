@@ -65,7 +65,7 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rig{t: t, clock: clk, store: s, r: r, q: &query.Querier{Graph: s, Now: clk.Now}}
+	return &rig{t: t, clock: clk, store: s, r: r, q: &query.Querier{Graph: s}}
 }
 
 func readFile(t *testing.T, path string) string {
@@ -80,12 +80,19 @@ func readFile(t *testing.T, path string) string {
 // observe applies an observation of an entity with relations, at the clock's time.
 func (r *rig) observe(source, kind, key string, aliases []string, name string, relations ...*modelv1alpha1.Relation) {
 	r.t.Helper()
+	r.observeAt(r.clock.Now(), source, kind, key, aliases, name, relations...)
+}
+
+// observeAt is observe for something seen at observed, which may be before
+// Bearing learned of it.
+func (r *rig) observeAt(observed time.Time, source, kind, key string, aliases []string, name string, relations ...*modelv1alpha1.Relation) {
+	r.t.Helper()
 	e := &modelv1alpha1.Entity{Kind: kind, Key: key, Aliases: aliases}
 	data := &modelv1alpha1.ObservationData{Entity: e, Relations: relations}
 	if name != "" {
 		e.Attributes = map[string]*structpb.Value{"name": structpb.NewStringValue(name)}
 	}
-	o := model.NewObservation("adapter/"+source, r.clock.Now(), data)
+	o := model.NewObservation("adapter/"+source, observed, data)
 	r.n++
 	ev := resolver.Event{ID: source + "/" + strconv.Itoa(r.n), Source: source, Observation: o}
 	if _, err := r.r.Apply(context.Background(), ev); err != nil {
@@ -130,7 +137,41 @@ func TestOwnersAsRecordedBeforeTheClaim(t *testing.T) {
 	}
 }
 
-// conflictStore answers Conflicts itself; the resolver doesn't write them yet.
+// On the valid axis a window reads what Bearing knows now about those times,
+// so a fact learned after the window's end still has its subject named.
+func TestChangesOnTheValidAxisReadWhatIsKnownNow(t *testing.T) {
+	r := newRig(t)
+	seen := r.clock.Now().Add(-72 * time.Hour)
+	r.observeAt(seen, "catalog-acme", "Team", "catalog:team/platform", nil, "Platform")
+	r.observeAt(seen, "catalog-acme", "Repository", "catalog:repo/payments", nil, "payments", relation("owned_by", "catalog:team/platform"))
+	until := seen.Add(24 * time.Hour)
+	got, err := r.q.Changes(context.Background(), "catalog:repo/payments", seen.Add(-time.Hour), until, query.AxisValid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Subject == nil || got.Subject.Name != "payments" {
+		t.Fatalf("got subject %+v, want the payments repository named", got.Subject)
+	}
+	if len(got.Changes) == 0 {
+		t.Fatal("no changes, want the owned_by claim valid since it was seen")
+	}
+	for _, c := range got.Changes {
+		if c.Subject.Name == "" {
+			t.Errorf("change %+v: subject has no name", c)
+		}
+	}
+	// The same window on the record axis is as Bearing knew it then: nothing.
+	rec, err := r.q.Changes(context.Background(), "", seen.Add(-time.Hour), until, query.AxisRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Changes) != 0 {
+		t.Errorf("record axis: got %d changes, want none before Bearing learned of them", len(rec.Changes))
+	}
+}
+
+// conflictStore answers Conflicts itself; the resolver doesn't write them yet
+// (resolver part 2c does).
 type conflictStore struct {
 	*memstore.Store
 	conflicts []*modelv1alpha1.Conflict
@@ -160,7 +201,7 @@ func TestOwnersAndGetReportConflicts(t *testing.T) {
 		},
 		Resolution: modelv1alpha1.ConflictResolution_CONFLICT_RESOLUTION_AUTHORITY,
 	}
-	q := &query.Querier{Graph: conflictStore{r.store, []*modelv1alpha1.Conflict{c}}, Now: r.clock.Now}
+	q := &query.Querier{Graph: conflictStore{r.store, []*modelv1alpha1.Conflict{c}}}
 	owners, err := q.Owners(context.Background(), string(repo), query.Point{})
 	if err != nil {
 		t.Fatal(err)
@@ -252,9 +293,11 @@ func TestRefString(t *testing.T) {
 		{query.Ref{ID: "u"}, "u"},
 	}
 	for _, tt := range tests {
-		if got := tt.ref.String(); got != tt.want {
-			t.Errorf("got %q, want %q", got, tt.want)
-		}
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.ref.String(); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -270,8 +313,10 @@ func TestObjectString(t *testing.T) {
 		{query.Object{Subject: &query.Ref{ID: "u", Kind: "Team", Name: "P"}}, "P [Team u]"},
 	}
 	for _, tt := range tests {
-		if got := tt.obj.String(); got != tt.want {
-			t.Errorf("got %q, want %q", got, tt.want)
-		}
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.obj.String(); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

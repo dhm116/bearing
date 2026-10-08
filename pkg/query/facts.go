@@ -20,8 +20,7 @@ type Object struct {
 // String renders the object for people: a relation as its Ref, a value as
 // its text.
 func (o Object) String() string {
-	switch {
-	case o.Subject != nil:
+	if o.Subject != nil {
 		return o.Subject.String()
 	}
 	switch o.Value.(type) {

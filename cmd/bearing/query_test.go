@@ -229,7 +229,7 @@ func TestMembershipEndsWithNoNewEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const engineering = "engineering [Team 01a0fb32-b705-7000-8000-000000000000]"
+	var engineering string
 	member := func(args ...string) bool {
 		t.Helper()
 		var e query.Entity
@@ -238,6 +238,9 @@ func TestMembershipEndsWithNoNewEvent(t *testing.T) {
 	}
 
 	w.at(day(2026, 10, 15))
+	var team query.Entity
+	ask(t, w, &team, "get", "authentik:group_name/engineering")
+	engineering = team.Subject.String()
 	if !member() {
 		t.Error("on 15 October, with the clock there, lfischer is not in engineering")
 	}

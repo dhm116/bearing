@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -50,9 +52,11 @@ func TestRepoRef(t *testing.T) {
 		{"01a0e5a2-15c1-7000-8000-000000000000", "github", "01a0e5a2-15c1-7000-8000-000000000000"},
 	}
 	for _, tt := range tests {
-		if got := repoRef(tt.arg, tt.namespace); got != tt.want {
-			t.Errorf("repoRef(%q, %q) = %q, want %q", tt.arg, tt.namespace, got, tt.want)
-		}
+		t.Run(tt.arg, func(t *testing.T) {
+			if got := repoRef(tt.arg, tt.namespace); got != tt.want {
+				t.Errorf("repoRef(%q, %q) = %q, want %q", tt.arg, tt.namespace, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -62,9 +66,11 @@ func TestPercent(t *testing.T) {
 		want string
 	}{{0, "0%"}, {1000000, "100%"}, {950000, "95%"}, {933333, "93.33%"}, {700000, "70%"}, {1, "0%"}}
 	for _, tt := range tests {
-		if got := percent(tt.ppm); got != tt.want {
-			t.Errorf("percent(%d) = %q, want %q", tt.ppm, got, tt.want)
-		}
+		t.Run(tt.want, func(t *testing.T) {
+			if got := percent(tt.ppm); got != tt.want {
+				t.Errorf("percent(%d) = %q, want %q", tt.ppm, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -81,16 +87,18 @@ func TestSpanNameNeverHoldsArguments(t *testing.T) {
 		{[]string{"nonsense", "secret"}, "bearing"},
 	}
 	for _, tt := range tests {
-		if got := spanName(tt.args); got != tt.want {
-			t.Errorf("spanName(%v) = %q, want %q", tt.args, got, tt.want)
-		}
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			if got := spanName(tt.args); got != tt.want {
+				t.Errorf("spanName(%v) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
 	}
 }
 
 // emptyEnv has a store but no environment variables.
 func emptyEnv(w *world) queryEnv {
 	return queryEnv{
-		Open: func(context.Context, string) (contracts.GraphStore, func(context.Context) error, error) {
+		Open: func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
 			return w.store, func(context.Context) error { return nil }, nil
 		},
 		Getenv: func(string) string { return "" },
@@ -113,13 +121,13 @@ func TestQueryCommandsRejectBadInput(t *testing.T) {
 		{"owner without a repository", []string{"owner"}, true, "a repository"},
 		{"changes without since", []string{"changes"}, true, "--since"},
 		{"changes with two subjects", []string{"changes", "--since", "72h", "a:b/c", "d:e/f"}, true, "at most one"},
-		{"unknown flag", []string{"get", "a:b/c", "--nope"}, false, "nope"},
+		{"unknown flag", []string{"get", "a:b/c", "--nope"}, true, "nope"},
 		{"bad as-of", []string{"get", "github:user/jdoe", "--as-of", "soon"}, false, "--as-of"},
 		{"bad recorded-at", []string{"get", "github:user/jdoe", "--recorded-at", "soon"}, false, "--recorded-at"},
 		{"bad since", []string{"changes", "--since", "soon"}, false, "--since"},
 		{"unknown axis", []string{"changes", "--since", "72h", "--axis", "sideways"}, false, "axis"},
-		{"since after the end", []string{"changes", "--since", "2026-09-30", "--as-of", "2026-09-29"}, false, "after"},
-		{"changes takes no recorded-at", []string{"changes", "--since", "72h", "--recorded-at", "2026-09-29"}, false, "recorded-at"},
+		{"since after the end", []string{"changes", "--since", "2026-09-30", "--as-of", "2026-09-29"}, false, "starts after"},
+		{"changes takes no recorded-at", []string{"changes", "--since", "72h", "--recorded-at", "2026-09-29"}, true, "recorded-at"},
 		{"unknown subject", []string{"get", "github:repo/acme/nope"}, false, "no subject"},
 	}
 	for _, tt := range tests {
@@ -145,9 +153,10 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	}
 	var opened string
 	open := env.Open
-	env.Open = func(ctx context.Context, url string) (contracts.GraphStore, func(context.Context) error, error) {
-		opened = url
-		return open(ctx, url)
+	var passwordEnv string
+	env.Open = func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+		opened, passwordEnv = url, getenv(storeEnv)
+		return open(ctx, url, getenv)
 	}
 	env.Getenv = func(k string) string {
 		if k == storeEnv {
@@ -158,11 +167,14 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err != nil || opened != "surrealdb+ws://db:8000" {
 		t.Fatalf("got %v, opened %q, want the store from the environment", err, opened)
 	}
+	if passwordEnv != opened {
+		t.Fatalf("the store was opened with getenv(%s) = %q, want the injected environment", storeEnv, passwordEnv)
+	}
 	opened = ""
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "mem://"}, &out); err != nil || opened != "mem://" {
 		t.Fatalf("got %v, opened %q, want the flag to win", err, opened)
 	}
-	env.Open = func(context.Context, string) (contracts.GraphStore, func(context.Context) error, error) {
+	env.Open = func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
 		return nil, nil, errors.New("down")
 	}
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err == nil || !strings.Contains(err.Error(), "down") {
@@ -197,11 +209,20 @@ func (failingStore) ResolveKey(context.Context, model.Key, time.Time, time.Time)
 func TestStoreErrorsReachTheCaller(t *testing.T) {
 	w := newWorld(t)
 	env := emptyEnv(w)
-	env.Open = func(context.Context, string) (contracts.GraphStore, func(context.Context) error, error) {
+	env.Open = func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
 		return failingStore{w.store}, func(context.Context) error { return errors.New("close failed") }, nil
 	}
 	err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "x"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "backend down") || !strings.Contains(err.Error(), "close failed") {
 		t.Fatalf("got %v, want the backend's error joined with the close error", err)
+	}
+}
+
+func TestAfterDoubleDashEverythingIsPositional(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	as := fs.String("as-of", "", "")
+	got, err := parseFlags(fs, []string{"a", "--as-of", "x", "--", "--b", "-c"})
+	if err != nil || *as != "x" || !slices.Equal(got, []string{"a", "--b", "-c"}) {
+		t.Fatalf("got %v, as-of %q, error %v; want [a --b -c], x", got, *as, err)
 	}
 }

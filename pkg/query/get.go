@@ -110,13 +110,9 @@ func (q *Querier) keys(ctx context.Context, l *labeler, id contracts.SubjectID) 
 	if err != nil {
 		return nil, fmt.Errorf("keys of %s: %w", id, err)
 	}
-	v := l.p.Valid
-	if v.IsZero() {
-		v = q.now()
-	}
 	keys := []Key{}
 	for _, b := range rows {
-		if b.GetSubjectId() == "" || !covers(b, v) {
+		if b.GetSubjectId() == "" || !covers(b, l.p.Valid) {
 			continue
 		}
 		canon, err := q.Resolve(ctx, b.GetSubjectId(), Point{Recorded: l.p.Recorded})
@@ -140,8 +136,14 @@ func (q *Querier) keys(ctx context.Context, l *labeler, id contracts.SubjectID) 
 	return keys, nil
 }
 
-// covers reports whether the binding row holds at valid time v.
+// covers reports whether the binding row holds at valid time v. A zero v is
+// now, which the store alone knows: a row still open at its end holds then,
+// and one that has ended does not (Bearing writes endings as they happen, so
+// no row starts or ends in the future).
 func covers(b *modelv1alpha1.Binding, v time.Time) bool {
+	if v.IsZero() {
+		return b.GetValidTo() == nil
+	}
 	return (b.GetValidFrom() == nil || !b.GetValidFrom().AsTime().After(v)) &&
 		(b.GetValidTo() == nil || b.GetValidTo().AsTime().After(v))
 }

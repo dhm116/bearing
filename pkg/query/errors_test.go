@@ -147,7 +147,7 @@ func TestStoreFailuresReachTheCaller(t *testing.T) {
 			// reads than n: that run has failed nothing and must succeed.
 			for n := 1; ; n++ {
 				s := &failNth{GraphStore: r.store, conflicts: []*modelv1alpha1.Conflict{conflict}, n: n}
-				err := op(&query.Querier{Graph: s, Now: r.clock.Now})
+				err := op(&query.Querier{Graph: s})
 				if s.calls < n {
 					if err != nil {
 						t.Fatalf("with no failure injected: %v", err)

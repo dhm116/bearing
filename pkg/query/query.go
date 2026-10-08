@@ -26,17 +26,6 @@ import (
 // Querier reads one graph store.
 type Querier struct {
 	Graph contracts.GraphStore
-	// Now is the time a zero Point.Valid means where the querier compares
-	// valid times itself; it must agree with the store's clock. Default:
-	// time.Now.
-	Now func() time.Time
-}
-
-func (q *Querier) now() time.Time {
-	if q.Now != nil {
-		return q.Now()
-	}
-	return time.Now()
 }
 
 // Point is the pair of times a question is asked at. A zero time means now,

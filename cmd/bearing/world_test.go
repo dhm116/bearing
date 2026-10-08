@@ -205,7 +205,7 @@ func (w *world) at(t time.Time) {
 func (w *world) cli(args ...string) (string, error) {
 	w.t.Helper()
 	env := queryEnv{
-		Open: func(_ context.Context, url string) (contracts.GraphStore, func(context.Context) error, error) {
+		Open: func(_ context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
 			if url != "mem://" {
 				return nil, nil, fmt.Errorf("test store: unexpected URL %q", url)
 			}

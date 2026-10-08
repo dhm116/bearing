@@ -14,6 +14,8 @@
 //
 // Each takes --store (or $BEARING_STORE) and --as-of; run one with -h for its
 // flags. A subject is a subject ID or a key such as github:repo/acme/payments.
+// For changes, --since and --as-of are the two ends of the window, and the
+// default end is now.
 package main
 
 import (
@@ -73,6 +75,7 @@ func mainCode() int {
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
 		if errors.Is(err, errUsage) {
+			fmt.Fprint(os.Stderr, usage)
 			return 2
 		}
 		return 1
@@ -80,7 +83,7 @@ func mainCode() int {
 	return 0
 }
 
-var errUsage = errors.New("see usage above")
+var errUsage = errors.New("see usage below")
 
 // spanName names the span of an invocation: the command and, for adapter,
 // its subcommand. Arguments such as a subject never go in it.
@@ -100,7 +103,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		fmt.Fprint(os.Stderr, usage)
 		return errUsage
 	}
 	if isQueryCommand(args[0]) {
@@ -109,7 +111,6 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 	switch args[0] {
 	case "adapter":
 		if len(args) < 2 {
-			fmt.Fprint(os.Stderr, usage)
 			return errUsage
 		}
 		switch args[1] {
@@ -119,7 +120,6 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 			return syncCmd(ctx, args[2:], stdout)
 		}
 	}
-	fmt.Fprint(os.Stderr, usage)
 	return errUsage
 }
 
