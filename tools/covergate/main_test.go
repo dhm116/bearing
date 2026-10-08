@@ -74,7 +74,7 @@ func TestReadProfilesMergesPerBlockAcrossFiles(t *testing.T) {
 		return p
 	}
 	// Two blocks share lines but not columns; they are different blocks.
-	// The second file has no final newline.
+	// The second file has no final newline (it must still parse).
 	a := write("a.out", "mode: set\nm/a.go:3.2,3.10 1 1\nm/a.go:3.12,3.20 1 0\n")
 	b := write("b.out", "mode: set\nm/a.go:3.2,3.10 1 0\nm/a.go:3.12,3.20 1 1")
 	got, err := readProfiles([]string{a, b}, "m")

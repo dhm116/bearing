@@ -177,11 +177,12 @@ jobs:
         run: |
           shopt -s nullglob
           join() { local IFS=,; echo "$*"; }
-          heads=$(join cover/*.out)
-          bases=$(join baseline/*.out)
-          echo "head profiles: $heads; baseline profiles: ${bases:-none}"
-          # A missing shard would only lower the merged coverage, never fail.
-          nh=$(ls cover/*.out | wc -l)
-          nb=$(ls baseline/*.out 2>/dev/null | wc -l)
-          [ "$nh" -eq 3 ] && { [ "$nb" -eq 0 ] || [ "$nb" -eq 3 ]; }
-          make covergate-report COVER_OUT="$heads" BASE_PROFILE="$bases"
+          heads=(cover/*.out)
+          bases=(baseline/*.out)
+          echo "head profiles: ${heads[*]}; baseline profiles: ${bases[*]:-none}"
+          # 3 is the length of the shard matrix of the test and baseline jobs.
+          # A missing shard would only lower the merged coverage (or the
+          # baseline, which makes the comparison easier), never fail.
+          [ "${#heads[@]}" -eq 3 ] || { echo "want 3 head profiles, got ${#heads[@]}"; exit 1; }
+          [ "${#bases[@]}" -eq 0 ] || [ "${#bases[@]}" -eq 3 ] || { echo "want 0 or 3 baseline profiles, got ${#bases[@]}"; exit 1; }
+          make covergate-report COVER_OUT="$(join "${heads[@]}")" BASE_PROFILE="$(join "${bases[@]}")"

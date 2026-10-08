@@ -43,7 +43,7 @@ else
 $(error unknown SHARD "$(SHARD)": want rest, limits-a or limits-b)
 endif
 COVER_OUT ?= cover.out
-# A shard that hangs dumps its goroutines before the job's 20-minute limit.
+# A hung CI shard dumps its goroutines before the job's 20-minute limit.
 COVER_TIMEOUT := $(if $(SHARD),15m,20m)
 COVER_TEST := go test -count=1 -timeout $(COVER_TIMEOUT) -coverpkg=./... $(COVER_FILTER) -coverprofile
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
