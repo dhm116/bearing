@@ -2,7 +2,7 @@ package memstore
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"math"
 	"slices"
 	"sort"
@@ -20,7 +20,7 @@ func (s *Store) Upsert(_ context.Context, points []contracts.VectorPoint) error 
 	defer s.mu.Unlock()
 	for _, p := range points {
 		if p.ID == "" || p.SubjectID == "" {
-			return fmt.Errorf("vector point needs an id and a subject id")
+			return errors.New("vector point needs an id and a subject id")
 		}
 		p.Vector = slices.Clone(p.Vector)
 		s.vectors[p.ID] = p

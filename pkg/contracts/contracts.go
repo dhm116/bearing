@@ -23,7 +23,7 @@ import (
 )
 
 // ErrNotFound is returned when a lookup matches nothing.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = errors.New("contracts: not found")
 
 // VectorPoint is one embedded item in the semantic index. Every point refers
 // back to a graph subject; the index is never the source of truth.

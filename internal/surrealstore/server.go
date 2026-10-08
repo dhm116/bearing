@@ -129,7 +129,7 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 // selectDatabase selects a namespace and database that exist already.
 func selectDatabase(ctx context.Context, _ Querier, ns, database string, use func(context.Context, string, string) error) error {
 	if ns == "" || database == "" {
-		return fmt.Errorf("surrealstore: a namespace and database are required")
+		return errors.New("surrealstore: a namespace and database are required")
 	}
 	if err := use(ctx, ns, database); err != nil {
 		return fmt.Errorf("surrealstore: use %s/%s: %w", ns, database, err)
@@ -140,7 +140,7 @@ func selectDatabase(ctx context.Context, _ Querier, ns, database string, use fun
 // useDatabase creates the namespace and database if needed and selects them.
 func useDatabase(ctx context.Context, q Querier, ns, database string, use func(context.Context, string, string) error) error {
 	if ns == "" || database == "" {
-		return fmt.Errorf("surrealstore: a namespace and database are required")
+		return errors.New("surrealstore: a namespace and database are required")
 	}
 	// Select first: the HTTP transport refuses any query until a namespace
 	// and database are set, even the ones that define them.

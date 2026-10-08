@@ -179,7 +179,7 @@ func TestCloseReportsAdapterExitStatus(t *testing.T) {
 
 func TestStartReportsMissingExecutables(t *testing.T) {
 	_, err := Start(context.Background(), "/nonexistent/bearing-adapter")
-	if err == nil || !strings.Contains(err.Error(), "start adapter") {
+	if err == nil || !strings.Contains(err.Error(), "adapter: start") {
 		t.Fatalf("got %v, want a start error", err)
 	}
 }
@@ -392,5 +392,50 @@ func TestSyncSummaryCompleteIgnoresRejectedClaims(t *testing.T) {
 	}
 	if !(SyncSummary{Pages: 1, Accepted: 3, RejectedClaims: 2}).Complete() {
 		t.Fatal("got incomplete for a sync that only lost claims, want complete: every entity was seen")
+	}
+}
+
+// scripted is a Syncer that returns one canned result.
+type scripted struct {
+	res SyncResult
+	err error
+}
+
+func (s scripted) Sync(context.Context, SyncParams) (SyncResult, error) { return s.res, s.err }
+
+func TestSyncAllErrorsNameThePackageAndPage(t *testing.T) {
+	boom := errors.New("boom")
+	tests := []struct {
+		name string
+		s    scripted
+		want string
+		is   error
+	}{
+		{"sync fails", scripted{err: boom}, "adapter: sync page 1: boom", boom},
+		{"not done and no cursor", scripted{res: SyncResult{}}, "adapter: sync page 1: adapter is not done but returned no new cursor", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := SyncAll(context.Background(), tt.s, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("got %v, want %q", err, tt.want)
+			}
+			if tt.is != nil && !errors.Is(err, tt.is) {
+				t.Fatalf("got %v, want it to wrap %v", err, tt.is)
+			}
+		})
+	}
+}
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestServeReportsWriteFailures(t *testing.T) {
+	broken := errors.New("pipe closed")
+	req := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"` + MethodDescribe + `"}` + "\n")
+	err := Serve(context.Background(), pager{n: 1}, req, failingWriter{err: broken})
+	if !errors.Is(err, broken) || !strings.HasPrefix(err.Error(), "adapter: write response: ") {
+		t.Fatalf("got %v, want an adapter: write response error wrapping %v", err, broken)
 	}
 }

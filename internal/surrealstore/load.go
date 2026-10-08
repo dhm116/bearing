@@ -144,7 +144,7 @@ var errMoved = errors.New("the head moved during a load")
 // ErrTooManyMerges is returned when the merge table is larger than the
 // backend will load. Every operation reads all merge records until the cost
 // is fixed (#81); failing loudly past a limit beats stalling.
-var ErrTooManyMerges = errors.New("too many merge records")
+var ErrTooManyMerges = errors.New("surrealstore: too many merge records")
 
 // DefaultMaxMerges is how many merge records the store loads per operation.
 const DefaultMaxMerges = 20000

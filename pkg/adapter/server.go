@@ -65,7 +65,7 @@ func Serve(ctx context.Context, a Adapter, r io.Reader, w io.Writer) error {
 		}
 		resp := serveOne(ctx, a, name, req)
 		if err := enc.Encode(resp); err != nil {
-			return fmt.Errorf("write response: %w", err)
+			return fmt.Errorf("adapter: write response: %w", err)
 		}
 	}
 	return sc.Err()

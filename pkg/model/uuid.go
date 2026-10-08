@@ -72,7 +72,7 @@ func (g *UUIDv7Source) Last() string {
 // carry that timestamp, so they can drift from wall-clock time.
 func (g *UUIDv7Source) Seed(last string) error {
 	if !ValidSubjectID(last) {
-		return fmt.Errorf("seed %q is not a canonical UUIDv7", last)
+		return fmt.Errorf("model: seed %q is not a canonical UUIDv7", last)
 	}
 	b, _ := hex.DecodeString(strings.ReplaceAll(last, "-", ""))
 	g.mu.Lock()
@@ -88,7 +88,7 @@ func (g *UUIDv7Source) Seed(last string) error {
 // millisecond.
 func UUIDv7Time(id string) (time.Time, error) {
 	if !ValidSubjectID(id) {
-		return time.Time{}, fmt.Errorf("%q is not a canonical UUIDv7", id)
+		return time.Time{}, fmt.Errorf("model: %q is not a canonical UUIDv7", id)
 	}
 	b, _ := hex.DecodeString(strings.ReplaceAll(id[:13], "-", ""))
 	var ms int64 // 48 bits, so it can't overflow

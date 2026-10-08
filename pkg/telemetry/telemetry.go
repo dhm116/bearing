@@ -110,7 +110,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		return errors.Join(errs...)
 	}
 	fail := func(err error) (func(context.Context) error, error) {
-		return shutdown, errors.Join(err, shutdown(ctx))
+		return shutdown, errors.Join(fmt.Errorf("telemetry: %w", err), shutdown(ctx))
 	}
 
 	// Traces.
