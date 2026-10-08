@@ -105,9 +105,13 @@ new ADR.
    nothing new is built on it. Adapters are stateless and read-only
    against their source. WASM adapters never hold credentials; the host
    injects them. The host verifies webhook signatures before a delivery is
-   logged, and ingest stays off until that verifier exists; until then the
-   adapter's own verification is the check (ADR 9 A15). Adapters never
-   resolve identities across systems. That is the core's job.
+   logged, with one verifier per signature scheme that the adapter's
+   manifest will declare (field tracked in
+   [#58](https://github.com/dhm116/bearing/issues/58)), and WASM adapters
+   never see webhook secrets. Ingest stays off until that verifier exists;
+   until then the adapter's own verification is the check (ADR 9 A15).
+   Adapters never resolve identities across systems. That is the core's
+   job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and
    focused on useful data types.
@@ -298,16 +302,20 @@ Both are plain Markdown checklists; any agent can follow them.
 - **Rounds.** A round is one push answering the findings plus the
   reviewers' re-review. Up to five rounds per PR. After the fifth round
   with blocking findings open, the lead stops and mentions @dhm116 (Doug,
-  the maintainer) in that review's summary comment.
+  the maintainer) in that review's summary comment. Rounds and reviews are
+  numbered differently: the first review comes before any round, so round
+  k's re-review is Review k+1 and the fifth round ends with Review 6.
 - **Review summary.** After every review, including the first and one
   that approves outright, the lead posts one PR comment headed "Review N"
   (the first review is 1). It gives each reviewer's verdict, then each
   finding with its status: blocking ones open, fixed in a named commit, or
   withdrawn with the reason; non-blocking ones fixed in a named commit,
   filed as a follow-up issue, or open until that issue is filed. When a
-  later push settles an open item, the lead edits that comment. Someone
-  reading only the PR sees what the reviewers caught and how each item was
-  settled.
+  later push settles an open item, the lead edits that comment. An edit
+  sends no notification, so the next "Review N" comment also lists the
+  earlier items it settled, for example "Settles from Review 1: ...".
+  Someone reading only the PR sees what the reviewers caught and how each
+  item was settled.
 - **Merge.** The lead merges once CI passes (or the change needs no tests),
   the assigned reviewers approve, and every review summary shows each
   finding as fixed, withdrawn or linked to an issue.

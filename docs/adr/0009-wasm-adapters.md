@@ -9,6 +9,8 @@ Date: 2026-09-29 · Status: accepted (with amendment), 2026-10-02
 > See [the amendment](#amendment-accepted-with-conditions-2026-10-02).
 > A13 was revised on 2026-10-03: the stdio transport is retired, and
 > adapters that can't run as WASM run as local processes on a Unix socket.
+> On 2026-10-08, A6 gained the per-scheme host verifiers declared in the
+> manifest, and A8 says Extism's own host functions are disabled.
 
 ## Context
 
@@ -166,7 +168,10 @@ still unproven. Control IDs refer to the
     itself.
   - Webhook deliveries are verified by the host, before any parsing
     (C-INGEST-2, C-INGEST-9). `Handle` receives only authenticated
-    deliveries. There is no HMAC capability. This supersedes in part
+    deliveries. There is no HMAC capability. The host has one verifier per
+    signature scheme; the manifest declares the scheme and signature
+    headers (never a secret), and the Source supplies the secret by
+    reference (ADR 7). This supersedes in part
     [ADR 3](0003-adapter-protocol.md) and the adapter protocol spec, which
     put verification in the adapter.
 - **A7. Validation on the host.** The host validates every observation
@@ -181,7 +186,10 @@ still unproven. Control IDs refer to the
   only through `clock`) and a real monotonic clock. Go's runtime and GC
   must be verified under the fake wall clock (an A12 case) before the
   profile is final. Any import outside the profile fails the load. If
-  Extism is used, Bearing refuses to start with
+  Extism is used, its own HTTP, config, var and path host functions are
+  disabled (`allowed_hosts` and `allowed_paths` empty), so a guest reaches
+  the network, configuration and files only through `bearing_call` and its
+  grant (C-ADAPTER-1), and Bearing refuses to start with
   `EXTISM_ENABLE_WASI_OUTPUT` set.
 - **A9. Limits.** Every guest call runs under a deadline with wazero's
   `CloseOnContextDone` and a memory cap of 64–128 MiB per instance, counted
