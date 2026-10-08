@@ -688,13 +688,15 @@ Assets: A1, A3, A4, A5, A6.
 - **C-STORE-9** `GraphStore.Apply` refuses a ChangeSet over `MaxChangeSetBytes`
   (by `proto.Size`) or over a count limit (`MaxChangeSetItems`,
   `MaxChangeSetMerges`, `MaxTimelineRows`; `contracts.CheckChangeSetLimits`,
-  docs/spec/contracts.md) before it looks at any item or writes anything. A
-  backend MUST apply a ChangeSet at the limits in about a second, whatever
-  else it holds: the reference store's tests apply 250 merges to a store of
-  50,000 aliases and 400 full 256-row timelines, all changed, under a
-  five-second bound. A record that grows past the byte limit when recorded
-  is refused too. A limit error names the limit and quotes at most 64 bytes
-  of the input; other errors don't echo lists from the input.
+  docs/spec/contracts.md) before it takes any write. A backend's work in
+  Apply MUST depend on the ChangeSet and the subjects and aliases it names,
+  not on the rest of the store. The reference store's tests apply, under a
+  five-second bound, 250 merges and 250 un-merges against stores holding
+  50,000 aliases, merges into aliases that have moved, and 400 full 256-row
+  timelines, all changed. Merge records, which carry both alias sets, are
+  refused as soon as together they pass the byte limit, and a record that
+  grows past it when recorded is refused too. A limit error quotes at most
+  64 bytes of the input.
 
 ### B7. Operators and configuration
 

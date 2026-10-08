@@ -108,10 +108,14 @@ so every backend refuses the same `ChangeSet`s:
 The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
 thousands of rows, or thousands of merges, costs a naive store time
 quadratic in its size, and a merge reads the alias sets of its subjects. A
-backend MUST apply a `ChangeSet` at the limits in about a second, whatever
-else it holds (the reference store's tests hold it to that), so it needs to
-match rows by content and find a subject's aliases without scanning every
-alias. The values are low because raising a limit is compatible, while
+backend's `Apply` work MUST depend on the `ChangeSet` and the subjects and
+aliases it names, not on the rest of the store: it matches rows by content
+and finds a subject's aliases without scanning every alias. At the limits
+the reference store takes a second or two, and its tests fail at five
+seconds; a `ChangeSet` near the byte limit takes a few seconds. A merge
+record carries both full alias sets, so merges into a subject with many
+aliases are refused once their records pass the byte limit; that
+amplification is accepted for now. The values are low because raising a limit is compatible, while
 lowering one can make an old backup unrestorable (`Restore` applies every
 record under the limits in force) and makes a redelivered old event fail
 instead of returning its original result. A merge has exactly two subjects.

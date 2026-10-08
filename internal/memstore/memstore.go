@@ -48,6 +48,7 @@ type Store struct {
 	mergedBy     map[string][]int                  // indexes into merges, by merged subject
 	survivorOf   map[string][]int                  // indexes into merges, by survivor
 	aliasesBy    map[string]map[string]bool        // aliases that ever had a row for a subject, as written
+	direct       map[string][]string               // during an apply: aliasesOf's per-subject scans, until bindings change
 	bindings     table                             // by alias
 	supports     table                             // by source, subject, predicate, object
 	facts        table                             // by subject, predicate, object
@@ -170,6 +171,9 @@ func (t table) replace(key string, head proto.Message, rows []proto.Message, r t
 // content is a row's identity for replace: its deterministic encoding
 // without last_confirmed_at.
 func content(m proto.Message) string {
+	// Rows that proto.Equal would call equal but that encode differently
+	// (-0 and 0 inside a google.protobuf.Value) are retracted and rewritten
+	// instead of kept; qualifiers are canonical JSON, so none arise.
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(withoutConfirmation(m))
 	if err != nil {
 		// An unencodable row (invalid UTF-8) matches nothing; Apply refuses

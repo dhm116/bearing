@@ -17,7 +17,7 @@ import (
 // these in well under a second; the bound is loose so a busy machine passes
 // and a return to scanning every alias or comparing every pair of rows
 // (tens of seconds) fails.
-const slow = 5 * time.Second
+const slow = 5 * time.Second * raceSlowdown
 
 func applyTimed(t *testing.T, s *Store, cs *modelv1alpha1.ChangeSet) contracts.ApplyResult {
 	t.Helper()
@@ -208,4 +208,76 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// bigSubject mints a subject holding n aliases and returns it with the
+// store's result, so a test can act on a subject with many aliases.
+func bigSubject(t *testing.T, s *Store, clk interface{ Advance(time.Duration) }, n int, others int) contracts.ApplyResult {
+	t.Helper()
+	cs := &modelv1alpha1.ChangeSet{EventId: "big", Mints: []*modelv1alpha1.Mint{mintRef("new:big", "Team")}}
+	for i := range others {
+		cs.Mints = append(cs.Mints, mintRef(fmt.Sprintf("new:%d", i), "Team"))
+	}
+	for i := range n {
+		a := fmt.Sprintf("github:team_node/T%d", i)
+		cs.Bindings = append(cs.Bindings, &modelv1alpha1.BindingTimeline{Alias: a, Bindings: []*modelv1alpha1.Binding{{Alias: a, SubjectId: "new:big"}}})
+	}
+	clk.Advance(time.Second)
+	return applyTimed(t, s, cs)
+}
+
+// TestUnmergesOfABigSubjectFindItsAliasesOnce: every un-merge of a subject
+// is resolved against the same state, so its aliases are collected once.
+func TestUnmergesOfABigSubjectFindItsAliasesOnce(t *testing.T) {
+	s, clk := newTestStore()
+	res := bigSubject(t, s, clk, contracts.MaxChangeSetItems, 0)
+	clk.Advance(time.Second)
+	cs := &modelv1alpha1.ChangeSet{EventId: "unmerges"}
+	for i := range contracts.MaxChangeSetMerges {
+		u := &modelv1alpha1.Unmerge{SubjectId: string(res.Subjects["new:big"]), Ref: fmt.Sprintf("new:u%d", i)}
+		for j := range 200 {
+			u.Aliases = append(u.Aliases, fmt.Sprintf("github:team_node/T%d", j))
+		}
+		cs.Unmerges = append(cs.Unmerges, u)
+	}
+	applyTimed(t, s, cs)
+}
+
+// TestReboundAliasesCostNothingLater: aliases that moved to another subject
+// don't slow the merges of the subject that held them.
+func TestReboundAliasesCostNothingLater(t *testing.T) {
+	s, clk := newTestStore()
+	res := bigSubject(t, s, clk, contracts.MaxChangeSetItems, contracts.MaxChangeSetMerges)
+	clk.Advance(time.Second)
+	move := &modelv1alpha1.ChangeSet{EventId: "move", Mints: []*modelv1alpha1.Mint{mintRef("new:other", "Team")}}
+	for i := range contracts.MaxChangeSetItems {
+		a := fmt.Sprintf("github:team_node/T%d", i)
+		move.Bindings = append(move.Bindings, &modelv1alpha1.BindingTimeline{Alias: a, Bindings: []*modelv1alpha1.Binding{{Alias: a, SubjectId: "new:other"}}})
+	}
+	applyTimed(t, s, move)
+	clk.Advance(time.Second)
+	merges := &modelv1alpha1.ChangeSet{EventId: "merges"}
+	for i := range contracts.MaxChangeSetMerges {
+		ids := []string{string(res.Subjects["new:big"]), string(res.Subjects[fmt.Sprintf("new:%d", i)])}
+		merges.Merges = append(merges.Merges, &modelv1alpha1.Merge{SubjectIds: ids, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL})
+	}
+	applyTimed(t, s, merges)
+}
+
+// TestFailedAppliesLeaveNoIndexEntries: the alias index doesn't keep what a
+// rolled-back apply added.
+func TestFailedAppliesLeaveNoIndexEntries(t *testing.T) {
+	s, clk := newTestStore()
+	cs := &modelv1alpha1.ChangeSet{EventId: "bad", Mints: []*modelv1alpha1.Mint{mintRef("new:a", "Team")}, State: []*modelv1alpha1.StateEntry{{}}}
+	for i := range 1000 {
+		a := fmt.Sprintf("github:team_node/T%d", i)
+		cs.Bindings = append(cs.Bindings, &modelv1alpha1.BindingTimeline{Alias: a, Bindings: []*modelv1alpha1.Binding{{Alias: a, SubjectId: "new:a"}}})
+	}
+	clk.Advance(time.Second)
+	if _, err := s.Apply(context.Background(), cs); err == nil {
+		t.Fatal("got no error from the bad apply")
+	}
+	if len(s.aliasesBy) != 0 {
+		t.Fatalf("got %d subjects in the alias index after a failed apply, want none", len(s.aliasesBy))
+	}
 }

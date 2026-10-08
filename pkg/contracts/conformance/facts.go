@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -579,9 +581,10 @@ func (g *suite) limits(t *testing.T) {
 		}
 		return
 	}
+	note, _ := anypb.New(wrapperspb.String("watermark"))
 	state := func(n int) (out []*modelv1alpha1.StateEntry) {
 		for i := range n {
-			out = append(out, &modelv1alpha1.StateEntry{Key: fmt.Sprintf("k%d", i)})
+			out = append(out, &modelv1alpha1.StateEntry{Key: fmt.Sprintf("k%d", i), Value: note})
 		}
 		return
 	}
@@ -648,8 +651,35 @@ func (g *suite) limits(t *testing.T) {
 			}
 			full := c.make(c.n)
 			full.EventId = "at/" + c.name
-			if res := apply(t, s, full); res.Duplicate || !res.RecordedAt.After(head) {
+			res := apply(t, s, full)
+			if res.Duplicate || !res.RecordedAt.After(head) {
 				t.Fatalf("a ChangeSet at the limit was taken for a repeat of event %s, or wrote nothing (%+v)", full.EventId, res)
+			}
+			// It wrote what it said.
+			var ok bool
+			switch c.name {
+			case "mints":
+				ok = len(res.Minted) == c.n
+			case "binding timelines":
+				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/r0", model.Key(fmt.Sprintf("github:repo/acme/r%d", c.n-1))}, nil, time.Time{}))) == 2
+			case "support timelines":
+				ok = len(must(s.Supports(ctx, contracts.SupportFilter{Predicate: "name"}, time.Time{}))) == c.n
+			case "fact timelines":
+				ok = len(must(s.AsOf(ctx, contracts.FactFilter{Predicate: "name"}, time.Time{}, time.Time{}))) == c.n
+			case "merges":
+				ok = len(res.Merges) == c.n
+			case "state entries":
+				ok = len(must(s.State(ctx, []string{"k0", fmt.Sprintf("k%d", c.n-1)}, time.Time{}))) == 2
+			case "binding rows":
+				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/long"}, nil, time.Time{}))) == c.n
+			case "support versions":
+				sts := must(s.Supports(ctx, contracts.SupportFilter{Predicate: "approves_changes"}, time.Time{}))
+				ok = len(sts) == 1 && len(sts[0].GetVersions()) == c.n
+			case "fact spans":
+				ok = len(must(s.AsOf(ctx, contracts.FactFilter{Predicate: "approves_changes"}, hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
+			}
+			if !ok {
+				t.Fatalf("did not read back the %d %s the apply wrote", c.n, c.name)
 			}
 		})
 	}

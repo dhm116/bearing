@@ -85,19 +85,13 @@ func (s *Store) aliasesOf(id string, r time.Time) []string {
 			}
 		}
 	}
+	if len(subjects) == 1 {
+		return slices.Clone(s.directAliases(id, r))
+	}
 	found := map[string]bool{}
 	for _, sub := range subjects {
-		for alias := range s.aliasesBy[sub] {
-			ser := s.bindings[alias]
-			if ser == nil { // indexed by an apply that was rolled back
-				continue
-			}
-			for _, m := range ser.at(r) {
-				if b, _ := m.(*modelv1alpha1.Binding); b.GetSubjectId() == sub {
-					found[alias] = true
-					break
-				}
-			}
+		for _, alias := range s.directAliases(sub, r) {
+			found[alias] = true
 		}
 	}
 	return slices.Sorted(func(yield func(string) bool) {
@@ -109,18 +103,56 @@ func (s *Store) aliasesOf(id string, r time.Time) []string {
 	})
 }
 
+// directAliases returns, sorted, the aliases with a row as recorded at r
+// that maps them to sub as written. The index lists every alias that ever
+// had such a row, so for a subject whose aliases moved elsewhere it is
+// longer than the answer; during an apply the answer is kept (s.direct)
+// until the bindings change, so a ChangeSet pays for it once per subject.
+func (s *Store) directAliases(sub string, r time.Time) []string {
+	if got, ok := s.direct[sub]; ok {
+		return got
+	}
+	var out []string
+	for alias := range s.aliasesBy[sub] {
+		ser := s.bindings[alias]
+		if ser == nil {
+			continue
+		}
+		for _, m := range ser.at(r) {
+			if b, _ := m.(*modelv1alpha1.Binding); b.GetSubjectId() == sub {
+				out = append(out, alias)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	if s.direct != nil {
+		s.direct[sub] = out
+	}
+	return out
+}
+
 // indexAlias records that alias has a row for subject, so aliasesOf looks at
 // the aliases of the subjects it names, not at every alias. The index only
-// grows (a rolled-back apply leaves entries behind), and aliasesOf checks
-// the rows themselves.
-func (s *Store) indexAlias(subject, alias string) {
-	if subject == "" {
-		return
+// grows, except that a rolled-back apply removes what it added; directAliases
+// checks the rows themselves.
+func (s *Store) indexAlias(subject, alias string) (added bool) {
+	if subject == "" || s.aliasesBy[subject][alias] {
+		return false
 	}
 	if s.aliasesBy[subject] == nil {
 		s.aliasesBy[subject] = map[string]bool{}
 	}
 	s.aliasesBy[subject][alias] = true
+	return true
+}
+
+// unindexAlias undoes an indexAlias that added an entry.
+func (s *Store) unindexAlias(subject, alias string) {
+	delete(s.aliasesBy[subject], alias)
+	if len(s.aliasesBy[subject]) == 0 {
+		delete(s.aliasesBy, subject)
+	}
 }
 
 // subjectAt returns id as recorded at r, with its status then.
