@@ -164,6 +164,20 @@ func TestOpenRejectsUnknownAuthLevels(t *testing.T) {
 	}
 }
 
+func TestOpenRefusesDatabaseAuthWithoutAUserOrOnAnEmbeddedEngine(t *testing.T) {
+	for name, url := range map[string]string{
+		"no user":  "surrealdb+ws://127.0.0.1:1?auth=database",
+		"embedded": "surrealdb+mem://?auth=database",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: url})
+			if err == nil || errors.Is(err, surrealstore.ErrEmbeddedUnavailable) {
+				t.Fatalf("got %v, want a refusal of auth=database", err)
+			}
+		})
+	}
+}
+
 func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 	if surrealstore.EmbeddedAvailable {
 		t.Skip("built with surrealembed")

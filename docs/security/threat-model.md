@@ -662,7 +662,11 @@ Assets: A1, A3, A4, A5, A6.
   checks that a scoped user cannot reach another database.
 - **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
   driver forces inlining (the embedded driver's arrays of objects, ADR 5),
-  one escaping function does it, covered by fuzz tests.
+  one escaping function does it, covered by fuzz tests. Namespace, database
+  and user names cannot be parameters in `DEFINE`, so they must match
+  `^[A-Za-z0-9_.-]{1,64}$` before they are quoted into a statement (escaping
+  alone is not enough); a name that does not match is refused without being
+  repeated in the error.
 - **C-STORE-6** Store connections use TLS (`wss`, `https`). Plaintext to a
   non-loopback host requires `insecure_store_plaintext`. Compose sets it for
   its internal network, with no published port, so `bearing status` shows

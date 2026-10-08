@@ -337,3 +337,64 @@ func TestProvisionRefusesWhatItCannotDo(t *testing.T) {
 		})
 	}
 }
+
+// Names go into DEFINE statements, which take no parameters, so they are
+// checked, not escaped.
+func TestIdentAcceptsOnlyPlainNames(t *testing.T) {
+	for _, ok := range []string{"bearing", "main", "t1759_3", "my-db.v2", strings.Repeat("a", 64)} {
+		if got, err := ident(ok); err != nil || got != "`"+ok+"`" {
+			t.Errorf("ident(%q) = %q, %v, want it quoted", ok, got, err)
+		}
+	}
+	for _, bad := range []string{"", strings.Repeat("a", 65), "a b", "x`", "x\\`; DEFINE NAMESPACE pwned; -- ", "a;b", "é", "a\nb", "a'b", `a"b`} {
+		got, err := ident(bad)
+		if err == nil || got != "" {
+			t.Errorf("ident(%q) = %q, %v, want an error", bad, got, err)
+		}
+		if err != nil && strings.Contains(err.Error(), bad) && bad != "" {
+			t.Errorf("error %q repeats the name", err)
+		}
+	}
+}
+
+func FuzzIdentNeverQuotesAnythingButAName(f *testing.F) {
+	for _, seed := range []string{"bearing", "x\\`; DEFINE NAMESPACE pwned; -- ", "a`b", ""} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		got, err := ident(s)
+		if err != nil {
+			return
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(got, "`"), "`")
+		if body != s || strings.ContainsAny(body, "`\\;'\" \n") {
+			t.Fatalf("ident(%q) = %q", s, got)
+		}
+	})
+}
+
+func TestProvisionRefusesNamesThatAreNotNames(t *testing.T) {
+	payload := "x\\`; DEFINE NAMESPACE pwned; -- "
+	for name, change := range map[string]func(o *ProvisionOptions){
+		"user":      func(o *ProvisionOptions) { o.Username = payload },
+		"namespace": func(o *ProvisionOptions) { o.Namespace = payload },
+		"database":  func(o *ProvisionOptions) { o.Database = payload },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// The server is never reached: the names are checked first.
+			o := ProvisionOptions{URL: "ws://127.0.0.1:1", Namespace: "ns", Database: "db", AdminUsername: "root", AdminPassword: "root", Username: "bearing", Password: "pw"}
+			change(&o)
+			err := Provision(context.Background(), o)
+			if err == nil || !strings.Contains(err.Error(), "names use only") {
+				t.Fatalf("got %v, want the name refused", err)
+			}
+		})
+	}
+}
+
+func TestDialScopedNeedsAUser(t *testing.T) {
+	_, err := Dial(context.Background(), ServerOptions{URL: "ws://127.0.0.1:1", Namespace: "ns", Database: "db", Scoped: true})
+	if err == nil || !strings.Contains(err.Error(), "needs a user") {
+		t.Fatalf("got %v, want a refusal to connect without a user", err)
+	}
+}

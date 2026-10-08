@@ -476,6 +476,8 @@ func TestScopedUserIsConfinedToItsDatabase(t *testing.T) {
 		"define another namespace": `DEFINE NAMESPACE elsewhere`,
 		"define another database":  `DEFINE DATABASE elsewhere`,
 		"define a user":            `DEFINE USER intruder ON DATABASE PASSWORD 'x' ROLES OWNER`,
+		"read another database":    `USE NS bearing_test DB another; SELECT * FROM schema_version`,
+		"read another namespace":   `USE NS another DB another; SELECT * FROM schema_version`,
 		// The server's own health endpoint: reachable, so only the
 		// capability can refuse it.
 		"outbound http": `RETURN http::get('http://` + strings.TrimPrefix(strings.TrimPrefix(os.Getenv("BEARING_TEST_SURREALDB"), "wss://"), "ws://") + `/health')`,

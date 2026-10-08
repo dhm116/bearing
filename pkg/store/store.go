@@ -140,6 +140,9 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		return backend{name: "memory", graph: m, vector: m, close: func(context.Context) error { return nil }}, nil
 
 	case scheme == "surrealdb+mem", scheme == "surrealkv":
+		if scoped {
+			return backend{}, fmt.Errorf("store: %s URL: auth=database applies to a server, not an embedded engine", u.Scheme)
+		}
 		endpoint := "mem://"
 		if scheme == "surrealkv" {
 			endpoint = "surrealkv://" + u.Host + u.Path

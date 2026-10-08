@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	surrealdb "github.com/surrealdb/surrealdb.go"
@@ -35,6 +36,9 @@ func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
 	// is refused here, before the driver sees it.
 	if u, err := url.ParseRequestURI(o.URL); err != nil || u.Host == "" {
 		return nil, fmt.Errorf("surrealstore: connect to %s: invalid URL", safeName(o.URL))
+	}
+	if o.Scoped && o.Username == "" {
+		return nil, errors.New("surrealstore: a database-scoped connection needs a user")
 	}
 	db, err := surrealdb.FromEndpointURLString(ctx, o.URL)
 	if err != nil {
@@ -92,6 +96,16 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 	if o.Username == "" || o.Password == "" {
 		return errors.New("surrealstore: provision: a username and password are required")
 	}
+	user, err := ident(o.Username)
+	if err != nil {
+		return err
+	}
+	if _, err := ident(o.Namespace); err != nil {
+		return err
+	}
+	if _, err := ident(o.Database); err != nil {
+		return err
+	}
 	db, err := surrealdb.FromEndpointURLString(ctx, o.URL)
 	if err != nil {
 		return fmt.Errorf("surrealstore: provision: connect to %s: %w", safeName(o.URL), err)
@@ -105,7 +119,7 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 	}
 	// DEFINE USER takes its password as a literal, not a parameter.
 	lit, _ := json.Marshal(o.Password) // a string always marshals
-	if _, err := q.Query(ctx, `DEFINE USER IF NOT EXISTS `+ident(o.Username)+` ON DATABASE PASSWORD `+string(lit)+` ROLES EDITOR`, nil); err != nil {
+	if _, err := q.Query(ctx, `DEFINE USER IF NOT EXISTS `+user+` ON DATABASE PASSWORD `+string(lit)+` ROLES EDITOR`, nil); err != nil {
 		// The statement holds the password, so the error names only the step.
 		return errors.Join(errors.New("surrealstore: provision: define user failed"), db.Close(ctx))
 	}
@@ -133,7 +147,15 @@ func useDatabase(ctx context.Context, q Querier, ns, database string, use func(c
 	if err := use(ctx, ns, database); err != nil {
 		return fmt.Errorf("surrealstore: use %s/%s: %w", ns, database, err)
 	}
-	if _, err := q.Query(ctx, `DEFINE NAMESPACE IF NOT EXISTS `+ident(ns)+`; USE NS `+ident(ns)+`; DEFINE DATABASE IF NOT EXISTS `+ident(database), nil); err != nil {
+	qns, err := ident(ns)
+	if err != nil {
+		return err
+	}
+	qdb, err := ident(database)
+	if err != nil {
+		return err
+	}
+	if _, err := q.Query(ctx, `DEFINE NAMESPACE IF NOT EXISTS `+qns+`; USE NS `+qns+`; DEFINE DATABASE IF NOT EXISTS `+qdb, nil); err != nil {
 		return fmt.Errorf("surrealstore: define %s/%s: %w", ns, database, err)
 	}
 	if err := use(ctx, ns, database); err != nil {
@@ -142,9 +164,18 @@ func useDatabase(ctx context.Context, q Querier, ns, database string, use func(c
 	return nil
 }
 
-// ident quotes a SurrealQL identifier with backticks.
-func ident(s string) string {
-	return "`" + strings.ReplaceAll(s, "`", "\\`") + "`"
+// namePattern is what a namespace, database or user name may be. SurrealQL
+// has no parameters for identifiers, so a name is checked against this
+// before it is quoted into a statement; escaping alone is not enough.
+var namePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// ident checks a namespace, database or user name and quotes it as a
+// SurrealQL identifier. The error does not repeat the name.
+func ident(s string) (string, error) {
+	if !namePattern.MatchString(s) {
+		return "", errors.New("surrealstore: names use only letters, digits, '_', '-' and '.', up to 64 characters")
+	}
+	return "`" + s + "`", nil
 }
 
 type serverQuerier struct{ db *surrealdb.DB }
