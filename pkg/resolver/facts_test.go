@@ -288,3 +288,34 @@ func TestBackdatedValueOfASingleValuedPredicateReplacesTheOldOne(t *testing.T) {
 		}
 	}
 }
+
+// Sources of one system are one witness: two of them saying the same thing at
+// 600000 don't add up to more, and the configured threshold decides whether
+// that is enough.
+func TestConfidenceCountsEachSystemOnceAndTheThresholdIsConfigurable(t *testing.T) {
+	claim := func() *eventv1alpha1.Observation {
+		o := withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")
+		o.Data.Relations[0].ConfidencePpm = new(uint32(600_000))
+		return o
+	}
+	const want = "github:repo_node/R1(Repository) approves_changes -> github:team_node/T1(Team) %s 600000 [github-acme:600000 github-mirror:600000]"
+	for _, tc := range []struct {
+		name      string
+		threshold uint32
+		status    string
+	}{
+		{"default threshold", 0, "CANDIDATE/BELOW_THRESHOLD"},
+		{"lower threshold", 500_000, "ASSERTED/NONE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Threshold = tc.threshold
+			e := newEnvWith(t, cfg)
+			e.apply(event("github-acme", claim()))
+			e.apply(event("github-mirror", claim()))
+			if got := factsAt(t, e, ts("2026-10-02T00:00:00Z")); !strings.Contains(got, fmt.Sprintf(want, tc.status)) {
+				t.Fatalf("want %q in\n%s", fmt.Sprintf(want, tc.status), got)
+			}
+		})
+	}
+}

@@ -26,6 +26,9 @@ func TestNewRejectsInconsistentConfiguration(t *testing.T) {
 		{"a namespace nobody declares key types for", Config{Declarations: decls, Sources: map[string]*Source{
 			"a": {Name: "a", Adapter: "github", Links: []Namespace{{Name: "jira", IssuerType: "jira"}}},
 		}}, "no declaration has key types"},
+		{"a threshold above full confidence", Config{Declarations: decls, Threshold: 1_000_001}, "threshold"},
+		{"a system in two confidence groups", Config{Declarations: decls, ConfidenceGroups: [][]string{{"github", "authentik"}, {"github"}}}, "two groups"},
+		{"an empty system in a confidence group", Config{Declarations: decls, ConfidenceGroups: [][]string{{""}}}, "empty"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
