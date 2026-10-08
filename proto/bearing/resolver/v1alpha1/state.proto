@@ -1,0 +1,112 @@
+// The resolver's own state: what it must remember between events to give
+// the same valid-time answers whatever order events are applied in
+// (docs/spec/data-model.md, "Ordering and idempotency"). Each message is the
+// value of one ChangeSet.state entry, packed in an Any, and is written in
+// the same ChangeSet as the rows it describes. Stores keep the entries and
+// read them back; they never look inside (docs/spec/contracts.md, "State
+// keys"). These messages are not part of the data model.
+
+syntax = "proto3";
+
+package bearing.resolver.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+import "bearing/model/v1alpha1/fact.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/resolver/v1alpha1;resolverv1alpha1";
+
+// OrderingKey is the key every write is compared by, left to right:
+// (observed_at, observation_id, event_id, content_hash)
+// (docs/spec/data-model.md, "Ordering and idempotency"). The strings compare
+// by their UTF-8 bytes; pkg/model compares keys.
+message OrderingKey {
+  // The write's observed_at.
+  google.protobuf.Timestamp observed_at = 1;
+  // The observation that made the write; for a manual event, the event ID.
+  string observation_id = 2;
+  // The event that carried it, which includes the source.
+  string event_id = 3;
+  // Lowercase hex SHA-256 of the JCS form of the observation's data; for a
+  // manual event, of the payload.
+  string content_hash = 4;
+}
+
+// BindingWrite is one observed write to an alias: a binding of the name to
+// a subject from valid_from on, or its release.
+message BindingWrite {
+  // The write's ordering key.
+  OrderingKey key = 1;
+  // Where the write starts in valid time, extending to infinity. Absent
+  // means all valid time (id aliases) or, with tentative, no start.
+  google.protobuf.Timestamp valid_from = 2;
+  // The subject as written, or empty for a release without a redirect. The
+  // store does not look inside a state value, so it can't replace a ref here:
+  // an entry for a subject its ChangeSet creates names the subject in its
+  // key (docs/spec/contracts.md, "State keys") and leaves this empty.
+  string subject_id = 3;
+  // The name is released from valid_from on; subject_id, if set, is where
+  // it redirects.
+  bool released = 4;
+  // Written by a reference when minting a placeholder.
+  bool tentative = 5;
+}
+
+// BindingWrites is every write to one alias, in no particular order. The
+// binding timeline in the graph is computed from it.
+message BindingWrites {
+  // The writes.
+  repeated BindingWrite writes = 1;
+}
+
+// SupportSegment is one source's state for one fact over one valid-time
+// interval, with the key of the write that decided it. A series of segments
+// is what remains of all the source's writes about the fact: at each valid
+// time the covering write with the greatest key.
+message SupportSegment {
+  // The deciding write's ordering key.
+  OrderingKey key = 1;
+  // Start of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_from = 2;
+  // End of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 3;
+  // True if the segment is asserted. An ended segment is kept so an older
+  // write applied later can't override it.
+  bool live = 4;
+  // Ended segments: ASSERT for a claim's own valid_to, END for an absent
+  // claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted,
+  // WITHDRAWN for a withdrawn claim.
+  bearing.model.v1alpha1.SupportReason reason = 5;
+  // Live segments: the version's content, without its interval, fact_id and
+  // record times.
+  bearing.model.v1alpha1.Support support = 6;
+}
+
+// SupportSegments is one source's segments for one fact, sorted by
+// valid_from and not overlapping.
+message SupportSegments {
+  // The segments.
+  repeated SupportSegment segments = 1;
+}
+
+// Watermark ends, from valid time `at` on and with `key`, every fact of the
+// source in its scope that the observation did not claim, including facts
+// whose claims are applied later (docs/spec/data-model.md, "Snapshot
+// scopes").
+message Watermark {
+  // Start of the ending in valid time.
+  google.protobuf.Timestamp at = 1;
+  // The watermark's ordering key.
+  OrderingKey key = 2;
+  // SNAPSHOT for a scope, DELETED for entity.deleted.
+  bearing.model.v1alpha1.SupportReason reason = 3;
+}
+
+// ScopeWatermarks is every watermark of one scope (source, subject,
+// direction and predicates, or the subject's identity evidence), sorted by
+// `at`. A watermark is dropped once another with an earlier or equal `at`
+// has a greater or equal key.
+message ScopeWatermarks {
+  // The watermarks.
+  repeated Watermark watermarks = 1;
+}
