@@ -66,7 +66,7 @@ type queryFlags struct {
 }
 
 func (q *queryFlags) register(fs *flag.FlagSet, name string) {
-	fs.StringVar(&q.store, "store", "", "graph store URL (default $"+storeEnv+"); only mem:// opens until the SurrealDB backend lands")
+	fs.StringVar(&q.store, "store", "", "graph store URL, such as surrealdb+ws://user@host:8000 with the password in $BEARING_STORE_PASSWORD (default $"+storeEnv+")")
 	asOf := "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)"
 	if name == "changes" {
 		asOf = "end of the window (same forms; default now)"
