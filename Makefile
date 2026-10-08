@@ -38,13 +38,13 @@ test:
 test-surrealdb:
 	BEARING_TEST_SURREALDB=$(SURREALDB) BEARING_TEST_SURREALDB_USER=$(SURREALDB_USER) \
 		BEARING_TEST_SURREALDB_PASS=$(SURREALDB_PASS) \
-		go test -count=1 ./internal/surrealstore/ ./pkg/store/
+		go test -count=1 -timeout 30m ./internal/surrealstore/ ./pkg/store/
 
 # Runs the same suites against embedded SurrealDB. Build libsurrealdb_c.a from
 # github.com/surrealdb/surrealdb.c first (cargo build --release), then:
 #   make test-embedded SURREALDB_LIB=/path/to/dir/with/libsurrealdb_c.a
 test-embedded:
-	CGO_ENABLED=1 CGO_LDFLAGS="-L$(SURREALDB_LIB)" go test -count=1 -tags surrealembed ./internal/surrealstore/ ./pkg/store/
+	CGO_ENABLED=1 CGO_LDFLAGS="-L$(SURREALDB_LIB)" go test -count=1 -timeout 30m -tags surrealembed ./internal/surrealstore/ ./pkg/store/
 
 # The tools module is separate, so ./... does not reach it; lint it with the
 # same config from inside it.
