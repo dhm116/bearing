@@ -3,10 +3,12 @@ package resolver
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -24,6 +26,10 @@ type Event struct {
 	Source string
 	// Observation is the adapter's output. Resolve doesn't change it.
 	Observation *eventv1alpha1.Observation
+	// Adapter is the adapter's name and version, for example "github@0.3.0",
+	// recorded on the supports the event writes. Default: the source's adapter
+	// name.
+	Adapter string
 	// IngestedAt is when the core ingested the event, for the future-time
 	// check on observed_at. Zero skips the check.
 	IngestedAt time.Time
@@ -57,6 +63,25 @@ type relation struct {
 	in bool
 }
 
+// attribute is an attribute claim that passed the declaration checks: one
+// entry of entity.attributes, or one of attribute_claims.
+type attribute struct {
+	path string
+	// name is the attribute as sent; pred is its predicate as stored
+	// (<namespace>.<name> when unregistered).
+	name, pred string
+	shape      model.Predicate
+	// claim is nil for an entry of entity.attributes.
+	claim *modelv1alpha1.AttributeClaim
+	value *structpb.Value
+}
+
+// droppedClaim is the direction and predicate of a claim admission rejected.
+type droppedClaim struct {
+	in   bool
+	pred string
+}
+
 // prepared is an observation that passed validation and the checks that need
 // the declarations, with its keys analyzed.
 type prepared struct {
@@ -68,10 +93,14 @@ type prepared struct {
 	kind model.Kind
 	// keys are entity.key first, then entity.aliases: folded, de-duplicated.
 	keys []keyRef
-	// relations and links are the claims that were admitted. A deleted
-	// entity has none.
-	relations []relation
-	links     []keyRef
+	// relations, attributes and links are the claims that were admitted. A
+	// deleted entity has none.
+	relations  []relation
+	attributes []attribute
+	links      []keyRef
+	// dropped lists the claims admission rejected, whose predicates leave the
+	// snapshot scopes (docs/spec/data-model.md, "Snapshot scopes").
+	dropped []droppedClaim
 	// rejections are claim-scoped refusals made while preparing.
 	rejections []Rejection
 }
@@ -89,7 +118,7 @@ func (r *Resolver) prepare(ev Event) (*prepared, []Rejection, error) {
 	obs := proto.CloneOf(ev.Observation)
 	model.TruncateTimes(obs)
 	var rejs []Rejection
-	if err := model.ValidateObservation(obs); err != nil {
+	if err := model.ValidateObservationWith(obs, src.declaredAttributes(model.Kind(obs.GetData().GetEntity().GetKind()))); err != nil {
 		var ve *model.ValidationError
 		if !errors.As(err, &ve) {
 			return nil, nil, err
@@ -195,9 +224,11 @@ func (r *Resolver) analyze(src *sourceInfo, key string, allowed map[string]bool)
 	return kr, modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED, ""
 }
 
-// admitClaims analyzes the keys that claims refer to: the other end of each
-// relation and each linked ID. A claim that fails a check is rejected with
-// claim scope and left out; the resolver mints no placeholder for it.
+// admitClaims checks the claims against the source's declarations and
+// analyzes the keys they refer to: the other end of each relation and each
+// linked ID. A claim that fails a check is rejected with claim scope and
+// left out; the resolver mints no placeholder for it, and its predicate
+// leaves the snapshot scopes.
 func (r *Resolver) admitClaims(p *prepared) {
 	data := p.obs.GetData()
 	reject := func(code modelv1alpha1.RejectionCode, path, format string, args ...any) {
@@ -207,20 +238,22 @@ func (r *Resolver) admitClaims(p *prepared) {
 	for i, rel := range data.GetRelations() {
 		path := fmt.Sprintf("data.relations[%d]", i)
 		in := rel.GetFrom() != ""
+		drop := func(code modelv1alpha1.RejectionCode, path, format string, args ...any) {
+			reject(code, path, format, args...)
+			p.dropped = append(p.dropped, droppedClaim{in: in, pred: rel.GetType()})
+		}
 		endpoint, field := rel.GetTo(), path+".to"
 		dir := modelv1alpha1.Direction_DIRECTION_OUT
 		if in {
 			endpoint, field, dir = rel.GetFrom(), path+".from", modelv1alpha1.Direction_DIRECTION_IN
 		}
-		if !slices.ContainsFunc(kd.GetFields(), func(f *modelv1alpha1.FieldDeclaration) bool {
-			return f.GetPredicate() == rel.GetType() && fieldDirection(f) == dir
-		}) {
-			reject(modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, path+".type", "adapter %q doesn't declare %s %q for %s", p.src.Adapter, model.ShortName(dir), rel.GetType(), p.kind)
+		if !declares(kd, rel.GetType(), dir) {
+			drop(modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, path+".type", "adapter %q doesn't declare %s %q for %s", p.src.Adapter, model.ShortName(dir), rel.GetType(), p.kind)
 			continue
 		}
 		other, code, msg := r.analyze(p.src, endpoint, p.src.referenceNamespaces())
 		if code != modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED {
-			reject(code, field, "%s", msg)
+			drop(code, field, "%s", msg)
 			continue
 		}
 		pred, _ := model.LookupPredicate(rel.GetType())
@@ -229,10 +262,16 @@ func (r *Resolver) admitClaims(p *prepared) {
 			subject, object = object, subject
 		}
 		if !pred.InDomain(subject) || !pred.InRange(object) {
-			reject(modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH, path, "%s from %s to %s is outside its domain or range", rel.GetType(), subject, object)
+			drop(modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH, path, "%s from %s to %s is outside its domain or range", rel.GetType(), subject, object)
 			continue
 		}
 		p.relations = append(p.relations, relation{rel: rel, path: path, other: other, in: in})
+	}
+	for _, name := range slices.Sorted(maps.Keys(data.GetEntity().GetAttributes())) {
+		p.admitAttribute(fmt.Sprintf("data.entity.attributes[%q]", model.Clip(name)), name, nil, data.GetEntity().GetAttributes()[name], reject)
+	}
+	for i, ac := range data.GetAttributeClaims() {
+		p.admitAttribute(fmt.Sprintf("data.attribute_claims[%d]", i), ac.GetPredicate(), ac, ac.GetValue(), reject)
 	}
 	for i, l := range p.obs.GetData().GetEntity().GetLinkedIds() {
 		path := fmt.Sprintf("data.entity.linked_ids[%d]", i)
@@ -250,6 +289,51 @@ func (r *Resolver) admitClaims(p *prepared) {
 		}
 		p.links = append(p.links, kr)
 	}
+}
+
+// declares reports whether the kind's declaration has a field for the
+// predicate and direction.
+func declares(kd *modelv1alpha1.KindDeclaration, pred string, dir modelv1alpha1.Direction) bool {
+	return slices.ContainsFunc(kd.GetFields(), func(f *modelv1alpha1.FieldDeclaration) bool {
+		return f.GetPredicate() == pred && fieldDirection(f) == dir
+	})
+}
+
+// admitAttribute checks one attribute claim against the declarations and
+// keeps it, or rejects it with claim scope.
+func (p *prepared) admitAttribute(path, name string, claim *modelv1alpha1.AttributeClaim, value *structpb.Value, reject func(modelv1alpha1.RejectionCode, string, string, ...any)) {
+	if !declares(p.src.kinds[p.kind], name, modelv1alpha1.Direction_DIRECTION_OUT) {
+		reject(modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, path, "adapter %q doesn't declare attribute %q for %s", p.src.Adapter, model.Clip(name), p.kind)
+		p.dropped = append(p.dropped, droppedClaim{pred: name})
+		return
+	}
+	a := attribute{path: path, name: name, pred: name, claim: claim, value: value}
+	if shape, ok := model.LookupPredicate(name); ok {
+		a.shape = shape
+	} else {
+		a.shape = p.src.declaredAttributes(p.kind)[name]
+		a.pred = p.src.reads + "." + name
+		a.shape.Name = a.pred
+	}
+	p.attributes = append(p.attributes, a)
+}
+
+// declaredAttributes returns the shapes of the unregistered attributes the
+// source declares for a kind.
+func (s *sourceInfo) declaredAttributes(kind model.Kind) map[string]model.Predicate {
+	var out map[string]model.Predicate
+	for _, f := range s.kinds[kind].GetFields() {
+		if _, registered := model.LookupPredicate(f.GetPredicate()); registered || fieldDirection(f) != modelv1alpha1.Direction_DIRECTION_OUT {
+			continue
+		}
+		if out == nil {
+			out = map[string]model.Predicate{}
+		}
+		out[f.GetPredicate()] = model.Predicate{
+			Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality(), Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE,
+		}
+	}
+	return out
 }
 
 func fieldDirection(f *modelv1alpha1.FieldDeclaration) modelv1alpha1.Direction {

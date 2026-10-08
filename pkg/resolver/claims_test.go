@@ -2,10 +2,17 @@ package resolver
 
 import (
 	"cmp"
+	"context"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
 
@@ -122,5 +129,68 @@ func TestInvalidUTF8IsRejectedNotAnError(t *testing.T) {
 				t.Fatalf("got %+v, want the rejected event processed once", again)
 			}
 		})
+	}
+}
+
+// A snapshot lists everything it could say about its scope. A claim we
+// couldn't admit might have been part of that list, so the predicate isn't
+// ended on the strength of an observation that failed to say it.
+func TestRejectedClaimLeavesItsPredicateOutOfTheSnapshot(t *testing.T) {
+	e := newEnv(t)
+	repo := func(at string) *eventv1alpha1.Observation {
+		return obsAt(at, "Repository", "github:repo_node/R1", "github:repo/acme/a")
+	}
+	e.apply(event("github-acme", withRelation(repo("2026-10-01T00:00:00Z"), "approves_changes", "github:team/acme/s1")))
+	// Lists approves_changes, but its only entry is not an admissible claim.
+	bad := withScope(withRelation(repo("2026-10-02T00:00:00Z"), "approves_changes", "github:repo/acme/other"), false, "approves_changes")
+	if got := e.apply(event("github-acme", bad)); len(got.Rejections) != 1 {
+		t.Fatalf("got %v, want one rejection", got.Rejections)
+	}
+	if got := factsAt(t, e, ts("2026-10-03T00:00:00Z")); !strings.Contains(got, "approves_changes -> github:team/acme/s1(Team) ASSERTED") {
+		t.Fatalf("the earlier claim was ended by a snapshot that didn't say it:\n%s", got)
+	}
+	// Without the rejected entry the same snapshot does end it.
+	good := withScope(repo("2026-10-04T00:00:00Z"), false, "approves_changes")
+	e.apply(event("github-acme", good))
+	if got := factsAt(t, e, ts("2026-10-05T00:00:00Z")); strings.Contains(got, "approves_changes") {
+		t.Fatalf("the snapshot didn't end the claim:\n%s", got)
+	}
+}
+
+// An attribute the registry doesn't know is stored under the namespace of
+// the system that reads it, so two systems' attributes can't collide.
+func TestUnregisteredAttributesAreStoredUnderTheReadNamespace(t *testing.T) {
+	e := newEnv(t)
+	o := withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "codeowners_rules", 3)
+	e.apply(event("github-acme", o))
+	got := factsAt(t, e, ts("2026-10-02T00:00:00Z"))
+	if !strings.Contains(got, `github.codeowners_rules -> {"type":"VALUE_TYPE_FLOAT","value":3} ASSERTED`) {
+		t.Fatalf("want the attribute stored under github.codeowners_rules in\n%s", got)
+	}
+}
+
+// A relation listed twice is one claim whose support keeps both qualifier
+// sets, once each, in a fixed order.
+func TestRelationListedTwiceJoinsItsQualifiers(t *testing.T) {
+	e := newEnv(t)
+	role := func(r string) *structpb.Value { return structpb.NewStringValue(r) }
+	team := obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")
+	for _, r := range []string{"member", "maintainer", "member"} {
+		team = withMember(team, "github:user/jdoe", "", "")
+		team.Data.Relations[len(team.Data.Relations)-1].Attributes = map[string]*structpb.Value{"role": role(r)}
+	}
+	if got := e.apply(event("github-acme", team)); len(got.Rejections) != 0 {
+		t.Fatalf("got rejections %v", got.Rejections)
+	}
+	facts, err := e.store.AsOf(context.Background(), contracts.FactFilter{Predicate: "member_of"}, ts("2026-10-02T00:00:00Z"), time.Time{})
+	if err != nil || len(facts) != 1 || len(facts[0].GetSupports()) != 1 {
+		t.Fatalf("got %v, %v, want one member_of fact with one support", facts, err)
+	}
+	var got []string
+	for _, q := range facts[0].GetSupports()[0].GetQualifiers() {
+		got = append(got, q.GetFields()["role"].GetStringValue())
+	}
+	if want := []string{"maintainer", "member"}; !slices.Equal(got, want) {
+		t.Fatalf("got qualifiers %v, want %v", got, want)
 	}
 }

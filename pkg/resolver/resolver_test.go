@@ -31,13 +31,16 @@ func readDeclaration(t testing.TB, name string) *modelv1alpha1.AdapterDeclaratio
 }
 
 // testConfig is the fictional org's configuration: one GitHub source and
-// one Authentik source that issues SAML IDs and links GitHub's.
+// one Authentik source that issues SAML IDs and links GitHub's, and a
+// second GitHub source.
 func testConfig(t testing.TB) Config {
 	t.Helper()
 	return Config{
 		Declarations: []*modelv1alpha1.AdapterDeclaration{readDeclaration(t, "github"), readDeclaration(t, "authentik")},
 		Sources: map[string]*Source{
 			"github-acme": {Name: "github-acme", Adapter: "github"},
+			// A second source of the same system, for facts two sources claim.
+			"github-mirror": {Name: "github-mirror", Adapter: "github"},
 			"authentik-acme": {
 				Name: "authentik-acme", Adapter: "authentik",
 				Issues: []Namespace{{Name: "authentik-saml", IssuerType: "saml"}},
@@ -57,10 +60,16 @@ type env struct {
 
 func newEnv(t testing.TB) *env {
 	t.Helper()
+	return newEnvWith(t, testConfig(t))
+}
+
+// newEnvWith is newEnv with another configuration.
+func newEnvWith(t testing.TB, cfg Config) *env {
+	t.Helper()
 	clk := testkit.NewClock(time.Date(2026, 9, 28, 1, 30, 2, 0, time.UTC))
 	s := memstore.New()
 	s.Now, s.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
-	r, err := New(testConfig(t), s)
+	r, err := New(cfg, s)
 	if err != nil {
 		t.Fatal(err)
 	}
