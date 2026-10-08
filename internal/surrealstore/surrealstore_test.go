@@ -133,3 +133,47 @@ func TestReopenKeepsVectorDimension(t *testing.T) {
 		t.Fatal("expected a dimension mismatch error")
 	}
 }
+
+// An operator may put a secret in the server URL's path or query by mistake;
+// the connect error names only the scheme and host (C-SECRET-2).
+func TestDialConnectErrorOmitsPathAndQuery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, tc := range []struct{ url, wantHost string }{
+		{"ws://127.0.0.1:1/s3cr3t", "127.0.0.1:1"},
+		{"ws://127.0.0.1:1/?token=s3cr3t", "127.0.0.1:1"},
+		{"http://127.0.0.1:1/s3cr3t", "127.0.0.1:1"},
+		// The driver quotes a URL it can't parse; Dial refuses these first.
+		{"ws://[::1/s3cr3t", ""},
+		{"://s3cr3t", ""},
+		{"ws://host\x7f/s3cr3t", ""},
+		{"ws://127.0.0.1:1#s3cr3t", ""},
+	} {
+		t.Run(tc.url, func(t *testing.T) {
+			s, err := Dial(ctx, ServerOptions{URL: tc.url, Namespace: "n", Database: "d"})
+			if err == nil {
+				_ = s.Close(ctx)
+				t.Fatal("connected to a closed port")
+			}
+			if strings.Contains(err.Error(), "s3cr3t") {
+				t.Fatalf("error leaks the URL's path or query: %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantHost) {
+				t.Fatalf("got %v, want the error to name %q", err, tc.wantHost)
+			}
+		})
+	}
+}
+
+func TestSafeNameKeepsSchemeAndHost(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"ws://db.internal:8000/rpc?x=1", "ws://db.internal:8000"},
+		{"https://db.internal", "https://db.internal"},
+		{"not a url", "the server"},
+		{"%zz", "the server"},
+	} {
+		if got := safeName(tc.raw); got != tc.want {
+			t.Errorf("safeName(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}

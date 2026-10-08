@@ -644,7 +644,8 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
 
 - **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
-  store URL that contains a password is rejected at start.
+  store URL that contains a password is rejected at start. Store errors
+  name a server only by scheme and host, never its path or query.
 - **C-STORE-2** Bearing connects as a database-scoped user, never root or a
   namespace user.
 - **C-STORE-3** The compose deployment generates a random SurrealDB password

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	surrealdb "github.com/surrealdb/surrealdb.go"
@@ -23,9 +24,14 @@ type ServerOptions struct {
 // Dial connects to a SurrealDB server and returns a store that uses it. It
 // needs no CGO.
 func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
+	// The driver's parse error quotes the whole URL, so a malformed one
+	// is refused here, before the driver sees it.
+	if u, err := url.ParseRequestURI(o.URL); err != nil || u.Host == "" {
+		return nil, fmt.Errorf("surrealstore: connect to %s: invalid URL", safeName(o.URL))
+	}
 	db, err := surrealdb.FromEndpointURLString(ctx, o.URL)
 	if err != nil {
-		return nil, fmt.Errorf("surrealstore: connect to %s: %w", o.URL, err)
+		return nil, fmt.Errorf("surrealstore: connect to %s: %w", safeName(o.URL), err)
 	}
 	if o.Username != "" {
 		if _, err := db.SignIn(ctx, surrealdb.Auth{Username: o.Username, Password: o.Password}); err != nil {
@@ -38,6 +44,17 @@ func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
 		return nil, errors.Join(err, db.Close(ctx))
 	}
 	return New(ctx, q)
+}
+
+// safeName names a server URL in errors without its path or query, where an
+// operator may have put a secret by mistake (C-SECRET-2). An unparseable URL
+// is not echoed at all.
+func safeName(raw string) string {
+	u, err := url.ParseRequestURI(raw)
+	if err != nil || u.Host == "" {
+		return "the server"
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // useDatabase creates the namespace and database if needed and selects them.
