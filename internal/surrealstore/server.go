@@ -2,6 +2,7 @@ package surrealstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,9 +17,15 @@ type ServerOptions struct {
 	URL string
 	// Namespace and Database select where Bearing's tables live.
 	Namespace, Database string
-	// Username and Password sign in as a root, namespace or database user.
-	// Leave both empty for a server started with --unauthenticated.
+	// Username and Password sign in as a root user, or with Scoped as a
+	// database user. Leave both empty for a server started with
+	// --unauthenticated.
 	Username, Password string
+	// Scoped says the user is a database-scoped user of Namespace and
+	// Database (C-STORE-2), created beforehand, for example by Provision.
+	// Dial then signs in at the database level and leaves the namespace and
+	// database alone: a scoped user cannot create them.
+	Scoped bool
 }
 
 // Dial connects to a SurrealDB server and returns a store that uses it. It
@@ -34,13 +41,21 @@ func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
 		return nil, fmt.Errorf("surrealstore: connect to %s: %w", safeName(o.URL), err)
 	}
 	if o.Username != "" {
-		if _, err := db.SignIn(ctx, surrealdb.Auth{Username: o.Username, Password: o.Password}); err != nil {
+		auth := surrealdb.Auth{Username: o.Username, Password: o.Password}
+		if o.Scoped {
+			auth.Namespace, auth.Database = o.Namespace, o.Database
+		}
+		if _, err := db.SignIn(ctx, auth); err != nil {
 			// The username stays out of the error, which reaches logs.
 			return nil, errors.Join(fmt.Errorf("surrealstore: sign in: %w", err), db.Close(ctx))
 		}
 	}
 	q := &serverQuerier{db: db}
-	if err := useDatabase(ctx, q, o.Namespace, o.Database, db.Use); err != nil {
+	use := useDatabase
+	if o.Scoped {
+		use = selectDatabase
+	}
+	if err := use(ctx, q, o.Namespace, o.Database, db.Use); err != nil {
 		return nil, errors.Join(err, db.Close(ctx))
 	}
 	return New(ctx, q)
@@ -55,6 +70,57 @@ func safeName(raw string) string {
 		return "the server"
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// ProvisionOptions says how to create a database and a database-scoped user
+// for Bearing to run as.
+type ProvisionOptions struct {
+	// URL, Namespace and Database are as in ServerOptions.
+	URL, Namespace, Database string
+	// AdminUsername and AdminPassword sign in as a root user, used only to
+	// provision.
+	AdminUsername, AdminPassword string
+	// Username and Password are the database user to create.
+	Username, Password string
+}
+
+// Provision creates the namespace, the database and a database-scoped user
+// with the editor role: it can define and use tables, and nothing outside
+// the database. Bearing then connects with ServerOptions.Scoped
+// (C-STORE-2). It is safe to repeat; a user that exists keeps its password.
+func Provision(ctx context.Context, o ProvisionOptions) error {
+	if o.Username == "" || o.Password == "" {
+		return errors.New("surrealstore: provision: a username and password are required")
+	}
+	db, err := surrealdb.FromEndpointURLString(ctx, o.URL)
+	if err != nil {
+		return fmt.Errorf("surrealstore: provision: connect to %s: %w", safeName(o.URL), err)
+	}
+	if _, err := db.SignIn(ctx, surrealdb.Auth{Username: o.AdminUsername, Password: o.AdminPassword}); err != nil {
+		return errors.Join(fmt.Errorf("surrealstore: provision: sign in: %w", err), db.Close(ctx))
+	}
+	q := &serverQuerier{db: db}
+	if err := useDatabase(ctx, q, o.Namespace, o.Database, db.Use); err != nil {
+		return errors.Join(err, db.Close(ctx))
+	}
+	// DEFINE USER takes its password as a literal, not a parameter.
+	lit, _ := json.Marshal(o.Password) // a string always marshals
+	if _, err := q.Query(ctx, `DEFINE USER IF NOT EXISTS `+ident(o.Username)+` ON DATABASE PASSWORD `+string(lit)+` ROLES EDITOR`, nil); err != nil {
+		// The statement holds the password, so the error names only the step.
+		return errors.Join(errors.New("surrealstore: provision: define user failed"), db.Close(ctx))
+	}
+	return db.Close(ctx)
+}
+
+// selectDatabase selects a namespace and database that exist already.
+func selectDatabase(ctx context.Context, _ Querier, ns, database string, use func(context.Context, string, string) error) error {
+	if ns == "" || database == "" {
+		return fmt.Errorf("surrealstore: a namespace and database are required")
+	}
+	if err := use(ctx, ns, database); err != nil {
+		return fmt.Errorf("surrealstore: use %s/%s: %w", ns, database, err)
+	}
+	return nil
 }
 
 // useDatabase creates the namespace and database if needed and selects them.
