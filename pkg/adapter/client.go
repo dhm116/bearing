@@ -273,7 +273,8 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 	ctx, span := tracer.Start(ctx, "bearing.adapter.sync", trace.WithAttributes(attrAdapter.String(name)))
 	start := time.Now()
 	defer func() {
-		span.SetAttributes(attrPages.Int(sum.Pages), attrCount.Int(sum.Accepted))
+		span.SetAttributes(attrPages.Int(sum.Pages), attrCount.Int(sum.Accepted),
+			attrRejObs.Int(sum.RejectedObservations), attrRejClm.Int(sum.RejectedClaims))
 		attrs := []attribute.KeyValue{attrAdapter.String(name)}
 		if err != nil {
 			attrs = append(attrs, semconv.ErrorTypeKey.String(telemetry.ErrorType(err)))
@@ -309,6 +310,9 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
 			keep, claims := screenObservation(ctx, log, name, o, warn)
 			sum.RejectedClaims += claims
+			if claims > 0 {
+				claimsRejected.Add(ctx, int64(claims), metric.WithAttributes(attrAdapter.String(name)))
+			}
 			if !keep {
 				sum.RejectedObservations++
 				continue
