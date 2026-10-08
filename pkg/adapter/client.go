@@ -56,15 +56,15 @@ func Start(ctx context.Context, name string, args ...string) (*Client, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: the adapter command is the caller's choice
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
+	var stdout io.ReadCloser
+	if err == nil {
+		stdout, err = cmd.StdoutPipe()
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
+	if err == nil {
+		err = cmd.Start()
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start adapter %s: %w", name, err)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: start %s: %w", name, err)
 	}
 	telemetry.Logger(pkgName).InfoContext(ctx, "adapter started",
 		string(attrAdapter), filepath.Base(name), "pid", cmd.Process.Pid)
@@ -191,7 +191,7 @@ func checkObservation(ctx context.Context, adapterName string, o *eventv1alpha1.
 }
 
 // ErrTooManyPages is returned by SyncAll when an adapter never reports done.
-var ErrTooManyPages = errors.New("adapter returned too many pages without finishing")
+var ErrTooManyPages = errors.New("adapter: returned too many pages without finishing")
 
 // Syncer is anything that serves sync pages: a Client, or an Adapter called
 // in-process.
@@ -295,7 +295,7 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 		}
 		res, err := a.Sync(ctx, SyncParams{Config: config, Cursor: cursor})
 		if err != nil {
-			return sum, fmt.Errorf("sync page %d: %w", sum.Pages+1, err)
+			return sum, fmt.Errorf("adapter: sync page %d: %w", sum.Pages+1, err)
 		}
 		sum.Pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
@@ -327,7 +327,7 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 			return sum, nil
 		}
 		if res.NextCursor == "" || res.NextCursor == cursor {
-			return sum, fmt.Errorf("sync page %d: adapter is not done but returned no new cursor", sum.Pages)
+			return sum, fmt.Errorf("adapter: sync page %d: adapter is not done but returned no new cursor", sum.Pages)
 		}
 		cursor = res.NextCursor
 	}

@@ -15,7 +15,7 @@ import (
 // ErrStale is returned by Apply when the ChangeSet's base_recorded_at is no
 // longer the store's head: another apply landed after the resolver read.
 // The caller re-reads and recomputes the ChangeSet.
-var ErrStale = errors.New("stale change set")
+var ErrStale = errors.New("contracts: stale change set")
 
 // SubjectID is a subject's ID: UUIDv7 text minted only by the store, never
 // changed or reused (docs/spec/data-model.md, "Subjects").

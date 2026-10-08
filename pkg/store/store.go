@@ -78,7 +78,7 @@ type backend struct {
 // Open connects to the backends in c.
 func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Graph == "" {
-		return nil, fmt.Errorf("store: a graph store URL is required, for example mem:// or surrealdb+ws://localhost:8000")
+		return nil, errors.New("store: a graph store URL is required, for example mem:// or surrealdb+ws://localhost:8000")
 	}
 	if c.Getenv == nil {
 		c.Getenv = os.Getenv

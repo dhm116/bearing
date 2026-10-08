@@ -127,7 +127,7 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 	rows := make([]map[string]any, len(points))
 	for i, p := range points {
 		if p.ID == "" || p.SubjectID == "" {
-			return fmt.Errorf("vector point needs an id and a subject id")
+			return errors.New("vector point needs an id and a subject id")
 		}
 		if len(p.Vector) != len(points[0].Vector) || len(p.Vector) == 0 {
 			return fmt.Errorf("vector point %s: every vector in a batch needs the same, non-zero dimension", p.ID)
@@ -221,7 +221,7 @@ func nonNil(m map[string]any) map[string]any {
 
 // ErrEmbeddedUnavailable is returned by OpenEmbedded in binaries built
 // without the surrealembed tag.
-var ErrEmbeddedUnavailable = errors.New("this build has no embedded SurrealDB; rebuild with -tags surrealembed (needs CGO and libsurrealdb_c) or connect to a SurrealDB server")
+var ErrEmbeddedUnavailable = errors.New("surrealstore: this build has no embedded SurrealDB; rebuild with -tags surrealembed (needs CGO and libsurrealdb_c) or connect to a SurrealDB server")
 
 // randomToken returns 128 random bits as hex.
 func randomToken() string {

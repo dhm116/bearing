@@ -39,7 +39,7 @@ type Point struct {
 
 // ErrNotFound is returned when a subject reference names nothing at the
 // point asked about.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = errors.New("query: not found")
 
 // maxMergeHops bounds how far a subject ID is followed through merges.
 const maxMergeHops = 16

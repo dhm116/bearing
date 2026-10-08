@@ -20,7 +20,7 @@ const OrgLogin = "acme"
 const orgDatabaseID = 81234567
 
 // ErrNotFound is returned by a mutation whose target isn't in the org.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = errors.New("fakes: not found")
 
 // Person is someone in the fictional org. GitHub or Directory is nil when
 // the person has no account there.
