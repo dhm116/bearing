@@ -77,7 +77,7 @@ is one event's writes:
 | `supports` | Support timelines: one source's versions of its support for one fact, with subject and object as written. |
 | `facts` | Fact status timelines: status, reason and confidence per valid-time span. Valid times no span covers have status `none`. |
 | `conflicts` | Conflict timelines, one per (subject, predicate). |
-| `issues` | Data-quality issue timelines, each under a key the resolver chooses. |
+| `issues` | Data-quality issue timelines, each under a key the resolver chooses. A key may name a subject the `ChangeSet` creates, by the [State keys](#state-keys) rule. |
 | `merges` | Applied in order, each seeing the merges before it. Each needs a rule. |
 | `unmerges` | Each un-merge's target is resolved against the state before the `ChangeSet`, not after the un-merges listed before it, and two un-merges may not claim the same merge record or subject. An un-merge has a ref (`new:<label>`, required, unique among the `ChangeSet`'s mints and un-merges) for the subject its aliases move to. |
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
@@ -87,11 +87,11 @@ subject the same `ChangeSet` creates; the store substitutes the minted ID.
 A timeline item replaces its series' current timeline: rows equal to a
 current row keep their `recorded_at`, other current rows are retracted at
 this apply's record time, new rows are recorded at it, and an empty
-timeline retracts the series. An alias or state key appears at most once
-in a `ChangeSet`. A support's `last_confirmed_at` is the exception to
-versioning: a confirmation updates it in place, without a new version, so
-it is not bitemporal. Items apply in this order: mints, un-merge targets,
-bindings, merges, un-merges, supports, facts, conflicts, issues, state.
+timeline retracts the series. An alias, state key or issue key appears at
+most once in a `ChangeSet`, judged after refs are substituted. A support's
+`last_confirmed_at` is the exception to versioning: a confirmation updates
+it in place, without a new version, so it is not bitemporal. Items apply in
+this order: mints, un-merge targets, bindings, merges, un-merges, supports, facts, conflicts, issues, state.
 
 A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support and a
@@ -143,16 +143,17 @@ from wall-clock time.
 
 #### State keys
 
-A state entry's key is opaque to the store, with one exception: the store
-splits it at `/` and replaces every segment that is exactly a ref declared
+A state entry's key, and the key of an issue timeline, is opaque to the
+store, with one exception: the store splits it at `/` and replaces every segment that is exactly a ref declared
 in the `ChangeSet` (a mint's or an un-merge's) by the subject ID the ref
 resolves to, as written: the minted ID, or for an un-merge the target, which
 may be an existing subject whose entry the write then replaces. The store
 does not canonicalize a subject in a key through merges. A segment that
 starts with `new:` and isn't a declared ref makes the `ChangeSet` invalid,
-as an unknown ref in a `subject_id` field does, and nothing is written. So
-the resolver can key what it remembers about a subject by the subject's ID
-in the event that creates it. A ref used in a key MUST NOT contain `/`. The
+as an unknown ref in a `subject_id` field does, and nothing is written. Two
+keys that become one after substitution are refused as a repeat. So the
+resolver can key what it remembers, or an issue it reports, about a subject
+by the subject's ID in the event that creates it. A ref used in a key MUST NOT contain `/`. The
 resolver MUST percent-encode `%`, `/` and `:` (as `%25`, `%2F` and `%3A`) in
 any source-supplied text it puts in a key, so that only a subject segment
 can be a ref and two different texts never share a key.
@@ -219,7 +220,7 @@ References are to sections of the [data model](data-model.md).
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
 | Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
 | Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Configuration apply, which reads the bindings and rejects the change. The store doesn't know key types. |
-| Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying. |
+| Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying (`too_large`). Compacting and splitting are not implemented yet: the resolver merges adjacent equal spans and rejects anything still over a limit. |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
 | Merge: same kind, both active | Store checks; resolver decides |
 | Merge triggers, policies, the guard, evidence re-evaluation | Resolver |

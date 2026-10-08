@@ -80,8 +80,40 @@ type predicateRules struct {
 // precedence and same_as are not applied yet. observed(object) lists the
 // valid-time intervals the relation's object has a live exists support.
 func statuses(rules predicateRules, facts []candidateFact, observed func(object string) []interval) [][]span {
+	out, _ := statusesAndConflicts(rules, facts, observed)
+	return out
+}
+
+// position is one source system's side of a disagreement: the facts (by
+// index) it supports at or above the threshold, and whether it holds an
+// authoritative support for any of them.
+type position struct {
+	group         string
+	authoritative bool
+	facts         []int
+}
+
+// conflictSpan is a disagreement over [from, to): each system's side, and the
+// rule that decided it, or none while it stands.
+type conflictSpan struct {
+	from, to   int64
+	positions  []position
+	resolution modelv1alpha1.ConflictResolution
+}
+
+func sameConflict(a, b conflictSpan) bool {
+	return a.resolution == b.resolution && slices.EqualFunc(a.positions, b.positions, func(x, y position) bool {
+		return x.group == y.group && x.authoritative == y.authoritative && slices.Equal(x.facts, y.facts)
+	})
+}
+
+// statusesAndConflicts is statuses, and also returns the disagreements the
+// predicate's conflict policy finds, whether they stand or authority decided
+// them (docs/spec/data-model.md, "Conflicts").
+func statusesAndConflicts(rules predicateRules, facts []candidateFact, observed func(object string) []interval) ([][]span, []conflictSpan) {
 	cuts := breakpoints(facts, observed, rules)
 	out := make([][]span, len(facts))
+	var conflicts []conflictSpan
 	for i := 0; i <= len(cuts); i++ {
 		from, to := int64(negInf), int64(posInf)
 		if i > 0 {
@@ -90,7 +122,16 @@ func statuses(rules predicateRules, facts []candidateFact, observed func(object 
 		if i < len(cuts) {
 			to = cuts[i]
 		}
-		for j, st := range rules.at(from, facts, observed) {
+		sts, cf := rules.at(from, facts, observed)
+		if cf != nil {
+			cf.from, cf.to = from, to
+			if n := len(conflicts); n > 0 && conflicts[n-1].to == from && sameConflict(conflicts[n-1], *cf) {
+				conflicts[n-1].to = to
+			} else {
+				conflicts = append(conflicts, *cf)
+			}
+		}
+		for j, st := range sts {
 			if st.status == modelv1alpha1.FactStatus_FACT_STATUS_NONE {
 				continue
 			}
@@ -102,7 +143,7 @@ func statuses(rules predicateRules, facts []candidateFact, observed func(object 
 			out[j] = append(out[j], st)
 		}
 	}
-	return out
+	return out, conflicts
 }
 
 func sameSpan(a, b span) bool {
@@ -142,13 +183,15 @@ func (r predicateRules) needsObserved() bool {
 	return r.relation && r.conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE
 }
 
+// perFact is what the live supports say about one fact at one valid time.
+type perFact struct {
+	groups map[string]uint32 // group -> maximum confidence
+	auth   map[string]bool   // group -> has an authoritative live support
+}
+
 // at computes every fact's status at one valid time; none for a fact with no
-// live support.
-func (r predicateRules) at(v int64, facts []candidateFact, observed func(string) []interval) []span {
-	type perFact struct {
-		groups map[string]uint32 // group -> maximum confidence
-		auth   map[string]bool   // group -> has an authoritative live support
-	}
+// live support. It also returns the disagreement at that time, if any.
+func (r predicateRules) at(v int64, facts []candidateFact, observed func(string) []interval) ([]span, *conflictSpan) {
 	state := make([]perFact, len(facts))
 	out := make([]span, len(facts))
 	for i, f := range facts {
@@ -207,7 +250,7 @@ func (r predicateRules) at(v int64, facts []candidateFact, observed func(string)
 		conflicted = setConflict(passing, agreeing)
 	}
 	if len(conflicted) == 0 {
-		return out
+		return out, nil
 	}
 	// Authority: when the systems that hold an authoritative support agree
 	// with each other, they decide. Otherwise the conflict stands.
@@ -229,6 +272,34 @@ func (r predicateRules) at(v int64, facts []candidateFact, observed func(string)
 	if r.conflict == modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_ONE && len(deciding) != 1 {
 		decided = false
 	}
+	cf := &conflictSpan{}
+	for _, g := range slices.Sorted(maps.Keys(agreeing)) {
+		if len(agreeing[g]) == 0 {
+			continue
+		}
+		auth := slices.ContainsFunc(agreeing[g], func(i int) bool { return state[i].auth[g] })
+		cf.positions = append(cf.positions, position{group: g, authoritative: auth, facts: agreeing[g]})
+	}
+	if len(cf.positions) == 0 {
+		// Each object passes on the combined confidence of several systems,
+		// none of which meets the threshold alone: a position is then what a
+		// system supports of the conflicted objects at any confidence, so a
+		// standing conflict always has one (the store refuses one without).
+		for _, g := range groupsOf(state, conflicted) {
+			var held []int
+			auth := false
+			for _, i := range conflicted {
+				if _, ok := state[i].groups[g]; ok {
+					held = append(held, i)
+					auth = auth || state[i].auth[g]
+				}
+			}
+			cf.positions = append(cf.positions, position{group: g, authoritative: auth, facts: held})
+		}
+	}
+	if decided {
+		cf.resolution = modelv1alpha1.ConflictResolution_CONFLICT_RESOLUTION_AUTHORITY
+	}
 	for _, i := range conflicted {
 		switch {
 		case decided && slices.Contains(deciding, i):
@@ -239,7 +310,7 @@ func (r predicateRules) at(v int64, facts []candidateFact, observed func(string)
 			out[i].status, out[i].reason = modelv1alpha1.FactStatus_FACT_STATUS_CONFLICTED, modelv1alpha1.StatusReason_STATUS_REASON_CONFLICT
 		}
 	}
-	return out
+	return out, cf
 }
 
 // setConflict returns, for a `set` predicate, the passing facts that are not
@@ -269,4 +340,15 @@ func setConflict(passing []int, agreeing map[string][]int) []int {
 		out = append(out, i)
 	}
 	return out
+}
+
+// groupsOf returns, sorted, the groups that support any of the facts.
+func groupsOf(state []perFact, facts []int) []string {
+	seen := map[string]bool{}
+	for _, i := range facts {
+		for g := range state[i].groups {
+			seen[g] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }

@@ -27,8 +27,8 @@ type linkTarget struct {
 // apart from becoming one: subjects that hold different `id` aliases of one
 // key type in one namespace never merge. Targets that the guard excludes from
 // each other are evidence for neither, so none of them merges; across applies
-// the first merge stands. The conflict records that flag such a pair come
-// with the next part.
+// the first merge stands. The pairs the guard keeps apart are listed as
+// id_conflict issues (issues.go).
 //
 // Evidence is judged when the observation that carries the link is applied.
 // A merge is never undone by evidence ending, so a later complete linked_ids
@@ -43,27 +43,38 @@ func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
 			if o.subject == t.subject {
 				continue
 			}
-			held, err := u.holdDifferentIDs(ctx, t.subject, o.subject)
+			clashing, err := u.clashingIDs(ctx, t.subject, o.subject)
 			if err != nil {
 				return err
 			}
-			clash = clash || held
+			clash = clash || len(clashing) > 0
+			u.flag(clashing, t.key)
 		}
 		chosen := u.g.mustCanon(ctx, u.chosen)
 		if clash || chosen == u.g.mustCanon(ctx, t.subject) {
 			continue
 		}
-		held, err := u.holdDifferentIDs(ctx, chosen, t.subject)
+		clashing, err := u.clashingIDs(ctx, chosen, t.subject)
 		if err != nil {
 			return err
 		}
-		if held {
+		u.flag(clashing, t.key)
+		if len(clashing) > 0 {
 			continue
 		}
 		u.merge(chosen, t.subject, modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE)
 		u.merges[len(u.merges)-1].Evidence = []*modelv1alpha1.Support{u.linkEvidence(t.key)}
 	}
 	return nil
+}
+
+// flag records the id aliases the guard kept apart, for id_conflict issues,
+// with the link that asked for the merge.
+func (u *run) flag(clashing []idClash, link keyRef) {
+	for _, c := range clashing {
+		c.support = u.linkEvidence(link)
+		u.idConflicts = append(u.idConflicts, c)
+	}
 }
 
 // linkEvidence is the support of the identity evidence an authoritative link
@@ -81,25 +92,34 @@ func (u *run) linkEvidence(k keyRef) *modelv1alpha1.Support {
 	}
 }
 
-// holdDifferentIDs reports whether two subjects hold different `id` aliases
-// of one key type in one namespace: the merge guard.
-func (u *run) holdDifferentIDs(ctx context.Context, a, b string) (bool, error) {
+// idClash is two id aliases of one key type in one namespace, held by two
+// subjects the guard therefore keeps apart.
+type idClash struct {
+	x, y    keyRef
+	a, b    string // the subjects holding x and y
+	support *modelv1alpha1.Support
+}
+
+// clashingIDs returns the id aliases that make the merge guard keep two
+// subjects apart.
+func (u *run) clashingIDs(ctx context.Context, a, b string) ([]idClash, error) {
 	ha, err := u.heldIDs(ctx, a)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	hb, err := u.heldIDs(ctx, b)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	var out []idClash
 	for _, x := range ha {
 		for _, y := range hb {
 			if x.groupKey() == y.groupKey() && x.key != y.key {
-				return true, nil
+				out = append(out, idClash{x: x, y: y, a: a, b: b})
 			}
 		}
 	}
-	return false, nil
+	return out, nil
 }
 
 // heldIDs returns the `id` aliases a canonical subject holds, counting the

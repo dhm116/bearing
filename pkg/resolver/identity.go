@@ -50,6 +50,8 @@ type run struct {
 	// consolidate lists the (survivor, merged) pairs whose deletion marks
 	// are still to be moved.
 	consolidate [][2]string
+	// idConflicts are the pairs the merge guard excluded, for data_quality.
+	idConflicts []idClash
 	// rejections are refusals made while resolving.
 	rejections []Rejection
 }

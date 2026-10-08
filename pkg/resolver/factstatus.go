@@ -23,12 +23,16 @@ func (r *factRun) statuses(ctx context.Context) error {
 		return err
 	}
 	var facts []*modelv1alpha1.FactTimeline
+	var conflicts []*modelv1alpha1.ConflictTimeline
 	emitted := map[string]bool{}
 	for _, k := range slices.Sorted(maps.Keys(dirty)) {
 		subject, pred := dirty[k][0], dirty[k][1]
-		timelines, err := r.groupStatuses(ctx, subject, pred)
+		timelines, ct, err := r.groupStatuses(ctx, subject, pred)
 		if err != nil {
 			return err
+		}
+		if ct != nil {
+			conflicts = append(conflicts, ct)
 		}
 		for _, ft := range timelines {
 			f, err := newFact(ft.GetSubjectId(), ft.GetPredicate(), ft.GetObject())
@@ -51,6 +55,7 @@ func (r *factRun) statuses(ctx context.Context) error {
 			facts = append(facts, &modelv1alpha1.FactTimeline{SubjectId: w.subject, Predicate: w.pred, Object: w.object})
 		}
 	}
+	conflicts = append(conflicts, r.retiredConflicts()...)
 	for _, k := range slices.Sorted(maps.Keys(r.out)) {
 		r.cs.Supports = append(r.cs.Supports, r.out[k])
 	}
@@ -60,6 +65,10 @@ func (r *factRun) statuses(ctx context.Context) error {
 		}
 	}
 	r.cs.Facts = append(r.cs.Facts, facts...)
+	r.cs.Conflicts = append(r.cs.Conflicts, conflicts...)
+	if err := r.issues(ctx); err != nil {
+		return err
+	}
 	entries, err := r.stateEntries()
 	if err != nil {
 		return err
@@ -87,6 +96,7 @@ func (r *factRun) expandExists(ctx context.Context, dirty map[string][2]string) 
 		if slices.Equal(before, observedIn(g)) {
 			continue
 		}
+		r.existsChanged[t.f.subject] = true
 		tls, err := r.supportsOf(ctx, t.f.subject)
 		if err != nil {
 			return err
@@ -164,11 +174,30 @@ func observedIn(g map[string]*groupFact) []interval {
 	return out
 }
 
-// groupStatuses computes the fact timelines of one subject's predicate.
-func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*modelv1alpha1.FactTimeline, error) {
+// retiredConflicts returns empty conflict timelines for the subjects the
+// ChangeSet merges away, for every predicate that can conflict: the survivor
+// answers for them now (docs/spec/contracts.md, "GraphStore").
+func (r *factRun) retiredConflicts() []*modelv1alpha1.ConflictTimeline {
+	var out []*modelv1alpha1.ConflictTimeline
+	for _, m := range slices.Sorted(maps.Keys(r.g.merged)) {
+		if isRef(m) {
+			continue
+		}
+		for _, p := range model.RegisteredPredicates() {
+			if reg, ok := model.LookupPredicate(p); ok && reg.Conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE {
+				out = append(out, &modelv1alpha1.ConflictTimeline{SubjectId: m, Predicate: p})
+			}
+		}
+	}
+	return out
+}
+
+// groupStatuses computes the fact timelines of one subject's predicate, and
+// the conflict timeline when the predicate has a conflict policy.
+func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*modelv1alpha1.FactTimeline, *modelv1alpha1.ConflictTimeline, error) {
 	g, err := r.group(ctx, subject, pred)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rules := predicateRules{threshold: r.ix.threshold}
 	if reg, ok := model.LookupPredicate(pred); ok {
@@ -183,7 +212,7 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*m
 		for _, source := range slices.Sorted(maps.Keys(gf.bySource)) {
 			auth, err := r.authoritative(ctx, source, gf.f)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			for _, v := range gf.bySource[source] {
 				candidates[i].supports = append(candidates[i].supports, support{
@@ -195,12 +224,12 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*m
 		if o := gf.f.objectSubject(); rules.needsObserved() && o != "" {
 			eg, err := r.group(ctx, o, model.PredicateExists)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			objects[gf.f.token] = observedIn(eg)
 		}
 	}
-	spans := statuses(rules, candidates, func(object string) []interval { return objects[object] })
+	spans, disagreements := statusesAndConflicts(rules, candidates, func(object string) []interval { return objects[object] })
 	out := make([]*modelv1alpha1.FactTimeline, len(ids))
 	for i, id := range ids {
 		ft := &modelv1alpha1.FactTimeline{SubjectId: g[id].f.subject, Predicate: pred, Object: g[id].f.object}
@@ -212,7 +241,24 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*m
 		}
 		out[i] = ft
 	}
-	return out, nil
+	if rules.conflict == modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE {
+		return out, nil, nil
+	}
+	ct := &modelv1alpha1.ConflictTimeline{SubjectId: subject, Predicate: pred}
+	for _, d := range disagreements {
+		c := &modelv1alpha1.Conflict{
+			SubjectId: subject, Predicate: pred, ValidFrom: timestampAt(d.from), ValidTo: timestampAt(d.to), Resolution: d.resolution,
+		}
+		for _, pos := range d.positions {
+			cp := &modelv1alpha1.ConflictPosition{SourceSystem: pos.group, Authority: &modelv1alpha1.Authority{Authoritative: pos.authoritative}}
+			for _, i := range pos.facts {
+				cp.Objects = append(cp.Objects, g[ids[i]].f.object)
+			}
+			c.Positions = append(c.Positions, cp)
+		}
+		ct.Conflicts = append(ct.Conflicts, c)
+	}
+	return out, ct, nil
 }
 
 // authoritative reports whether the source's declaration makes the fact's

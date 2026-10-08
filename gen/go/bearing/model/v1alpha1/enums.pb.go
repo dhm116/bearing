@@ -1143,6 +1143,9 @@ const (
 	// A required field is missing or not well formed (an unparsable key, a
 	// missing entity). The spec's list has no code for structural errors.
 	RejectionCode_REJECTION_CODE_MALFORMED RejectionCode = 15
+	// A ChangeSet over the store's count limits or MaxChangeSetBytes
+	// (contracts.CheckChangeSetLimits).
+	RejectionCode_REJECTION_CODE_TOO_LARGE RejectionCode = 16
 )
 
 // Enum value maps for RejectionCode.
@@ -1164,6 +1167,7 @@ var (
 		13: "REJECTION_CODE_ALREADY_MERGED",
 		14: "REJECTION_CODE_INVALID_OPERATION",
 		15: "REJECTION_CODE_MALFORMED",
+		16: "REJECTION_CODE_TOO_LARGE",
 	}
 	RejectionCode_value = map[string]int32{
 		"REJECTION_CODE_UNSPECIFIED":           0,
@@ -1182,6 +1186,7 @@ var (
 		"REJECTION_CODE_ALREADY_MERGED":        13,
 		"REJECTION_CODE_INVALID_OPERATION":     14,
 		"REJECTION_CODE_MALFORMED":             15,
+		"REJECTION_CODE_TOO_LARGE":             16,
 	}
 )
 
@@ -1322,7 +1327,7 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\tIssueType\x12\x1a\n" +
 	"\x16ISSUE_TYPE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cISSUE_TYPE_UNOBSERVED_OBJECT\x10\x01\x12\x1a\n" +
-	"\x16ISSUE_TYPE_ID_CONFLICT\x10\x02*\xd0\x04\n" +
+	"\x16ISSUE_TYPE_ID_CONFLICT\x10\x02*\xee\x04\n" +
 	"\rRejectionCode\x12\x1e\n" +
 	"\x1aREJECTION_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cREJECTION_CODE_KIND_MISMATCH\x10\x01\x12$\n" +
@@ -1340,7 +1345,8 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x1fREJECTION_CODE_INVALID_INTERVAL\x10\f\x12!\n" +
 	"\x1dREJECTION_CODE_ALREADY_MERGED\x10\r\x12$\n" +
 	" REJECTION_CODE_INVALID_OPERATION\x10\x0e\x12\x1c\n" +
-	"\x18REJECTION_CODE_MALFORMED\x10\x0fB=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
+	"\x18REJECTION_CODE_MALFORMED\x10\x0f\x12\x1c\n" +
+	"\x18REJECTION_CODE_TOO_LARGE\x10\x10B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
 
 var (
 	file_bearing_model_v1alpha1_enums_proto_rawDescOnce sync.Once

@@ -199,7 +199,9 @@ message IssueSpan {
 
 // IssueTimeline is the complete timeline of one data-quality issue.
 message IssueTimeline {
-  // The resolver's key for the issue, e.g. its type and subjects.
+  // The resolver's key for the issue, e.g. its type and subjects. The store
+  // substitutes refs in it as in a state entry's key (docs/spec/contracts.md,
+  // "State keys").
   string key = 1;
   // Spans that don't overlap in valid time.
   repeated IssueSpan spans = 2;
