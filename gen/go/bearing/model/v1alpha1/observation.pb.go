@@ -130,8 +130,10 @@ type Entity struct {
 	// linked_ids is this source's complete set of links for the entity at
 	// the observation's time: evidence from this source for any link not
 	// listed ends then, and an empty list ends all of it. Unset, linked_ids
-	// only adds evidence and ends none. Set it whenever the source read the
-	// entity's full set of links.
+	// only adds evidence and ends none. Set it only when the source read the
+	// entity's full set of links, never after a failed or partial read. The
+	// core ignores it if it drops any listed link, and a deleted entity ends
+	// its links whatever it says.
 	LinkedIdsComplete bool `protobuf:"varint,7,opt,name=linked_ids_complete,json=linkedIdsComplete,proto3" json:"linked_ids_complete,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

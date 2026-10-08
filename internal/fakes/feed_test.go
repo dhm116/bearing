@@ -63,11 +63,11 @@ func recordFeed(t *testing.T, d *Directory, at time.Time) []*eventv1alpha1.Obser
 				"email": structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue(u.Email)}}),
 			},
 		}
-		// The OAuth connection is the authoritative link: the next-format
-		// node ID derives from the numeric ID it records.
 		// The fake reads the whole OAuth connection list, so the link list
 		// is complete, even if empty.
 		e.LinkedIdsComplete = true
+		// The OAuth connection is the authoritative link: the next-format
+		// node ID derives from the numeric ID it records.
 		if id, ok := githubID[u.PK]; ok {
 			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", nextNodeID("U", id))))
 		}
@@ -273,6 +273,9 @@ func TestDirectoryFeedLinksMatchGitHub(t *testing.T) {
 			p, ok := o.Person(username)
 			if !ok || p.Directory == nil || e.GetKey() != "authentik:user/"+p.Directory.UUID {
 				t.Fatalf("%s: no person %s with that UUID in the seed", ob.GetId(), username)
+			}
+			if !e.GetLinkedIdsComplete() {
+				t.Fatalf("%s: the fake reads every link, so the feed must say the list is complete", ob.GetId())
 			}
 			for _, l := range e.GetLinkedIds() {
 				if p.GitHub == nil || served[p.GitHub.Login] == "" ||

@@ -192,7 +192,7 @@
         },
         "^(linkedIdsComplete)$": {
           "default": false,
-          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it whenever the source read the\n entity's full set of links.",
+          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it only when the source read the\n entity's full set of links, never after a failed or partial read. The\n core ignores it if it drops any listed link, and a deleted entity ends\n its links whatever it says.",
           "type": "boolean"
         }
       },
@@ -238,7 +238,7 @@
         },
         "linked_ids_complete": {
           "default": false,
-          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it whenever the source read the\n entity's full set of links.",
+          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it only when the source read the\n entity's full set of links, never after a failed or partial read. The\n core ignores it if it drops any listed link, and a deleted entity ends\n its links whatever it says.",
           "type": "boolean"
         }
       },

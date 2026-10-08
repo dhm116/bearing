@@ -161,6 +161,17 @@ func TestLinkedIDsCompleteSurvivesWithAnEmptyList(t *testing.T) {
 	}
 }
 
+// Unflagged, a list only adds evidence.
+func TestLinkedIDsAreAddOnlyByDefault(t *testing.T) {
+	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/5-person-linked-ids.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := o.GetData().GetEntity(); len(e.GetLinkedIds()) == 0 || e.GetLinkedIdsComplete() {
+		t.Fatalf("got linked_ids %v, complete %v, want some and not complete", e.GetLinkedIds(), e.GetLinkedIdsComplete())
+	}
+}
+
 // invalidFixtures names the one rejection code each invalid fixture must
 // produce. REJECTION_CODE_UNSPECIFIED means it must fail to decode.
 var invalidFixtures = map[string]modelv1alpha1.RejectionCode{
