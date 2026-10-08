@@ -326,15 +326,24 @@ func TestEveryAnswerCarriesProvenance(t *testing.T) {
 	if len(e.Facts) == 0 {
 		t.Fatal("no facts")
 	}
+	var derived int
 	for _, f := range e.Facts {
 		if len(f.Supports) == 0 {
 			t.Errorf("fact %s %s has no supports", f.Predicate, f.Object)
 		}
+		want := githubSource
+		if f.Predicate == "owned_by" {
+			want = codeownersSource
+			derived++
+		}
 		for _, s := range f.Supports {
-			if (s.Source != githubSource && s.Source != codeownersSource) || s.EventID == "" || s.ObservedAt.IsZero() || s.ConfidencePPM == 0 {
+			if s.Source != want || s.EventID == "" || s.ObservedAt.IsZero() || s.ConfidencePPM == 0 {
 				t.Errorf("fact %s %s: support %+v lacks a source, event, observed time or confidence", f.Predicate, f.Object, s)
 			}
 		}
+	}
+	if derived == 0 {
+		t.Error("get shows no owned_by fact: want the one derived from CODEOWNERS")
 	}
 	var c query.Changes
 	ask(t, w, &c, "changes", "--since", "2026-10-01T00:00:00Z")
