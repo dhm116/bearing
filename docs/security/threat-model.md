@@ -4,7 +4,7 @@ Status: draft for the MVP · Last reviewed: 2026-10-03
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
-threat. It follows ADRs 2 and 4–10 plus the MVP security decisions. ADR 9,
+threat. It follows ADRs 2, 4–10 and 12 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
 [WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
 default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands.
@@ -12,8 +12,10 @@ Adapters that can't run as WASM run as local processes serving the
 Protobuf adapter service on a Unix socket, with the exceptions in B2; ADR
 3's stdio transport is retired (ADR 9 A13). Where
 an ADR says otherwise, this document records the decision and the ADR is
-to be amended: in particular the host, not the adapter, authenticates
-webhook deliveries (C-INGEST-2, ADR 9 A6). Where today's code differs, the
+to be amended. ADRs 7, 8 and 9 now carry the main amendments: the host,
+not the adapter, authenticates webhook deliveries (C-INGEST-2, ADR 9 A6),
+audit checkpoints live outside the store (C-AUDIT-3), and Extism's own
+host functions are off (C-ADAPTER-1). Where today's code differs, the
 control is a requirement on the code.
 
 To report a vulnerability, see [SECURITY.md](../../SECURITY.md).

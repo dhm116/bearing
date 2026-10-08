@@ -31,6 +31,16 @@ record that can't be lost or quietly edited.
 - **Tamper evidence.** Each record includes a hash of the previous record, so
   a gap or an edit breaks the chain. `bearing audit verify` checks the
   chain.
+- **Checkpoints outside the store.** A chain kept only in the store can be
+  rewritten end to end by whoever can write to the store, and the result
+  still verifies. So at an interval, and at every retention cut, Bearing
+  writes a checkpoint (sequence number, head hash and time) somewhere the
+  store's writers can't reach: the log stream, a file or the configured
+  exporter, never the store itself. Checkpoints are signed with a key held
+  outside the store when one is configured (threat model C-AUDIT-3). A
+  rewritten chain no longer matches the checkpoints, and `bearing audit
+  verify` checks the chain and every checkpoint it is given (C-AUDIT-4).
+  *Amended 2026-10-08: the original chain had no external anchor.*
 - **Storage.** The default is an append-only table in the main store,
   written in the same transaction as the change it describes: no change
   without its record. An optional exporter streams records to object
@@ -59,3 +69,10 @@ transaction as the change, and form a hash chain.
   exports must respect the organization's data rules.
 - New `conformance.AuditLog` suite: append-only, ordering, and the hash chain
   breaking on tampering.
+- The chain alone shows that records are consistent with each other, not
+  that none was replaced. Only checkpoints kept outside the store show
+  that, and only for records older than the latest checkpoint, so the
+  interval bounds how much recent history an attacker with store access
+  can rewrite undetected. Operators must keep checkpoints where the store's
+  writers can't edit them, and a signing key (if used) is a secret
+  (threat model C-SECRET-1).
