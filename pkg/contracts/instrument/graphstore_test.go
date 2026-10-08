@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
@@ -103,6 +104,7 @@ func TestGraphMetrics(t *testing.T) {
 		"bearing.graph.subjects.minted",
 		"bearing.graph.subjects.merged",
 		"bearing.graph.key.lookups",
+		"bearing.graph.state_entry.bytes",
 	} {
 		if !seen[name] {
 			t.Errorf("metric %s was not recorded", name)
@@ -140,5 +142,48 @@ func TestKeyLookupsLabelUnconfiguredNamespacesOther(t *testing.T) {
 	}
 	if len(labels) != 2 || !labels["github"] || !labels["other"] {
 		t.Fatalf("got namespace labels %v, want github and other", labels)
+	}
+}
+
+// A state entry's size is recorded under the resolver's key prefix, and any
+// other prefix is "other", so keys can't grow the label set.
+func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
+	s, _, _ := newStore(t)
+	ctx := context.Background()
+	val := func(n int) *anypb.Any { return &anypb.Any{TypeUrl: "t", Value: make([]byte, n)} }
+	cs := &modelv1alpha1.ChangeSet{EventId: "state-sizes", State: []*modelv1alpha1.StateEntry{
+		{Key: "sup/github/a/owned_by/b", Value: val(3000)},
+		{Key: "sup/github/a/owned_by/c", Value: val(5000)},
+		{Key: "wm/github/a/out/owned_by", Value: val(700)},
+		{Key: "attacker-1234/x", Value: val(9)},
+	}}
+	if _, err := s.Apply(ctx, cs); err != nil {
+		t.Fatal(err)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if h, ok := m.Data.(metricdata.Histogram[int64]); ok && m.Name == "bearing.graph.state_entry.bytes" {
+				for _, dp := range h.DataPoints {
+					v, _ := dp.Attributes.Value("bearing.state.prefix")
+					got[v.AsString()] += dp.Sum
+				}
+			}
+		}
+	}
+	for prefix, min := range map[string]int64{"sup": 8000, "wm": 700} {
+		if got[prefix] < min {
+			t.Errorf("prefix %s: got %d bytes recorded, want at least %d", prefix, got[prefix], min)
+		}
+	}
+	if _, ok := got["attacker-1234"]; ok {
+		t.Errorf("got labels %v, want an unknown prefix recorded as other", got)
+	}
+	if got["other"] < 9 {
+		t.Errorf("got %d bytes under other, want at least 9", got["other"])
 	}
 }

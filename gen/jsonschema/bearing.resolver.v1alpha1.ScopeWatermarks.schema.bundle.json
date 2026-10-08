@@ -52,7 +52,7 @@
     "bearing.resolver.v1alpha1.ScopeWatermarks.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "ScopeWatermarks is every watermark of one scope (source, subject,\n direction and predicates, or the subject's identity evidence), sorted by\n `at`. A watermark is dropped once another with an earlier or equal `at`\n has a greater or equal key.",
+      "description": "ScopeWatermarks is every watermark of one scope (source, subject,\n direction and predicates, or the subject's identity evidence), sorted by\n `at`. A watermark is dropped once another with an earlier or equal `at`\n has a greater or equal key. Each sync of the scope adds one, about 200\n bytes, and watermarks at later times are not dropped.",
       "properties": {
         "watermarks": {
           "description": "The watermarks.",
