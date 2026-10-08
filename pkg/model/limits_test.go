@@ -1,6 +1,7 @@
 package model
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,28 +58,55 @@ func TestValidateObservationRejectsDeepValues(t *testing.T) {
 	wantCode(t, err, codeMalformed)
 }
 
+// bytesPerRun returns the bytes f allocates per call, averaged over several.
+// The Go test runner runs this package's tests one at a time, so nothing else
+// allocates meanwhile.
+func bytesPerRun(f func()) float64 {
+	const runs = 20
+	f()
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	for range runs {
+		f()
+	}
+	runtime.ReadMemStats(&after)
+	return float64(after.TotalAlloc-before.TotalAlloc) / runs
+}
+
 // TestValidateObservationIsLinear checks that validating a deep, wide value
-// tree costs allocations in proportion to its size, by comparing a tree with
-// four times as many nodes.
+// tree allocates bytes in proportion to its size. It compares trees with four
+// times as many nodes, one wider and one deeper, up to MaxValueDepth: a
+// per-node cost that grew with depth (building every node's path, say) would
+// make the deeper tree cost about sixteen times as much.
 func TestValidateObservationIsLinear(t *testing.T) {
-	tree := func(width int) *eventv1alpha1.Observation {
+	tree := func(width, depth int) *eventv1alpha1.Observation {
 		fields := map[string]*structpb.Value{}
 		for i := range width {
-			fields["k"+strconv.Itoa(i)] = nested(MaxValueDepth-1, structpb.NewStringValue("x"))
+			fields["k"+strconv.Itoa(i)] = nested(depth-1, structpb.NewStringValue("x"))
 		}
 		return observationWith(map[string]*structpb.Value{"deep": structpb.NewStructValue(&structpb.Struct{Fields: fields})})
 	}
-	small, large := tree(50), tree(200)
-	allocs := func(o *eventv1alpha1.Observation) float64 {
-		return testing.AllocsPerRun(3, func() {
+	bytesFor := func(o *eventv1alpha1.Observation) float64 {
+		return bytesPerRun(func() {
 			if err := ValidateObservation(o); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
-	a, b := allocs(small), allocs(large)
-	if ratio := b / a; ratio > 6 {
-		t.Fatalf("got %.0f allocations for 4x the nodes vs %.0f (ratio %.1f), want about 4", b, a, ratio)
+	for _, tt := range []struct {
+		name         string
+		small, large *eventv1alpha1.Observation
+	}{
+		{"wider", tree(50, MaxValueDepth-1), tree(200, MaxValueDepth-1)},
+		{"deeper", tree(50, (MaxValueDepth-1)/4), tree(50, MaxValueDepth-1)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, b := bytesFor(tt.small), bytesFor(tt.large)
+			if ratio := b / a; ratio > 6 {
+				t.Fatalf("got %.0f bytes for about 4x the nodes vs %.0f (ratio %.1f), want about 4", b, a, ratio)
+			}
+		})
 	}
 }
 

@@ -1,12 +1,14 @@
 package adapter
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -77,12 +79,12 @@ func TestDescribeFillsProtocolVersion(t *testing.T) {
 func TestSyncAllPagesUntilDone(t *testing.T) {
 	c := connect(t, pager{n: 3})
 	var keys []model.Key
-	err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
 		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || sum != (SyncSummary{Pages: 3, Accepted: 3}) {
+		t.Fatalf("got %v and %+v, want 3 pages and 3 accepted", err, sum)
 	}
 	want := []model.Key{"test:team/t0", "test:team/t1", "test:team/t2"}
 	if len(keys) != len(want) {
@@ -97,7 +99,7 @@ func TestSyncAllPagesUntilDone(t *testing.T) {
 
 func TestSyncAllStopsRunawayAdapters(t *testing.T) {
 	c := connect(t, pager{n: 1000})
-	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
+	_, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 	if !errors.Is(err, ErrTooManyPages) {
 		t.Fatalf("got %v, want ErrTooManyPages", err)
 	}
@@ -192,26 +194,54 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
-// badKeys emits one observation whose key doesn't parse.
-type badKeys struct{ pager }
+// mixed emits two pages. The first holds a good observation, one whose key
+// doesn't parse (rejected whole), one with a relation of an unregistered type
+// (rejected claim only) and one with a bearingsource only the core may set;
+// the second holds a good observation, to show the sync goes on.
+type mixed struct{ pager }
 
-func (badKeys) Sync(context.Context, SyncParams) (SyncResult, error) {
-	o := model.NewObservation("adapter/bad", time.Unix(0, 0), &modelv1alpha1.ObservationData{
-		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "no key"},
-	})
-	return SyncResult{Observations: Observations{o}, Done: true}, nil
+func (mixed) Sync(_ context.Context, sp SyncParams) (SyncResult, error) {
+	team := func(key string, rels ...*modelv1alpha1.Relation) *eventv1alpha1.Observation {
+		return model.NewObservation("adapter/mixed", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+			Entity:    &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: key},
+			Relations: rels,
+		})
+	}
+	if sp.Cursor != "" {
+		return SyncResult{Observations: Observations{team("test:team/last")}, Done: true}, nil
+	}
+	withSource := team("test:team/sourced")
+	withSource.Bearingsource = "github-acme"
+	return SyncResult{Observations: Observations{
+		team("test:team/good"),
+		team("no key"),
+		team("test:team/partly", &modelv1alpha1.Relation{Type: "likes", End: &modelv1alpha1.Relation_To{To: "test:team/x"}}),
+		withSource,
+	}, NextCursor: "2"}, nil
 }
 
-func TestSyncAllRejectsInvalidObservations(t *testing.T) {
-	c := connect(t, badKeys{})
-	emitted := 0
-	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error {
-		emitted++
+func TestSyncAllSkipsAndCountsRejections(t *testing.T) {
+	c := connect(t, mixed{})
+	var keys []string
+	var rels []int
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
+		keys = append(keys, o.GetData().GetEntity().GetKey())
+		rels = append(rels, len(o.GetData().GetRelations()))
 		return nil
 	})
-	var ve *model.ValidationError
-	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) || emitted != 0 {
-		t.Fatalf("got %v after %d emitted, want a malformed-key rejection before any emit", err, emitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The key that doesn't parse and the bearingsource reject their
+	// observations; the unregistered relation only its claim.
+	if want := []string{"test:team/good", "test:team/partly", "test:team/last"}; !slices.Equal(keys, want) {
+		t.Fatalf("emitted %v, want %v", keys, want)
+	}
+	if !slices.Equal(rels, []int{0, 0, 0}) {
+		t.Fatalf("got %v relations per observation, want the rejected claim removed", rels)
+	}
+	if want := (SyncSummary{Pages: 2, Accepted: 3, RejectedObservations: 2, RejectedClaims: 1}); sum != want {
+		t.Fatalf("got %+v, want %+v", sum, want)
 	}
 }
 
@@ -233,25 +263,23 @@ func TestObservationsJSONRoundTrip(t *testing.T) {
 	if len(out.Observations) != 1 || !proto.Equal(out.Observations[0], in[0]) {
 		t.Fatalf("got %v, want %v", out.Observations, in)
 	}
-	for _, bad := range []string{`{"observations":{}}`, `{"observations":[{"nope":1}]}`} {
-		if err := json.Unmarshal([]byte(bad), &out); err == nil {
-			t.Errorf("decoding %s: got no error, want one", bad)
-		}
+	if err := json.Unmarshal([]byte(`{"observations":{}}`), &out); err == nil {
+		t.Error("decoding a non-array: got no error, want one")
+	}
+	// A sync page keeps going past an observation it can't decode; a
+	// delivery's result doesn't.
+	if err := json.Unmarshal([]byte(`{"observations":[{"nope":1}]}`), &out); err != nil || len(out.Observations) != 0 || len(out.Undecodable) != 1 {
+		t.Errorf("sync page: got %v, %+v; want it decoded with one undecodable", err, out)
+	}
+	var handled HandleResult
+	if err := json.Unmarshal([]byte(`{"observations":[{"nope":1}]}`), &handled); err == nil {
+		t.Error("delivery: got no error for an undecodable observation, want one")
 	}
 }
 
-// coreFields emits observations an adapter must not send: Sync sets
-// bearingsource, and Handle returns one with a bad key unless the body is
-// "ok", and nanosecond times either way.
+// coreFields: Handle returns an observation with a bad key unless the body
+// is "ok", and nanosecond times either way.
 type coreFields struct{ pager }
-
-func (coreFields) Sync(context.Context, SyncParams) (SyncResult, error) {
-	o := model.NewObservation("adapter/x", time.Unix(0, 0), &modelv1alpha1.ObservationData{
-		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "x:team/a"},
-	})
-	o.Bearingsource = "github-acme"
-	return SyncResult{Observations: Observations{o}, Done: true}, nil
-}
 
 func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error) {
 	key := "no key"
@@ -263,15 +291,6 @@ func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error
 	})
 	o.Time.Nanos = 123_456_789
 	return HandleResult{Observations: Observations{o}}, nil
-}
-
-func TestSyncAllRejectsBearingSource(t *testing.T) {
-	c := connect(t, coreFields{})
-	err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
-	var ve *model.ValidationError
-	if !errors.As(err, &ve) || !strings.Contains(err.Error(), "bearingsource") {
-		t.Fatalf("got %v, want bearingsource rejected", err)
-	}
 }
 
 func TestClientHandleValidatesAndTruncates(t *testing.T) {
@@ -287,5 +306,67 @@ func TestClientHandleValidatesAndTruncates(t *testing.T) {
 	}
 	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
 		t.Fatalf("got nanos %d, want 123456000", got)
+	}
+}
+
+// TestSyncAllSkipsUndecodableObservationsOnTheWire sends a page over the real
+// client with an unknown field on the middle observation: the page and the
+// sync survive, and the summary counts it.
+func TestSyncAllSkipsUndecodableObservationsOnTheWire(t *testing.T) {
+	reqR, reqW := io.Pipe()
+	respR, respW := io.Pipe()
+	good := func(key string) string {
+		return `{"specversion":"1.0","id":"` + key + `","source":"adapter/raw","type":"dev.bearing.observation.v1","time":"1970-01-01T00:00:00Z",` +
+			`"data":{"entity":{"kind":"Team","key":"` + key + `"}}}`
+	}
+	go func() {
+		defer func() { _ = respW.Close() }()
+		sc := bufio.NewScanner(reqR)
+		for sc.Scan() {
+			var req struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if json.Unmarshal(sc.Bytes(), &req) != nil {
+				return
+			}
+			page := `{"observations":[` + good("test:team/a") + `,{"specversion":"1.0","traceparent":"` + strings.Repeat("x", 5000) + `"},` +
+				good("test:team/b") + `],"done":true}`
+			_, _ = io.WriteString(respW, `{"jsonrpc":"2.0","id":`+string(req.ID)+`,"result":`+page+"}\n")
+		}
+	}()
+	t.Cleanup(func() { _ = reqW.Close() })
+	c := NewClient("raw", respR, reqW)
+	var keys []string
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
+		keys = append(keys, o.GetData().GetEntity().GetKey())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(keys, []string{"test:team/a", "test:team/b"}) {
+		t.Fatalf("emitted %v, want the two decodable observations", keys)
+	}
+	if want := (SyncSummary{Pages: 1, Accepted: 2, RejectedObservations: 1}); sum != want || sum.Complete() {
+		t.Fatalf("got %+v (complete %v), want %+v and not complete", sum, sum.Complete(), want)
+	}
+	// The decode error carries the adapter's text, so it must be cut.
+	var res SyncResult
+	if err := json.Unmarshal([]byte(`{"observations":[{"traceparent":"`+strings.Repeat("x", 5000)+`"}]}`), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Undecodable) != 1 || len(res.Undecodable[0]) > 2*model.MaxQuoted {
+		t.Fatalf("got %d undecodable, first %d bytes; want one cut to about %d", len(res.Undecodable), len(res.Undecodable[0]), model.MaxQuoted)
+	}
+}
+
+func TestSyncSummaryCompleteIgnoresRejectedClaims(t *testing.T) {
+	c := connect(t, mixed{})
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	if err != nil || sum.Complete() {
+		t.Fatalf("got %+v (%v), want a sync that skipped observations to be incomplete", sum, err)
+	}
+	if !(SyncSummary{Pages: 1, Accepted: 3, RejectedClaims: 2}).Complete() {
+		t.Fatal("got incomplete for a sync that only lost claims, want complete: every entity was seen")
 	}
 }

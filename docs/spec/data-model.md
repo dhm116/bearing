@@ -552,6 +552,19 @@ Example (CloudEvents envelope fields `specversion`, `type`,
   (`<source>/<delivery or content id>`), so two sources' delivery IDs can't
   collide.
 - Source names `manual` and anything starting `core/` are reserved.
+- Adapters MUST NOT send `exists` (every observation of an entity claims it
+  implicitly) or `bearingsource`. Both are `malformed`.
+- Observations are decoded strictly. A field the schema doesn't define is
+  `malformed`, including any CloudEvents extension attribute other than
+  `bearingsource`, which only the core sets. Readers don't ignore unknown
+  fields: a misspelled field name would otherwise drop a claim without a
+  trace, and nothing needs extensions, since trace context travels in the
+  adapter protocol's `_meta`, not in observations. A newer adapter that
+  sends a field this version doesn't know is rejected until the core is
+  upgraded.
+- Strings MUST be valid UTF-8. Attribute, qualifier and claim values are
+  JSON trees of at most 32 levels, and a list or object holds at most
+  10,000 entries; anything beyond that is `malformed`.
 - An adapter that read an attribute and found it empty MUST send `null`
   (or `[]` for a `many` predicate). Omitting an attribute means "not read".
 
@@ -624,6 +637,15 @@ A scope MUST be complete within one observation; it cannot span pages. A
 source MUST NOT declare one unless it read the complete set (not after a
 permission error or a file it couldn't parse).
 
+A rejected claim means the observation no longer lists every fact in the
+scopes that cover it, and ending the facts it should have kept would be worse
+than leaving stale ones. So when the core drops a claim
+([Audit](#audit): claim-scoped rejections), it also removes that claim's
+predicate from the observation's scopes in the claim's direction (`out` for
+attributes and `to` relations, `in` for `from` relations), and a `["*"]` scope
+in that direction goes whole. Facts the source no longer lists are then left
+as they are.
+
 ### Sync completeness
 
 The last page of a sync (`done: true`) MAY declare
@@ -634,7 +656,11 @@ a snapshot read); offset paging can skip items.
 
 - The **sync** is identified by its `SyncRequested` event ID; `t0` is that
   event's time, earlier than every request the sync sends.
-- A sync is **complete** when every page succeeded. If the core restarts
+- A sync is **complete** when every page succeeded and the core accepted
+  every observation on them. A skipped observation (one rejected whole, or
+  one that couldn't be decoded) means an entity the source did show may be
+  missing from the sync, so such a sync is not complete; a dropped claim
+  does not change that, since the entity was seen. If the core restarts
   it with an empty cursor ("reset"), that is a new sync and the earlier one
   is never complete.
 - A subject of a declared kind that had a live `exists` support from this
@@ -1130,7 +1156,7 @@ applies.
 | `invalid_interval` | claim | [Claims](#claims) |
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset) |
-| `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates) |
+| `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
 
 ## Wire mapping
 

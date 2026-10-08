@@ -164,12 +164,26 @@ var invalidFixtures = map[string]modelv1alpha1.RejectionCode{
 	"missing-time.json":                         codeMalformed,
 	"non-canonical-time.json":                   codeInvalidValue,
 	"type-mismatch.json":                        codeTypeMismatch,
-	"unknown-field.json":                        modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED,
+	"unknown-field.json":                        codeMalformed,
 	"unknown-kind.json":                         codeNotDeclared,
 	"unknown-relation.json":                     codeNotDeclared,
 	"valid-to-before-valid-from.json":           codeInvalidInterval,
 	"valid-to-equals-valid-from.json":           codeInvalidInterval,
 	"wrong-type.json":                           codeMalformed,
+}
+
+// claimFixtures are the invalid fixtures whose problems reject only a claim;
+// the others reject the whole observation.
+var claimFixtures = map[string]bool{
+	"confidence-out-of-range.json":    true,
+	"confidence-zero.json":            true,
+	"core-predicate.json":             true,
+	"domain-mismatch.json":            true,
+	"non-canonical-time.json":         true,
+	"type-mismatch.json":              true,
+	"unknown-relation.json":           true,
+	"valid-to-before-valid-from.json": true,
+	"valid-to-equals-valid-from.json": true,
 }
 
 func TestInvalidObservationsAreRejected(t *testing.T) {
@@ -187,24 +201,26 @@ func TestInvalidObservationsAreRejected(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s has no entry in invalidFixtures", name)
 			}
-			o := &eventv1alpha1.Observation{}
-			err := DecodeJSON(readFixture(t, file), o)
-			if want == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED {
-				if err == nil {
-					t.Fatal("got no decode error, want one")
-				}
-				return
+			// unknown-field.json fails in decoding, which DecodeObservation
+			// reports as malformed; every other fixture decodes.
+			b := readFixture(t, file)
+			if err := DecodeJSON(b, &eventv1alpha1.Observation{}); (err != nil) != (name == "unknown-field.json") {
+				t.Fatalf("decoding: got %v", err)
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = ValidateObservation(o)
+			_, err := DecodeObservation(b)
 			ve, ok := err.(*ValidationError) //nolint:errorlint // ValidateObservation returns it unwrapped
 			if !ok {
 				t.Fatalf("got %v, want a *ValidationError", err)
 			}
 			if got := ve.Codes(); !slices.Equal(got, []modelv1alpha1.RejectionCode{want}) {
 				t.Fatalf("got codes %v (%v), want only %v", got, err, want)
+			}
+			wantScope := ScopeObservation
+			if claimFixtures[name] {
+				wantScope = ScopeClaim
+			}
+			if got := ve.Scope(); got != wantScope {
+				t.Fatalf("got scope %v, want %v", got, wantScope)
 			}
 		})
 	}

@@ -102,12 +102,12 @@ func TestSyncWalksReposThenTeams(t *testing.T) {
 	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL, PerPage: 1})
 
 	var got adapter.Observations
-	err := adapter.SyncAll(context.Background(), a, cfg, 20, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(context.Background(), a, cfg, 20, func(o *eventv1alpha1.Observation) error {
 		got = append(got, o)
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || sum.RejectedObservations+sum.RejectedClaims != 0 {
+		t.Fatalf("got %v and %+v, want a clean sync", err, sum)
 	}
 
 	var keys []model.Key
@@ -331,7 +331,7 @@ func TestSyncFollowsTheFictionalOrg(t *testing.T) {
 	sync := func() map[string][]string {
 		t.Helper()
 		got := map[string][]string{} // entity key -> its relations, "type to (file)"
-		err := adapter.SyncAll(context.Background(), a, cfg, 50, func(o *eventv1alpha1.Observation) error {
+		sum, err := adapter.SyncAll(context.Background(), a, cfg, 50, func(o *eventv1alpha1.Observation) error {
 			key := o.GetData().GetEntity().GetKey()
 			got[key] = append(got[key], "seen")
 			for _, r := range o.GetData().GetRelations() {
@@ -339,8 +339,8 @@ func TestSyncFollowsTheFictionalOrg(t *testing.T) {
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatal(err)
+		if err != nil || sum.RejectedObservations+sum.RejectedClaims != 0 {
+			t.Fatalf("got %v and %+v, want a clean sync", err, sum)
 		}
 		return got
 	}

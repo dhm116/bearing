@@ -129,6 +129,23 @@ Result:
 - A page SHOULD stay well under 32 MiB.
 - The core runs a full sync on a schedule even when webhooks are configured,
   to catch missed deliveries and to backfill history.
+- A rejection removes only its scope ([Audit](data-model.md#audit)). A
+  problem scoped to a claim (`not_declared` for a predicate,
+  `domain_mismatch`, `type_mismatch`, `core_predicate`, `invalid_value`,
+  `invalid_interval`) drops that claim, and the sync goes on with the rest of
+  the observation (and with the snapshot scopes that covered the claim
+  trimmed, see [Snapshot scopes](data-model.md#snapshot-scopes)). Any other
+  problem, and an observation the host can't decode (an unknown field, a bad
+  enum name), skips the whole observation without failing the page. Either
+  way the sync continues, and the host counts and logs each rejection
+  instead of aborting a sync that may hold thousands of good observations.
+  Adapters MUST NOT rely on a rejection to stop a sync.
+- An observation left with no claims is still accepted: it asserts only that
+  its entity exists. A dropped claim that ended a fact (`absent`) leaves the
+  fact live.
+- A sync that skipped any observation is not complete in the sense of
+  [Sync completeness](data-model.md#sync-completeness), so the core won't
+  take what it didn't see as deletions.
 
 ### `bearing.handle` (optional)
 
@@ -155,6 +172,8 @@ Result:
   check is the only one. This spec changes when the host verifier ships,
   or with the move to WASM adapters at the latest.)
 - Events the adapter doesn't understand return an empty list, not an error.
+- One invalid observation in a delivery's result fails the call: a delivery
+  is one event, not a sweep.
 - Adapters without webhook support return error `-32001`.
 
 ## Errors
@@ -200,5 +219,5 @@ difference.
 
 ```sh
 bearing adapter describe -- ./my-adapter
-bearing adapter sync --config cfg.json -- ./my-adapter > obs.ndjson   # stops at the first invalid observation
+bearing adapter sync --config cfg.json -- ./my-adapter > obs.ndjson   # writes the valid observations; exits non-zero if any were rejected
 ```

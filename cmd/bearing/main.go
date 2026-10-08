@@ -155,7 +155,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
 	n := 0
-	err = adapter.SyncAll(ctx, c, config, *maxPages, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(ctx, c, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
 		b, err := model.EncodeJSON(o)
 		if err != nil {
@@ -165,5 +165,10 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 		return err
 	})
 	telemetry.Logger("cmd/bearing").InfoContext(ctx, "observations written", "count", n)
+	if err == nil && sum.RejectedObservations+sum.RejectedClaims > 0 {
+		// The valid observations are written; the exit status says the adapter
+		// is not clean, and the log names each rejection.
+		err = fmt.Errorf("rejected %d observation(s) and %d claim(s); see the log", sum.RejectedObservations, sum.RejectedClaims)
+	}
 	return err
 }
