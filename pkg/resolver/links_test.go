@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -94,9 +96,9 @@ func TestAuthoritativeLinkRepeatedMergesOnce(t *testing.T) {
 	}
 }
 
-// A link that is not declared authoritative, or that names a name, is only
-// evidence for a later part's scoring: it merges nothing.
-func TestLinkThatIsNotAuthoritativeMergesNothing(t *testing.T) {
+// A link that names a name is only evidence for a later part's scoring: it
+// merges nothing.
+func TestLinkToANameMergesNothing(t *testing.T) {
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1", "github:user/jdoe")))
 	got := e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user/jdoe")))
@@ -140,7 +142,8 @@ func TestAuthoritativeLinkGuardKeepsTwoPeopleApart(t *testing.T) {
 			e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
 			total := 0
 			for i, u := range order {
-				got := e.apply(event("authentik-acme", linked("2026-10-0"+string(rune('2'+i))+"T00:00:00Z", "authentik:user/"+u, "github:user_node/U1")))
+				at := ts("2026-10-02T00:00:00Z").AddDate(0, 0, i).Format(time.RFC3339)
+				got := e.apply(event("authentik-acme", linked(at, "authentik:user/"+u, "github:user_node/U1")))
 				total += len(authoritativeMerges(got))
 			}
 			if total != 1 {
@@ -153,21 +156,6 @@ func TestAuthoritativeLinkGuardKeepsTwoPeopleApart(t *testing.T) {
 	}
 }
 
-// The guard also applies to two ids of one person's other system: an Authentik
-// person that links two GitHub accounts joins only the first.
-func TestAuthoritativeLinkGuardAppliesToTheLinkingPersonToo(t *testing.T) {
-	e := newEnv(t)
-	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
-	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U2")))
-	got := e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U1", "github:user_node/U2")))
-	if len(authoritativeMerges(got)) != 1 {
-		t.Fatalf("got merges %v, want one", got.Merges)
-	}
-	if a, b := e.resolveKey("github:user_node/U1", time.Time{}), e.resolveKey("github:user_node/U2", time.Time{}); a == b {
-		t.Fatalf("both GitHub accounts are %q, want two subjects", a)
-	}
-}
-
 // A deleted observation's links are ignored.
 func TestDeletedObservationMergesNothing(t *testing.T) {
 	e := newEnv(t)
@@ -176,5 +164,82 @@ func TestDeletedObservationMergesNothing(t *testing.T) {
 	gone.Data.Entity.Deleted = true
 	if got := e.apply(event("authentik-acme", gone)); len(got.Merges) != 0 {
 		t.Fatalf("got merges %v, want none", got.Merges)
+	}
+}
+
+// A link to an id that the declaration does not make authoritative is not
+// enough to merge two people.
+func TestLinkNotDeclaredAuthoritativeMergesNothing(t *testing.T) {
+	cfg := testConfig(t)
+	for i, d := range cfg.Declarations {
+		if d.GetName() != "authentik" {
+			continue
+		}
+		d = proto.CloneOf(d)
+		for _, kd := range d.GetKinds() {
+			for _, ld := range kd.GetLinks() {
+				ld.Authority = nil
+			}
+		}
+		cfg.Declarations[i] = d
+	}
+	e := newEnvWith(t, cfg)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
+	got := e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U1")))
+	if len(got.Rejections) != 0 || len(got.Merges) != 0 {
+		t.Fatalf("got rejections %v and merges %v, want neither", got.Rejections, got.Merges)
+	}
+	if a, b := e.resolveKey("authentik:user/u1", time.Time{}), e.resolveKey("github:user_node/U1", time.Time{}); a == "" || a == b {
+		t.Fatalf("the Authentik person is %q and the GitHub person %q, want two subjects", a, b)
+	}
+}
+
+// An entity that an authoritative link merges away can still adopt the
+// placeholder a reference made for one of its names: both merges go into the
+// subject that survives, and the event applies.
+func TestAuthoritativeLinkThenPlaceholderMergeApplies(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
+	e.apply(event("authentik-acme", obsAt("2026-10-02T00:00:00Z", "Person", "authentik:user/u1")))
+	e.apply(event("authentik-acme", withMember(obsAt("2026-10-05T00:00:00Z", "Team", "authentik:group/g1"), "authentik:username/jdoe", "", "")))
+	person := linked("2026-10-04T00:00:00Z", "authentik:user/u1", "github:user_node/U1")
+	person.Data.Entity.Aliases = []string{"authentik:username/jdoe"}
+	got := e.apply(event("authentik-acme", person))
+	if len(got.Merges) != 2 {
+		t.Fatalf("got merges %v, want the authoritative one and the placeholder's", got.Merges)
+	}
+	survivor := e.resolveKey("github:user_node/U1", time.Time{})
+	wantSubject(t, "the Authentik person", e.resolveKey("authentik:user/u1", time.Time{}), survivor)
+	wantSubject(t, "the referenced username", e.resolveKey("authentik:username/jdoe", ts("2026-10-06T00:00:00Z")), survivor)
+}
+
+// One observation that links two accounts the guard keeps apart merges
+// neither: which one the person joins would be an accident of ordering.
+func TestAuthoritativeLinksThatClashMergeNone(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U2")))
+	got := e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U2", "github:user_node/U1")))
+	if len(got.Merges) != 0 {
+		t.Fatalf("got merges %v, want none", got.Merges)
+	}
+	person := e.resolveKey("authentik:user/u1", time.Time{})
+	for _, k := range []string{"github:user_node/U1", "github:user_node/U2"} {
+		if e.resolveKey(k, time.Time{}) == person {
+			t.Errorf("%s joined the person", k)
+		}
+	}
+}
+
+// Across applies the first merge stands, even if the link that merged is the
+// newer observation.
+func TestAuthoritativeLinkFirstMergeStandsWhateverTheObservedTimes(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
+	if got := e.apply(event("authentik-acme", linked("2026-10-09T00:00:00Z", "authentik:user/u1", "github:user_node/U1"))); len(got.Merges) != 1 {
+		t.Fatalf("got merges %v, want one", got.Merges)
+	}
+	if got := e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u2", "github:user_node/U1"))); len(got.Merges) != 0 {
+		t.Fatalf("an older link merged %v, want the first merge to stand", got.Merges)
 	}
 }

@@ -115,7 +115,10 @@ func newIndex(cfg Config) (*index, error) {
 	if ix.threshold > model.MaxConfidence {
 		return nil, fmt.Errorf("resolver: threshold %d is above %d", ix.threshold, model.MaxConfidence)
 	}
-	ix.codeowners = Codeowners{SoleTeam: cmp.Or(cfg.Codeowners.SoleTeam, DefaultCodeownersSoleTeam), Mixed: cmp.Or(cfg.Codeowners.Mixed, DefaultCodeownersMixed)}
+	ix.codeowners = Codeowners{
+		SoleTeam: cmp.Or(cfg.Codeowners.SoleTeam, DefaultCodeownersSoleTeam),
+		Mixed:    cmp.Or(cfg.Codeowners.Mixed, DefaultCodeownersMixed),
+	}
 	if ix.codeowners.SoleTeam > model.MaxConfidence || ix.codeowners.Mixed > model.MaxConfidence {
 		return nil, fmt.Errorf("resolver: codeowners confidence is above %d", model.MaxConfidence)
 	}

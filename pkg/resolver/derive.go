@@ -33,7 +33,9 @@ const (
 )
 
 // Codeowners is the confidence, in parts per million, of the owned_by claims
-// the codeowners rule derives. A zero field takes its default.
+// the codeowners rule derives. A zero field takes its default, so a shape
+// can't be configured to 0; lower it to just above 0 to keep it below any
+// threshold.
 type Codeowners struct {
 	// SoleTeam is for a file of one rule line, pattern `*`, naming one team.
 	SoleTeam uint32
@@ -86,11 +88,7 @@ func (r *factRun) derive(ctx context.Context) error {
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(targets)) {
-		d := targets[k]
-		if r.ix.sources[d.source] == nil {
-			continue
-		}
-		if err := r.deriveCodeowners(ctx, d); err != nil {
+		if err := r.deriveCodeowners(ctx, targets[k]); err != nil {
 			return err
 		}
 	}
@@ -151,7 +149,7 @@ func (r *factRun) deriveCodeowners(ctx context.Context, d derivation) error {
 		if i < len(cuts) {
 			to = cuts[i]
 		}
-		if err := r.codeownersAt(ctx, d, derived, owners, rules, from, to, segs); err != nil {
+		if err := r.codeownersAt(ctx, derived, owners, rules, from, to, segs); err != nil {
 			return err
 		}
 	}
@@ -194,15 +192,13 @@ func latest(vs []*modelv1alpha1.Support, v int64) *modelv1alpha1.Support {
 }
 
 // provenanceCmp orders supports by the claim that wrote them: the ordering
-// key without its content hash, which a support doesn't carry.
+// key, without the content hash a support doesn't carry.
 func provenanceCmp(a, b *modelv1alpha1.Support) int {
-	if c := a.GetObservedAt().AsTime().Compare(b.GetObservedAt().AsTime()); c != 0 {
-		return c
-	}
-	if c := strings.Compare(a.GetObservationId(), b.GetObservationId()); c != 0 {
-		return c
-	}
-	return strings.Compare(a.GetEventId(), b.GetEventId())
+	return model.CompareOrderingKeys(provenanceKey(a), provenanceKey(b))
+}
+
+func provenanceKey(s *modelv1alpha1.Support) *resolverv1alpha1.OrderingKey {
+	return &resolverv1alpha1.OrderingKey{ObservedAt: s.GetObservedAt(), ObservationId: s.GetObservationId(), EventId: s.GetEventId()}
 }
 
 // starLines returns the qualifiers of a support that are rule lines with the
@@ -219,16 +215,14 @@ func starLines(s *modelv1alpha1.Support) []*structpb.Struct {
 
 // codeownersAt applies the rule over [from, to), where no input starts or
 // ends, and adds the owned_by it derives to segs, by fact.
-func (r *factRun) codeownersAt(ctx context.Context, d derivation, derived string, owners []ownerInput, rules []countVersion, from, to int64, segs map[string]series) error {
-	// The file's rule count; a file with none read, or two counts, has no
-	// shape.
+func (r *factRun) codeownersAt(ctx context.Context, derived string, owners []ownerInput, rules []countVersion, from, to int64, segs map[string]series) error {
+	// The file's rule count. A source has one count at a time (the attribute
+	// has cardinality one), so the latest version covering the time is it; a
+	// file with none read has no shape.
 	var count *countVersion
 	for i, c := range rules {
 		if fromTimestamp(c.sup.GetValidFrom(), negInf) > from || from >= fromTimestamp(c.sup.GetValidTo(), posInf) {
 			continue
-		}
-		if count != nil && (count.n != c.n) {
-			return nil
 		}
 		if count == nil || provenanceCmp(count.sup, c.sup) < 0 {
 			count = &rules[i]
@@ -241,22 +235,25 @@ func (r *factRun) codeownersAt(ctx context.Context, d derivation, derived string
 		o   ownerInput
 		sup *modelv1alpha1.Support
 	}
-	var lives, stars []live
+	var lives int
+	var only live
+	var stars []live
 	for _, o := range owners {
 		if sup := latest(o.vs, from); sup != nil {
 			l := live{o, sup}
-			lives = append(lives, l)
+			lives++
+			only = l
 			if len(starLines(sup)) > 0 {
 				stars = append(stars, l)
 			}
 		}
 	}
-	conf := r.ix.codeowners.Mixed
 	if len(stars) == 0 {
 		return nil
 	}
-	if count.n == 1 && len(lives) == 1 && len(lives[0].sup.GetQualifiers()) == 1 {
-		kind, err := r.kindOf(ctx, lives[0].o.f.objectSubject())
+	conf := r.ix.codeowners.Mixed
+	if count.n == 1 && lives == 1 && len(only.sup.GetQualifiers()) == 1 {
+		kind, err := r.kindOf(ctx, only.o.f.objectSubject())
 		if err != nil {
 			return err
 		}
@@ -275,7 +272,7 @@ func (r *factRun) codeownersAt(ctx context.Context, d derivation, derived string
 			ConfidencePpm: &c, Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_DERIVED,
 			Via: proto.CloneOf(l.sup.GetVia()), Qualifiers: starLines(l.sup), Evidence: l.sup.GetEvidence(),
 		}
-		key := &resolverv1alpha1.OrderingKey{ObservedAt: in.GetObservedAt(), ObservationId: in.GetObservationId(), EventId: in.GetEventId()}
+		key := provenanceKey(in)
 		id := l.o.f.id()
 		segs[id] = append(segs[id], seg{from: from, to: to, key: key, live: true, sup: sup})
 	}

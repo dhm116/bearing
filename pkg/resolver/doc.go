@@ -38,13 +38,14 @@
 // placeholder minted for it (rule authoritative, confidence 1.0, the link as
 // evidence from core/identity/link/<source>). The earlier mint survives. The
 // guard applies: subjects that hold different id aliases of one key type in
-// one namespace never merge. Evidence is judged when the observation that
+// one namespace never merge, and links in one observation that name such
+// subjects merge none of them. Evidence is judged when the observation that
 // carries the link is applied, and a merge is never undone when the
 // evidence ends, so linked_ids_complete has nothing to do yet. Links that
 // aren't authoritative, or name a name, wait for scored matching.
 //
-// Not yet, and tracked as follow-ups: the conflict and data-quality records
-// (issue #102, which also enforces the ChangeSet limits, and includes the guard's `id_conflict`);
+// Not yet, and tracked as follow-ups: the conflict and data-quality records,
+// including the guard's id_conflict, and the ChangeSet limits (issue #102);
 // manual overrides, precedence and same_as facts; scored matching (names,
 // emails, member overlap); non-authoritative links and the evidence state
 // that ending a link needs; authority overrides; manual operations;

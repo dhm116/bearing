@@ -300,6 +300,7 @@ func (u *run) resolveReferences(ctx context.Context) error {
 	if err := u.g.load(ctx, aliasesOf(refs)...); err != nil {
 		return err
 	}
+	var targets []linkTarget
 	for _, k := range refs {
 		if u.entityHas(k) {
 			u.resolved[k.key] = u.chosen
@@ -327,11 +328,11 @@ func (u *run) resolveReferences(ctx context.Context) error {
 			n.add(write{key: u.p.key, subject: subject, tentative: true})
 			u.seeds = append(u.seeds, k)
 		}
-		if err := u.mergeOnLink(ctx, k, subject); err != nil {
-			return err
+		if u.p.authLinks[k.key] {
+			targets = append(targets, linkTarget{k, subject})
 		}
 	}
-	return nil
+	return u.mergeOnLinks(ctx, targets)
 }
 
 // entityHas reports whether k is one of the observed entity's own keys.
@@ -431,7 +432,7 @@ func (u *run) settle(ctx context.Context) (map[model.Key][]*modelv1alpha1.Bindin
 		if !merged {
 			merged = true
 			for _, m := range u.placeholderMerges(ctx, rows) {
-				u.merge(u.chosen, m, modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER)
+				u.merge(u.g.mustCanon(ctx, u.chosen), m, modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER)
 				redo = true
 			}
 		}

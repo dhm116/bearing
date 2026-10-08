@@ -13,31 +13,56 @@ import (
 // (docs/spec/data-model.md, "Identity across systems").
 const linkSourcePrefix = "core/identity/link/"
 
-// mergeOnLink merges the entity's subject with the subject an authoritative
-// link names: one system storing another's permanent ID is the strongest
-// identity evidence there is (rule authoritative, confidence 1.0). The
-// earlier mint survives. The guard keeps two things one system tells apart
-// from becoming one: if the subjects hold different `id` aliases of one key
-// type in one namespace, nothing merges, and the pair is left for the
-// conflict records of a later part.
+// linkTarget is an authoritative link and the subject that holds its key, or
+// the placeholder minted for it.
+type linkTarget struct {
+	key     keyRef
+	subject string
+}
+
+// mergeOnLinks merges the entity's subject with the subjects its
+// authoritative links name: one system storing another's permanent ID is the
+// strongest identity evidence there is (rule authoritative, confidence 1.0).
+// The earlier mint survives. The guard keeps two things one system tells
+// apart from becoming one: subjects that hold different `id` aliases of one
+// key type in one namespace never merge. Targets that the guard excludes from
+// each other are evidence for neither, so none of them merges; across applies
+// the first merge stands. The conflict records that flag such a pair come
+// with the next part.
 //
 // Evidence is judged when the observation that carries the link is applied.
-// A merge is never undone by evidence ending, so a later complete
-// linked_ids list that drops the link changes nothing here.
-func (u *run) mergeOnLink(ctx context.Context, k keyRef, target string) error {
-	if !u.p.authLinks[k.key] {
-		return nil
+// A merge is never undone by evidence ending, so a later complete linked_ids
+// list that drops the link changes nothing here.
+func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
+	for i := range targets {
+		targets[i].subject = u.g.mustCanon(ctx, targets[i].subject)
 	}
-	chosen, target := u.g.mustCanon(ctx, u.chosen), u.g.mustCanon(ctx, target)
-	if chosen == target {
-		return nil
+	for _, t := range targets {
+		clash := false
+		for _, o := range targets {
+			if o.subject == t.subject {
+				continue
+			}
+			held, err := u.holdDifferentIDs(ctx, t.subject, o.subject)
+			if err != nil {
+				return err
+			}
+			clash = clash || held
+		}
+		chosen := u.g.mustCanon(ctx, u.chosen)
+		if clash || chosen == u.g.mustCanon(ctx, t.subject) {
+			continue
+		}
+		held, err := u.holdDifferentIDs(ctx, chosen, t.subject)
+		if err != nil {
+			return err
+		}
+		if held {
+			continue
+		}
+		u.merge(chosen, t.subject, modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE)
+		u.merges[len(u.merges)-1].Evidence = []*modelv1alpha1.Support{u.linkEvidence(t.key)}
 	}
-	clash, err := u.holdDifferentIDs(ctx, chosen, target)
-	if err != nil || clash {
-		return err
-	}
-	u.merge(chosen, target, modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE)
-	u.merges[len(u.merges)-1].Evidence = []*modelv1alpha1.Support{u.linkEvidence(k)}
 	return nil
 }
 

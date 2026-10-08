@@ -172,21 +172,26 @@ func TestRemovedCodeownersTeamStopsOwningWhileAnotherSourceSurvives(t *testing.T
 }
 
 // A derived support follows its inputs on valid time: the file's shape is
-// read at each time, and one fact keeps one version per shape.
+// read at each time.
 func TestDerivedOwnershipFollowsTheFileOverValidTime(t *testing.T) {
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	e.apply(event("github-acme", codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})))
 	e.apply(event("github-acme", codeownersObs("2026-10-05T00:00:00Z", "github:repo_node/R1", 2, codeLine{"*", []string{payments}}, codeLine{"/docs/", []string{platform}})))
 	e.apply(event("github-acme", codeownersObs("2026-10-08T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})))
-	for at, want := range map[string]string{
-		"2026-10-01T12:00:00Z": "", "2026-10-03T00:00:00Z": "ASSERTED/NONE 950000", "2026-10-06T00:00:00Z": "CANDIDATE/BELOW_THRESHOLD 700000",
-		"2026-10-09T00:00:00Z": "ASSERTED/NONE 950000",
+	const derived = "[core/derive/codeowners/github-acme:"
+	for _, tc := range []struct{ at, want string }{
+		{"2026-10-01T12:00:00Z", ""},
+		{"2026-10-03T00:00:00Z", paymentsTeam + "(Team) ASSERTED/NONE 950000 " + derived + "950000]"},
+		{"2026-10-06T00:00:00Z", paymentsTeam + "(Team) CANDIDATE/BELOW_THRESHOLD 700000 " + derived + "700000]"},
+		{"2026-10-09T00:00:00Z", paymentsTeam + "(Team) ASSERTED/NONE 950000 " + derived + "950000]"},
 	} {
-		got := ownedBy(t, e, at)
-		switch {
-		case want == "" && len(got) != 0, want != "" && (len(got) != 1 || !strings.Contains(got[0], paymentsTeam+"(Team) "+want)):
-			t.Errorf("at %s: got owned_by %q, want %q", at, got, want)
+		var want []string
+		if tc.want != "" {
+			want = []string{tc.want}
+		}
+		if got := ownedBy(t, e, tc.at); !slices.Equal(got, want) {
+			t.Errorf("at %s: got owned_by %q, want %q", tc.at, got, want)
 		}
 	}
 }
@@ -315,8 +320,11 @@ func TestCodeownersConfidencesAreConfigurable(t *testing.T) {
 			t.Errorf("want %q in\n%s", want, got)
 		}
 	}
-	if _, err := New(Config{Declarations: cfg.Declarations, Sources: cfg.Sources, Codeowners: Codeowners{Mixed: 1_000_001}}, nil); err == nil {
-		t.Errorf("a confidence above 1000000 was accepted")
+	for _, bad := range []Codeowners{{Mixed: 1_000_001}, {SoleTeam: 1_000_001}} {
+		_, err := New(Config{Declarations: cfg.Declarations, Sources: cfg.Sources, Codeowners: bad}, nil)
+		if err == nil || !strings.Contains(err.Error(), "codeowners confidence") {
+			t.Errorf("Codeowners %+v: got error %v, want one about the confidence", bad, err)
+		}
 	}
 }
 
