@@ -147,6 +147,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if err := s.resolveRefs(cs.ProtoReflect(), entry.GetSubjects()); err != nil {
 		return res, err
 	}
+	if err := resolveStateKeys(cs.GetState(), entry.GetSubjects()); err != nil {
+		return res, err
+	}
 	aliases := map[string]bool{}
 	for _, b := range cs.GetBindings() {
 		if _, _, _, err := model.Key(b.GetAlias()).Parse(); err != nil {
@@ -366,6 +369,27 @@ func (s *Store) resolveRefs(m protoreflect.Message, refs map[string]string) erro
 		return err == nil
 	})
 	return err
+}
+
+// resolveStateKeys replaces every "/"-separated segment of a state key that
+// is a ref with its subject, so the resolver can key its entries by subjects
+// the same ChangeSet mints.
+func resolveStateKeys(entries []*modelv1alpha1.StateEntry, refs map[string]string) error {
+	for _, e := range entries {
+		segs := strings.Split(e.GetKey(), "/")
+		for i, seg := range segs {
+			if !strings.HasPrefix(seg, refPrefix) {
+				continue
+			}
+			id, ok := refs[seg]
+			if !ok {
+				return fmt.Errorf("state entry %s: ref %s names no mint or unmerge", e.GetKey(), seg)
+			}
+			segs[i] = id
+		}
+		e.Key = strings.Join(segs, "/")
+	}
+	return nil
 }
 
 // write checks a timeline's rows and replaces the series.

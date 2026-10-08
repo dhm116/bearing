@@ -130,9 +130,13 @@ func (g *suite) large(t *testing.T) {
 		sup.Evidence = &modelv1alpha1.Evidence{Url: "https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS#L" + fmt.Sprint(i)}
 		cs.Supports = append(cs.Supports, supports("github-acme", r, "topics", v, sup))
 		cs.Facts = append(cs.Facts, fact(r, "topics", v, span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")))
+		// The resolver keeps one state entry per fact and source, about this big.
+		note, _ := anypb.New(wrapperspb.String(strings.Repeat("s", 160)))
+		cs.State = append(cs.State, &modelv1alpha1.StateEntry{Key: fmt.Sprintf("sup/github-acme/%s/topics/%04d", r, i), Value: note})
 	}
-	// The limit leaves room for a 5,000-fact ChangeSet with evidence on every
-	// support and for a few times more per fact than this one carries.
+	// The limit leaves room for a 5,000-fact ChangeSet with evidence and a
+	// state entry on every support, and for a few times more per fact than
+	// this one carries.
 	if n := proto.Size(cs); n > contracts.MaxChangeSetBytes/4 {
 		t.Fatalf("test ChangeSet is %d bytes, want at most a quarter of MaxChangeSetBytes (%d)", n, contracts.MaxChangeSetBytes)
 	}
@@ -144,6 +148,9 @@ func (g *suite) large(t *testing.T) {
 	}
 	if len(states) != 5000 || len(states[4999].GetSupports()) != 1 {
 		t.Fatalf("got %d facts, want 5000 with one support each", len(states))
+	}
+	if st, err := s.State(ctx, []string{fmt.Sprintf("sup/github-acme/%s/topics/%04d", r, 4999)}, time.Time{}); err != nil || len(st) != 1 {
+		t.Fatalf("got %v, %v, want the last of the 5,000 state entries", st, err)
 	}
 }
 

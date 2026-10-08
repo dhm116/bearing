@@ -58,6 +58,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `docs/telemetry.md` | Catalog of spans, metrics and telemetry config. Keep it current. |
 | `docs/security/threat-model.md` | Trust boundaries, threats and controls (`C-<AREA>-<n>` IDs). Update it when adding an input, a boundary or an `insecure_*` setting. |
 | `proto/bearing/{model,event}/v1alpha1` | Protobuf: the only source of truth for the data model, declarations and events ([ADR 6](docs/adr/0006-protobuf-contracts.md)). Linted and formatted by buf (`buf.yaml`). `v1alpha1` until the MVP closes. |
+| `proto/bearing/resolver/v1alpha1` | The resolver's private state, stored by `GraphStore` as opaque `Any` values (not part of the data model; add-only until the MVP closes, see `docs/spec/contracts.md`). |
 | `gen/go`, `gen/jsonschema` | Generated from `proto/` by `make generate` (`buf.gen.yaml`) and committed; never edit by hand. CI checks they are current. |
 | `testdata/observations/` | Example observations in ProtoJSON: `valid/` must validate, each file in `invalid/` must fail for the one reason `pkg/model`'s test table names. |
 | `testdata/declarations/` | The spec's reference adapter declarations; tests validate them. |
