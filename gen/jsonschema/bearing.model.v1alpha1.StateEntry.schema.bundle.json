@@ -1,0 +1,35 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.StateEntry.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "StateEntry is one entry of the resolver's own state: ordering keys,\n watermarks, sync progress and the like. It is primary state, backed up\n with the graph, and versioned by record time like everything else.",
+      "properties": {
+        "key": {
+          "default": "",
+          "description": "The resolver's key.",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Any.schema.json",
+          "description": "The value; absent deletes the entry."
+        }
+      },
+      "title": "State Entry",
+      "type": "object"
+    },
+    "google.protobuf.Any.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "title": "Any",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.StateEntry.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.StateEntry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

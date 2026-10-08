@@ -46,8 +46,8 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.page` |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
-| `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore` | `db.system.name`, `db.operation.name` |
-| `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
+| `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
+| `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` (`vector.repoint` after a merge) | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
 
 ## Metrics
 
@@ -65,13 +65,14 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.github.ratelimit.remaining` | gauge | {request} | `bearing.github.ratelimit.resource` | Headroom before GitHub starts refusing requests |
 | `http.client.request.duration` | histogram | s | OTel HTTP semantic conventions | Upstream API latency and error codes (from otelhttp) |
 | `bearing.graph.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Graph backend latency per operation |
-| `bearing.graph.facts.written` | counter | {fact} | `bearing.fact.relation`, `bearing.fact.asserted` | Rate of new knowledge, and how much is only hedged |
-| `bearing.graph.facts.retracted` | counter | {fact} | `bearing.fact.relation` | Churn: facts sources say are gone |
+| `bearing.graph.applies` | counter | {apply} | `db.system.name`, `bearing.result` (`applied`, `duplicate`, `stale`, `error`) | Apply throughput; many `stale` results mean writers contend for the apply clock, many `duplicate` mean redelivery |
+| `bearing.graph.subjects.minted` | counter | {subject} | `bearing.rule` (`observation`, `reference`, `split`) | Identity growth; a burst of `reference` mints is often a misspelled key |
+| `bearing.graph.subjects.merged` | counter | {merge} | `bearing.rule` (merge rule) | How identities converge, and by which evidence |
 | `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
 | `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
-| `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.system` | High miss rates mean identity resolution is falling behind |
+| `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.namespace` (a configured namespace, else `other`) | High miss rates mean identity resolution is falling behind |
 
-Attributes are deliberately low-cardinality: no entity IDs, keys or
+Attributes are deliberately low-cardinality: no subject IDs, keys or
 repository names on metrics. Those belong on spans and logs.
 
 ## Logs

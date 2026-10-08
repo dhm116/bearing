@@ -641,6 +641,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-5 | T, R | Someone with database access edits, deletes or prunes audit records to hide a change | C-AUDIT-2, C-AUDIT-3, C-AUDIT-4, C-AUDIT-5 |
 | T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
+| T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
 
 - **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
   store URL that contains a password is rejected at start.
@@ -662,6 +663,21 @@ Assets: A1, A3, A4, A5, A6.
 - **C-STORE-7** Operator docs state that exports contain organization data
   and audit records, and must be stored encrypted. Exports never contain
   secrets (C-SECRET-2).
+- **C-STORE-8** `GraphStore.Restore` works only into an empty store and
+  leaves it empty on any failure. It verifies the backup's integrity
+  trailer (record count and SHA-256 over every byte before it) and refuses
+  an unknown format or version, a missing trailer and data after it
+  (docs/spec/contracts.md, "Backup"). Every frame is at most
+  `contracts.MaxChangeSetBytes`. The reference store replays its change
+  journal and refuses any apply that decides differently, an entry with no
+  record time or one in the future. These checks are in the store
+  contract today. **Planned**, with the restore entry point, which doesn't
+  exist yet: that entry point caps the backup's total size; it is an admin
+  operation (admin role only, C-API-4) never reachable from API or MCP
+  input without these checks; and each restore is audited per C-AUDIT-1
+  with the actor and the backup's SHA-256. The SHA-256 catches corruption
+  and truncation, not a forger who recomputes it: the audited hash will let
+  an operator compare the restored backup with the one they took.
 
 ### B7. Operators and configuration
 

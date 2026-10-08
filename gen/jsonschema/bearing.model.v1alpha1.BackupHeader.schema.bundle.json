@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.BackupHeader.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "BackupHeader says what a backup holds and what restoring it must give.",
+      "patternProperties": {
+        "^(lastSubjectId)$": {
+          "default": "",
+          "description": "The last subject ID the store minted; empty if none.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "format": {
+          "default": "",
+          "description": "The body's format, chosen by the store that wrote it.",
+          "type": "string"
+        },
+        "head": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The store's head when it was backed up; absent for an empty store."
+        },
+        "last_subject_id": {
+          "default": "",
+          "description": "The last subject ID the store minted; empty if none.",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The body format's version. A store refuses a version it doesn't know."
+        }
+      },
+      "title": "Backup Header",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.BackupHeader.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.BackupHeader.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

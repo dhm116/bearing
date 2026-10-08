@@ -4,19 +4,25 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/contracts/conformance"
 	"bearing.example/pkg/contracts/instrument"
+	"bearing.example/pkg/model"
 )
 
 var (
@@ -30,39 +36,57 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func newStore(*testing.T) (contracts.GraphStore, conformance.Clock, conformance.IDs) {
+	clk := testkit.NewClock(time.Time{})
+	s := memstore.New()
+	ids := testkit.NewUUIDv7s(clk.Now)
+	s.Now, s.IDs = clk.Now, ids
+	return instrument.GraphStore(s, "memory", "github"), clk, ids
+}
+
 // The wrapper must not change behavior: it passes the same conformance suite
 // as the store it wraps.
 func TestWrappedStoreConforms(t *testing.T) {
-	conformance.GraphStore(t, func(*testing.T) contracts.GraphStore {
-		return instrument.GraphStore(memstore.New(), "memory")
-	})
+	conformance.GraphStore(t, newStore)
 }
 
 func TestWrappedIndexConforms(t *testing.T) {
 	conformance.VectorIndex(t, func(*testing.T) contracts.VectorIndex {
 		return instrument.VectorIndex(memstore.New(), "memory")
-	}, nil)
+	})
 }
 
-func TestNotFoundIsNotAnError(t *testing.T) {
-	s := instrument.GraphStore(memstore.New(), "memory")
-	if _, err := s.GetEntity(context.Background(), "missing"); !errors.Is(err, contracts.ErrNotFound) {
-		t.Fatalf("got %v", err)
+func TestExpectedErrorsAreNotSpanErrors(t *testing.T) {
+	s, _, _ := newStore(t)
+	ctx := context.Background()
+	if _, err := s.Subject(ctx, "missing", time.Time{}); !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+	if _, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "e"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "f"}); !errors.Is(err, contracts.ErrStale) {
+		t.Fatalf("got %v, want ErrStale", err)
 	}
 	ended := spans.Ended()
-	last := ended[len(ended)-1]
-	if last.Name() != "graph.get_entity" {
-		t.Fatalf("last span %q", last.Name())
+	for _, sp := range ended[len(ended)-3:] {
+		if sp.Status().Code == codes.Error {
+			t.Fatalf("span %s marked as an error", sp.Name())
+		}
 	}
-	if last.Status().Code == codes.Error {
-		t.Fatal("a not-found lookup marked the span as an error")
+	if name := ended[len(ended)-3].Name(); name != "graph.subject" {
+		t.Fatalf("got span %q, want graph.subject", name)
+	}
+	if _, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{}); err == nil {
+		t.Fatal("applied a ChangeSet with no event ID")
+	}
+	if last := spans.Ended()[len(spans.Ended())-1]; last.Status().Code != codes.Error {
+		t.Fatalf("got status %v, want an error", last.Status())
 	}
 }
 
 func TestGraphMetrics(t *testing.T) {
-	conformance.GraphStore(t, func(*testing.T) contracts.GraphStore {
-		return instrument.GraphStore(memstore.New(), "memory")
-	})
+	conformance.GraphStore(t, newStore)
 	var rm metricdata.ResourceMetrics
 	if err := metrics.Collect(context.Background(), &rm); err != nil {
 		t.Fatal(err)
@@ -75,12 +99,46 @@ func TestGraphMetrics(t *testing.T) {
 	}
 	for _, name := range []string{
 		"bearing.graph.operation.duration",
-		"bearing.graph.facts.written",
-		"bearing.graph.facts.retracted",
+		"bearing.graph.applies",
+		"bearing.graph.subjects.minted",
+		"bearing.graph.subjects.merged",
 		"bearing.graph.key.lookups",
 	} {
 		if !seen[name] {
 			t.Errorf("metric %s was not recorded", name)
 		}
+	}
+}
+
+// Keys come from outside, so only configured namespaces become metric
+// labels; spans keep the real one.
+func TestKeyLookupsLabelUnconfiguredNamespacesOther(t *testing.T) {
+	s, _, _ := newStore(t)
+	ctx := context.Background()
+	for _, k := range []model.Key{"github:team/acme/payments", "attacker-1234:team/x"} {
+		if _, err := s.ResolveKey(ctx, k, time.Time{}, time.Time{}); !errors.Is(err, contracts.ErrNotFound) {
+			t.Fatalf("got %v, want ErrNotFound", err)
+		}
+	}
+	if got := spans.Ended()[len(spans.Ended())-1].Attributes(); !slices.Contains(got, attribute.String("bearing.key.namespace", "attacker-1234")) {
+		t.Fatalf("got span attributes %v, want the real namespace", got)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "bearing.graph.key.lookups" {
+				for _, dp := range sum.DataPoints {
+					v, _ := dp.Attributes.Value("bearing.key.namespace")
+					labels[v.AsString()] = true
+				}
+			}
+		}
+	}
+	if len(labels) != 2 || !labels["github"] || !labels["other"] {
+		t.Fatalf("got namespace labels %v, want github and other", labels)
 	}
 }

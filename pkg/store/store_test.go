@@ -3,13 +3,16 @@ package store
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
-	"time"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/surrealstore"
 	"bearing.example/pkg/contracts"
 )
@@ -21,15 +24,39 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
-	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "a", Kind: "Team"}); err != nil {
+	if _, err := s.Graph.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "e"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "a", EntityID: "a", Vector: []float32{1}}}); err != nil {
+	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "a", SubjectID: "a", Vector: []float32{1}}}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1}, Limit: 1})
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("got %v, %v", hits, err)
+	}
+}
+
+// Until #44 a SurrealDB graph is refused before anything is dialled or
+// opened.
+func TestOpenRefusesASurrealGraphWithoutConnecting(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	for _, graph := range []string{"surrealdb+ws://" + host, "surrealdb+http://" + host, "surrealkv:///nowhere", "surrealdb+mem://"} {
+		if _, err := Open(context.Background(), Config{Graph: graph}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
+			t.Errorf("%s: got %v, want ErrGraphNotImplemented", graph, err)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("got %d requests to the server, want none", n)
+	}
+}
+
+func TestOpenRequiresAGraphURL(t *testing.T) {
+	_, err := Open(context.Background(), Config{Vectors: "mem://"})
+	if err == nil || !strings.Contains(err.Error(), "a graph store URL is required") {
+		t.Fatalf("got %v, want an error asking for a graph store URL", err)
 	}
 }
 
@@ -91,7 +118,7 @@ func TestOpenReadsPasswordFromEnvironment(t *testing.T) {
 	// A canceled context makes the dial fail without touching the network.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	s, err := Open(ctx, Config{Graph: "surrealdb+ws://root@127.0.0.1:1", Getenv: getenv})
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: "surrealdb+ws://root@127.0.0.1:1", Getenv: getenv})
 	if err == nil {
 		closeStore(t, s)
 		t.Fatal("dial with a canceled context succeeded")
@@ -128,13 +155,12 @@ func TestOpenRejectsMalformedServerURLs(t *testing.T) {
 		{"no host with path secret", "surrealdb+ws:///hunter2?token=hunter2", "names no server host"},
 		{"no host with password", "surrealdb+ws://root:hunter2@", "has a password in it"},
 		{"unknown scheme with secrets", "neo4j://root@db/hunter2?pass=hunter2", "unsupported URL scheme"},
-		{"vectors unknown scheme", "", "unsupported URL scheme"},
+		{"another unknown scheme", "qdrant://root@db/hunter2?key=hunter2", "unsupported URL scheme"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := Config{Graph: tc.url, Getenv: func(string) string { return "" }}
-			if tc.url == "" {
-				cfg.Graph, cfg.Vectors = "mem://", "qdrant://root@db/hunter2?key=hunter2"
-			}
+			// As the vector index: a SurrealDB graph is refused before its
+			// URL is looked at (TestOpenRefusesASurrealGraphWithoutConnecting).
+			cfg := Config{Graph: "mem://", Vectors: tc.url, Getenv: func(string) string { return "" }}
 			s, err := Open(context.Background(), cfg)
 			if err == nil {
 				closeStore(t, s)
@@ -154,7 +180,7 @@ func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 	if surrealstore.EmbeddedAvailable {
 		t.Skip("built with surrealembed")
 	}
-	_, err := Open(context.Background(), Config{Graph: "surrealdb+mem://"})
+	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "surrealdb+mem://"})
 	if !errors.Is(err, surrealstore.ErrEmbeddedUnavailable) {
 		t.Fatalf("got %v, want ErrEmbeddedUnavailable", err)
 	}
@@ -182,27 +208,19 @@ func TestOpenSurrealServer(t *testing.T) {
 		return ""
 	}
 	ctx := context.Background()
-	s, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if _, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
+		t.Fatalf("got %v, want ErrGraphNotImplemented until #44", err)
+	}
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
-	at := time.Date(2026, 9, 29, 1, 2, 3, 456000000, time.UTC)
-	if err := s.Graph.UpsertEntity(ctx, contracts.Entity{
-		ID: "t", Kind: "Team", UpdatedAt: at,
-		Attributes: map[string]any{"name": "Payments"},
-	}); err != nil {
+	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "t", SubjectID: "t", Vector: []float32{1, 0}}}); err != nil {
 		t.Fatal(err)
 	}
-	e, err := s.Graph.GetEntity(ctx, "t")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !e.UpdatedAt.Equal(at) || e.Attributes["name"] != "Payments" {
-		t.Fatalf("entity did not round-trip: %+v", e)
-	}
-	if _, err := s.Graph.GetEntity(ctx, "missing"); !errors.Is(err, contracts.ErrNotFound) {
-		t.Fatalf("got %v, want ErrNotFound", err)
+	if hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0}, Limit: 1}); err != nil || len(hits) != 1 {
+		t.Fatalf("got %v, %v, want the point back", hits, err)
 	}
 }
 
@@ -229,19 +247,19 @@ func TestOpenEmbeddedOnDisk(t *testing.T) {
 
 func onDiskPhase(t *testing.T, phase, url string) {
 	ctx := context.Background()
-	s, err := Open(ctx, Config{Graph: url})
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: url})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeStore(t, s)
 	if phase == "write" {
-		if err := s.Graph.UpsertEntity(ctx, contracts.Entity{ID: "t", Kind: "Team"}); err != nil {
+		if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "t", SubjectID: "t", Vector: []float32{1, 0}}}); err != nil {
 			t.Fatal(err)
 		}
 		return
 	}
-	if _, err := s.Graph.GetEntity(ctx, "t"); err != nil {
-		t.Fatalf("entity lost after restart: %v", err)
+	if hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0}, Limit: 1}); err != nil || len(hits) != 1 {
+		t.Fatalf("got %v, %v: point lost after restart", hits, err)
 	}
 }
 

@@ -3,6 +3,9 @@ package testkit
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
+
+	"bearing.example/pkg/model"
 )
 
 // IDs mints identifiers, such as subject IDs and event IDs.
@@ -38,4 +41,19 @@ func (s *SeqIDs) NewID() string {
 		return fmt.Sprintf("00000000-0000-4000-8000-%012x", n)
 	}
 	return fmt.Sprintf("%s%d", s.prefix, n)
+}
+
+// NewUUIDv7s returns a UUIDv7 subject ID source on the clock now whose
+// random bits are all zero, so the same clock readings give the same IDs:
+// "<ms>-7000-8000-000000000000", then ...0001 within the millisecond.
+func NewUUIDv7s(now func() time.Time) *model.UUIDv7Source {
+	return model.NewUUIDv7Source(now, zeros{})
+}
+
+// zeros reads as an endless run of zero bytes.
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }

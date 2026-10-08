@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Binding.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Binding is one row of an alias's binding timeline: the subject the alias\n maps to over one valid-time interval (docs/spec/data-model.md,\n \"Bindings\"). An id alias has one row with no valid-time bounds.",
+      "patternProperties": {
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the row was recorded."
+        },
+        "^(retractedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when an apply replaced the row."
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject as written. Empty for a released name that doesn't\n redirect. ResolveKey canonicalizes it through merges.",
+          "type": "string"
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "alias": {
+          "default": "",
+          "description": "The alias, \u003cnamespace\u003e:\u003ckey_type\u003e/\u003cexternal_id\u003e.",
+          "type": "string"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the row was recorded."
+        },
+        "released": {
+          "default": false,
+          "description": "The name is released here; subject_id, if set, is where it redirects.",
+          "type": "boolean"
+        },
+        "retracted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when an apply replaced the row."
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject as written. Empty for a released name that doesn't\n redirect. ResolveKey canonicalizes it through merges.",
+          "type": "string"
+        },
+        "tentative": {
+          "default": false,
+          "description": "Written by a reference when minting a placeholder.",
+          "type": "boolean"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Binding.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Binding.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

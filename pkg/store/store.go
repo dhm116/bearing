@@ -13,6 +13,8 @@
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main).
+// Until issue #44 a SurrealDB URL serves only vectors: opening it as the
+// graph fails with surrealstore.ErrGraphNotImplemented.
 // The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
 // carries one, so it never ends up in config files, process lists or logs.
 package store
@@ -39,6 +41,9 @@ const PasswordEnv = "BEARING_STORE_PASSWORD"
 type Config struct {
 	Graph   string
 	Vectors string
+	// Namespaces are the configured source namespaces, which telemetry
+	// names in metric labels; it labels any other namespace "other".
+	Namespaces []string
 	// Getenv reads PasswordEnv; nil means os.Getenv.
 	Getenv func(string) string
 }
@@ -80,6 +85,10 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Vectors == "" {
 		c.Vectors = c.Graph
 	}
+	// Refused before dialling: a SurrealDB graph can't serve until #44.
+	if u, err := parseURL(c.Graph); err == nil && (strings.HasPrefix(u.Scheme, "surrealdb+") || u.Scheme == "surrealkv") {
+		return nil, fmt.Errorf("store: %w", surrealstore.ErrGraphNotImplemented)
+	}
 	s := &Store{}
 	g, err := open(ctx, c.Graph, c.Getenv)
 	if err != nil {
@@ -99,7 +108,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if v.vector == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
-	s.Graph = instrument.GraphStore(g.graph, g.name)
+	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
 	s.Vectors = instrument.VectorIndex(v.vector, v.name)
 	return s, nil
 }
@@ -117,7 +126,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		db = v
 	}
 	surreal := func(st *surrealstore.Store) backend {
-		return backend{name: "surrealdb", graph: st, vector: st, close: st.Close}
+		return backend{name: "surrealdb", vector: st, close: st.Close}
 	}
 
 	switch scheme := u.Scheme; {

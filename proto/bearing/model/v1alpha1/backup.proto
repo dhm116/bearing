@@ -1,0 +1,72 @@
+// A graph store's backup stream (docs/spec/contracts.md, "Backup"), and the
+// change journal entry the reference store uses as its body.
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/changeset.proto";
+import "bearing/model/v1alpha1/subject.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// BackupFrame is one length-delimited message of a backup stream. A stream
+// is a header, any number of records, then a trailer.
+message BackupFrame {
+  // The frame.
+  oneof frame {
+    // The first frame.
+    BackupHeader header = 1;
+    // One record of the body, in a format the header names.
+    bytes record = 2;
+    // The last frame.
+    BackupTrailer trailer = 3;
+  }
+}
+
+// BackupHeader says what a backup holds and what restoring it must give.
+message BackupHeader {
+  // The body's format, chosen by the store that wrote it.
+  string format = 1;
+  // The body format's version. A store refuses a version it doesn't know.
+  uint32 version = 2;
+  // The store's head when it was backed up; absent for an empty store.
+  google.protobuf.Timestamp head = 3;
+  // The last subject ID the store minted; empty if none.
+  string last_subject_id = 4;
+}
+
+// BackupTrailer closes a backup stream. A stream without one is truncated.
+message BackupTrailer {
+  // The number of record frames.
+  uint64 records = 1;
+  // SHA-256 of every byte of the stream before this frame.
+  bytes sha256 = 2;
+}
+
+// JournalEntry is one apply in a store's change journal (not the audit log,
+// ADR 8): the ChangeSet as applied, with the store-set fields filled in,
+// and what the apply decided. The reference store's backup body is its
+// journal, one entry per record; replay re-decides each entry and fails if
+// the outcome differs.
+message JournalEntry {
+  // The ChangeSet with recorded_at, minted IDs and un-merge targets set.
+  ChangeSet change_set = 1;
+  // Each ref in the ChangeSet and the subject it named.
+  map<string, string> subjects = 2;
+  // The subjects minted, split mints included, as minted.
+  repeated Subject minted = 3;
+  // The merge records the apply created, in order.
+  repeated MergeRecord merges = 4;
+  // Each un-merge's outcome, in the ChangeSet's order.
+  repeated UnmergeOutcome unmerges = 5;
+}
+
+// UnmergeOutcome is where one un-merge's aliases went.
+message UnmergeOutcome {
+  // The reactivated subject, or the split mint.
+  string target_id = 1;
+  // Set when the target is a split mint rather than a reactivated subject.
+  bool split = 2;
+}

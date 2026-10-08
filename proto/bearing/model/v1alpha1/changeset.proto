@@ -1,0 +1,159 @@
+// The ChangeSet: everything one event's apply writes to the graph store, and
+// the identity records it creates (docs/spec/contracts.md, "GraphStore").
+// The resolver computes a ChangeSet; the store applies it in one
+// transaction and keeps it, in apply order, in its change journal (not the
+// audit log, ADR 8).
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+import "bearing/model/v1alpha1/fact.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// ChangeSet is one event's writes. Subject IDs anywhere in it may be refs
+// ("new:<label>") naming a subject a Mint or Unmerge in the same ChangeSet
+// creates; the store replaces them with the minted IDs. Items apply in this
+// order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
+// Merges apply in order, each seeing the ones before it. Un-merges don't:
+// every un-merge's target is resolved against the state before the
+// ChangeSet, and two un-merges may not claim the same merge record or
+// subject.
+//
+// Every timeline item (bindings for now) replaces the current timeline of its series: rows equal to a current row
+// are kept, current rows not repeated are retracted, and new rows are
+// recorded. An empty timeline retracts the series.
+message ChangeSet {
+  // The event applied. Required; the store applies each event ID once.
+  string event_id = 1;
+  // The store's head (the latest apply's recorded_at) the ChangeSet was
+  // computed from. Absent for an empty store. Apply fails as stale if the
+  // head has moved.
+  google.protobuf.Timestamp base_recorded_at = 2;
+  // Set by the store: this apply's record time.
+  google.protobuf.Timestamp recorded_at = 3;
+  // Subjects to mint.
+  repeated Mint mints = 4;
+  // Alias binding timelines.
+  repeated BindingTimeline bindings = 5;
+  // Merges, applied in order.
+  repeated Merge merges = 6;
+  // Un-merges. Each target is resolved against the state before the
+  // ChangeSet, not after the un-merges listed before it.
+  repeated Unmerge unmerges = 7;
+  // Fields 8 to 11 are kept for the claim-store timelines (issue #37).
+  // The resolver's own state.
+  repeated StateEntry state = 12;
+}
+
+// Mint creates a subject (docs/spec/data-model.md, "Minting").
+message Mint {
+  // The ref ("new:<label>") the rest of the ChangeSet uses for it.
+  string ref = 1;
+  // A registered subject kind.
+  string kind = 2;
+  // observation or reference; split comes from an Unmerge.
+  MintRule rule = 3;
+  // Set by the store: the minted ID.
+  string subject_id = 4;
+}
+
+// Merge joins two active subjects of one kind; the lower subject_id
+// survives (docs/spec/data-model.md, "Merge").
+message Merge {
+  // The two subjects, in any order.
+  repeated string subject_ids = 1;
+  // The rule that merges them. Required.
+  MergeRule rule = 2;
+  // The merge's confidence.
+  uint32 confidence_ppm = 3;
+  // The supports that are the evidence.
+  repeated Support evidence = 4;
+}
+
+// Unmerge splits aliases off an active subject (docs/spec/data-model.md,
+// "Un-merge").
+message Unmerge {
+  // The active subject A.
+  string subject_id = 1;
+  // A non-empty proper subset of A's aliases.
+  repeated string aliases = 2;
+  // The ref ("new:<label>") the rest of the ChangeSet uses for the subject
+  // the aliases move to: the reactivated subject, or a split mint.
+  // Required, and unique among the ChangeSet's mints and un-merges.
+  string ref = 3;
+  // Set by the store: the subject the aliases moved to.
+  string target_id = 4;
+}
+
+// Binding is one row of an alias's binding timeline: the subject the alias
+// maps to over one valid-time interval (docs/spec/data-model.md,
+// "Bindings"). An id alias has one row with no valid-time bounds.
+message Binding {
+  // The alias, <namespace>:<key_type>/<external_id>.
+  string alias = 1;
+  // The subject as written. Empty for a released name that doesn't
+  // redirect. ResolveKey canonicalizes it through merges.
+  string subject_id = 2;
+  // Start of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_from = 3;
+  // End of valid time; absent means unbounded.
+  google.protobuf.Timestamp valid_to = 4;
+  // The name is released here; subject_id, if set, is where it redirects.
+  bool released = 5;
+  // Written by a reference when minting a placeholder.
+  bool tentative = 6;
+  // Set by the store: when the row was recorded.
+  google.protobuf.Timestamp recorded_at = 7;
+  // Set by the store: when an apply replaced the row.
+  google.protobuf.Timestamp retracted_at = 8;
+}
+
+// BindingTimeline is the complete binding timeline of one alias.
+message BindingTimeline {
+  // The alias.
+  string alias = 1;
+  // Rows that don't overlap in valid time. Their alias must match.
+  repeated Binding bindings = 2;
+}
+
+// StateEntry is one entry of the resolver's own state: ordering keys,
+// watermarks, sync progress and the like. It is primary state, backed up
+// with the graph, and versioned by record time like everything else.
+message StateEntry {
+  // The resolver's key.
+  string key = 1;
+  // The value; absent deletes the entry.
+  google.protobuf.Any value = 2;
+}
+
+// MergeRecord is one merge of two subjects, and its un-merge if there was
+// one (docs/spec/data-model.md, "Merge" step 6).
+message MergeRecord {
+  // The lower subject_id, which stays active.
+  string survivor_id = 1;
+  // The subject merged into the survivor.
+  string merged_id = 2;
+  // The rule that merged them.
+  MergeRule rule = 3;
+  // The merge's confidence.
+  uint32 confidence_ppm = 4;
+  // The supports that were the evidence.
+  repeated Support evidence = 5;
+  // The survivor's aliases when the merge was recorded, sorted.
+  repeated string survivor_aliases = 6;
+  // The merged subject's aliases when the merge was recorded, sorted.
+  repeated string merged_aliases = 7;
+  // The event whose apply merged them.
+  string event_id = 8;
+  // When the merge was recorded.
+  google.protobuf.Timestamp recorded_at = 9;
+  // When an un-merge reactivated merged_id; absent while merged.
+  google.protobuf.Timestamp unmerged_at = 10;
+  // The event whose apply un-merged them.
+  string unmerge_event_id = 11;
+}

@@ -13,7 +13,7 @@ Read `AGENTS.md` first (architecture rules 1, 4 and 5), then the
 ## What to check
 
 - **Graph is the source of truth** (ADR 2). Every vector points at a graph
-  entity (`EntityID`); the index can be rebuilt from the graph alone, and
+  subject (`SubjectID`); the index can be rebuilt from the graph alone, and
   there is a path to do it. Search results are verified against the graph
   before they reach an answer; ownership and policy never come from
   similarity alone.
@@ -25,7 +25,7 @@ Read `AGENTS.md` first (architecture rules 1, 4 and 5), then the
   telemetry.
 - **Indexing.** Upserts are idempotent and keyed by stable point IDs;
   deleting or merging an entity removes or repoints its vectors
-  (`DeleteByEntity`); payload filters (`kind`) match what the graph says;
+  (`DeleteBySubject`, and `Repoint` after a merge); payload filters (`kind`) match what the graph says;
   re-indexing is resumable and does not serve a half-built index.
 - **Evaluation.** A change that can move ranking (model, chunking, text
   template, scoring, filters, hybrid weighting) comes with an evaluation

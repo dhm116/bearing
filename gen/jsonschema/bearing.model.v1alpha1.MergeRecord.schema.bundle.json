@@ -1,0 +1,382 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Evidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Evidence says where a person can check an observation's claims.",
+      "properties": {
+        "url": {
+          "default": "",
+          "description": "A link to the claims in the source.",
+          "type": "string"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.MergeRecord.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergeRecord is one merge of two subjects, and its un-merge if there was\n one (docs/spec/data-model.md, \"Merge\" step 6).",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The merge's confidence."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply merged them.",
+          "type": "string"
+        },
+        "^(mergedAliases)$": {
+          "description": "The merged subject's aliases when the merge was recorded, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "^(mergedId)$": {
+          "default": "",
+          "description": "The subject merged into the survivor.",
+          "type": "string"
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the merge was recorded."
+        },
+        "^(survivorAliases)$": {
+          "description": "The survivor's aliases when the merge was recorded, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "^(survivorId)$": {
+          "default": "",
+          "description": "The lower subject_id, which stays active.",
+          "type": "string"
+        },
+        "^(unmergeEventId)$": {
+          "default": "",
+          "description": "The event whose apply un-merged them.",
+          "type": "string"
+        },
+        "^(unmergedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an un-merge reactivated merged_id; absent while merged."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The merge's confidence."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply merged them.",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "The supports that were the evidence.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.Support.schema.json"
+          },
+          "type": "array"
+        },
+        "merged_aliases": {
+          "description": "The merged subject's aliases when the merge was recorded, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "merged_id": {
+          "default": "",
+          "description": "The subject merged into the survivor.",
+          "type": "string"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the merge was recorded."
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_RULE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_RULE_CO_REPORTED_IDS",
+                "MERGE_RULE_PLACEHOLDER",
+                "MERGE_RULE_AUTHORITATIVE",
+                "MERGE_RULE_SCORE",
+                "MERGE_RULE_MANUAL"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The rule that merged them.",
+          "title": "Merge Rule"
+        },
+        "survivor_aliases": {
+          "description": "The survivor's aliases when the merge was recorded, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "survivor_id": {
+          "default": "",
+          "description": "The lower subject_id, which stays active.",
+          "type": "string"
+        },
+        "unmerge_event_id": {
+          "default": "",
+          "description": "The event whose apply un-merged them.",
+          "type": "string"
+        },
+        "unmerged_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an un-merge reactivated merged_id; absent while merged."
+        }
+      },
+      "title": "Merge Record",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Support.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Support is one support version: one source's state for a fact over one\n maximal valid-time interval, as recorded over one record-time interval.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "^(factId)$": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "^(lastConfirmedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "^(observationId)$": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "^(observedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "^(retractedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "adapter": {
+          "default": "",
+          "description": "Adapter name and version, e.g. \"github@0.2.0\". Empty for derived supports.",
+          "type": "string"
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Evidence.schema.json",
+          "description": "Where a person can check it."
+        },
+        "fact_id": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "last_confirmed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "observation_id": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "qualifiers": {
+          "description": "De-duplicated qualifier objects, sorted by JCS bytes.",
+          "items": {
+            "$ref": "#/$defs/google.protobuf.Struct.schema.json"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^SUPPORT_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "SUPPORT_REASON_ASSERT",
+                "SUPPORT_REASON_END",
+                "SUPPORT_REASON_SNAPSHOT",
+                "SUPPORT_REASON_DELETED",
+                "SUPPORT_REASON_WITHDRAWN",
+                "SUPPORT_REASON_MERGE",
+                "SUPPORT_REASON_UNMERGE",
+                "SUPPORT_REASON_DERIVED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Why it was written.",
+          "title": "Support Reason"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "retracted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "source": {
+          "default": "",
+          "description": "The configured source, \"manual\" or a \"core/...\" source.",
+          "type": "string"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        },
+        "via": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Via.schema.json",
+          "description": "The aliases the claim was resolved through."
+        }
+      },
+      "title": "Support",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Via.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Via is the aliases a claim's ends were resolved through.",
+      "properties": {
+        "object": {
+          "default": "",
+          "description": "The reference key for the other end.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The aliases the observation's entity carried.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Via",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.MergeRecord.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.MergeRecord.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

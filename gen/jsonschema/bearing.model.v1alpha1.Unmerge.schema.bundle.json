@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.Unmerge.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Unmerge splits aliases off an active subject (docs/spec/data-model.md,\n \"Un-merge\").",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The active subject A.",
+          "type": "string"
+        },
+        "^(targetId)$": {
+          "default": "",
+          "description": "Set by the store: the subject the aliases moved to.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "aliases": {
+          "description": "A non-empty proper subset of A's aliases.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ref": {
+          "default": "",
+          "description": "The ref (\"new:\u003clabel\u003e\") the rest of the ChangeSet uses for the subject\n the aliases move to: the reactivated subject, or a split mint.\n Required, and unique among the ChangeSet's mints and un-merges.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The active subject A.",
+          "type": "string"
+        },
+        "target_id": {
+          "default": "",
+          "description": "Set by the store: the subject the aliases moved to.",
+          "type": "string"
+        }
+      },
+      "title": "Unmerge",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.Unmerge.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.Unmerge.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
