@@ -80,6 +80,7 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Reads canonicalize a merged object and an un-merge restores it", g.mergedObject},
 		{"Backup and Restore keep primary state", g.backup},
 		{"Restore refuses a damaged backup", g.damaged},
+		{"Apply refuses what a backup cannot hold", g.unwritable},
 		{"Apply order of independent ChangeSets doesn't change valid-time state", g.order},
 	} {
 		t.Run(c.name, c.run)
@@ -384,6 +385,7 @@ func (g *suite) checks(t *testing.T) {
 		"span without status":        {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), &modelv1alpha1.FactSpan{StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE})}},
 		"span confidence too big":    {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), span(asserted, 1_000_001, "", ""))}},
 		"support confidence too big": {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 1_000_001, "", ""))}},
+		"invalid UTF-8":              {State: []*modelv1alpha1.StateEntry{{Key: "k\xff", Value: val}}},
 		"state without key":          {State: []*modelv1alpha1.StateEntry{{}}},
 		"merge of one":               {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
 		"unmerge of one alias":       {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
@@ -1005,5 +1007,32 @@ func (g *suite) order(t *testing.T) {
 	}
 	if dumps[0] != dumps[1] || !strings.Contains(dumps[0], "P") {
 		t.Fatalf("got\n%s\nand\n%s, want the same state", dumps[0], dumps[1])
+	}
+}
+
+// A ChangeSet whose strings aren't UTF-8 can't be marshaled into a backup,
+// so Apply refuses it; a store that took it could never be backed up again.
+func (g *suite) unwritable(t *testing.T) {
+	s, _ := g.store(t)
+	seed(t, s)
+	val, _ := anypb.New(wrapperspb.String("v"))
+	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
+		"event ID":  {EventId: "bad\xff"},
+		"state key": {EventId: "e", State: []*modelv1alpha1.StateEntry{{Key: "k\xff", Value: val}}},
+		"ref":       {EventId: "e", Mints: []*modelv1alpha1.Mint{mint("new:\xff", "Team")}},
+	} {
+		res, err := tryApply(s, cs)
+		if err == nil || len(res.Subjects) != 0 {
+			t.Errorf("%s: got %v, %v, want an error and a zero result", name, res, err)
+		}
+	}
+	var buf bytes.Buffer
+	if err := s.Backup(ctx, &buf); err != nil {
+		t.Fatalf("backup after refused applies: %v", err)
+	}
+	restored, clk := g.store(t)
+	clk.Set(at("2026-09-28T01:30:02Z"))
+	if err := restored.Restore(ctx, &buf); err != nil {
+		t.Fatalf("restore: %v", err)
 	}
 }
