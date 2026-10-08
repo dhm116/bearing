@@ -269,7 +269,7 @@ func checkDeclared(t *testing.T, obs adapter.Observations) {
 func TestSyncFirstFollowsTheFictionalOrg(t *testing.T) {
 	r := newRig(t)
 	obs, last := r.sync()
-	checkGolden(t, "sync-first.ndjson", obs)
+	checkGolden(t, "sync-first.golden.jsonl", obs)
 	checkDeclared(t, obs)
 
 	if got, want := last.CompleteSync.GetKinds(), []string{"Repository", "Team"}; !slices.Equal(got, want) {

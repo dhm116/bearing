@@ -58,8 +58,8 @@ func TestStoryWebhooksMatchSync(t *testing.T) {
 			}
 		}
 	}
-	checkGolden(t, "handle-story.ndjson", webhooks)
-	checkGolden(t, "sync-after-story.ndjson", final)
+	checkGolden(t, "handle-story.golden.jsonl", webhooks)
+	checkGolden(t, "sync-after-story.golden.jsonl", final)
 	checkDeclared(t, webhooks)
 
 	// legacy-ops was deleted: its node ID, as the first sync saw it.
