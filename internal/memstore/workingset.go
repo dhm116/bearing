@@ -188,7 +188,7 @@ func (s *Store) LoadSubject(sub *modelv1alpha1.Subject) {
 func (s *Store) LoadMerge(m *modelv1alpha1.MergeRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.merges = append(s.merges, proto.CloneOf(m))
+	s.addMerge(proto.CloneOf(m))
 }
 
 // LoadSeries adds or replaces a series.
@@ -199,7 +199,17 @@ func (s *Store) LoadSeries(t Table, key string, ser Series) {
 	for _, v := range ser.Versions {
 		next.rows = append(next.rows, &version{msg: v.Msg, rec: v.Rec, ret: v.Ret})
 	}
+	old := s.table(t)[key]
 	s.table(t)[key] = next
+	if t == TableBindings {
+		var undo []func() // loading is not undone
+		for _, v := range next.rows {
+			if b, _ := v.msg.(*modelv1alpha1.Binding); b != nil {
+				s.indexAlias(b.GetSubjectId(), key)
+			}
+		}
+		s.relive(&undo, key, old, next)
+	}
 }
 
 // Series returns a series as stored, retracted rows included.
