@@ -1,8 +1,10 @@
 package resolver
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -106,7 +108,7 @@ func newIndex(cfg Config) (*index, error) {
 		for _, kd := range d.GetKinds() {
 			for _, k := range kd.GetKeys() {
 				kt := &keyType{
-					issuer: cmpOr(k.GetIssuerType(), d.GetIssuerType()), name: k.GetKeyType(), kind: model.Kind(kd.GetKind()),
+					issuer: cmp.Or(k.GetIssuerType(), d.GetIssuerType()), name: k.GetKeyType(), kind: model.Kind(kd.GetKind()),
 					class: k.GetClass(), perSubject: k.GetPerSubject() == modelv1alpha1.PerSubject_PER_SUBJECT_ONE,
 					redirects: k.GetRedirects(), fold: k.GetCase() == modelv1alpha1.KeyCase_KEY_CASE_INSENSITIVE,
 				}
@@ -150,7 +152,7 @@ func newIndex(cfg Config) (*index, error) {
 			return nil, fmt.Errorf("resolver: source %q: no declaration for adapter %q", name, s.Adapter)
 		}
 		si := &sourceInfo{Source: *s, decl: d, issues: map[string]bool{}, links: map[string]bool{}, kinds: map[model.Kind]*modelv1alpha1.KindDeclaration{}}
-		si.reads = cmpOr(s.Namespace, d.GetIssuerType())
+		si.reads = cmp.Or(s.Namespace, d.GetIssuerType())
 		if err := use(si.reads, d.GetIssuerType(), nil); err != nil {
 			return nil, err
 		}
@@ -171,33 +173,15 @@ func newIndex(cfg Config) (*index, error) {
 		}
 		ix.sources[name] = si
 	}
-	for _, name := range slices.Sorted(mapKeys(ix.namespaces)) {
+	for _, name := range slices.Sorted(maps.Keys(ix.namespaces)) {
 		ns := ix.namespaces[name]
-		if !slices.ContainsFunc(slices.Collect(mapKeys(ix.keyTypes)), func(id ktID) bool { return id.issuer == ns.issuerType }) {
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(ix.keyTypes)), func(id ktID) bool { return id.issuer == ns.issuerType }) {
 			return nil, fmt.Errorf("resolver: namespace %q has issuer type %q, which no declaration has key types for", name, ns.issuerType)
 		}
 	}
 	return ix, nil
 }
 
-// cmpOr returns a unless it is empty, then b.
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-func mapKeys[K comparable, V any](m map[K]V) func(func(K) bool) {
-	return func(yield func(K) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
-}
-
-// errUnknownSource is returned for an event from a source the configuration
+// ErrUnknownSource is returned for an event from a source the configuration
 // doesn't have: the host's mistake, not a rejection of the observation.
-var errUnknownSource = errors.New("resolver: unknown source")
+var ErrUnknownSource = errors.New("resolver: unknown source")

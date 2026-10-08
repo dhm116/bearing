@@ -15,9 +15,9 @@ import (
 
 var errInjected = errors.New("injected store failure")
 
-// failingStore fails its nth read (counting Head, Subject, Bindings and
-// State), then keeps failing never again; corrupt makes State return values
-// of the wrong type.
+// failingStore fails its failAt-th read (counting Head, Subject, Bindings
+// and State) and no other; corrupt makes State return values of the wrong
+// type.
 type failingStore struct {
 	contracts.GraphStore
 	failAt  int
@@ -106,7 +106,7 @@ func TestCorruptStateIsReportedNotUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Resolve(context.Background(), events[3]); !errors.Is(err, errCorrupt) {
-		t.Fatalf("got %v, want errCorrupt", err)
+	if _, err := r.Resolve(context.Background(), events[3]); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("got %v, want ErrCorrupt", err)
 	}
 }

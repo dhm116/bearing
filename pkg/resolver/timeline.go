@@ -1,7 +1,7 @@
 package resolver
 
 import (
-	"sort"
+	"slices"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -73,12 +73,12 @@ func addWrite(ws []write, w write) ([]write, bool) {
 				if model.CompareOrderingKeys(w.key, o.key) <= 0 {
 					return ws, false
 				}
-				out := slicesClone(ws)
+				out := slices.Clone(ws)
 				out[i] = w
 				return out, true
 			}
 		}
-		return append(slicesClone(ws), w), true
+		return append(slices.Clone(ws), w), true
 	}
 	for _, o := range ws {
 		if o.tentative {
@@ -98,8 +98,6 @@ func addWrite(ws []write, w write) ([]write, bool) {
 	}
 	return append(out, w), true
 }
-
-func slicesClone[T any](s []T) []T { return append([]T(nil), s...) }
 
 // cell is one name's mapping over one stretch of valid time, before the
 // per-subject rule and tentative bindings are applied.
@@ -135,7 +133,7 @@ func (n *nameWrites) cells(bp []time.Time, marks marksFor) []cell {
 			obs = append(obs, w)
 		}
 	}
-	sort.SliceStable(obs, func(i, j int) bool { return obs[i].from.Before(obs[j].from) })
+	slices.SortStableFunc(obs, func(a, b write) int { return a.from.Compare(b.from) })
 	out := make([]cell, len(bp)+1)
 	if len(obs) == 0 {
 		return out
@@ -215,7 +213,7 @@ func bindingRows(names []*nameWrites, canon func(string) string, marks marksFor)
 			}
 		}
 	}
-	sort.Slice(bp, func(i, j int) bool { return bp[i].Before(bp[j]) })
+	slices.SortFunc(bp, time.Time.Compare)
 	bp = dedupTimes(bp)
 	cells := make([][]cell, len(names))
 	for i, n := range names {

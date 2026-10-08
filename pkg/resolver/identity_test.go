@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func TestTeamSlugRenameReleasesWithoutRedirect(t *testing.T) {
 	if p == "" || p == team {
 		t.Fatalf("old slug now names %q, want a placeholder other than %s", p, team)
 	}
-	s, err := e.store.Subject(context.Background(), contractsID(p), time.Time{})
+	s, err := e.store.Subject(context.Background(), contracts.SubjectID(p), time.Time{})
 	if err != nil || s.GetKind() != "Team" || s.GetMintedBy().GetRule() != modelv1alpha1.MintRule_MINT_RULE_REFERENCE {
 		t.Fatalf("placeholder: got %v (%v), want a Team minted by reference", s, err)
 	}
@@ -185,9 +186,7 @@ func TestApplyingAnEventTwiceChangesNothing(t *testing.T) {
 func TestUnknownSourceIsAnError(t *testing.T) {
 	e := newEnv(t)
 	_, err := e.r.Apply(context.Background(), event("nobody", fixture(t, "1-repository-codeowners.json")))
-	if err == nil {
-		t.Fatal("got no error for a source the configuration doesn't have")
+	if !errors.Is(err, ErrUnknownSource) {
+		t.Fatalf("got %v, want ErrUnknownSource for a source the configuration doesn't have", err)
 	}
 }
-
-func contractsID(id string) contracts.SubjectID { return contracts.SubjectID(id) }

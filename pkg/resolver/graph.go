@@ -268,4 +268,6 @@ func sameRows(a, b []*modelv1alpha1.Binding) bool {
 	return slices.EqualFunc(a, b, sameRow)
 }
 
-var errCorrupt = errors.New("resolver state is corrupt")
+// ErrCorrupt is returned when the resolver's state entries in the store can't
+// be decoded or break an invariant of the format.
+var ErrCorrupt = errors.New("resolver: state is corrupt")

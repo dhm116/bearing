@@ -2,7 +2,7 @@ package resolver
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -37,7 +37,7 @@ func delKey(ns, subject string) string {
 // packWrites encodes writes for one state entry. The subject is the key's,
 // so BindingWrite.subject_id stays empty.
 func packWrites(ws []write) (*anypb.Any, error) {
-	sort.SliceStable(ws, func(i, j int) bool { return writeLess(ws[i], ws[j]) })
+	slices.SortStableFunc(ws, writeCmp)
 	msg := &resolverv1alpha1.BindingWrites{}
 	for _, w := range ws {
 		bw := &resolverv1alpha1.BindingWrite{Key: w.key, Tentative: w.tentative}
@@ -49,32 +49,35 @@ func packWrites(ws []write) (*anypb.Any, error) {
 	return anypb.New(msg)
 }
 
-// writeLess orders writes for a deterministic entry: observed before
+// writeCmp orders writes for a deterministic entry: observed before
 // tentative, then by start and key.
-func writeLess(a, b write) bool {
+func writeCmp(a, b write) int {
 	if a.tentative != b.tentative {
-		return !a.tentative
+		if a.tentative {
+			return 1
+		}
+		return -1
 	}
-	if !a.from.Equal(b.from) {
-		return a.from.Before(b.from)
+	if c := a.from.Compare(b.from); c != 0 {
+		return c
 	}
-	return model.CompareOrderingKeys(a.key, b.key) < 0
+	return model.CompareOrderingKeys(a.key, b.key)
 }
 
 // unpackWrites decodes an entry whose key named subject.
 func unpackWrites(a *anypb.Any, subject string) ([]write, error) {
 	msg := &resolverv1alpha1.BindingWrites{}
 	if err := a.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("%w: binding writes: %w", errCorrupt, err)
+		return nil, fmt.Errorf("%w: binding writes: %w", ErrCorrupt, err)
 	}
 	out := make([]write, 0, len(msg.GetWrites()))
 	for _, bw := range msg.GetWrites() {
 		w := write{key: bw.GetKey(), tentative: bw.GetTentative(), subject: subject}
 		switch {
 		case bw.GetReleased():
-			return nil, fmt.Errorf("%w: a binding write is a release", errCorrupt)
+			return nil, fmt.Errorf("%w: a binding write is a release", ErrCorrupt)
 		case !w.tentative && bw.GetValidFrom() == nil:
-			return nil, fmt.Errorf("%w: observed binding write with no start", errCorrupt)
+			return nil, fmt.Errorf("%w: observed binding write with no start", ErrCorrupt)
 		case !w.tentative:
 			w.from = bw.GetValidFrom().AsTime()
 		}
@@ -100,7 +103,7 @@ func entryFor(alias model.Key, subject string, ws []write) (*modelv1alpha1.State
 
 // packMarks encodes a subject's deletion marks for one state entry.
 func packMarks(ms []mark) (*anypb.Any, error) {
-	sort.SliceStable(ms, func(i, j int) bool { return ms[i].at.Before(ms[j].at) })
+	slices.SortStableFunc(ms, func(a, b mark) int { return a.at.Compare(b.at) })
 	msg := &resolverv1alpha1.ScopeWatermarks{}
 	for _, m := range ms {
 		msg.Watermarks = append(msg.Watermarks, &resolverv1alpha1.Watermark{
@@ -114,12 +117,12 @@ func packMarks(ms []mark) (*anypb.Any, error) {
 func unpackMarks(a *anypb.Any) ([]mark, error) {
 	msg := &resolverv1alpha1.ScopeWatermarks{}
 	if err := a.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("%w: deletion marks: %w", errCorrupt, err)
+		return nil, fmt.Errorf("%w: deletion marks: %w", ErrCorrupt, err)
 	}
 	out := make([]mark, 0, len(msg.GetWatermarks()))
 	for _, w := range msg.GetWatermarks() {
 		if w.GetAt() == nil || w.GetKey() == nil || w.GetReason() != modelv1alpha1.SupportReason_SUPPORT_REASON_DELETED {
-			return nil, fmt.Errorf("%w: deletion mark without a time, key or the deleted reason", errCorrupt)
+			return nil, fmt.Errorf("%w: deletion mark without a time, key or the deleted reason", ErrCorrupt)
 		}
 		out = append(out, mark{at: w.GetAt().AsTime(), key: w.GetKey()})
 	}

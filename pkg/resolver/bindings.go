@@ -1,10 +1,11 @@
 package resolver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
-	"sort"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -93,7 +94,7 @@ func (e *engine) addMark(ctx context.Context, ns, subject string, m mark) error 
 // consolidate moves the deletion marks of a subject the ChangeSet merges
 // into its survivor, so marks always sit under the canonical subject.
 func (e *engine) consolidate(ctx context.Context, survivor, merged string) error {
-	for _, ns := range slices.Sorted(keysOfNamespaces(e.ix.namespaces)) {
+	for _, ns := range slices.Sorted(maps.Keys(e.ix.namespaces)) {
 		from, err := e.markState(ctx, ns, merged)
 		if err != nil {
 			return err
@@ -112,16 +113,6 @@ func (e *engine) consolidate(ctx context.Context, survivor, merged string) error
 		from.list, from.dirty = nil, from.existed
 	}
 	return nil
-}
-
-func keysOfNamespaces(m map[string]*namespace) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // preload reads the deletion marks of the subjects the names write to, as
@@ -166,7 +157,7 @@ func (e *engine) name(ctx context.Context, k keyRef) (*nameState, error) {
 	}
 	bySubject := map[string]string{} // state key to subject
 	var keys []string
-	for _, s := range slices.Sorted(keysOf(subjects)) {
+	for _, s := range slices.Sorted(maps.Keys(subjects)) {
 		key := bindKey(k.key, s)
 		bySubject[key] = s
 		keys = append(keys, key)
@@ -262,14 +253,14 @@ func writesTo(ws []write, subject string) []write {
 			out = append(out, w)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return writeLess(out[i], out[j]) })
+	slices.SortStableFunc(out, writeCmp)
 	return out
 }
 
 // entries returns the state entries this ChangeSet rewrites for the name.
 func (n *nameState) entries() ([]*modelv1alpha1.StateEntry, error) {
 	var out []*modelv1alpha1.StateEntry
-	for _, s := range slices.Sorted(keysOf(n.dirty)) {
+	for _, s := range slices.Sorted(maps.Keys(n.dirty)) {
 		ws := writesTo(n.writes, s)
 		if len(ws) == 0 && !n.loaded[s] {
 			continue
@@ -281,16 +272,6 @@ func (n *nameState) entries() ([]*modelv1alpha1.StateEntry, error) {
 		out = append(out, e)
 	}
 	return out, nil
-}
-
-func keysOf[V any](m map[string]V) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // closure returns the names whose timelines can change when the seeds'
@@ -335,27 +316,27 @@ func (e *engine) closure(ctx context.Context, seeds []keyRef) ([]*nameState, err
 				return nil, err
 			}
 			for _, o := range owners {
-				ok, found := e.ix.lookup(string(o))
-				if found && ok.isName() && ok.groupKey() == k.groupKey() && !in[ok.key] {
-					in[ok.key] = true
-					queue = append(queue, ok)
+				kr, found := e.ix.lookup(string(o))
+				if found && kr.isName() && kr.groupKey() == k.groupKey() && !in[kr.key] {
+					in[kr.key] = true
+					queue = append(queue, kr)
 				}
 			}
 			// Names this ChangeSet has already loaded, which may write to a
 			// subject it mints.
-			for _, other := range slices.Sorted(keysOfNames(e.names)) {
+			for _, other := range slices.Sorted(maps.Keys(e.names)) {
 				on := e.names[other]
 				if in[other] || on.perSubject != n.perSubject {
 					continue
 				}
-				if ok, found := e.ix.lookup(string(other)); !found || ok.groupKey() != k.groupKey() {
+				if kr, found := e.ix.lookup(string(other)); !found || kr.groupKey() != k.groupKey() {
 					continue
 				}
 				for _, ow := range on.writes {
 					if !ow.tentative && e.g.mustCanon(ctx, ow.subject) == c {
 						in[other] = true
-						ok, _ := e.ix.lookup(string(other))
-						queue = append(queue, ok)
+						kr, _ := e.ix.lookup(string(other))
+						queue = append(queue, kr)
 						break
 					}
 				}
@@ -363,16 +344,6 @@ func (e *engine) closure(ctx context.Context, seeds []keyRef) ([]*nameState, err
 		}
 	}
 	return out, nil
-}
-
-func keysOfNames(m map[model.Key]*nameState) func(func(model.Key) bool) {
-	return func(yield func(model.Key) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // rows computes the timelines of every name the seeds' closures hold and
@@ -415,7 +386,7 @@ func (e *engine) rows(ctx context.Context, seeds []keyRef) (map[model.Key][]*mod
 // the store's current ones.
 func (e *engine) changed(ctx context.Context, rows map[model.Key][]*modelv1alpha1.Binding) ([]*modelv1alpha1.BindingTimeline, error) {
 	var out []*modelv1alpha1.BindingTimeline
-	for _, a := range slices.Sorted(keysOfRows(rows)) {
+	for _, a := range slices.Sorted(maps.Keys(rows)) {
 		cur, err := e.g.timeline(ctx, a)
 		if err != nil {
 			return nil, err
@@ -427,21 +398,11 @@ func (e *engine) changed(ctx context.Context, rows map[model.Key][]*modelv1alpha
 	return out, nil
 }
 
-func keysOfRows(m map[model.Key][]*modelv1alpha1.Binding) func(func(model.Key) bool) {
-	return func(yield func(model.Key) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
-}
-
 // stateEntries returns the entries of every name and deletion mark the
 // ChangeSet changed.
 func (e *engine) stateEntries() ([]*modelv1alpha1.StateEntry, error) {
 	var out []*modelv1alpha1.StateEntry
-	for _, a := range slices.Sorted(keysOfNames(e.names)) {
+	for _, a := range slices.Sorted(maps.Keys(e.names)) {
 		es, err := e.names[a].entries()
 		if err != nil {
 			return nil, err
@@ -456,9 +417,9 @@ func (e *engine) stateEntries() ([]*modelv1alpha1.StateEntry, error) {
 		}
 	}, func(a, b markID) int {
 		if a.ns != b.ns {
-			return compareKeys(model.Key(a.ns), model.Key(b.ns))
+			return cmp.Compare(a.ns, b.ns)
 		}
-		return compareKeys(model.Key(a.subject), model.Key(b.subject))
+		return cmp.Compare(a.subject, b.subject)
 	})
 	for _, id := range ids {
 		m := e.marks[id]

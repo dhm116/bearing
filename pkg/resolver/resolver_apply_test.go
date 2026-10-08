@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
@@ -84,22 +86,25 @@ func TestResolverStateSurvivesBackupAndRestore(t *testing.T) {
 
 func TestStateKeysEscapeSourceText(t *testing.T) {
 	e := newEnv(t)
-	// A slug may hold "%" and "/" is not allowed by the key grammar, but ":"
-	// and "%" are source text the state key must not let through as a
-	// separator or a ref.
-	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/100%:x")))
-	e.apply(event("github-acme", obsAt("2026-10-02T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/next")))
+	// The slug's last segment equals the ref the resolver mints for the
+	// entity (and "%" and ":" are source text too). Unescaped, the store
+	// would take it for a subject ref.
+	const alias = "github:team/acme/new:e"
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", alias)))
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T2", "github:team/acme/100%:x")))
 	team := e.resolveKey("github:team_node/T1", time.Time{})
-	wantSubject(t, "name with % and :", e.resolveKey("github:team/acme/100%:x", ts("2026-10-01T12:00:00Z")), team)
-	st, err := e.store.State(context.Background(), []string{bindKey("github:team/acme/100%:x", team)}, time.Time{})
+	other := e.resolveKey("github:team_node/T2", time.Time{})
+	if team == "" || other == "" || team == other {
+		t.Fatalf("got subjects %q and %q, want two bound teams", team, other)
+	}
+	wantSubject(t, "slug that looks like a ref", e.resolveKey(alias, ts("2026-10-01T12:00:00Z")), team)
+	wantSubject(t, "slug with % and :", e.resolveKey("github:team/acme/100%:x", ts("2026-10-01T12:00:00Z")), other)
+	st, err := e.store.State(context.Background(), []string{bindKey(alias, team)}, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(st) != 1 {
 		t.Fatalf("got state %v, want one entry under the escaped key", st)
-	}
-	if k := bindKey("github:team/acme/100%:x", "S"); !strings.HasPrefix(k, "bind/github%3Ateam%2Facme%2F100%25%3Ax/") {
-		t.Fatalf("key %q isn't escaped", k)
 	}
 }
 
@@ -109,6 +114,8 @@ func TestPackedStateRoundTrips(t *testing.T) {
 		{key: okey(2, "t"), subject: "S1", tentative: true},
 		{key: okey(1, "b"), from: ts(day(1)), subject: "S1"},
 	}
+	// Observed writes by start, then the tentative one (packWrites sorts ws).
+	want := []write{ws[2], ws[0], ws[1]}
 	a, err := packWrites(ws)
 	if err != nil {
 		t.Fatal(err)
@@ -117,27 +124,62 @@ func TestPackedStateRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[0].tentative || got[2].tentative == false || !got[0].from.Equal(ts(day(1))) {
-		t.Fatalf("got %+v, want the observed writes by start, then the tentative one", got)
+	if len(got) != len(want) {
+		t.Fatalf("got %d writes, want %d", len(got), len(want))
+	}
+	for i := range want {
+		g, w := got[i], want[i]
+		if g.subject != w.subject || g.tentative != w.tentative || !g.from.Equal(w.from) || model.CompareOrderingKeys(g.key, w.key) != 0 {
+			t.Errorf("write %d: got %+v, want %+v", i, g, w)
+		}
 	}
 	ms := []mark{{at: ts(day(5)), key: okey(5, "d")}, {at: ts(day(2)), key: okey(2, "c")}}
+	wantMarks := []mark{ms[1], ms[0]}
 	b, err := packMarks(ms)
 	if err != nil {
 		t.Fatal(err)
 	}
 	back, err := unpackMarks(b)
-	if err != nil || len(back) != 2 || !back[0].at.Equal(ts(day(2))) {
-		t.Fatalf("got %+v (%v), want the marks by time", back, err)
+	if err != nil || len(back) != 2 {
+		t.Fatalf("got %+v (%v), want two marks", back, err)
+	}
+	for i, w := range wantMarks {
+		if !back[i].at.Equal(w.at) || model.CompareOrderingKeys(back[i].key, w.key) != 0 {
+			t.Errorf("mark %d: got %+v, want %+v", i, back[i], w)
+		}
 	}
 }
 
 func TestCorruptStateIsAnError(t *testing.T) {
-	notWrites, _ := anypb.New(&modelv1alpha1.Binding{})
-	if _, err := unpackWrites(notWrites, "S"); !errors.Is(err, errCorrupt) {
-		t.Errorf("writes of the wrong type: got %v, want errCorrupt", err)
+	pack := func(m proto.Message) *anypb.Any {
+		a, err := anypb.New(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
 	}
-	if _, err := unpackMarks(notWrites); !errors.Is(err, errCorrupt) {
-		t.Errorf("marks of the wrong type: got %v, want errCorrupt", err)
+	key := okey(1, "a")
+	at := timestamppb.New(ts(day(1)))
+	writes := map[string]*anypb.Any{
+		"wrong type":                      pack(&modelv1alpha1.Binding{}),
+		"a release":                       pack(&resolverv1alpha1.BindingWrites{Writes: []*resolverv1alpha1.BindingWrite{{Key: key, ValidFrom: at, Released: true}}}),
+		"an observed write with no start": pack(&resolverv1alpha1.BindingWrites{Writes: []*resolverv1alpha1.BindingWrite{{Key: key}}}),
+	}
+	for name, a := range writes {
+		if _, err := unpackWrites(a, "S"); !errors.Is(err, ErrCorrupt) {
+			t.Errorf("writes, %s: got %v, want ErrCorrupt", name, err)
+		}
+	}
+	marks := map[string]*anypb.Any{
+		"wrong type":     pack(&modelv1alpha1.Binding{}),
+		"no time":        pack(&resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{{Key: key, Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_DELETED}}}),
+		"no key":         pack(&resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{{At: at, Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_DELETED}}}),
+		"another reason": pack(&resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{{At: at, Key: key}}}),
+	}
+	for name, a := range marks {
+		if _, err := unpackMarks(a); !errors.Is(err, ErrCorrupt) {
+			t.Errorf("marks, %s: got %v, want ErrCorrupt", name, err)
+		}
 	}
 }
 
@@ -184,8 +226,9 @@ func TestInvalidObservationIsRejectedWithTheValidationProblems(t *testing.T) {
 	e := newEnv(t)
 	o := obsAt("2026-10-01T00:00:00Z", "Team", "not a key")
 	got := e.apply(event("github-acme", o))
-	if len(got.Rejections) == 0 || got.Rejections[0].Scope != model.ScopeObservation {
-		t.Fatalf("got %v, want the observation rejected", got.Rejections)
+	if len(got.Rejections) == 0 || got.Rejections[0].Scope != model.ScopeObservation || got.Rejections[0].Path != "data.entity.key" ||
+		got.Rejections[0].Code != modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED {
+		t.Fatalf("got %v, want a malformed rejection of data.entity.key", got.Rejections)
 	}
 }
 
@@ -204,8 +247,8 @@ func TestBadEventsAreErrors(t *testing.T) {
 	if _, err := e.r.Apply(context.Background(), Event{Source: "github-acme"}); err == nil {
 		t.Error("an event with no ID or observation was accepted")
 	}
-	if _, err := e.r.Resolve(context.Background(), Event{ID: "x", Source: "nope", Observation: obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")}); !errors.Is(err, errUnknownSource) {
-		t.Errorf("got %v, want errUnknownSource", err)
+	if _, err := e.r.Resolve(context.Background(), Event{ID: "x", Source: "nope", Observation: obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")}); !errors.Is(err, ErrUnknownSource) {
+		t.Errorf("got %v, want ErrUnknownSource", err)
 	}
 }
 
@@ -238,7 +281,10 @@ func TestApplyRecomputesWhenStale(t *testing.T) {
 		t.Fatalf("got %d applies, want 3 lost and 1 won", st.tries)
 	}
 	st = &staleStore{GraphStore: base.store, n: maxStale + 1}
-	r, _ = New(testConfig(t), st)
+	r, err = New(testConfig(t), st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = r.Apply(context.Background(), event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T2")))
 	if !errors.Is(err, contracts.ErrStale) {
 		t.Fatalf("got %v, want ErrStale after %d tries", err, maxStale)
@@ -282,17 +328,32 @@ func TestDeletionReleasesNamesFromThen(t *testing.T) {
 
 func TestDeletionMarksFollowAMerge(t *testing.T) {
 	e := newEnv(t)
-	// Two persons, one deleted; an observation then reports both IDs.
-	e.apply(event("authentik-acme", obsAt("2026-10-01T00:00:00Z", "Person", "authentik:user/u1", "authentik:username/jdoe")))
-	gone := obsAt("2026-10-03T00:00:00Z", "Person", "authentik-saml:name_id/jdoe")
-	e.apply(event("authentik-acme", gone))
-	gone2 := obsAt("2026-10-04T00:00:00Z", "Person", "authentik-saml:name_id/jdoe")
-	gone2.Data.Entity.Deleted = true
-	e.apply(event("authentik-acme", gone2))
-	got := e.apply(event("authentik-acme", obsAt("2026-10-05T00:00:00Z", "Person", "authentik:user/u1", "authentik-saml:name_id/jdoe")))
+	ak := func(o *eventv1alpha1.Observation) Applied { return e.apply(event("authentik-acme", o)) }
+	ak(obsAt("2026-10-01T00:00:00Z", "Person", "authentik:user/u1", "authentik:username/jdoe"))
+	// A second person, deleted while it holds a name.
+	ak(obsAt("2026-10-02T00:00:00Z", "Person", "authentik-saml:name_id/x", "authentik:username/pat"))
+	gone := obsAt("2026-10-04T00:00:00Z", "Person", "authentik-saml:name_id/x")
+	gone.Data.Entity.Deleted = true
+	ak(gone)
+	wantSubject(t, "name after its holder's deletion", e.resolveKey("authentik:username/pat", ts("2026-10-06T00:00:00Z")), "")
+
+	// Then one observation reports both IDs, and the deleted person merges
+	// into the first. The deletion must still end the name afterwards.
+	got := ak(obsAt("2026-10-05T00:00:00Z", "Person", "authentik:user/u1", "authentik-saml:name_id/x", "authentik:username/jdoe"))
 	if len(got.Merges) != 1 {
 		t.Fatalf("got merges %v, want one", got.Merges)
 	}
-	a := e.resolveKey("authentik:user/u1", time.Time{})
-	wantSubject(t, "SAML ID", e.resolveKey("authentik-saml:name_id/jdoe", time.Time{}), a)
+	survivor := e.resolveKey("authentik:user/u1", time.Time{})
+	wantSubject(t, "name before the deletion", e.resolveKey("authentik:username/pat", ts("2026-10-03T00:00:00Z")), survivor)
+	wantSubject(t, "name after the deletion, after the merge", e.resolveKey("authentik:username/pat", ts("2026-10-06T00:00:00Z")), "")
+	// Between the deletion and the merging observation, which also takes the
+	// survivor's other name, only the deletion has ended it.
+	wantSubject(t, "name between the deletion and the merging observation", e.resolveKey("authentik:username/pat", ts("2026-10-04T12:00:00Z")), "")
+	// An older observation of the survivor binds the name too. It is older
+	// than the deletion, so the name stays ended: this recomputes the name
+	// with the deletion found under the survivor.
+	ak(obsAt("2026-10-03T00:00:00Z", "Person", "authentik:user/u1", "authentik:username/pat"))
+	wantSubject(t, "name an older observation of the survivor binds", e.resolveKey("authentik:username/pat", ts("2026-10-04T12:00:00Z")), "")
+	wantSubject(t, "name an older observation binds, before the deletion", e.resolveKey("authentik:username/pat", ts("2026-10-03T12:00:00Z")), survivor)
+	wantSubject(t, "a name the merging observation binds again", e.resolveKey("authentik:username/jdoe", ts("2026-10-06T00:00:00Z")), survivor)
 }

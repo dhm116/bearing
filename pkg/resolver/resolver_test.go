@@ -13,7 +13,6 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
 
@@ -144,5 +143,3 @@ func wantSubject(t testing.TB, what, got, want string) {
 		t.Fatalf("%s: got %q, want %q", what, got, want)
 	}
 }
-
-var _ contracts.GraphStore = (*memstore.Store)(nil)

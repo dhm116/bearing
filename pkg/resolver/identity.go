@@ -1,8 +1,10 @@
 package resolver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -115,7 +117,7 @@ func (u *run) resolveEntity(ctx context.Context) (bool, error) {
 			found[c] = true
 		}
 	}
-	matched := slices.Sorted(keysOf(found))
+	matched := slices.Sorted(maps.Keys(found))
 	for _, id := range matched {
 		kind, err := u.g.kindOf(ctx, id, nil)
 		if err != nil {
@@ -164,9 +166,9 @@ func (u *run) resolveEntity(ctx context.Context) (bool, error) {
 	case len(observed) > 0:
 		// Two subjects would open a conflict on (subject, same_as); the
 		// lower subject_id is used and nothing merges.
-		u.chosen = slices.Sorted(keysOf(observed))[0]
+		u.chosen = slices.Sorted(maps.Keys(observed))[0]
 	case len(tentative) > 0:
-		u.chosen = slices.Sorted(keysOf(tentative))[0]
+		u.chosen = slices.Sorted(maps.Keys(tentative))[0]
 	default:
 		// 3. Mint.
 		u.cs.Mints = append(u.cs.Mints, &modelv1alpha1.Mint{Ref: entityRef, Kind: string(u.p.kind), Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION})
@@ -267,7 +269,7 @@ func (u *run) writeBindings(ctx context.Context) error {
 // recomputed.
 func (u *run) releaseNames(ctx context.Context) error {
 	allowed := u.p.src.entityNamespaces()
-	for _, ns := range slices.Sorted(keysOf(allowed)) {
+	for _, ns := range slices.Sorted(maps.Keys(allowed)) {
 		if err := u.eng.addMark(ctx, ns, u.chosen, mark{at: u.p.at, key: u.p.key}); err != nil {
 			return err
 		}
@@ -296,7 +298,7 @@ func (u *run) resolveReferences(ctx context.Context) error {
 		refs = append(refs, r.other)
 	}
 	refs = append(refs, u.p.links...)
-	slices.SortFunc(refs, func(a, b keyRef) int { return compareKeys(a.key, b.key) })
+	slices.SortFunc(refs, func(a, b keyRef) int { return cmp.Compare(a.key, b.key) })
 	refs = slices.CompactFunc(refs, func(a, b keyRef) bool { return a.key == b.key })
 	if err := u.g.load(ctx, aliasesOf(refs)...); err != nil {
 		return err
@@ -327,16 +329,6 @@ func (u *run) resolveReferences(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func compareKeys(a, b model.Key) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 // entityHas reports whether k is one of the observed entity's own keys.
@@ -402,7 +394,7 @@ func (u *run) finish(ctx context.Context) error {
 	for a, bt := range u.timelines {
 		byAlias[a] = bt
 	}
-	for _, a := range slices.Sorted(keysOfTimelines(byAlias)) {
+	for _, a := range slices.Sorted(maps.Keys(byAlias)) {
 		u.cs.Bindings = append(u.cs.Bindings, byAlias[a])
 	}
 	u.cs.Merges = append(u.cs.Merges, u.merges...)
@@ -411,7 +403,7 @@ func (u *run) finish(ctx context.Context) error {
 		return err
 	}
 	u.cs.State = append(u.cs.State, entries...)
-	slices.SortFunc(u.cs.Mints, func(a, b *modelv1alpha1.Mint) int { return compareKeys(model.Key(a.GetRef()), model.Key(b.GetRef())) })
+	slices.SortFunc(u.cs.Mints, func(a, b *modelv1alpha1.Mint) int { return cmp.Compare(a.GetRef(), b.GetRef()) })
 	return nil
 }
 
@@ -477,7 +469,7 @@ func (u *run) seedPending(ctx context.Context) error {
 // doesn't depend on whether the reference or the observation came first.
 func (u *run) dropReplacedTentatives(ctx context.Context, rows map[model.Key][]*modelv1alpha1.Binding) bool {
 	dropped := false
-	for _, a := range slices.Sorted(keysOfNames(u.eng.names)) {
+	for _, a := range slices.Sorted(maps.Keys(u.eng.names)) {
 		n := u.eng.names[a]
 		after, ok := rows[a]
 		if !ok {
@@ -499,16 +491,6 @@ func (u *run) dropReplacedTentatives(ctx context.Context, rows map[model.Key][]*
 		}
 	}
 	return dropped
-}
-
-func keysOfTimelines(m map[model.Key]*modelv1alpha1.BindingTimeline) func(func(model.Key) bool) {
-	return func(yield func(model.Key) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // placeholderMerges returns the placeholders whose tentative binding of a
@@ -540,5 +522,5 @@ func (u *run) placeholderMerges(ctx context.Context, after map[model.Key][]*mode
 			}
 		}
 	}
-	return slices.Sorted(keysOf(found))
+	return slices.Sorted(maps.Keys(found))
 }

@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand"
 	"slices"
 	"sort"
@@ -74,7 +75,7 @@ func universe(events []Event) []string {
 			seen[k] = true
 		}
 	}
-	return slices.Sorted(keysOf(seen))
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // snapshot describes the identity store in a form that doesn't depend on
@@ -179,7 +180,7 @@ func TestIdentityDoesNotDependOnApplyOrder(t *testing.T) {
 	}
 	want := snapshot(t, base, keys)
 	rng := rand.New(rand.NewSource(1)) //nolint:gosec // G404: a seeded shuffle, not security
-	for i := range 300 {
+	for range 300 {
 		order := rng.Perm(len(events))
 		e := newEnv(t)
 		for _, j := range order {
@@ -188,6 +189,5 @@ func TestIdentityDoesNotDependOnApplyOrder(t *testing.T) {
 		if got := snapshot(t, e, keys); got != want {
 			t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
 		}
-		_ = i
 	}
 }

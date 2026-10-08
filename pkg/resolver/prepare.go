@@ -40,6 +40,7 @@ type Rejection struct {
 	Message string
 }
 
+// String describes the rejection for logs and audit messages.
 func (r Rejection) String() string {
 	return fmt.Sprintf("%s: %s (%s)", r.Path, r.Message, model.ShortName(r.Code))
 }
@@ -80,7 +81,7 @@ type prepared struct {
 func (r *Resolver) prepare(ev Event) (*prepared, []Rejection, error) {
 	src, ok := r.ix.sources[ev.Source]
 	if !ok {
-		return nil, nil, fmt.Errorf("%w %q", errUnknownSource, ev.Source)
+		return nil, nil, fmt.Errorf("%w %q", ErrUnknownSource, ev.Source)
 	}
 	if ev.ID == "" || ev.Observation == nil {
 		return nil, nil, errors.New("resolver: event needs an ID and an observation")

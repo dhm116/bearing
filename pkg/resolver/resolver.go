@@ -81,6 +81,9 @@ const maxStale = 16
 // apply lands in between.
 func (r *Resolver) Apply(ctx context.Context, ev Event) (Applied, error) {
 	for range maxStale {
+		if err := ctx.Err(); err != nil {
+			return Applied{}, err
+		}
 		res, err := r.Resolve(ctx, ev)
 		if err != nil {
 			return Applied{}, err
