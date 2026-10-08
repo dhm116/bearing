@@ -64,7 +64,14 @@ func fold(s string) string {
 	return strings.Map(foldRune, s)
 }
 
+// foldExceptions are the runes whose orbit has no lower case of an upper
+// case: CaseFolding.txt maps each to the other member of its pair.
+var foldExceptions = map[rune]rune{0x1FD3: 0x0390, 0x1FE3: 0x03B0, 0xFB05: 0xFB06}
+
 func foldRune(r rune) rune {
+	if f, ok := foldExceptions[r]; ok {
+		return f
+	}
 	upper := unicode.ToUpper(r)
 	if cherokee(upper) {
 		return upper

@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"cmp"
 	"testing"
 	"time"
 
@@ -13,37 +14,36 @@ import (
 func TestClaimRejectionsLeaveTheRestOfTheObservation(t *testing.T) {
 	tests := []struct {
 		name string
-		obs  func() *modelv1alpha1.ObservationData
-		path string
-		code modelv1alpha1.RejectionCode
+		// source defaults to the GitHub source.
+		source string
+		obs    func() *modelv1alpha1.ObservationData
+		path   string
+		code   modelv1alpha1.RejectionCode
 		// key must stay unbound.
 		key string
 	}{
-		{"a relation outside the subject's domain", func() *modelv1alpha1.ObservationData {
+		{"a relation outside the subject's domain", "", func() *modelv1alpha1.ObservationData {
 			return relData("Team", "github:team_node/T1", "approves_changes", "github:team/acme/x")
 		}, "data.relations[0].type", modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH, "github:team/acme/x"},
-		{"an end in a namespace the source doesn't use", func() *modelv1alpha1.ObservationData {
+		{"an end in a namespace the source doesn't use", "", func() *modelv1alpha1.ObservationData {
 			return relData("Repository", "github:repo_node/R1", "approves_changes", "authentik:group_name/x")
 		}, "data.relations[0].to", modelv1alpha1.RejectionCode_REJECTION_CODE_NAMESPACE_NOT_ALLOWED, "authentik:group_name/x"},
-		{"an end outside the predicate's range", func() *modelv1alpha1.ObservationData {
+		{"an end outside the predicate's range", "", func() *modelv1alpha1.ObservationData {
 			return relData("Repository", "github:repo_node/R1", "approves_changes", "github:repo/acme/x")
 		}, "data.relations[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH, "github:repo/acme/x"},
-		{"a link in a namespace the source doesn't link", func() *modelv1alpha1.ObservationData {
+		{"a link in a namespace the source doesn't link", "", func() *modelv1alpha1.ObservationData {
 			d := relData("Person", "github:user_node/U1", "member_of", "github:team/acme/ok")
 			d.Entity.LinkedIds = []string{"saml-bogus:name_id/x"}
 			return d
 		}, "data.entity.linked_ids[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_NAMESPACE_NOT_ALLOWED, "saml-bogus:name_id/x"},
-		{"a link to another kind", func() *modelv1alpha1.ObservationData {
+		{"a link to another kind", "authentik-acme", func() *modelv1alpha1.ObservationData {
 			return &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{Kind: "Person", Key: "authentik:user/u1", LinkedIds: []string{"github:team_node/T1"}}}
 		}, "data.entity.linked_ids[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, "github:team_node/T1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
-			source := "github-acme"
-			if tc.name == "a link to another kind" {
-				source = "authentik-acme"
-			}
+			source := cmp.Or(tc.source, "github-acme")
 			o := model.NewObservation("adapter/test", ts("2026-10-01T00:00:00Z"), tc.obs())
 			got := e.apply(event(source, o))
 			if len(got.Rejections) != 1 || got.Rejections[0].Code != tc.code || got.Rejections[0].Scope != model.ScopeClaim || got.Rejections[0].Path != tc.path {

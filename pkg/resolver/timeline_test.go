@@ -199,7 +199,7 @@ func TestFoldAndEscape(t *testing.T) {
 	for in, want := range map[string]string{
 		"ACME": "acme", "Acme/Pay": "acme/pay", "straße": "straße", "ǅ": "ǆ", "": "",
 		"Σ": "σ", "ς": "σ", "σ": "σ", "Ι": "ι", "\u0345": "ι", "\u1FBE": "ι", "ẞ": "ß",
-		"\u212A": "k", "ſ": "s", "İ": "İ", "ꭰ": "Ꭰ", "ᏸ": "Ᏸ", "Ᏸ": "Ᏸ",
+		"\u212A": "k", "ſ": "s", "İ": "İ", "ꭰ": "Ꭰ", "\u1FD3": "\u0390", "\u0390": "\u0390", "\u1FE3": "\u03B0", "\uFB05": "\uFB06", "\uFB06": "\uFB06", "ᏸ": "Ᏸ", "Ᏸ": "Ᏸ",
 	} {
 		if got := fold(in); got != want {
 			t.Errorf("fold(%q) = %q, want %q", in, got, want)
