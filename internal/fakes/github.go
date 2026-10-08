@@ -34,17 +34,23 @@ type GitHub struct {
 	token  string
 	secret string
 
-	rateMu  sync.Mutex
-	used    int // requests counted against the rate limit
-	limited int // requests still to answer with a rate-limit error
+	rateMu   sync.Mutex
+	used     int // authenticated requests counted against the rate limit
+	anonUsed int // anonymous requests counted against theirs
+	limited  int // requests still to answer with a rate-limit error
 }
 
 // githubAPI is the API base URL in webhook payloads, which aren't tied to a
 // request to the fake.
 const githubAPI = "https://api.github.com"
 
-// rateLimit is the hourly request budget the fake reports.
-const rateLimit = 5000
+// rateLimit and anonymousRateLimit are the hourly request budgets the fake
+// reports for authenticated and anonymous callers. The hour never rolls over:
+// a test that exhausts a budget builds a new fake.
+const (
+	rateLimit          = 5000
+	anonymousRateLimit = 60
+)
 
 // anonymousKey marks a request context as unauthenticated.
 type anonymousKey struct{}
@@ -68,63 +74,87 @@ func NewGitHub(t testing.TB, org *Org, opts GitHubOptions) *GitHub {
 	mux.HandleFunc("POST /graphql", g.graphQL)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { ghError(w, http.StatusNotFound, "Not Found") })
 	g.start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !g.rateHeaders(w, r) {
+		// Credentials are checked before the rate limit: a bad token gets
+		// 401 and is not counted, so a limit never hides it.
+		tok, sent := credential(r, "Bearer", "token")
+		bad := sent && (tok == "" || (g.token != "" && tok != g.token))
+		anon := !sent
+		if bad || (anon && r.URL.Path == "/graphql") {
+			g.rateHeaders(w, r, anon, false)
+			if bad {
+				ghError(w, http.StatusUnauthorized, "Bad credentials")
+				return
+			}
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"message":           "This endpoint requires you to be authenticated.",
+				"documentation_url": "https://docs.github.com/graphql/guides/forming-calls-with-graphql#authenticating-with-graphql",
+			})
+			return
+		}
+		if !g.rateHeaders(w, r, anon, true) {
 			// GitHub's primary rate limit reply.
+			msg := "API rate limit exceeded for user ID 1000001."
+			if anon {
+				msg = "API rate limit exceeded for 203.0.113.1. (But here's the good news: Authenticated requests get a higher rate limit.)"
+			}
 			writeJSON(w, http.StatusForbidden, map[string]any{
-				"message":           "API rate limit exceeded for user ID 1000001.",
+				"message":           msg,
 				"documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api",
 				"status":            "403",
 			})
 			return
 		}
-		tok, sent := credential(r, "Bearer", "token")
-		switch {
-		case !sent && r.URL.Path == "/graphql":
-			writeJSON(w, http.StatusUnauthorized, map[string]any{
-				"message":           "This endpoint requires you to be authenticated.",
-				"documentation_url": "https://docs.github.com/graphql/guides/forming-calls-with-graphql#authenticating-with-graphql",
-			})
-		case !sent:
-			mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), anonymousKey{}, true)))
-		case tok == "" || (g.token != "" && tok != g.token):
-			ghError(w, http.StatusUnauthorized, "Bad credentials")
-		default:
-			mux.ServeHTTP(w, r)
+		if anon {
+			r = r.WithContext(context.WithValue(r.Context(), anonymousKey{}, true))
 		}
+		mux.ServeHTTP(w, r)
 	}))
 	return g
 }
 
-// RateLimitNext makes the next n requests fail with GitHub's 403 rate-limit
-// reply and X-RateLimit-Remaining: 0.
+// RateLimitNext makes the next n requests that pass authentication fail with
+// GitHub's 403 rate-limit reply and X-RateLimit-Remaining: 0.
 func (g *GitHub) RateLimitNext(n int) {
 	g.rateMu.Lock()
 	defer g.rateMu.Unlock()
 	g.limited = n
 }
 
-// rateHeaders counts r against the rate limit and sets GitHub's rate-limit
-// headers. It reports false if r is to be refused.
-func (g *GitHub) rateHeaders(w http.ResponseWriter, r *http.Request) bool {
+// rateHeaders sets GitHub's rate-limit headers for r, which is anonymous or
+// authenticated, and each has its own budget. If count is set it also counts
+// r against that budget; it then reports false if r is to be refused.
+func (g *GitHub) rateHeaders(w http.ResponseWriter, r *http.Request, anon, count bool) bool {
 	g.rateMu.Lock()
 	defer g.rateMu.Unlock()
 	resource := "core"
 	if r.URL.Path == "/graphql" {
 		resource = "graphql"
 	}
-	ok := g.limited <= 0
-	remaining := 0
-	if ok {
-		g.used++
-		remaining = max(0, rateLimit-g.used)
-	} else {
-		g.limited--
+	limit, used := rateLimit, &g.used
+	if anon {
+		limit, used = anonymousRateLimit, &g.anonUsed
+	}
+	ok := true
+	if count {
+		switch {
+		case g.limited > 0:
+			g.limited--
+			ok = false
+		case *used >= limit:
+			ok = false
+		default:
+			*used++
+		}
+	}
+	remaining := max(0, limit-*used)
+	if !ok {
+		remaining = 0
 	}
 	reset := g.org.clock.Now().Add(time.Hour).Unix()
 	h := w.Header()
-	h.Set("X-RateLimit-Limit", strconv.Itoa(rateLimit))
+	h.Set("X-RateLimit-Limit", strconv.Itoa(limit))
 	h.Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
-	h.Set("X-RateLimit-Used", strconv.Itoa(rateLimit-remaining))
+	h.Set("X-RateLimit-Used", strconv.Itoa(limit-remaining))
 	h.Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
 	h.Set("X-RateLimit-Resource", resource)
 	return ok

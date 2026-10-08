@@ -7,7 +7,7 @@ import (
 )
 
 // Key identifies an alias, in the form "<namespace>:<key_type>/<external_id>",
-// for example "github:repo_node/R_kgDOH1a2b3". Keys are strings on the wire.
+// for example "github:repo_node/R_kgDOH1a2bw". Keys are strings on the wire.
 // The core, not adapters, decides when keys name the same subject.
 type Key string
 

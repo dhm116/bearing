@@ -14,7 +14,7 @@
         "authentik-saml:name_id/jdoe@acme.example"
       ],
       "linked_ids": [
-        "github:user_node/U_kgDOA1b2c3"
+        "github:user_node/U_kgDOA1b2cw"
       ],
       "attributes": {
         "name": "Jane Doe",

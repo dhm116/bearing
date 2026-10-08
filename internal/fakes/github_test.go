@@ -146,6 +146,54 @@ func TestGitHubRateLimitNext(t *testing.T) {
 	}
 }
 
+func TestGitHubChecksCredentialsBeforeRateLimit(t *testing.T) {
+	g, _, _ := newGitHub(t)
+	g.RateLimitNext(1)
+	for _, tt := range []struct{ name, path, auth string }{
+		{"bad token", "/repos/acme/web", "Bearer wrong"},
+		{"anonymous GraphQL", "/graphql", ""},
+	} {
+		method := http.MethodGet
+		if tt.path == "/graphql" {
+			method = http.MethodPost
+		}
+		resp, body := do(t, method, g.URL+tt.path, []byte(`{}`), "Authorization", tt.auth)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s while limited: got %d %s, want 401", tt.name, resp.StatusCode, body)
+		}
+	}
+	// The 401s did not use up the limit, which the next good request still hits.
+	if resp, _ := do(t, http.MethodGet, g.URL+"/repos/acme/web", nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("limited request: got %d, want 403", resp.StatusCode)
+	}
+	if resp, _ := do(t, http.MethodGet, g.URL+"/repos/acme/web", nil); resp.StatusCode != http.StatusOK || resp.Header.Get("X-RateLimit-Remaining") != "4999" {
+		t.Fatalf("after the limit: got %d, remaining %s; want 200, 4999 (401s are not counted)", resp.StatusCode, resp.Header.Get("X-RateLimit-Remaining"))
+	}
+}
+
+func TestGitHubAnonymousCallersHaveTheirOwnBudget(t *testing.T) {
+	g, _, _ := newGitHub(t)
+	for i := range 60 {
+		resp, body := do(t, http.MethodGet, g.URL+"/repos/acme/handbook", nil, "Authorization", "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("anonymous request %d: got %d %s, want 200", i+1, resp.StatusCode, body)
+		}
+		if want := strconv.Itoa(59 - i); resp.Header.Get("X-RateLimit-Remaining") != want || resp.Header.Get("X-RateLimit-Limit") != "60" {
+			t.Fatalf("anonymous request %d: got limit %s remaining %s, want 60 and %s",
+				i+1, resp.Header.Get("X-RateLimit-Limit"), resp.Header.Get("X-RateLimit-Remaining"), want)
+		}
+	}
+	resp, body := do(t, http.MethodGet, g.URL+"/repos/acme/handbook", nil, "Authorization", "")
+	if resp.StatusCode != http.StatusForbidden || resp.Header.Get("X-RateLimit-Remaining") != "0" ||
+		!strings.Contains(string(body), "API rate limit exceeded") {
+		t.Fatalf("anonymous request 61: got %d %v %s, want 403 rate limit", resp.StatusCode, resp.Header, body)
+	}
+	resp, _ = do(t, http.MethodGet, g.URL+"/repos/acme/web", nil)
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-RateLimit-Remaining") != "4999" {
+		t.Fatalf("authenticated after anonymous limit: got %d, remaining %s; want 200, 4999", resp.StatusCode, resp.Header.Get("X-RateLimit-Remaining"))
+	}
+}
+
 func TestGitHubRESTPagesReposWithLinks(t *testing.T) {
 	g, _, _ := newGitHub(t)
 	var names []string

@@ -1,9 +1,11 @@
 package model
 
 import (
+	"encoding/base64"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -25,7 +27,7 @@ func TestKeyParse(t *testing.T) {
 		wantErr                      bool
 	}{
 		{key: "github:user/jdoe", namespace: "github", keyType: "user", external: "jdoe"},
-		{key: "github:repo_node/R_kgDOH1a2b3", namespace: "github", keyType: "repo_node", external: "R_kgDOH1a2b3"},
+		{key: "github:repo_node/R_kgDOH1a2bw", namespace: "github", keyType: "repo_node", external: "R_kgDOH1a2bw"},
 		{key: "github:repo/acme/payments-api", namespace: "github", keyType: "repo", external: "acme/payments-api"},
 		{key: "ghes-acme:team/acme/x", namespace: "ghes-acme", keyType: "team", external: "acme/x"},
 		{key: "aws:resource/arn:aws:s3:::bucket", namespace: "aws", keyType: "resource", external: "arn:aws:s3:::bucket"},
@@ -82,6 +84,35 @@ func readFixture(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// TestFixtureNodeIDsAreCanonical keeps made-up GitHub node IDs in fixtures
+// decodable: next-format IDs are URL-safe base64 of a MessagePack array
+// whose trailing bits are zero, which a typed-in suffix like "b3" breaks.
+func TestFixtureNodeIDsAreCanonical(t *testing.T) {
+	idPattern := regexp.MustCompile(`github:(?:repo|user|team)_node/[A-Z]_([A-Za-z0-9_-]+)`)
+	checked := 0
+	for _, dir := range []string{"../../testdata/observations", "../../testdata/acme"} {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			for _, m := range idPattern.FindAllStringSubmatch(string(readFixture(t, path)), -1) {
+				checked++
+				b, err := base64.RawURLEncoding.Strict().DecodeString(m[1])
+				if err != nil || len(b) < 2 || b[0]&0xf0 != 0x90 || b[1] != 0 {
+					t.Errorf("%s: node ID %s is not a canonical next-format ID (%v)", path, m[0], err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("found no GitHub node IDs in the fixtures; has the key pattern changed?")
+	}
 }
 
 func TestValidObservationsDecodeAndRoundTrip(t *testing.T) {
