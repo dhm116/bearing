@@ -91,12 +91,14 @@ func readFixture(t *testing.T, path string) []byte {
 // whose trailing bits are zero, which a typed-in suffix like "b3" breaks.
 func TestFixtureNodeIDsAreCanonical(t *testing.T) {
 	idPattern := regexp.MustCompile(`github:(?:repo|user|team)_node/[A-Z]_([A-Za-z0-9_-]+)`)
+	checked := 0
 	for _, dir := range []string{"../../testdata/observations", "../../testdata/acme"} {
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
 			for _, m := range idPattern.FindAllStringSubmatch(string(readFixture(t, path)), -1) {
+				checked++
 				b, err := base64.RawURLEncoding.Strict().DecodeString(m[1])
 				if err != nil || len(b) < 2 || b[0]&0xf0 != 0x90 || b[1] != 0 {
 					t.Errorf("%s: node ID %s is not a canonical next-format ID (%v)", path, m[0], err)
@@ -107,6 +109,9 @@ func TestFixtureNodeIDsAreCanonical(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if checked == 0 {
+		t.Fatal("found no GitHub node IDs in the fixtures; has the key pattern changed?")
 	}
 }
 

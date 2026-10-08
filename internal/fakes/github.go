@@ -74,8 +74,8 @@ func NewGitHub(t testing.TB, org *Org, opts GitHubOptions) *GitHub {
 	mux.HandleFunc("POST /graphql", g.graphQL)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { ghError(w, http.StatusNotFound, "Not Found") })
 	g.start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Credentials are checked before the rate limit, as GitHub does: a
-		// bad token gets 401 and is not counted, so a limit never hides it.
+		// Credentials are checked before the rate limit: a bad token gets
+		// 401 and is not counted, so a limit never hides it.
 		tok, sent := credential(r, "Bearer", "token")
 		bad := sent && (tok == "" || (g.token != "" && tok != g.token))
 		anon := !sent

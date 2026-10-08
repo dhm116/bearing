@@ -1283,7 +1283,8 @@ and the end date would never show.
 ```
 
 - The Authentik user `9e8d…` is F, minted from this source alone: nothing
-  else names lfischer.
+  else names lfischer. (The directory's full record of E also lists its
+  child groups; only the membership that matters here is shown.)
 - `(F, member_of, E)` is asserted on `[2024-01-01, 2026-11-01)` and ended
   from 2026-11-01. `as_of(valid_at: 2026-10-15T00:00:00Z)` gives
   `asserted`; `as_of(valid_at: 2026-11-02T00:00:00Z)` gives `none`, with no
@@ -1347,8 +1348,9 @@ ownership would end.
   A matching email alone would leave a `candidate` to confirm.
 - P and G match on `name` and, once their members have merged, on
   `members`. G's directory members include jdoe with no end date; the
-  ending membership in example 4 is lfischer's, in E. At or above the `Team` threshold they merge (rule `score`);
-  below it `same_as` stays a `candidate`.
+  ending membership in example 4 is lfischer's, in E. At or above the
+  `Team` threshold they merge (rule `score`); below it `same_as` stays a
+  `candidate`.
 
 ## Open questions
 
