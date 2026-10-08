@@ -88,7 +88,11 @@ features:
   - name: Look back in time
     area: Answers you can check
     summary: See who owned what on a given day, and everything that changed since.
-    milestone: 4
+    milestone: 3
+  - name: Gaps and mix-ups flagged
+    area: Answers you can check
+    summary: Bearing notices what looks wrong in your tools' data, such as a team no tool has described or two accounts claiming the same identity, and records it so it can be fixed at the source.
+    milestone: 3
   - name: Search in plain words
     area: Answers you can check
     summary: Find things by what they mean, not only by their exact names, without sending your data to an outside AI service.
