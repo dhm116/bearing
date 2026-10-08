@@ -150,9 +150,18 @@ func resolvedKeys(e *modelv1alpha1.JournalEntry) map[memstore.Table][]string {
 			kept.Conflicts = append(kept.Conflicts, ct)
 		}
 	}
-	kept.Issues = cs.GetIssues()
+	// A state entry's or an issue's key may name a minted subject by the ID
+	// the store substituted for a ref.
+	namesMinted := func(key string) bool {
+		return slices.ContainsFunc(e.GetMinted(), func(m *modelv1alpha1.Subject) bool { return strings.Contains(key, m.GetSubjectId()) })
+	}
+	for _, it := range cs.GetIssues() {
+		if !namesMinted(it.GetKey()) {
+			kept.Issues = append(kept.Issues, it)
+		}
+	}
 	for _, en := range cs.GetState() {
-		if !slices.ContainsFunc(e.GetMinted(), func(m *modelv1alpha1.Subject) bool { return strings.Contains(en.GetKey(), m.GetSubjectId()) }) {
+		if !namesMinted(en.GetKey()) {
 			kept.State = append(kept.State, en)
 		}
 	}

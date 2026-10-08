@@ -87,11 +87,11 @@ subject the same `ChangeSet` creates; the store substitutes the minted ID.
 A timeline item replaces its series' current timeline: rows equal to a
 current row keep their `recorded_at`, other current rows are retracted at
 this apply's record time, new rows are recorded at it, and an empty
-timeline retracts the series. An alias, state key or issue key appears at most
-once in a `ChangeSet`, judged after refs are substituted. A support's `last_confirmed_at` is the exception to
-versioning: a confirmation updates it in place, without a new version, so
-it is not bitemporal. Items apply in this order: mints, un-merge targets,
-bindings, merges, un-merges, supports, facts, conflicts, issues, state.
+timeline retracts the series. An alias, state key or issue key appears at
+most once in a `ChangeSet`, judged after refs are substituted. A support's
+`last_confirmed_at` is the exception to versioning: a confirmation updates
+it in place, without a new version, so it is not bitemporal. Items apply in
+this order: mints, un-merge targets, bindings, merges, un-merges, supports, facts, conflicts, issues, state.
 
 A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support and a
