@@ -86,6 +86,8 @@ func TestRemovedCodeownersTeamStopsApprovingWhileAnotherSourceSurvives(t *testin
 		repo+` name -> {"type":"VALUE_TYPE_STRING","value":"payments-api"} ASSERTED/NONE 1000000 [github-acme:1000000 github-mirror:1000000]`,
 		repo+` language -> {"type":"VALUE_TYPE_STRING","value":"Go"} ASSERTED/NONE 1000000 [github-acme:1000000 github-mirror:1000000]`,
 		repo+` github.codeowners_rules -> {"type":"VALUE_TYPE_FLOAT","value":1} ASSERTED/NONE 1000000 [github-acme:1000000 github-mirror:1000000]`,
+		// The one * line names a team that is only a placeholder so far.
+		repo+" owned_by -> github:team/acme/payments(Team) CANDIDATE/UNOBSERVED_OBJECT 950000 [core/derive/codeowners/github-acme:950000 core/derive/codeowners/github-mirror:950000]",
 	)
 	// The next snapshot of one source lists a different team.
 	e.apply(event("github-acme", fixture(t, "3-codeowners-team-removed.json")))
@@ -384,7 +386,7 @@ func catalogDeclaration(t testing.TB, authoritative bool) *modelv1alpha1.Adapter
       { "key_type": "repo_id", "class": "KEY_CLASS_ID" },
       { "issuer_type": "github", "key_type": "repo", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "redirects": true, "case": "KEY_CASE_INSENSITIVE" }
     ],
-    "fields": [{ "predicate": "default_branch", "authority": { "authoritative": %t } }]
+    "fields": [{ "predicate": "default_branch", "authority": { "authoritative": %t } }, { "predicate": "owned_by" }]
   }]
 }`, authoritative)
 	if err := model.DecodeJSON([]byte(text), d); err != nil {

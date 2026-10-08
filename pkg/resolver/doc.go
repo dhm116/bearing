@@ -10,21 +10,47 @@
 //
 // Identity: resolution (id match, name match, mint), alias bindings with
 // renames, redirects, deletions and placeholders, and the merges that follow
-// from them (co_reported_ids, placeholder). Facts: attribute and relation
-// claims with valid time, absent claims, snapshot scopes and deletions
-// that end what an observation no longer lists, per-source supports with
-// versions, noisy-OR confidence, and status (threshold, unobserved objects,
-// conflicts that authority resolves), recomputed for what a ChangeSet
-// touches. A merge moves the merged subject's supports and watermarks to
-// the survivor. Matching is exact.
+// from them (co_reported_ids, placeholder, authoritative). Facts: attribute
+// and relation claims with valid time, absent claims, snapshot scopes and
+// deletions that end what an observation no longer lists, per-source
+// supports with versions, noisy-OR confidence, and status (threshold,
+// unobserved objects, conflicts that authority resolves), recomputed for what
+// a ChangeSet touches. A merge moves the merged subject's supports and
+// watermarks to the survivor. Matching is exact.
 //
-// Not yet, and tracked as follow-ups: CODEOWNERS ownership and merges from
-// authoritative links (the next part of issue #43); manual overrides,
-// precedence, same_as and conflict records; scored matching (names, emails,
-// member overlap); non-authoritative links; manual operations;
-// sync-completeness deletions; compaction; and bounding the state that
-// grows with every write (issue #77). A merged subject's support series
-// that hold only endings aren't found when it merges (issue #86's family).
+// # Derived ownership and links
+//
+// The codeowners rule (docs/spec/data-model.md, "CODEOWNERS") reads, for each
+// source whose declaration gives a Repository both approves_changes and a
+// codeowners_rules attribute, the live supports of that source for a
+// repository, and claims owned_by for each owner on a `*` line, from the
+// source core/derive/codeowners/<source>. It counts in the source's system
+// and is not authoritative. Its confidence follows the file's shape (see
+// [Codeowners]): one `*` line naming one team, or any other file with a `*`
+// line. The rule holds no state: every apply that touches an input derives
+// again from the inputs as the ChangeSet leaves them, at each valid time an
+// input starts or ends, so the result does not depend on the order inputs
+// arrive in. A merge of the repository or an owner moves the derived support
+// to the survivor's key.
+//
+// A linked_id the source declares authoritative, to an id-class key, merges
+// the entity's subject with the subject that holds the key, or with the
+// placeholder minted for it (rule authoritative, confidence 1.0, the link as
+// evidence from core/identity/link/<source>). The earlier mint survives. The
+// guard applies: subjects that hold different id aliases of one key type in
+// one namespace never merge. Evidence is judged when the observation that
+// carries the link is applied, and a merge is never undone when the
+// evidence ends, so linked_ids_complete has nothing to do yet. Links that
+// aren't authoritative, or name a name, wait for scored matching.
+//
+// Not yet, and tracked as follow-ups: the conflict and data-quality records
+// (issue #102, which also enforces the ChangeSet limits, and includes the guard's `id_conflict`);
+// manual overrides, precedence and same_as facts; scored matching (names,
+// emails, member overlap); non-authoritative links and the evidence state
+// that ending a link needs; authority overrides; manual operations;
+// sync-completeness deletions; compaction; and bounding the state that grows
+// with every write (issue #77). A merged subject's support series that hold
+// only endings aren't found when it merges (issue #86's family).
 //
 // Identity decisions may depend on apply order (docs/spec/data-model.md,
 // "State, determinism and apply"), for example a reference resolves to a

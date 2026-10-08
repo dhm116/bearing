@@ -64,6 +64,13 @@ func (r *factRun) moveSupports(ctx context.Context, m string) error {
 			continue
 		}
 		source := st.GetSource()
+		if _, derived := derivedFrom(source); derived {
+			// A derived support has no writes of its own: the inputs that
+			// moved are touched, and it is derived again under the survivor's
+			// key.
+			r.retired[retiredKey(source, w)] = &modelv1alpha1.SupportTimeline{Source: source, SubjectId: w.subject, Predicate: w.pred, Object: w.object}
+			continue
+		}
 		old, err := r.readSeries(ctx, source, w)
 		if err != nil {
 			return err
