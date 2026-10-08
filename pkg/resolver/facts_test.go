@@ -623,3 +623,60 @@ func TestOneFactClaimedUnderTwoKeysWithDifferentTimes(t *testing.T) {
 		t.Fatalf("want the open claim to hold on October 8:\n%s", got[0])
 	}
 }
+
+// Scopes of every predicate ("*", as a deleted observation or a snapshot of
+// everything makes) and of attributes only the source declares move with a
+// merge as well, whichever subject the snapshot was made under.
+func TestMergeMovesAllPredicateAndDeclaredAttributeSnapshots(t *testing.T) {
+	cfg := testConfig(t)
+	for _, d := range cfg.Declarations {
+		for _, k := range d.GetKinds() {
+			if d.GetName() == "github" && k.GetKind() == "Team" {
+				k.Fields = append(k.Fields, &modelv1alpha1.FieldDeclaration{
+					Predicate: "color", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_ONE,
+				})
+			}
+		}
+	}
+	const t1, t2 = "github:team_node/T1", "github:team_node/T2"
+	tests := []struct {
+		name string
+		// snapshot is an observation of a team that says the team has nothing
+		// else of the predicate it covers.
+		snapshot func(key string) *eventv1alpha1.Observation
+		// late is a claim observed before the snapshot, arriving after the merge.
+		late     *eventv1alpha1.Observation
+		wantFact string
+	}{
+		{"a snapshot of everything", func(key string) *eventv1alpha1.Observation {
+			return withScope(obsAt("2026-10-01T02:00:00Z", "Team", key), false, "*")
+		}, withAttr(obsAt("2026-10-01T00:00:00Z", "Team", t1), "color", "old"), `color -> {"type":"VALUE_TYPE_STRING","value":"old"}`},
+		{"a declared attribute", func(key string) *eventv1alpha1.Observation {
+			return withAttr(obsAt("2026-10-01T02:00:00Z", "Team", key), "color", "red")
+		}, withAttr(obsAt("2026-10-01T00:00:00Z", "Team", t1), "color", "old"), `color -> {"type":"VALUE_TYPE_STRING","value":"old"}`},
+	}
+	for _, tc := range tests {
+		for _, underMerged := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, snapshot under the merged subject: %v", tc.name, underMerged), func(t *testing.T) {
+				e := newEnvWith(t, cfg)
+				// The subject minted first survives.
+				snapKey, otherKey := t1, t2
+				if underMerged {
+					snapKey, otherKey = t2, t1
+				}
+				e.apply(event("github-acme", obsAt("2026-10-01T01:00:00Z", "Team", otherKey)))
+				e.apply(event("github-acme", tc.snapshot(snapKey)))
+				if got := e.apply(event("github-acme", obsAt("2026-10-02T00:00:00Z", "Team", t1, t2))); len(got.Merges) != 1 {
+					t.Fatalf("got merges %v, want one", got.Merges)
+				}
+				e.apply(event("github-acme", tc.late))
+				if before := factsAt(t, e, ts("2026-10-01T00:30:00Z")); !strings.Contains(before, tc.wantFact) {
+					t.Errorf("want the late claim before the snapshot in\n%s", before)
+				}
+				if after := factsAt(t, e, ts("2026-10-03T00:00:00Z")); strings.Contains(after, tc.wantFact) {
+					t.Errorf("the late claim survived the snapshot:\n%s", after)
+				}
+			})
+		}
+	}
+}

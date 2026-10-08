@@ -475,7 +475,11 @@ func TestJCSOrdersKeysAndRefusesWhatIsNotJSON(t *testing.T) {
 		t.Fatalf("got %s and %s, want one form for equal values", got, again)
 	}
 	nan := &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: math.NaN()}}
-	for name, v := range map[string]*structpb.Value{"NaN": nan, "invalid UTF-8": structpb.NewStringValue("\xff")} {
+	nested := structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{nan}})
+	inStruct := structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"x": nan}})
+	for name, v := range map[string]*structpb.Value{
+		"NaN": nan, "NaN in a list": nested, "NaN in an object": inStruct, "invalid UTF-8": structpb.NewStringValue("\xff"),
+	} {
 		if _, err := JCS(v); err == nil {
 			t.Errorf("%s: got no error, want one", name)
 		}
