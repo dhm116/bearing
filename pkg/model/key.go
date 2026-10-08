@@ -22,7 +22,7 @@ var (
 // Parse splits a key at the first ":" and the first "/" after it.
 func (k Key) Parse() (namespace, keyType, externalID string, err error) {
 	if !keyPattern.MatchString(string(k)) {
-		return "", "", "", fmt.Errorf("invalid key %q: want <namespace>:<key_type>/<external_id>", k)
+		return "", "", "", fmt.Errorf("invalid key %q: want <namespace>:<key_type>/<external_id>", clip(string(k)))
 	}
 	namespace, rest, _ := strings.Cut(string(k), ":")
 	keyType, externalID, _ = strings.Cut(rest, "/")

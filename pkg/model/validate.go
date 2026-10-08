@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strconv"
@@ -36,9 +37,28 @@ const (
 // counted.
 const MaxProblems = 20
 
+// MaxQuoted is how many bytes of an adapter's string a problem message
+// quotes; a longer value is cut, so a message stays small however long the
+// value is.
+const MaxQuoted = 256
+
+// Scope is how much of an observation a rejection removes.
+type Scope int
+
+const (
+	// ScopeObservation rejects the whole observation.
+	ScopeObservation Scope = iota
+	// ScopeClaim rejects only the claim the problem is in; the rest of the
+	// observation applies (see "Audit" in docs/spec/data-model.md).
+	ScopeClaim
+)
+
 // Problem is one reason an event, or part of it, is rejected.
 type Problem struct {
 	Code modelv1alpha1.RejectionCode
+	// Scope is what the rejection removes. Only observations have claim
+	// scope; everything else is rejected whole.
+	Scope Scope
 	// Path names the field, e.g. "data.relations[0].to".
 	Path    string
 	Message string
@@ -56,7 +76,26 @@ type ValidationError struct {
 	More     int
 	// codes holds the distinct codes of every problem, listed or not.
 	codes []modelv1alpha1.RejectionCode
+	// observation is set if any problem, listed or not, rejects the whole
+	// observation; claims names every claim a problem rejects.
+	observation bool
+	claims      []claimRef
 }
+
+// claimRef locates a claim in an observation's data.
+type claimRef struct {
+	field claimField
+	index int    // into relations or attribute_claims
+	name  string // of an entity attribute
+}
+
+type claimField int
+
+const (
+	fieldRelation claimField = iota
+	fieldAttributeClaim
+	fieldAttribute
+)
 
 // Error lists the problems.
 func (e *ValidationError) Error() string {
@@ -74,6 +113,14 @@ func (e *ValidationError) Error() string {
 // Has reports whether any problem, listed or not, has code.
 func (e *ValidationError) Has(code modelv1alpha1.RejectionCode) bool {
 	return slices.Contains(e.Codes(), code)
+}
+
+// Scope returns the widest scope among all problems, listed or not.
+func (e *ValidationError) Scope() Scope {
+	if e.observation || len(e.claims) == 0 {
+		return ScopeObservation
+	}
+	return ScopeClaim
 }
 
 // Codes returns the distinct codes of all problems, in order of first use.
@@ -95,40 +142,78 @@ type checker struct {
 	problems []Problem
 	more     int
 	codes    []modelv1alpha1.RejectionCode
+
+	rejectsAll bool       // a problem rejects the whole observation
+	claims     []claimRef // claims a problem rejects
+	cur        *claimRef  // the claim being checked, if any
+	curHit     bool       // cur has a claim-scoped problem
 }
 
-// full reports whether the problem list is full, recording code either way.
-func (c *checker) full(code modelv1alpha1.RejectionCode) bool {
-	if !slices.Contains(c.codes, code) {
-		c.codes = append(c.codes, code)
-	}
-	if len(c.problems) >= MaxProblems {
-		c.more++
+// claimScoped reports whether a problem with code, found inside a claim,
+// rejects only that claim.
+func claimScoped(code modelv1alpha1.RejectionCode) bool {
+	switch code {
+	case codeNotDeclared, codeDomainMismatch, codeTypeMismatch, codeCorePredicate, codeInvalidValue, codeInvalidInterval:
 		return true
 	}
 	return false
 }
 
+// claim runs check on the claim at ref and reports whether it found a
+// claim-scoped problem, so the caller can leave the claim out of
+// observation-wide checks.
+func (c *checker) claim(ref claimRef, check func()) bool {
+	c.cur, c.curHit = &ref, false
+	check()
+	c.cur = nil
+	return c.curHit
+}
+
+// full records code and the scope of the problem and reports whether the
+// problem list is full.
+func (c *checker) full(code modelv1alpha1.RejectionCode) (scope Scope, full bool) {
+	if !slices.Contains(c.codes, code) {
+		c.codes = append(c.codes, code)
+	}
+	switch {
+	case c.cur == nil || !claimScoped(code):
+		c.rejectsAll = true
+	case !c.curHit:
+		c.curHit = true
+		c.claims = append(c.claims, *c.cur)
+		scope = ScopeClaim
+	default:
+		scope = ScopeClaim
+	}
+	if len(c.problems) >= MaxProblems {
+		c.more++
+		return scope, true
+	}
+	return scope, false
+}
+
 func (c *checker) add(code modelv1alpha1.RejectionCode, path, format string, args ...any) {
-	if c.full(code) {
+	scope, full := c.full(code)
+	if full {
 		return
 	}
-	c.problems = append(c.problems, Problem{Code: code, Path: path, Message: fmt.Sprintf(format, args...)})
+	c.problems = append(c.problems, Problem{Code: code, Scope: scope, Path: path, Message: fmt.Sprintf(format, args...)})
 }
 
 // addAt is add with a lazily formatted path, for deep value trees.
 func (c *checker) addAt(code modelv1alpha1.RejectionCode, p *vpath, format string, args ...any) {
-	if c.full(code) {
+	scope, full := c.full(code)
+	if full {
 		return
 	}
-	c.problems = append(c.problems, Problem{Code: code, Path: p.String(), Message: fmt.Sprintf(format, args...)})
+	c.problems = append(c.problems, Problem{Code: code, Scope: scope, Path: p.String(), Message: fmt.Sprintf(format, args...)})
 }
 
 func (c *checker) err() error {
 	if len(c.problems) == 0 && c.more == 0 {
 		return nil
 	}
-	return &ValidationError{Problems: c.problems, More: c.more, codes: c.codes}
+	return &ValidationError{Problems: c.problems, More: c.more, codes: c.codes, observation: c.rejectsAll, claims: c.claims}
 }
 
 // vpath is a path into a value tree, formatted only when a problem needs
@@ -165,7 +250,7 @@ func (p *vpath) String() string {
 		if segs[i].isIdx {
 			b.WriteString("[" + strconv.Itoa(segs[i].index) + "]")
 		} else {
-			b.WriteString("[" + strconv.Quote(segs[i].key) + "]")
+			b.WriteString("[" + quote(segs[i].key) + "]")
 		}
 	}
 	return b.String()
@@ -234,6 +319,43 @@ func (c *checker) observation(o *eventv1alpha1.Observation) {
 	c.observationData("data", o.GetData(), o.GetTime())
 }
 
+// DropRejectedClaims removes from o the claims that err, from
+// ValidateObservation or ValidateAdapterObservation, rejects with claim
+// scope, and returns how many it removed. It does nothing if err rejects the
+// whole observation or isn't a *ValidationError.
+func DropRejectedClaims(o *eventv1alpha1.Observation, err error) int {
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Scope() != ScopeClaim {
+		return 0
+	}
+	rels, claims := map[int]bool{}, map[int]bool{}
+	d, e := o.GetData(), o.GetData().GetEntity()
+	for _, ref := range ve.claims {
+		switch ref.field {
+		case fieldRelation:
+			rels[ref.index] = true
+		case fieldAttributeClaim:
+			claims[ref.index] = true
+		case fieldAttribute:
+			delete(e.GetAttributes(), ref.name)
+		}
+	}
+	d.Relations = filterIndex(d.GetRelations(), func(i int) bool { return !rels[i] })
+	d.AttributeClaims = filterIndex(d.GetAttributeClaims(), func(i int) bool { return !claims[i] })
+	return len(ve.claims)
+}
+
+// filterIndex returns the elements of s whose index passes keep, in order.
+func filterIndex[T any](s []T, keep func(int) bool) []T {
+	out := s[:0]
+	for i, v := range s {
+		if keep(i) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // CheckObservedAt rejects an observation whose observed_at is more than
 // MaxFutureSkew after ingestedAt.
 func CheckObservedAt(o *eventv1alpha1.Observation, ingestedAt time.Time) error {
@@ -297,7 +419,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 	case kind == "":
 		c.add(codeMalformed, ep+".kind", "is required")
 	case !kind.Valid():
-		c.add(codeNotDeclared, ep+".kind", "%q is not a registered kind", kind)
+		c.add(codeNotDeclared, ep+".kind", "%q is not a registered kind", clip(kind))
 	}
 	c.key(ep+".key", e.GetKey())
 	for i, k := range e.GetAliases() {
@@ -307,14 +429,18 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 		c.key(fmt.Sprintf("%s.linked_ids[%d]", ep, i), k)
 	}
 	for _, name := range sortedKeys(e.GetAttributes()) {
-		c.attribute(fmt.Sprintf("%s.attributes[%q]", ep, name), kind, name, e.GetAttributes()[name], true)
+		c.claim(claimRef{field: fieldAttribute, name: name}, func() {
+			c.attribute(fmt.Sprintf("%s.attributes[%q]", ep, clip(name)), kind, name, e.GetAttributes()[name], true)
+		})
 	}
 
 	seenRel := map[string]claim{}
 	oneRels := map[string][]claim{}
 	for i, r := range d.GetRelations() {
 		rp := fmt.Sprintf("%s.relations[%d]", path, i)
-		c.relation(rp, kind, r)
+		if c.claim(claimRef{field: fieldRelation, index: i}, func() { c.relation(rp, kind, r) }) {
+			continue // dropped, so not part of the duplicate and cardinality checks
+		}
 		object := r.GetTo() + r.GetFrom()
 		cl := effective(rp, object, observedAt, r.GetValidFrom(), r.GetValidTo(), r.ConfidencePpm, r.GetAbsent())
 		id := fmt.Sprintf("%s\x00%t\x00%s", r.GetType(), isFrom(r), object)
@@ -340,15 +466,20 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 			continue
 		}
 		if _, ok := e.GetAttributes()[name]; ok {
-			c.add(codeDuplicateClaim, ap, "%q is also in entity.attributes", name)
+			c.add(codeDuplicateClaim, ap, "%q is also in entity.attributes", clip(name))
 		}
-		if a.GetValue() == nil {
-			c.add(codeMalformed, ap+".value", "is required")
-			c.attributeName(ap+".predicate", kind, name)
-		} else {
-			c.attribute(ap+".value", kind, name, a.GetValue(), false)
+		rejected := c.claim(claimRef{field: fieldAttributeClaim, index: i}, func() {
+			if a.GetValue() == nil {
+				c.add(codeMalformed, ap+".value", "is required")
+				c.attributeName(ap+".predicate", kind, name)
+			} else {
+				c.attribute(ap+".value", kind, name, a.GetValue(), false)
+			}
+			c.claimTimes(ap, a.GetValidFrom(), a.GetValidTo(), a.ConfidencePpm)
+		})
+		if rejected {
+			continue // dropped, so not part of the duplicate and cardinality checks
 		}
-		c.claimTimes(ap, a.GetValidFrom(), a.GetValidTo(), a.ConfidencePpm)
 		valueJSON, err := EncodeJSON(a.GetValue())
 		if err != nil {
 			continue // already reported as an invalid value
@@ -384,10 +515,10 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 					c.add(codeMalformed, pp, `"*" must be the only predicate`)
 				}
 			case !ValidAttributeName(p):
-				c.add(codeMalformed, pp, "%q is not a predicate name", p)
+				c.add(codeMalformed, pp, "%q is not a predicate name", clip(p))
 			case s.GetDirection() == modelv1alpha1.Direction_DIRECTION_IN:
 				if reg, ok := LookupPredicate(p); ok && !reg.Relation {
-					c.add(codeMalformed, pp, "attribute %q can only be in an out scope", p)
+					c.add(codeMalformed, pp, "attribute %q can only be in an out scope", clip(p))
 				}
 			}
 		}
@@ -420,7 +551,7 @@ func (c *checker) overlapping(predicate string, claims []claim) {
 			other = second
 		}
 		if other.set && other.end > cl.from {
-			c.add(codeCardinality, cl.path, "%q takes one value at a time; this claim overlaps another with a different value", predicate)
+			c.add(codeCardinality, cl.path, "%q takes one value at a time; this claim overlaps another with a different value", clip(predicate))
 		}
 		switch {
 		case first.set && first.object == cl.object:
@@ -495,18 +626,18 @@ func (c *checker) relation(path string, entity Kind, r *modelv1alpha1.Relation) 
 	case name == "":
 		c.add(codeMalformed, path+".type", "is required")
 	case IsCorePredicate(name):
-		c.add(codeCorePredicate, path+".type", "only the core claims %q", name)
+		c.add(codeCorePredicate, path+".type", "only the core claims %q", clip(name))
 	case !ok:
-		c.add(codeNotDeclared, path+".type", "%q is not a registered relation", name)
+		c.add(codeNotDeclared, path+".type", "%q is not a registered relation", clip(name))
 	case !reg.Relation:
-		c.add(codeTypeMismatch, path+".type", "%q is an attribute, not a relation", name)
+		c.add(codeTypeMismatch, path+".type", "%q is an attribute, not a relation", clip(name))
 	case entity.Valid() && isFrom(r) && !reg.InRange(entity):
-		c.add(codeDomainMismatch, path+".type", "a %s can't be the object of %q", entity, name)
+		c.add(codeDomainMismatch, path+".type", "a %s can't be the object of %q", clip(string(entity)), clip(name))
 	case entity.Valid() && !isFrom(r) && !reg.InDomain(entity):
-		c.add(codeDomainMismatch, path+".type", "a %s can't be the subject of %q", entity, name)
+		c.add(codeDomainMismatch, path+".type", "a %s can't be the subject of %q", clip(string(entity)), clip(name))
 	}
 	for _, q := range sortedKeys(r.GetAttributes()) {
-		c.tree(rootPath(fmt.Sprintf("%s.attributes[%q]", path, q)), r.GetAttributes()[q], 0)
+		c.tree(rootPath(fmt.Sprintf("%s.attributes[%q]", path, clip(q))), r.GetAttributes()[q], 0)
 	}
 	c.claimTimes(path, r.GetValidFrom(), r.GetValidTo(), r.ConfidencePpm)
 }
@@ -522,19 +653,19 @@ func (c *checker) attributeName(path string, entity Kind, name string) (Predicat
 	reg, ok := LookupPredicate(name)
 	switch {
 	case IsCorePredicate(name):
-		c.add(codeCorePredicate, path, "only the core claims %q", name)
+		c.add(codeCorePredicate, path, "only the core claims %q", clip(name))
 		return reg, false
 	case name == PredicateExists:
 		c.add(codeMalformed, path, "exists is implicit in every observation; don't send it")
 		return reg, false
 	case ok && reg.Relation:
-		c.add(codeTypeMismatch, path, "%q is a relation, not an attribute", name)
+		c.add(codeTypeMismatch, path, "%q is a relation, not an attribute", clip(name))
 		return reg, false
 	case ok && entity.Valid() && !reg.InDomain(entity):
-		c.add(codeDomainMismatch, path, "%q is not an attribute of %s", name, entity)
+		c.add(codeDomainMismatch, path, "%q is not an attribute of %s", clip(name), clip(string(entity)))
 		return reg, false
 	case !ok && !ValidAttributeName(name):
-		c.add(codeMalformed, path, "%q is not an attribute name", name)
+		c.add(codeMalformed, path, "%q is not an attribute name", clip(name))
 	}
 	return reg, ok
 }
@@ -555,9 +686,9 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 		switch {
 		case reg.Type == tJSON:
 		case !list && reg.Cardinality == many:
-			c.add(codeCardinality, path, "each claim is one value; send one claim per value of %q", name)
+			c.add(codeCardinality, path, "each claim is one value; send one claim per value of %q", clip(name))
 		case reg.Cardinality != many:
-			c.add(codeCardinality, path, "%q takes one value, not a list", name)
+			c.add(codeCardinality, path, "%q takes one value, not a list", clip(name))
 		default:
 			for i, e := range k.ListValue.GetValues() {
 				c.typedValue(fmt.Sprintf("%s[%d]", path, i), reg.Type, e)
@@ -576,7 +707,7 @@ func (c *checker) typedValue(path string, t modelv1alpha1.ValueType, v *structpb
 	case err != nil:
 		c.add(codeInvalidValue, path, "%v", err)
 	case t == modelv1alpha1.ValueType_VALUE_TYPE_TIME && canon.GetStringValue() != v.GetStringValue():
-		c.add(codeInvalidValue, path, "time %q is not canonical; want %q", v.GetStringValue(), canon.GetStringValue())
+		c.add(codeInvalidValue, path, "time %q is not canonical; want %q", clip(v.GetStringValue()), clip(canon.GetStringValue()))
 	}
 }
 
@@ -640,5 +771,36 @@ func sortedKeys[V any](m map[string]V) []string {
 	slices.Sort(keys)
 	return keys
 }
+
+// clip prints as its string, cut to MaxQuoted bytes, under %q and %s, for
+// adapter-supplied values in problem messages and paths.
+type clip string
+
+// Format implements fmt.Formatter.
+func (s clip) Format(f fmt.State, verb rune) {
+	v, cut := string(s), false
+	if len(v) > MaxQuoted {
+		n := MaxQuoted
+		for n > 0 && !utf8.RuneStart(v[n]) {
+			n--
+		}
+		v, cut = v[:n], true
+	}
+	switch {
+	case verb == 'q':
+		q := strconv.Quote(v)
+		if cut {
+			q = q[:len(q)-1] + `…"`
+		}
+		_, _ = io.WriteString(f, q)
+	case cut:
+		_, _ = io.WriteString(f, v+"…")
+	default:
+		_, _ = io.WriteString(f, v)
+	}
+}
+
+// quote is strconv.Quote of s cut to MaxQuoted bytes.
+func quote(s string) string { return fmt.Sprintf("%q", clip(s)) }
 
 func micro(ts *timestamppb.Timestamp) time.Time { return ts.AsTime().Truncate(time.Microsecond) }

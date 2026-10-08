@@ -27,7 +27,7 @@ func (c *checker) enumsIn(path string, m protoreflect.Message) {
 		case fd.IsMap():
 			if fd.MapValue().Message() != nil {
 				v.Map().Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
-					c.enumsIn(fmt.Sprintf("%s[%q]", p, k.String()), mv.Message())
+					c.enumsIn(fmt.Sprintf("%s[%q]", p, clip(k.String())), mv.Message())
 					return true
 				})
 			}

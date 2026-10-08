@@ -17,12 +17,17 @@ import (
 
 // childEnv makes the test binary serve fakeAdapter on stdio instead of
 // running tests, so the CLI has a real adapter process to start. "serve"
-// exits 0 when stdin closes; "fail" serves the same way, then exits 1.
+// exits 0 when stdin closes; "fail" serves the same way, then exits 1;
+// "reject" serves rejectingAdapter.
 const childEnv = "BEARING_CLI_TEST_ADAPTER"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(childEnv); mode != "" {
-		if err := adapter.ServeStdio(context.Background(), fakeAdapter{}); err != nil || mode == "fail" {
+		var a adapter.Adapter = fakeAdapter{}
+		if mode == "reject" {
+			a = rejectingAdapter{}
+		}
+		if err := adapter.ServeStdio(context.Background(), a); err != nil || mode == "fail" {
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -46,6 +51,18 @@ func (fakeAdapter) Sync(context.Context, adapter.SyncParams) (adapter.SyncResult
 
 func (fakeAdapter) Handle(context.Context, adapter.HandleParams) (adapter.HandleResult, error) {
 	return adapter.HandleResult{}, adapter.ErrNotSupported
+}
+
+// rejectingAdapter emits fakeAdapter's Team and one whose key doesn't parse.
+type rejectingAdapter struct{ fakeAdapter }
+
+func (r rejectingAdapter) Sync(ctx context.Context, p adapter.SyncParams) (adapter.SyncResult, error) {
+	res, err := r.fakeAdapter.Sync(ctx, p)
+	bad := model.NewObservation("adapter/fake", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "no key"},
+	})
+	res.Observations = append(res.Observations, bad)
+	return res, err
 }
 
 func TestRunAdapterCommands(t *testing.T) {
@@ -129,5 +146,17 @@ func TestSyncReportsOutputFlushErrors(t *testing.T) {
 	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, failingWriter{})
 	if !errors.Is(err, errClosedStdout) {
 		t.Fatalf("got %v, want the flush error %v", err, errClosedStdout)
+	}
+}
+
+func TestSyncWritesValidObservationsAndFailsOnRejections(t *testing.T) {
+	t.Setenv(childEnv, "reject")
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, &out)
+	if err == nil || !strings.Contains(err.Error(), "1 observations and 0 claims") {
+		t.Fatalf("got %v, want an error counting the rejected observation", err)
+	}
+	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "test:team/payments") {
+		t.Fatalf("got %q, want only the valid observation written", out.String())
 	}
 }

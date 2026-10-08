@@ -552,6 +552,19 @@ Example (CloudEvents envelope fields `specversion`, `type`,
   (`<source>/<delivery or content id>`), so two sources' delivery IDs can't
   collide.
 - Source names `manual` and anything starting `core/` are reserved.
+- Adapters MUST NOT send `exists` (every observation of an entity claims it
+  implicitly) or `bearingsource`. Both are `malformed`.
+- Observations are decoded strictly. A field the schema doesn't define is
+  `malformed`, including any CloudEvents extension attribute other than
+  `bearingsource`, which only the core sets. Readers don't ignore unknown
+  fields: a misspelled field name would otherwise drop a claim without a
+  trace, and nothing needs extensions, since trace context travels in the
+  adapter protocol's `_meta`, not in observations. A newer adapter that
+  sends a field this version doesn't know is rejected until the core is
+  upgraded.
+- Strings MUST be valid UTF-8. Attribute, qualifier and claim values are
+  JSON trees of at most 32 levels, and a list or object holds at most
+  10,000 entries; anything beyond that is `malformed`.
 - An adapter that read an attribute and found it empty MUST send `null`
   (or `[]` for a `many` predicate). Omitting an attribute means "not read".
 
@@ -1130,7 +1143,7 @@ applies.
 | `invalid_interval` | claim | [Claims](#claims) |
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset) |
-| `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates) |
+| `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
 
 ## Wire mapping
 

@@ -26,9 +26,9 @@ func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 		case kind == "":
 			c.add(codeMalformed, kp+".kind", "is required")
 		case !kind.Valid():
-			c.add(codeNotDeclared, kp+".kind", "%q is not a registered kind", kind)
+			c.add(codeNotDeclared, kp+".kind", "%q is not a registered kind", clip(string(kind)))
 		case kinds[kind]:
-			c.add(codeMalformed, kp+".kind", "%q is declared twice", kind)
+			c.add(codeMalformed, kp+".kind", "%q is declared twice", clip(string(kind)))
 		}
 		kinds[kind] = true
 		for j, key := range k.GetKeys() {
@@ -39,7 +39,7 @@ func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 			fp := fmt.Sprintf("%s.fields[%d]", kp, j)
 			id := f.GetPredicate() + "/" + ShortName(direction(f))
 			if fields[id] {
-				c.add(codeMalformed, fp, "%q is declared twice", id)
+				c.add(codeMalformed, fp, "%q is declared twice", clip(id))
 			}
 			fields[id] = true
 			c.field(fp, kind, f)
@@ -67,7 +67,7 @@ func (c *checker) namespaceLike(path, s string, required bool) {
 			c.add(codeMalformed, path, "is required")
 		}
 	case !namespacePattern.MatchString(s):
-		c.add(codeMalformed, path, "%q must be lowercase letters, digits and hyphens", s)
+		c.add(codeMalformed, path, "%q must be lowercase letters, digits and hyphens", clip(s))
 	}
 }
 
@@ -76,7 +76,7 @@ func (c *checker) keyTypeName(path, s string) {
 	case s == "":
 		c.add(codeMalformed, path, "is required")
 	case !keyTypePattern.MatchString(s):
-		c.add(codeMalformed, path, "%q must be lowercase letters, digits, hyphens and underscores", s)
+		c.add(codeMalformed, path, "%q must be lowercase letters, digits, hyphens and underscores", clip(s))
 	}
 }
 
@@ -114,33 +114,33 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 		c.add(codeMalformed, path+".predicate", "is required")
 		return
 	case IsCorePredicate(name):
-		c.add(codeCorePredicate, path+".predicate", "only the core claims %q", name)
+		c.add(codeCorePredicate, path+".predicate", "only the core claims %q", clip(name))
 		return
 	case name == PredicateExists:
 		c.add(codeMalformed, path+".predicate", "exists is implicit; don't declare it")
 		return
 	case registered && reg.Relation:
 		if in && kind.Valid() && !reg.InRange(kind) || !in && kind.Valid() && !reg.InDomain(kind) {
-			c.add(codeDomainMismatch, path+".predicate", "%q doesn't take a %s with direction %s", name, kind, ShortName(direction(f)))
+			c.add(codeDomainMismatch, path+".predicate", "%q doesn't take a %s with direction %s", clip(name), clip(string(kind)), ShortName(direction(f)))
 		}
 	case registered:
 		if kind.Valid() && !reg.InDomain(kind) {
-			c.add(codeDomainMismatch, path+".predicate", "%q is not an attribute of %s", name, kind)
+			c.add(codeDomainMismatch, path+".predicate", "%q is not an attribute of %s", clip(name), clip(string(kind)))
 		}
 	case !ValidAttributeName(name):
-		c.add(codeMalformed, path+".predicate", "%q is not an attribute name", name)
+		c.add(codeMalformed, path+".predicate", "%q is not an attribute name", clip(name))
 	}
 	switch {
 	case !registered && f.GetType() == modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED:
 		c.add(codeMalformed, path+".type", "is required for an unregistered attribute")
 	case registered && f.GetType() != modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED && f.GetType() != reg.Type:
-		c.add(codeTypeMismatch, path+".type", "%q is registered as %s", name, ShortName(reg.Type))
+		c.add(codeTypeMismatch, path+".type", "%q is registered as %s", clip(name), ShortName(reg.Type))
 	}
 	switch {
 	case !registered && f.GetCardinality() == modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED:
 		c.add(codeMalformed, path+".cardinality", "is required for an unregistered attribute")
 	case registered && f.GetCardinality() != modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED && f.GetCardinality() != reg.Cardinality:
-		c.add(codeMalformed, path+".cardinality", "%q is registered as %s", name, ShortName(reg.Cardinality))
+		c.add(codeMalformed, path+".cardinality", "%q is registered as %s", clip(name), ShortName(reg.Cardinality))
 	}
 	if in && (!registered || !reg.Relation) {
 		c.add(codeMalformed, path+".direction", "only relations can be declared in")
