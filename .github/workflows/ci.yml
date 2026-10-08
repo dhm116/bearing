@@ -11,7 +11,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       # internal/surrealstore and pkg/store run their SurrealDB suites against
       # the container started below. The root credentials only guard a
