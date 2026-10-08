@@ -80,3 +80,6 @@ Options considered:
   which the graph can always drive (ADR 2).
 - ADR 2's consequence ("two stores to run in production") becomes "one store
   by default, two when scale calls for it".
+- Superseded in part by [ADR 13](0013-backends-store-rows-one-engine-applies-rules.md):
+  `internal/surrealstore` stores the graph as rows, not as
+  `entity->fact->entity` edges, and the memstore engine applies the rules.
