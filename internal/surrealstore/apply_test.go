@@ -181,3 +181,47 @@ func cloneChangeSet(cs *modelv1alpha1.ChangeSet) *modelv1alpha1.ChangeSet {
 	c, _ := proto.Clone(cs).(*modelv1alpha1.ChangeSet) // always a ChangeSet
 	return c
 }
+
+// Every operation reads the whole merge table (#81), so past a limit they
+// fail with an error that says why, not by stalling.
+func TestMergeTableOverTheLimitFailsLoudly(t *testing.T) {
+	ctx := context.Background()
+	s, _ := graphStoreAt(t)
+	res, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "mint", Mints: []*modelv1alpha1.Mint{
+		{Ref: "new:a", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION},
+		{Ref: "new:b", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION},
+		{Ref: "new:c", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b, c := string(res.Subjects["new:a"]), string(res.Subjects["new:b"]), string(res.Subjects["new:c"])
+	for i, pair := range [][]string{{a, b}, {a, c}} {
+		head, _ := s.Head(ctx)
+		if _, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{
+			EventId: fmt.Sprintf("merge-%d", i), BaseRecordedAt: timestamppb.New(head),
+			Merges: []*modelv1alpha1.Merge{{SubjectIds: pair, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Subject(ctx, contracts.SubjectID(a), time.Time{}); err != nil {
+		t.Fatalf("under the limit: %v", err)
+	}
+	s.maxMerges = 1
+	head, _ := s.Head(ctx)
+	for name, err := range map[string]error{
+		"read": func() error { _, err := s.Subject(ctx, contracts.SubjectID(a), time.Time{}); return err }(),
+		"apply": func() error {
+			_, err := s.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "over", BaseRecordedAt: timestamppb.New(head), State: stateEntries(1, "over")})
+			return err
+		}(),
+	} {
+		if !errors.Is(err, ErrTooManyMerges) || !strings.Contains(err.Error(), "issues/81") {
+			t.Errorf("%s: got %v, want ErrTooManyMerges naming #81", name, err)
+		}
+	}
+	if st, _ := s.Head(ctx); !st.Equal(head) {
+		t.Errorf("the refused apply moved the head to %v", st)
+	}
+}

@@ -48,6 +48,10 @@ type Store struct {
 	// NewID names an apply attempt; New fills a random one.
 	NewID func() string
 
+	// maxMerges caps the merge table an operation loads; New sets
+	// DefaultMaxMerges and tests lower it.
+	maxMerges int
+
 	q Querier
 
 	// afterStage, set by tests, runs between a large apply's staging and its
@@ -69,7 +73,7 @@ func New(ctx context.Context, q Querier) (*Store, error) {
 	if err := migrate(ctx, q); err != nil {
 		return nil, fmt.Errorf("surrealstore: migrate: %w", err)
 	}
-	s := &Store{q: q, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), NewID: randomToken}
+	s := &Store{q: q, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), NewID: randomToken, maxMerges: DefaultMaxMerges}
 	// Reuse the vector dimension from an earlier run, if there is one.
 	res, err := q.Query(ctx, `SELECT VALUE array::len(vector) FROM vector LIMIT 1`, nil)
 	if err != nil {

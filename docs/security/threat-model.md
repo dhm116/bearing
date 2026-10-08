@@ -707,12 +707,15 @@ Assets: A1, A3, A4, A5, A6.
   timelines, all changed. Merge records, which carry both alias sets, are
   refused as soon as together they pass the byte limit, and a record that
   grows past it when recorded is refused too. A limit error quotes at most
-  64 bytes of the input. **Known exception:** the SurrealDB backend reads
-  every merge record on each Apply and read, and loads the whole history of
-  each series it touches, so its work grows with the merge count and series
-  size, not only with the ChangeSet. Its other tables are loaded by key,
-  predicate or subject. The count limits bound the damage per call; the cost
-  is tracked in #81 and measured in the M3 benchmark (#27).
+  64 bytes of the input. **Known exception:** the "MUST" above is met by
+  the reference store and not yet by the SurrealDB backend. Its Apply and
+  every read load every merge record, with both alias sets, and every
+  conflict retry loads them again; they also load the whole history of each
+  series they touch. Its other tables are loaded by key, predicate or
+  subject. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
+  operations fail with `ErrTooManyMerges`, an error that names #81, instead
+  of stalling. Loading only the merge components of the subjects a ChangeSet
+  names is tracked in #81 and measured in the M3 benchmark (#27).
 - **C-STORE-10** `internal/memstore`'s rule engine is trusted production
   code. The SurrealDB backend runs every operation on it (rows are loaded
   into a scratch store and the delta written back), so a flaw in it is a

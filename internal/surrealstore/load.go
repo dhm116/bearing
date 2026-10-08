@@ -138,11 +138,22 @@ func (s *Store) load(ctx context.Context, sc scope) (*loaded, error) {
 
 var errMoved = errors.New("the head moved during a load")
 
+// ErrTooManyMerges is returned when the merge table is larger than the
+// backend will load. Every operation reads all merge records until the cost
+// is fixed (#81); failing loudly past a limit beats stalling.
+var ErrTooManyMerges = errors.New("too many merge records")
+
+// DefaultMaxMerges is how many merge records the store loads per operation.
+const DefaultMaxMerges = 20000
+
 func (s *Store) loadOnce(ctx context.Context, sc scope) (*loaded, error) {
 	// Merge records first: they say which subjects belong together.
-	meta, res, err := s.readTx(ctx, `SELECT seq, data FROM merge ORDER BY seq;`, nil)
+	meta, res, err := s.readTx(ctx, `SELECT seq, data FROM merge ORDER BY seq LIMIT $merge_limit;`, map[string]any{"merge_limit": s.maxMerges + 1})
 	if err != nil {
 		return nil, fmt.Errorf("load merges: %w", err)
+	}
+	if meta.Merges > int64(s.maxMerges) {
+		return nil, fmt.Errorf("%w: the store holds %d merge records and this backend loads them all on every operation, up to %d (https://github.com/dhm116/bearing/issues/81)", ErrTooManyMerges, meta.Merges, s.maxMerges)
 	}
 	var mrows []dataRow
 	if err := decode(res[0], &mrows); err != nil {

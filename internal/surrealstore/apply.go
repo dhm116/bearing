@@ -75,9 +75,18 @@ func (s *Store) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contrac
 // cs writes are known only once its refs and merged subjects are resolved (a
 // fact about a subject that an un-merge in the same ChangeSet revives is
 // keyed by the revived subject), so if the resolved ChangeSet writes a
-// series that was not loaded, it loads that too and decides again.
+// series that was not loaded, it loads that too and decides again. A second
+// pass mints IDs again, so the first pass's are skipped: IDs are unique and
+// increasing, which is all the contract asks of them.
 func (s *Store) decide(ctx context.Context, cs *modelv1alpha1.ChangeSet) (*loaded, contracts.ApplyResult, error) {
 	sc := applyScope(cs)
+	have := map[memstore.Table]map[string]bool{}
+	for t, keys := range sc.Keys {
+		have[t] = map[string]bool{}
+		for _, k := range keys {
+			have[t][k] = true
+		}
+	}
 	for {
 		ld, err := s.load(ctx, sc)
 		if err != nil {
@@ -97,7 +106,11 @@ func (s *Store) decide(ctx context.Context, cs *modelv1alpha1.ChangeSet) (*loade
 		more := false
 		for t, keys := range resolvedKeys(ld.scratch.LastEntry()) {
 			for _, key := range keys {
-				if !slices.Contains(sc.Keys[t], key) {
+				if have[t] == nil {
+					have[t] = map[string]bool{}
+				}
+				if !have[t][key] {
+					have[t][key] = true
 					sc.Keys[t] = append(sc.Keys[t], key)
 					more = true
 				}

@@ -59,7 +59,7 @@ func (f *faultQ) Query(ctx context.Context, sql string, vars map[string]any) ([]
 // withQ returns a store like s that talks through q. It shares s's clock and
 // IDs, so an operation through it continues the same history.
 func withQ(s *Store, q Querier) *Store {
-	return &Store{q: q, Now: s.Now, IDs: s.IDs, NewID: s.NewID, afterStage: s.afterStage, dim: s.dim}
+	return &Store{q: q, Now: s.Now, IDs: s.IDs, NewID: s.NewID, afterStage: s.afterStage, dim: s.dim, maxMerges: s.maxMerges}
 }
 
 // Whatever query fails, or comes back unreadable, an operation reports an
