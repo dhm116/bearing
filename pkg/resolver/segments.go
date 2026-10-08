@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"slices"
@@ -102,7 +103,11 @@ func (e seg) weak() bool {
 }
 
 // beats reports whether the write e decides a valid time over the existing
-// segment o: the greater key; at equal keys a claim over a watermark.
+// segment o: the greater key; at equal keys a claim over a watermark, then the
+// greater reason, then the greater confidence, then the greater encoding of
+// the support. Equal keys with different content come from two keys of one
+// subject in one observation, and the order makes the choice the same whichever
+// is written first.
 func (e seg) beats(o seg) bool {
 	if c := model.CompareOrderingKeys(e.key, o.key); c != 0 {
 		return c > 0
@@ -110,7 +115,21 @@ func (e seg) beats(o seg) bool {
 	if e.weak() != o.weak() {
 		return !e.weak()
 	}
-	return e.reason >= o.reason
+	if e.reason != o.reason {
+		return e.reason > o.reason
+	}
+	if e.live && o.live {
+		if a, b := e.sup.GetConfidencePpm(), o.sup.GetConfidencePpm(); a != b {
+			return a > b
+		}
+		return bytes.Compare(encoded(e.sup), encoded(o.sup)) >= 0
+	}
+	return true
+}
+
+func encoded(s *modelv1alpha1.Support) []byte {
+	b, _ := proto.MarshalOptions{Deterministic: true}.Marshal(s) // a message of plain fields
+	return b
 }
 
 // normalized sorts segments and joins neighbours that say the same, so a

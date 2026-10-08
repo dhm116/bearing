@@ -104,16 +104,17 @@ func (u *run) claims(ctx context.Context) (*claimSet, error) {
 		}
 		return cs, nil
 	}
-	byID := map[string]*claim{}
 	add := func(c *claim) {
-		if prev, ok := byID[c.fact.id()]; ok {
-			// A fact claimed twice is one claim (the observation passed
-			// validation, so the two agree on times and confidence); the
-			// qualifiers join.
-			prev.qualifiers = mergeQualifiers(prev.qualifiers, c.qualifiers)
-			return
+		// A fact claimed twice with the same times and confidence is one claim
+		// whose qualifiers join. Two keys of one subject can make the claims
+		// differ; they stay separate writes with one ordering key, and the
+		// series decides between them the same way in any order.
+		for _, prev := range cs.claims {
+			if prev.fact.id() == c.fact.id() && prev.from == c.from && prev.to == c.to && prev.absent == c.absent && prev.conf == c.conf {
+				prev.qualifiers = mergeQualifiers(prev.qualifiers, c.qualifiers)
+				return
+			}
 		}
-		byID[c.fact.id()] = c
 		cs.claims = append(cs.claims, c)
 	}
 

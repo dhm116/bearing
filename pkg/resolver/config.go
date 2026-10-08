@@ -210,9 +210,13 @@ func newIndex(cfg Config) (*index, error) {
 var ErrUnknownSource = errors.New("resolver: unknown source")
 
 // confidenceGroup returns the group a source's confidence counts in: the
-// group of systems its system is configured in, or the system alone.
+// group of systems its system is configured in, or the system alone. A
+// support can come from a source the current configuration no longer has.
 func (ix *index) confidenceGroup(source string) string {
-	system := ix.sources[source].reads
+	system := source // a source the configuration dropped keeps its own group
+	if src := ix.sources[source]; src != nil {
+		system = src.reads
+	}
 	if g, ok := ix.groups[system]; ok {
 		return g
 	}

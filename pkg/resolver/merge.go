@@ -86,20 +86,23 @@ func (r *factRun) moveSupports(ctx context.Context, m string) error {
 }
 
 // moveScopes moves the watermarks of the merged subject's scopes to the
-// survivor, and marks the survivor's facts they end for recomputing. Scopes
-// are found by the fields each source declares for the subject's kind, and
-// the scopes of all predicates.
+// survivor, and marks the survivor's facts they end for recomputing. A scope
+// can name any predicate a fact can have: "*", every registered predicate and
+// every attribute the source declares for any kind, in either direction.
 func (r *factRun) moveScopes(ctx context.Context, m, to string) error {
-	subject, err := r.g.subject(ctx, m)
-	if err != nil {
-		return err
-	}
-	kind := model.Kind(subject.GetKind())
 	for _, source := range slices.Sorted(maps.Keys(r.ix.sources)) {
 		src := r.ix.sources[source]
-		cands := []scope{{pred: "*"}, {in: true, pred: "*"}}
-		for _, f := range src.kinds[kind].GetFields() {
-			cands = append(cands, scope{in: fieldDirection(f) == modelv1alpha1.Direction_DIRECTION_IN, pred: src.stored(kind, f.GetPredicate())})
+		var cands []scope
+		for _, in := range []bool{false, true} {
+			cands = append(cands, scope{in: in, pred: "*"})
+			for _, p := range model.RegisteredPredicates() {
+				cands = append(cands, scope{in: in, pred: p})
+			}
+		}
+		for kind := range src.kinds {
+			for name := range src.declaredAttributes(kind) {
+				cands = append(cands, scope{pred: src.stored(kind, name)})
+			}
 		}
 		var moved []scope
 		for _, c := range cands {

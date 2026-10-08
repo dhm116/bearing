@@ -47,6 +47,7 @@ func (r *factRun) statuses(ctx context.Context) error {
 			return err
 		}
 		if !emitted[w.id()] {
+			emitted[w.id()] = true
 			facts = append(facts, &modelv1alpha1.FactTimeline{SubjectId: w.subject, Predicate: w.pred, Object: w.object})
 		}
 	}

@@ -483,3 +483,109 @@ func TestSupportsRecordTheEventsAdapter(t *testing.T) {
 		})
 	}
 }
+
+// Merging a subject whose fact two sources support retracts the old fact
+// once, however many sources held it.
+func TestMergeOfAFactSeveralSourcesSupport(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
+	for _, source := range []string{"github-acme", "github-mirror"} {
+		e.apply(event(source, withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/old")))
+	}
+	// The placeholder for "old" merges into the team.
+	if got := e.apply(event("github-acme", obsAt("2026-10-01T12:00:00Z", "Team", "github:team_node/T1", "github:team/acme/old"))); len(got.Merges) != 1 {
+		t.Fatalf("got merges %v, want one", got.Merges)
+	}
+	want := "github:repo_node/R1(Repository) approves_changes -> github:team_node/T1(Team) ASSERTED/NONE 1000000 [github-acme:1000000 github-mirror:1000000]"
+	if got := factsAt(t, e, ts("2026-10-04T00:00:00Z")); !strings.Contains(got, want) {
+		t.Fatalf("want %q in\n%s", want, got)
+	}
+}
+
+// A source the configuration dropped has supports in the store; events that
+// touch its facts still resolve, counting it as a system of its own.
+func TestSupportsOfADroppedSourceStillCount(t *testing.T) {
+	e := newEnv(t)
+	repo := func(at string) *eventv1alpha1.Observation {
+		return withRelation(obsAt(at, "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")
+	}
+	e.apply(event("github-mirror", repo("2026-10-01T00:00:00Z")))
+	cfg := testConfig(t)
+	delete(cfg.Sources, "github-mirror")
+	next := newEnvWith(t, cfg)
+	next.store = e.store
+	r, err := New(cfg, e.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.r = r
+	next.apply(event("github-acme", repo("2026-10-02T00:00:00Z")))
+	want := "approves_changes -> github:team_node/T1(Team) ASSERTED/NONE 1000000 [github-acme:1000000 github-mirror:1000000]"
+	if got := factsAt(t, next, ts("2026-10-03T00:00:00Z")); !strings.Contains(got, want) {
+		t.Fatalf("want %q in\n%s", want, got)
+	}
+}
+
+// A snapshot can name a predicate its kind doesn't declare, since the fact it
+// ends was claimed through another kind's observation. Merging the subject
+// before or after the snapshot gives the same state.
+func TestMergeMovesSnapshotsOverUndeclaredPredicates(t *testing.T) {
+	claim := event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/old"))
+	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
+	merge := event("github-acme", obsAt("2026-10-01T12:00:00Z", "Team", "github:team_node/T1", "github:team/acme/old"))
+	snapshot := event("github-acme", withScope(obsAt("2026-10-05T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"), true, "approves_changes"))
+	var states []string
+	for _, order := range [][]Event{{claim, team, snapshot, merge}, {claim, team, merge, snapshot}} {
+		e := newEnv(t)
+		for _, ev := range order {
+			e.apply(ev)
+		}
+		states = append(states, factsAt(t, e, ts("2026-10-04T00:00:00Z"))+"\n--\n"+factsAt(t, e, ts("2026-10-06T00:00:00Z")))
+	}
+	if states[0] != states[1] {
+		t.Fatalf("snapshot before the merge:\n%s\nsnapshot after it:\n%s", states[0], states[1])
+	}
+	if !strings.Contains(states[0], "approves_changes") {
+		t.Fatalf("the claim is missing before the snapshot:\n%s", states[0])
+	}
+	if _, after, _ := strings.Cut(states[0], "\n--\n"); strings.Contains(after, "approves_changes") {
+		t.Fatalf("the snapshot didn't end the claim:\n%s", after)
+	}
+}
+
+// One observation can name a team by two keys of the same subject at
+// different confidences. Whether the team is known before the observation or
+// the two keys are joined after it, the stronger claim decides.
+func TestOneFactClaimedUnderTwoKeysDoesNotDependOnApplyOrder(t *testing.T) {
+	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
+	for _, tc := range []struct{ name, stronger string }{
+		{"the slug is stronger", "github:team/acme/s1"},
+		{"the ID is stronger", "github:team_node/T1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1")
+			for _, key := range []string{"github:team/acme/s1", "github:team_node/T1"} {
+				ppm := uint32(600_000)
+				if key == tc.stronger {
+					ppm = 1_000_000
+				}
+				repo = withRelation(repo, "approves_changes", key)
+				repo.Data.Relations[len(repo.Data.Relations)-1].ConfidencePpm = &ppm
+			}
+			var got []string
+			for _, order := range [][]Event{{team, event("github-acme", repo)}, {event("github-acme", repo), team}} {
+				e := newEnv(t)
+				for _, ev := range order {
+					e.apply(ev)
+				}
+				got = append(got, factsAt(t, e, ts("2026-10-03T00:00:00Z")))
+			}
+			if got[0] != got[1] {
+				t.Fatalf("team first:\n%s\nteam last:\n%s", got[0], got[1])
+			}
+			if want := "approves_changes -> github:team_node/T1(Team) ASSERTED/NONE 1000000"; !strings.Contains(got[0], want) {
+				t.Fatalf("want the stronger claim, %q, in\n%s", want, got[0])
+			}
+		})
+	}
+}
