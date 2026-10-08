@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -556,4 +559,191 @@ func (g *suite) mergeChanges(t *testing.T) {
 		!slices.Equal(got[0].GetSupportsChanged(), []string{"b"}) || got[0].GetObject().GetSubjectId() != p {
 		t.Fatalf("got %v, want owned_by %s rising from 950000 to 1000000 with only b's support changed", got, p)
 	}
+}
+
+// limits proves each count limit from both sides: a ChangeSet exactly at it
+// applies, and one more is refused without a write.
+func (g *suite) limits(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, _ := seed(t, s)
+	hour := func(i int) *timestamppb.Timestamp {
+		return timestamppb.New(at("2026-01-01T00:00:00Z").Add(time.Duration(i) * time.Hour))
+	}
+	rows := func(n int) (bs []*modelv1alpha1.Binding, vs []*modelv1alpha1.Support, ss []*modelv1alpha1.FactSpan) {
+		for i := range n {
+			bs = append(bs, &modelv1alpha1.Binding{SubjectId: r, ValidFrom: hour(i), ValidTo: hour(i + 1)})
+			v := version("github-acme", 1_000_000, "2026-01-01T00:00:00Z", "")
+			v.ValidFrom, v.ValidTo, v.ObservedAt = hour(i), hour(i+1), hour(i)
+			vs = append(vs, v)
+			sp := span(asserted, 1_000_000, "", "")
+			sp.ValidFrom, sp.ValidTo = hour(i), hour(i+1)
+			ss = append(ss, sp)
+		}
+		return
+	}
+	note, _ := anypb.New(wrapperspb.String("watermark"))
+	state := func(n int) (out []*modelv1alpha1.StateEntry) {
+		for i := range n {
+			out = append(out, &modelv1alpha1.StateEntry{Key: fmt.Sprintf("k%d", i), Value: note})
+		}
+		return
+	}
+	// repeat builds a ChangeSet of n valid items, so the limit is the only
+	// thing wrong with n+1 of them.
+	repeat := func(item func(i int) *modelv1alpha1.ChangeSet) func(n int) *modelv1alpha1.ChangeSet {
+		return func(n int) *modelv1alpha1.ChangeSet {
+			cs := &modelv1alpha1.ChangeSet{}
+			for i := range n {
+				proto.Merge(cs, item(i))
+			}
+			return cs
+		}
+	}
+	for _, c := range []struct {
+		name string
+		n    int
+		make func(n int) *modelv1alpha1.ChangeSet
+	}{
+		{"mints", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Mints: []*modelv1alpha1.Mint{mint(fmt.Sprintf("new:%d", i), "Team")}}
+		})},
+		{"binding timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind(fmt.Sprintf("github:repo/acme/r%d", i), row(r, "", ""))}}
+		})},
+		{"support timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "name", str(fmt.Sprint(i)), version("github-acme", 1_000_000, "", ""))}}
+		})},
+		{"fact timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str(fmt.Sprint(i)), span(asserted, 1_000_000, "", ""))}}
+		})},
+		{"merges", contracts.MaxChangeSetMerges, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			a, b := fmt.Sprintf("new:a%d", i), fmt.Sprintf("new:b%d", i)
+			return &modelv1alpha1.ChangeSet{
+				Mints:  []*modelv1alpha1.Mint{mint(a, "Team"), mint(b, "Team")},
+				Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+			}
+		})},
+		{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{State: state(n)}
+		}},
+		{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			bs, _, _ := rows(n)
+			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
+		}},
+		{"support versions", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			_, vs, _ := rows(n)
+			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "approves_changes", ref(p), vs...)}}
+		}},
+		{"fact spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			_, _, ss := rows(n)
+			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "approves_changes", ref(p), ss...)}}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			over := c.make(c.n + 1)
+			over.EventId = "over/" + c.name
+			head := must(s.Head(ctx))
+			if res, err := tryApply(s, over); err == nil {
+				t.Fatalf("got %+v, want an error for %d %s, over the limit of %d", res, c.n+1, c.name, c.n)
+			}
+			if got := must(s.Head(ctx)); !got.Equal(head) {
+				t.Fatalf("a refused ChangeSet moved the head from %v to %v", head, got)
+			}
+			full := c.make(c.n)
+			full.EventId = "at/" + c.name
+			res := apply(t, s, full)
+			if res.Duplicate || !res.RecordedAt.After(head) {
+				t.Fatalf("a ChangeSet at the limit was taken for a repeat of event %s, or wrote nothing (%+v)", full.EventId, res)
+			}
+			// It wrote what it said.
+			var ok bool
+			switch c.name {
+			case "mints":
+				ok = len(res.Minted) == c.n
+			case "binding timelines":
+				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/r0", model.Key(fmt.Sprintf("github:repo/acme/r%d", c.n-1))}, nil, time.Time{}))) == 2
+			case "support timelines":
+				ok = len(must(s.Supports(ctx, contracts.SupportFilter{Predicate: "name"}, time.Time{}))) == c.n
+			case "fact timelines":
+				ok = len(must(s.AsOf(ctx, contracts.FactFilter{Predicate: "name"}, time.Time{}, time.Time{}))) == c.n
+			case "merges":
+				ok = len(res.Merges) == c.n
+			case "state entries":
+				ok = len(must(s.State(ctx, []string{"k0", fmt.Sprintf("k%d", c.n-1)}, time.Time{}))) == 2
+			case "binding rows":
+				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/long"}, nil, time.Time{}))) == c.n
+			case "support versions":
+				sts := must(s.Supports(ctx, contracts.SupportFilter{Predicate: "approves_changes"}, time.Time{}))
+				ok = len(sts) == 1 && len(sts[0].GetVersions()) == c.n
+			case "fact spans":
+				ok = len(must(s.AsOf(ctx, contracts.FactFilter{Predicate: "approves_changes"}, hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
+			}
+			if !ok {
+				t.Fatalf("did not read back the %d %s the apply wrote", c.n, c.name)
+			}
+		})
+	}
+}
+
+// unmergeLimits: an un-merge of MaxTimelineRows aliases applies and one of
+// one more is refused, and so for MaxChangeSetMerges un-merges in one
+// ChangeSet. Each case is valid but for the limit.
+func (g *suite) unmergeLimits(t *testing.T) {
+	t.Run("aliases in one un-merge", func(t *testing.T) {
+		s, _ := g.store(t)
+		n := contracts.MaxTimelineRows
+		seed := &modelv1alpha1.ChangeSet{EventId: "seed", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}}
+		for i := range n + 2 {
+			seed.Bindings = append(seed.Bindings, bind(fmt.Sprintf("github:team_node/T%04d", i), row("new:a", "", "")))
+		}
+		a := string(apply(t, s, seed).Subjects["new:a"])
+		move := func(event string, k int) *modelv1alpha1.ChangeSet {
+			u := &modelv1alpha1.Unmerge{SubjectId: a, Ref: "new:u"}
+			for i := range k {
+				u.Aliases = append(u.Aliases, fmt.Sprintf("github:team_node/T%04d", i))
+			}
+			return &modelv1alpha1.ChangeSet{EventId: event, Unmerges: []*modelv1alpha1.Unmerge{u}}
+		}
+		head := must(s.Head(ctx))
+		if res, err := tryApply(s, move("over", n+1)); err == nil {
+			t.Fatalf("got %+v, want an error for %d aliases in one un-merge", res, n+1)
+		}
+		if got := must(s.Head(ctx)); !got.Equal(head) {
+			t.Fatalf("a refused ChangeSet moved the head from %v to %v", head, got)
+		}
+		if res := apply(t, s, move("at", n)); !res.RecordedAt.After(head) {
+			t.Fatalf("an un-merge of %d aliases wrote nothing", n)
+		}
+	})
+	t.Run("un-merges in one ChangeSet", func(t *testing.T) {
+		s, _ := g.store(t)
+		n := contracts.MaxChangeSetMerges
+		seed := &modelv1alpha1.ChangeSet{EventId: "seed"}
+		for i := range n + 1 {
+			ref := fmt.Sprintf("new:s%d", i)
+			seed.Mints = append(seed.Mints, mint(ref, "Team"))
+			seed.Bindings = append(seed.Bindings,
+				bind(fmt.Sprintf("github:team_node/X%d", i), row(ref, "", "")), bind(fmt.Sprintf("github:team_node/Y%d", i), row(ref, "", "")))
+		}
+		res := apply(t, s, seed)
+		split := func(event string, k int) *modelv1alpha1.ChangeSet {
+			cs := &modelv1alpha1.ChangeSet{EventId: event}
+			for i := range k {
+				cs.Unmerges = append(cs.Unmerges, &modelv1alpha1.Unmerge{
+					SubjectId: string(res.Subjects[fmt.Sprintf("new:s%d", i)]), Aliases: []string{fmt.Sprintf("github:team_node/Y%d", i)}, Ref: fmt.Sprintf("new:u%d", i),
+				})
+			}
+			return cs
+		}
+		head := must(s.Head(ctx))
+		if r, err := tryApply(s, split("over", n+1)); err == nil {
+			t.Fatalf("got %+v, want an error for %d un-merges", r, n+1)
+		}
+		if got := must(s.Head(ctx)); !got.Equal(head) {
+			t.Fatalf("a refused ChangeSet moved the head from %v to %v", head, got)
+		}
+		if r := apply(t, s, split("at", n)); !r.RecordedAt.After(head) {
+			t.Fatalf("%d un-merges wrote nothing", n)
+		}
+	})
 }

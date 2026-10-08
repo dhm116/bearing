@@ -31,6 +31,9 @@ func (s *Store) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contrac
 	if n := proto.Size(cs); n > contracts.MaxChangeSetBytes {
 		return contracts.ApplyResult{}, fmt.Errorf("event %s: change set is %d bytes, over the %d-byte limit", cs.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
+	if err := contracts.CheckChangeSetLimits(cs); err != nil {
+		return contracts.ApplyResult{}, fmt.Errorf("event %s: %w", cs.GetEventId(), err)
+	}
 	// Strings that are not UTF-8 would reach the server as a malformed
 	// request, which it answers with silence; marshaling refuses them.
 	if _, err := proto.Marshal(cs); err != nil {

@@ -642,6 +642,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
+| T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 
 - **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
   store URL that contains a password is rejected at start. Store errors
@@ -679,7 +680,8 @@ Assets: A1, A3, A4, A5, A6.
   (record count and SHA-256 over every byte before it) and refuses an
   unknown format or version, a missing trailer and data after it
   (docs/spec/contracts.md, "Backup"). Every frame is at most
-  `contracts.MaxChangeSetBytes`. The reference store replays its change
+  `contracts.MaxChangeSetBytes`, and replaying a record applies the count
+  limits too (`contracts.CheckChangeSetLimits`). The reference store replays its change
   journal and refuses any apply that decides differently, an entry with no
   record time or one later than the header's `taken_at`, which it doesn't
   compare with its own clock, so a backup from a host whose clock ran ahead
@@ -694,7 +696,19 @@ Assets: A1, A3, A4, A5, A6.
   SHA-256. The SHA-256 catches corruption and truncation, not a forger who
   recomputes it or sets `taken_at`: the audited hash will let an operator
   compare the restored backup with the one they took.
-- **C-STORE-9** `internal/memstore`'s rule engine is trusted production
+- **C-STORE-9** `GraphStore.Apply` refuses a ChangeSet over `MaxChangeSetBytes`
+  (by `proto.Size`) or over a count limit (`MaxChangeSetItems`,
+  `MaxChangeSetMerges`, `MaxTimelineRows`; `contracts.CheckChangeSetLimits`,
+  docs/spec/contracts.md) before it takes any write. A backend's work in
+  Apply MUST depend on the ChangeSet and the subjects and aliases it names,
+  not on the rest of the store. The reference store's tests apply, under a
+  five-second bound, 250 merges and 250 un-merges against stores holding
+  50,000 aliases, merges into aliases that have moved, and 400 full 256-row
+  timelines, all changed. Merge records, which carry both alias sets, are
+  refused as soon as together they pass the byte limit, and a record that
+  grows past it when recorded is refused too. A limit error quotes at most
+  64 bytes of the input.
+- **C-STORE-10** `internal/memstore`'s rule engine is trusted production
   code. The SurrealDB backend runs every operation on it (rows are loaded
   into a scratch store and the delta written back), so a flaw in it is a
   flaw in every backend built on it, and changes to it are reviewed as store changes.
