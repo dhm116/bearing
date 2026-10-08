@@ -466,6 +466,8 @@ func (g gate) measure(c config) error {
 // -measure-base wrote when c.baseProfile is set, else by exporting mergeBase
 // and running c.test in it.
 func (g gate) baseCoverage(mergeBase, module string, c config) (float64, error) {
+	// The merge base is exported even when a measured profile is given:
+	// filterBlocks reads its files to tell generated code from the rest.
 	dir, err := g.export(mergeBase)
 	if err != nil {
 		return 0, err

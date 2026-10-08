@@ -376,7 +376,7 @@ func TestMeasuredBaseProfileReplacesTheBaselineRun(t *testing.T) {
 	if ok, err := g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: out}); err != nil || !ok || !strings.Contains(report.String(), "baseline unavailable") {
 		t.Fatalf("ok = %v, err = %v; want the total comparison skipped\n%s", ok, err, report)
 	}
-	// So is a missing one.
+	// A missing base profile is an error with -require-baseline.
 	g, _ = newGate(dir, false)
 	_, err = g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: out + ".missing", requireBaseline: true})
 	if err == nil || !strings.Contains(err.Error(), "base profile") {
