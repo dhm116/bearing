@@ -1,5 +1,7 @@
-// Package memstore is an in-memory GraphStore and VectorIndex for tests and
-// local trials. It is the reference implementation of both contracts.
+// Package memstore is an in-memory GraphStore and VectorIndex, the
+// reference implementation of both contracts. It is for tests and local
+// trials only: it has no size limits beyond the contract's per-ChangeSet
+// limit, keeps everything in memory and loses it on exit.
 package memstore
 
 import (
@@ -16,19 +18,26 @@ import (
 	"bearing.example/pkg/model"
 )
 
+// IDSource issues subject IDs, each greater than the last. Seed moves it
+// past an ID issued elsewhere, as Restore does. *model.UUIDv7Source is one.
+type IDSource interface {
+	NewID() string
+	Seed(last string) error
+}
+
 // Store is a concurrency-safe in-memory GraphStore and VectorIndex. Applies
 // are serialized by one lock, the store's clock record.
 type Store struct {
-	// Now is the store's clock. NewID mints subject IDs, each greater than
-	// the last. Set them before first use; New fills real defaults.
-	Now   func() time.Time
-	NewID func() string
+	// Now is the store's clock and IDs its subject ID source. Set them
+	// before first use; New fills real defaults.
+	Now func() time.Time
+	IDs IDSource
 
 	mu       sync.RWMutex
 	head     time.Time // the latest apply's recorded_at
 	lastID   string    // the latest minted subject ID
-	journal  []*modelv1alpha1.ChangeSet
-	events   map[string]time.Time
+	journal  []*modelv1alpha1.JournalEntry
+	events   map[string]int                    // event ID to journal index
 	subjects map[string]*modelv1alpha1.Subject // as minted
 	merges   []*modelv1alpha1.MergeRecord      // in record order
 	bindings table                             // by alias
@@ -40,7 +49,7 @@ var _ contracts.GraphStore = (*Store)(nil)
 
 // New returns an empty store.
 func New() *Store {
-	s := &Store{Now: time.Now, NewID: model.UUIDv7(time.Now, rand.Reader), vectors: map[string]contracts.VectorPoint{}}
+	s := &Store{Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), vectors: map[string]contracts.VectorPoint{}}
 	s.reset()
 	return s
 }
@@ -48,7 +57,7 @@ func New() *Store {
 // reset empties the graph.
 func (s *Store) reset() {
 	s.head, s.lastID, s.journal, s.merges = time.Time{}, "", nil, nil
-	s.events, s.subjects = map[string]time.Time{}, map[string]*modelv1alpha1.Subject{}
+	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
 	s.bindings, s.state = table{}, table{}
 }
 

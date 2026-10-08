@@ -41,6 +41,9 @@ const PasswordEnv = "BEARING_STORE_PASSWORD"
 type Config struct {
 	Graph   string
 	Vectors string
+	// Namespaces are the configured source namespaces, which telemetry
+	// names in metric labels; it labels any other namespace "other".
+	Namespaces []string
 	// Getenv reads PasswordEnv; nil means os.Getenv.
 	Getenv func(string) string
 }
@@ -82,19 +85,16 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Vectors == "" {
 		c.Vectors = c.Graph
 	}
+	// Refused before dialling: a SurrealDB graph can't serve until #44.
+	if u, err := parseURL(c.Graph); err == nil && (strings.HasPrefix(u.Scheme, "surrealdb+") || u.Scheme == "surrealkv") {
+		return nil, fmt.Errorf("store: %w", surrealstore.ErrGraphNotImplemented)
+	}
 	s := &Store{}
 	g, err := open(ctx, c.Graph, c.Getenv)
 	if err != nil {
 		return nil, err
 	}
 	s.closers = append(s.closers, g.close)
-	if g.graph == nil {
-		err := fmt.Errorf("store: %s can't be a graph store", redact(c.Graph))
-		if g.name == "surrealdb" {
-			err = fmt.Errorf("store: %w", surrealstore.ErrGraphNotImplemented)
-		}
-		return nil, errors.Join(err, s.Close(ctx))
-	}
 	v := g
 	if c.Vectors != c.Graph {
 		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {
@@ -105,7 +105,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if v.vector == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
-	s.Graph = instrument.GraphStore(g.graph, g.name)
+	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
 	s.Vectors = instrument.VectorIndex(v.vector, v.name)
 	return s, nil
 }

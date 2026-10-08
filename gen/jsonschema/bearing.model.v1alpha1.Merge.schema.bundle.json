@@ -88,7 +88,7 @@
             }
           ],
           "default": 0,
-          "description": "The rule that merges them.",
+          "description": "The rule that merges them. Required.",
           "title": "Merge Rule"
         },
         "subject_ids": {

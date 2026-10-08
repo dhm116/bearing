@@ -46,7 +46,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.page` |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
-| `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.results.count` on list reads |
+| `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
 | `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` (`vector.repoint` after a merge) | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
 
 ## Metrics
@@ -70,7 +70,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.graph.subjects.merged` | counter | {merge} | `bearing.rule` (merge rule) | How identities converge, and by which evidence |
 | `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
 | `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
-| `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.namespace` | High miss rates mean identity resolution is falling behind |
+| `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.namespace` (a configured namespace, else `other`) | High miss rates mean identity resolution is falling behind |
 
 Attributes are deliberately low-cardinality: no subject IDs, keys or
 repository names on metrics. Those belong on spans and logs.

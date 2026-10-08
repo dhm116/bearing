@@ -1,0 +1,33 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.UnmergeOutcome.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "UnmergeOutcome is where one un-merge's aliases went.",
+      "patternProperties": {
+        "^(targetId)$": {
+          "default": "",
+          "description": "The reactivated subject, or the split mint.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "split": {
+          "default": false,
+          "description": "Set when the target is a split mint rather than a reactivated subject.",
+          "type": "boolean"
+        },
+        "target_id": {
+          "default": "",
+          "description": "The reactivated subject, or the split mint.",
+          "type": "string"
+        }
+      },
+      "title": "Unmerge Outcome",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.UnmergeOutcome.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.UnmergeOutcome.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

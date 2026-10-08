@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -20,6 +22,7 @@ import (
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/contracts/conformance"
 	"bearing.example/pkg/contracts/instrument"
+	"bearing.example/pkg/model"
 )
 
 var (
@@ -33,11 +36,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func newStore(*testing.T) (contracts.GraphStore, conformance.Clock) {
+func newStore(*testing.T) (contracts.GraphStore, conformance.Clock, conformance.IDs) {
 	clk := testkit.NewClock(time.Time{})
 	s := memstore.New()
-	s.Now, s.NewID = clk.Now, testkit.NewUUIDs().NewID
-	return instrument.GraphStore(s, "memory"), clk
+	ids := testkit.NewUUIDv7s(clk.Now)
+	s.Now, s.IDs = clk.Now, ids
+	return instrument.GraphStore(s, "memory", "github"), clk, ids
 }
 
 // The wrapper must not change behavior: it passes the same conformance suite
@@ -53,7 +57,7 @@ func TestWrappedIndexConforms(t *testing.T) {
 }
 
 func TestExpectedErrorsAreNotSpanErrors(t *testing.T) {
-	s, _ := newStore(t)
+	s, _, _ := newStore(t)
 	ctx := context.Background()
 	if _, err := s.Subject(ctx, "missing", time.Time{}); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
@@ -103,5 +107,38 @@ func TestGraphMetrics(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("metric %s was not recorded", name)
 		}
+	}
+}
+
+// Keys come from outside, so only configured namespaces become metric
+// labels; spans keep the real one.
+func TestKeyLookupsLabelUnconfiguredNamespacesOther(t *testing.T) {
+	s, _, _ := newStore(t)
+	ctx := context.Background()
+	for _, k := range []model.Key{"github:team/acme/payments", "attacker-1234:team/x"} {
+		if _, err := s.ResolveKey(ctx, k, time.Time{}, time.Time{}); !errors.Is(err, contracts.ErrNotFound) {
+			t.Fatalf("got %v, want ErrNotFound", err)
+		}
+	}
+	if got := spans.Ended()[len(spans.Ended())-1].Attributes(); !slices.Contains(got, attribute.String("bearing.key.namespace", "attacker-1234")) {
+		t.Fatalf("got span attributes %v, want the real namespace", got)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "bearing.graph.key.lookups" {
+				for _, dp := range sum.DataPoints {
+					v, _ := dp.Attributes.Value("bearing.key.namespace")
+					labels[v.AsString()] = true
+				}
+			}
+		}
+	}
+	if len(labels) != 2 || !labels["github"] || !labels["other"] {
+		t.Fatalf("got namespace labels %v, want github and other", labels)
 	}
 }

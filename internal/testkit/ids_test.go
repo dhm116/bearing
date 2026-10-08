@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSeqIDs(t *testing.T) {
@@ -62,5 +63,19 @@ func TestSeqIDsConcurrent(t *testing.T) {
 	wg.Wait()
 	if len(seen) != workers*each {
 		t.Fatalf("got %d distinct ids, want %d", len(seen), workers*each)
+	}
+}
+
+func TestUUIDv7sAreDeterministic(t *testing.T) {
+	clk := NewClock(time.Date(2026, 9, 28, 1, 30, 2, 0, time.UTC))
+	ids := NewUUIDv7s(clk.Now)
+	for i, want := range []string{"01a0e5a2-1d90-7000-8000-000000000000", "01a0e5a2-1d90-7000-8000-000000000001"} {
+		if got := ids.NewID(); got != want {
+			t.Fatalf("call %d: got %q, want %q", i+1, got, want)
+		}
+	}
+	clk.Advance(time.Millisecond)
+	if got := ids.NewID(); got != "01a0e5a2-1d91-7000-8000-000000000000" {
+		t.Fatalf("got %q, want fresh zero bits in the next millisecond", got)
 	}
 }

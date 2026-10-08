@@ -26,7 +26,7 @@
         },
         "ref": {
           "default": "",
-          "description": "The ref (\"new:\u003clabel\u003e\") the rest of the ChangeSet uses for the subject\n the aliases move to: the reactivated subject, or a split mint.",
+          "description": "The ref (\"new:\u003clabel\u003e\") the rest of the ChangeSet uses for the subject\n the aliases move to: the reactivated subject, or a split mint.\n Required, and unique among the ChangeSet's mints and un-merges.",
           "type": "string"
         },
         "subject_id": {

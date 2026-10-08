@@ -33,11 +33,19 @@ type Clock interface {
 	Set(t time.Time)
 }
 
+// IDs is the store's subject ID source as the suite sees it;
+// *model.UUIDv7Source is one.
+type IDs interface {
+	// Last returns the last ID the source issued.
+	Last() string
+}
+
 // GraphStore runs the GraphStore conformance suite. newStore must return an
-// empty store whose clock is the returned Clock, set to any time; the suite
-// sets it. The suite plays the resolver: it writes ChangeSets and checks
-// what the store guarantees (docs/spec/contracts.md, "GraphStore").
-func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore, Clock)) {
+// empty store whose clock is the returned Clock, set to any time (the suite
+// sets it), and whose subject IDs come from the returned IDs. The suite
+// plays the resolver: it writes ChangeSets and checks what the store
+// guarantees (docs/spec/contracts.md, "GraphStore").
+func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore, Clock, IDs)) {
 	g := &suite{newStore: newStore}
 	for _, c := range []struct {
 		name string
@@ -49,6 +57,7 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Apply fails as stale when the head moved", g.stale},
 		{"A failed Apply writes nothing", g.atomic},
 		{"ChangeSet checks", g.checks},
+		{"Apply refuses a ChangeSet over MaxChangeSetBytes", g.size},
 		{"16 concurrent writers lose no updates", g.concurrent},
 		{"ResolveKey follows bindings in valid and record time", g.resolve},
 		{"Timelines replace rows and keep unchanged ones", g.replace},
@@ -58,14 +67,14 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Un-merge reactivates the subject that merged", g.unmerge},
 		{"Un-merge of a new alias set mints a split subject", g.split},
 		{"Backup and Restore keep primary state", g.backup},
-		{"Apply order of independent ChangeSets doesn't change valid-time state", g.order},
+		{"Restore refuses a damaged backup", g.damaged},
 	} {
 		t.Run(c.name, c.run)
 	}
 }
 
 type suite struct {
-	newStore func(t *testing.T) (contracts.GraphStore, Clock)
+	newStore func(t *testing.T) (contracts.GraphStore, Clock, IDs)
 }
 
 var ctx = context.Background()
@@ -87,9 +96,15 @@ func ts(s string) *timestamppb.Timestamp {
 
 func (g *suite) store(t *testing.T) (contracts.GraphStore, Clock) {
 	t.Helper()
-	s, clk := g.newStore(t)
-	clk.Set(at("2026-09-28T01:30:02Z"))
+	s, clk, _ := g.storeWithIDs(t)
 	return s, clk
+}
+
+func (g *suite) storeWithIDs(t *testing.T) (contracts.GraphStore, Clock, IDs) {
+	t.Helper()
+	s, clk, ids := g.newStore(t)
+	clk.Set(at("2026-09-28T01:30:02Z"))
+	return s, clk, ids
 }
 
 // apply sets cs's base to the head and applies it, as a resolver would.
@@ -184,6 +199,12 @@ func (g *suite) mints(t *testing.T) {
 	if c := later.Subjects["new:c"]; c <= b {
 		t.Fatalf("got %q after %q, want a greater ID", c, b)
 	}
+	// A redelivery after a crash still learns what the first apply did.
+	again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1"})
+	if !again.Duplicate || !again.RecordedAt.Equal(res.RecordedAt) || again.Subjects["new:b"] != b ||
+		len(again.Minted) != 2 || again.Minted[1].GetSubjectId() != string(b) {
+		t.Fatalf("got %+v, want e1's original result", again)
+	}
 }
 
 func (g *suite) idempotent(t *testing.T) {
@@ -251,7 +272,7 @@ func (g *suite) stale(t *testing.T) {
 }
 
 func (g *suite) atomic(t *testing.T) {
-	s, clk := g.store(t)
+	s, clk, ids := g.storeWithIDs(t)
 	r, p, l := seed(t, s)
 	head, _ := s.Head(ctx)
 	val, _ := anypb.New(wrapperspb.String("v"))
@@ -262,18 +283,25 @@ func (g *suite) atomic(t *testing.T) {
 		State:    []*modelv1alpha1.StateEntry{{Key: "k", Value: val}},
 		Merges:   []*modelv1alpha1.Merge{{SubjectIds: []string{r, p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
 	}
-	if _, err := tryApply(s, bad); err == nil {
-		t.Fatal("merged a Repository with a Team")
+	if res, err := tryApply(s, bad); err == nil || res.Subjects != nil || res.Minted != nil || !res.RecordedAt.IsZero() {
+		t.Fatalf("got %+v, %v, want a zero result and an error for merging a Repository with a Team", res, err)
 	}
-	clk.Set(clk.Now().Add(time.Hour)) // reads now would see a partial write
+	failed := ids.Last() // the failed apply's mint
 	if now, _ := s.Head(ctx); !now.Equal(head) {
 		t.Fatalf("got head %s, want %s", now, head)
 	}
+	// A row the failed apply left would carry its record time, which the
+	// next apply may reuse: read after one.
+	clk.Set(clk.Now().Add(time.Hour))
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e0"})
 	if _, err := s.ResolveKey(ctx, "github:team/acme/x", time.Time{}, time.Time{}); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("got %v, want the failed apply's binding gone", err)
 	}
 	if st, _ := s.State(ctx, []string{"k"}, time.Time{}); len(st) != 0 {
 		t.Fatalf("got state %v, want the failed apply's entry gone", st)
+	}
+	if sub, err := s.Subject(ctx, contracts.SubjectID(failed), time.Time{}); failed == "" || !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("got %v, %v, want the failed apply's mint %q gone", sub, err, failed)
 	}
 	bad.Merges = nil
 	res := apply(t, s, bad)
@@ -306,21 +334,26 @@ func (g *suite) atomic(t *testing.T) {
 
 func (g *suite) checks(t *testing.T) {
 	s, _ := g.store(t)
-	r, p, _ := seed(t, s)
+	r, p, l := seed(t, s)
+	val, _ := anypb.New(wrapperspb.String("v"))
 	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
-		"no event ID":           {},
-		"unregistered kind":     {Mints: []*modelv1alpha1.Mint{mint("new:x", "Widget")}},
-		"split mint rule":       {Mints: []*modelv1alpha1.Mint{{Ref: "new:x", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_SPLIT}}},
-		"ref without prefix":    {Mints: []*modelv1alpha1.Mint{mint("x", "Team")}},
-		"unknown ref":           {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("new:x", "", ""))}},
-		"unknown subject":       {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("0192b1c4-0000-7000-8000-000000000000", "", ""))}},
-		"bad alias":             {Bindings: []*modelv1alpha1.BindingTimeline{bind("not a key", row(p, "", ""))}},
-		"alias mismatch":        {Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "github:team/acme/x", Bindings: []*modelv1alpha1.Binding{{Alias: "github:team/acme/y", SubjectId: p}}}}},
-		"overlapping rows":      {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "2026-10-01T00:00:00Z"), row(r, "2026-09-30T00:00:00Z", ""))}},
-		"state without key":     {State: []*modelv1alpha1.StateEntry{{}}},
-		"merge of one":          {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
-		"unmerge of one alias":  {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
-		"unmerge of no subject": {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"merge without a rule":   {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}}}},
+		"alias twice":            {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "")), bind("github:team/acme/x", row(p, "", ""))}},
+		"state key twice":        {State: []*modelv1alpha1.StateEntry{{Key: "k", Value: val}, {Key: "k"}}},
+		"empty binding interval": {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"))}},
+		"no event ID":            {},
+		"unregistered kind":      {Mints: []*modelv1alpha1.Mint{mint("new:x", "Widget")}},
+		"split mint rule":        {Mints: []*modelv1alpha1.Mint{{Ref: "new:x", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_SPLIT}}},
+		"ref without prefix":     {Mints: []*modelv1alpha1.Mint{mint("x", "Team")}},
+		"unknown ref":            {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("new:x", "", ""))}},
+		"unknown subject":        {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("0192b1c4-0000-7000-8000-000000000000", "", ""))}},
+		"bad alias":              {Bindings: []*modelv1alpha1.BindingTimeline{bind("not a key", row(p, "", ""))}},
+		"alias mismatch":         {Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "github:team/acme/x", Bindings: []*modelv1alpha1.Binding{{Alias: "github:team/acme/y", SubjectId: p}}}}},
+		"overlapping rows":       {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "2026-10-01T00:00:00Z"), row(r, "2026-09-30T00:00:00Z", ""))}},
+		"state without key":      {State: []*modelv1alpha1.StateEntry{{}}},
+		"merge of one":           {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
+		"unmerge of one alias":   {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"unmerge of no subject":  {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
 	} {
 		if name != "no event ID" {
 			cs.EventId = "bad/" + name
@@ -328,6 +361,50 @@ func (g *suite) checks(t *testing.T) {
 		if _, err := tryApply(s, cs); err == nil {
 			t.Errorf("%s: got no error, want one", name)
 		}
+	}
+}
+
+func (g *suite) size(t *testing.T) {
+	s, clk := g.store(t)
+	state := func(n int) []*modelv1alpha1.StateEntry {
+		v, _ := anypb.New(wrapperspb.Bytes(make([]byte, n)))
+		return []*modelv1alpha1.StateEntry{{Key: "k", Value: v}}
+	}
+	if res, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "big", State: state(contracts.MaxChangeSetBytes)}); err == nil {
+		t.Fatalf("got %+v, want an error for a ChangeSet over %d bytes", res, contracts.MaxChangeSetBytes)
+	}
+	// One just under the limit applies, and its backup restores.
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "big", State: state(contracts.MaxChangeSetBytes - 1024)})
+	var buf bytes.Buffer
+	if err := s.Backup(ctx, &buf); err != nil {
+		t.Fatal(err)
+	}
+	restored, clk2 := g.store(t)
+	clk2.Set(clk.Now())
+	if err := restored.Restore(ctx, &buf); err != nil {
+		t.Fatalf("restore of a ChangeSet just under the limit: %v", err)
+	}
+	// One exactly at the limit grows when recorded: the store refuses it or
+	// backs it up so it restores.
+	n := contracts.MaxChangeSetBytes
+	edge := &modelv1alpha1.ChangeSet{EventId: "edge", BaseRecordedAt: timestamppb.New(must(restored.Head(ctx))), State: state(n)}
+	for over := proto.Size(edge) - contracts.MaxChangeSetBytes; over > 0; over = proto.Size(edge) - contracts.MaxChangeSetBytes {
+		n -= over
+		edge.State = state(n)
+	}
+	if _, err := restored.Apply(ctx, edge); errors.Is(err, contracts.ErrStale) {
+		t.Fatal(err)
+	} else if err != nil {
+		return // refused
+	}
+	buf.Reset()
+	if err := restored.Backup(ctx, &buf); err != nil {
+		t.Fatal(err)
+	}
+	again, clk3 := g.store(t)
+	clk3.Set(clk.Now())
+	if err := again.Restore(ctx, &buf); err != nil {
+		t.Fatalf("the store took a ChangeSet of %d bytes whose backup won't restore: %v", proto.Size(edge), err)
 	}
 }
 
@@ -544,12 +621,18 @@ func (g *suite) merge(t *testing.T) {
 	if sub, err := s.ResolveKey(ctx, "github:team_node/T_l", time.Time{}, time.Time{}); err != nil || sub.GetSubjectId() != p {
 		t.Fatalf("got %v, %v, want %s", sub, err, p)
 	}
+	if sub, err := s.ResolveKey(ctx, "github:team_node/T_l", time.Time{}, before); err != nil || sub.GetSubjectId() != l {
+		t.Fatalf("got %v, %v, want %s as recorded before the merge", sub, err, l)
+	}
+	if again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2"}); !again.Duplicate || len(again.Merges) != 1 || !proto.Equal(again.Merges[0], m) {
+		t.Fatalf("got %+v, want e2's merge reported again", again)
+	}
 	recs, err := s.Merges(ctx, contracts.SubjectID(p), time.Time{})
 	if err != nil || len(recs) != 1 || !proto.Equal(recs[0], m) {
 		t.Fatalf("got %v, %v, want the merge record", recs, err)
 	}
 	for name, ids := range map[string][]string{"merged subject": {l, p}, "self": {p, p}} {
-		if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Merges: []*modelv1alpha1.Merge{{SubjectIds: ids}}}); err == nil {
+		if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Merges: []*modelv1alpha1.Merge{{SubjectIds: ids, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}}); err == nil {
 			t.Errorf("merge of %s: got no error, want one", name)
 		}
 	}
@@ -583,6 +666,23 @@ func (g *suite) unmerge(t *testing.T) {
 	_, p, l := seed(t, s)
 	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}})
 	merged, _ := s.Head(ctx)
+	back := []string{"github:team_node/T_l"}
+	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
+		"ref that collides with a mint": {
+			Mints:    []*modelv1alpha1.Mint{mint("new:back", "Team")},
+			Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: back, Ref: "new:back"}},
+		},
+		"no ref":                   {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: back}}},
+		"the same alias set twice": {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: back, Ref: "new:a"}, {SubjectId: p, Aliases: back, Ref: "new:b"}}},
+	} {
+		cs.EventId = "bad/" + name
+		if res, err := tryApply(s, cs); err == nil {
+			t.Errorf("un-merge with %s: got %v, want an error", name, res.Subjects)
+		}
+	}
+	if head, _ := s.Head(ctx); !head.Equal(merged) {
+		t.Fatalf("got head %s, want %s: a failed un-merge wrote", head, merged)
+	}
 	res := apply(t, s, &modelv1alpha1.ChangeSet{
 		EventId:  "e2",
 		Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_l"}, Ref: "new:back"}},
@@ -686,7 +786,7 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 			State:    []*modelv1alpha1.StateEntry{{Key: "k"}},
 		},
 		{
-			Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{"new:g", p}}}, Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")},
+			Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{"new:g", p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}, Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")},
 		},
 	} {
 		clk.Set(clk.Now().Add(time.Hour))
@@ -708,6 +808,7 @@ func (g *suite) backup(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored, clk2 := g.store(t)
+	clk2.Set(clk.Now())
 	if err := restored.Restore(ctx, bytes.NewReader(buf.Bytes())); err != nil {
 		t.Fatal(err)
 	}
@@ -734,13 +835,6 @@ func (g *suite) backup(t *testing.T) {
 	if err := restored.Restore(ctx, bytes.NewReader(buf.Bytes())); err == nil {
 		t.Fatal("restored into a store that isn't empty")
 	}
-	empty, _ := g.store(t)
-	if err := empty.Restore(ctx, io.MultiReader(bytes.NewReader(buf.Bytes()), strings.NewReader("\x05junk"))); err == nil {
-		t.Fatal("restored from garbage")
-	}
-	if h, _ := empty.Head(ctx); !h.IsZero() {
-		t.Fatalf("got head %s after a failed restore, want an empty store", h)
-	}
 }
 
 func must[T any](v T, err error) T {
@@ -750,42 +844,71 @@ func must[T any](v T, err error) T {
 	return v
 }
 
-func (g *suite) order(t *testing.T) {
-	// Two independent events after one seed, applied in both orders, give
-	// the same valid-time state; record times may differ.
-	var dumps []string
-	for _, flip := range []bool{false, true} {
-		s, _ := g.store(t)
-		_, p, l := seed(t, s)
-		x := &modelv1alpha1.ChangeSet{EventId: "x", Bindings: []*modelv1alpha1.BindingTimeline{
-			bind("github:team/acme/payments", row(p, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z")),
-		}}
-		y := &modelv1alpha1.ChangeSet{EventId: "y", Bindings: []*modelv1alpha1.BindingTimeline{
-			bind("github:team/acme/platform", row(l, "2026-10-01T00:00:00Z", "")),
-		}}
-		if flip {
-			x, y = y, x
-		}
-		apply(t, s, x)
-		apply(t, s, y)
-		var buf bytes.Buffer
-		if err := s.Backup(ctx, &buf); err != nil {
-			t.Fatal(err)
-		}
-		restored, _ := g.store(t)
-		if err := restored.Restore(ctx, &buf); err != nil {
-			t.Fatal(err)
-		}
-		var d []string
-		for _, v := range []string{"2026-09-30T00:00:00Z", "2026-10-03T00:00:00Z"} {
-			for _, k := range []model.Key{"github:team/acme/payments", "github:team/acme/platform"} {
-				sub, _ := restored.ResolveKey(ctx, k, at(v), time.Time{})
-				d = append(d, fmt.Sprintf("%s %s %s", v, k, sub.GetSubjectId()))
-			}
-		}
-		dumps = append(dumps, strings.NewReplacer(p, "P", l, "L").Replace(strings.Join(d, "\n")))
+// reframe rewrites a backup with edit applied to its header. If keep > 0,
+// the copy ends after that many records, without a trailer.
+func reframe(t *testing.T, backup []byte, edit func(*modelv1alpha1.BackupHeader), keep int) []byte {
+	t.Helper()
+	br, err := contracts.NewBackupReader(bytes.NewReader(backup))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if dumps[0] != dumps[1] || !strings.Contains(dumps[0], "P") {
-		t.Fatalf("got\n%s\nand\n%s, want the same state", dumps[0], dumps[1])
+	h := proto.CloneOf(br.Header)
+	if edit != nil {
+		edit(h)
+	}
+	var out bytes.Buffer
+	bw := must(contracts.NewBackupWriter(&out, h))
+	for n := 0; keep <= 0 || n < keep; n++ {
+		rec, err := br.Next()
+		if errors.Is(err, io.EOF) {
+			if err := bw.Finish(); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bw.Record(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out.Bytes()
+}
+
+func (g *suite) damaged(t *testing.T) {
+	s, clk := g.store(t)
+	history(t, s, clk)
+	var buf bytes.Buffer
+	if err := s.Backup(ctx, &buf); err != nil {
+		t.Fatal(err)
+	}
+	good := buf.Bytes()
+	badSum := slices.Clone(good)
+	badSum[len(badSum)-1] ^= 1 // the trailer's SHA-256 ends the stream
+	for name, b := range map[string][]byte{
+		"unknown version":                 reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.Version += 100 }, 0),
+		"unknown format":                  reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.Format += "-other" }, 0),
+		"truncated at a message boundary": reframe(t, good, nil, 2),
+		"bad checksum":                    badSum,
+		"data after the trailer":          append(slices.Clone(good), "\x05junk"...),
+		"empty":                           nil,
+		"a header claiming a later head":  reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.Head.Seconds++ }, 0),
+	} {
+		empty, clk2 := g.store(t)
+		clk2.Set(clk.Now())
+		if err := empty.Restore(ctx, bytes.NewReader(b)); err == nil {
+			t.Errorf("%s: restored, want an error", name)
+		}
+		if h, _ := empty.Head(ctx); !h.IsZero() {
+			t.Errorf("%s: got head %s after a failed restore, want an empty store", name, h)
+		}
+	}
+	// The same backup, rewritten, restores: the cases above fail for their
+	// damage alone.
+	ok, clk2 := g.store(t)
+	clk2.Set(clk.Now())
+	if err := ok.Restore(ctx, bytes.NewReader(reframe(t, good, nil, 0))); err != nil {
+		t.Fatalf("restore of an undamaged copy: %v", err)
 	}
 }

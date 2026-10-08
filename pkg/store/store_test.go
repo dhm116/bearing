@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -30,6 +33,23 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1}, Limit: 1})
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("got %v, %v", hits, err)
+	}
+}
+
+// Until #44 a SurrealDB graph is refused before anything is dialled or
+// opened.
+func TestOpenRefusesASurrealGraphWithoutConnecting(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	for _, graph := range []string{"surrealdb+ws://" + host, "surrealdb+http://" + host, "surrealkv:///nowhere", "surrealdb+mem://"} {
+		if _, err := Open(context.Background(), Config{Graph: graph}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
+			t.Errorf("%s: got %v, want ErrGraphNotImplemented", graph, err)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("got %d requests to the server, want none", n)
 	}
 }
 
@@ -98,7 +118,7 @@ func TestOpenReadsPasswordFromEnvironment(t *testing.T) {
 	// A canceled context makes the dial fail without touching the network.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	s, err := Open(ctx, Config{Graph: "surrealdb+ws://root@127.0.0.1:1", Getenv: getenv})
+	s, err := Open(ctx, Config{Graph: "mem://", Vectors: "surrealdb+ws://root@127.0.0.1:1", Getenv: getenv})
 	if err == nil {
 		closeStore(t, s)
 		t.Fatal("dial with a canceled context succeeded")
@@ -135,13 +155,12 @@ func TestOpenRejectsMalformedServerURLs(t *testing.T) {
 		{"no host with path secret", "surrealdb+ws:///hunter2?token=hunter2", "names no server host"},
 		{"no host with password", "surrealdb+ws://root:hunter2@", "has a password in it"},
 		{"unknown scheme with secrets", "neo4j://root@db/hunter2?pass=hunter2", "unsupported URL scheme"},
-		{"vectors unknown scheme", "", "unsupported URL scheme"},
+		{"another unknown scheme", "qdrant://root@db/hunter2?key=hunter2", "unsupported URL scheme"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := Config{Graph: tc.url, Getenv: func(string) string { return "" }}
-			if tc.url == "" {
-				cfg.Graph, cfg.Vectors = "mem://", "qdrant://root@db/hunter2?key=hunter2"
-			}
+			// As the vector index: a SurrealDB graph is refused before its
+			// URL is looked at (TestOpenRefusesASurrealGraphWithoutConnecting).
+			cfg := Config{Graph: "mem://", Vectors: tc.url, Getenv: func(string) string { return "" }}
 			s, err := Open(context.Background(), cfg)
 			if err == nil {
 				closeStore(t, s)
@@ -161,7 +180,7 @@ func TestOpenEmbeddedNeedsBuildTag(t *testing.T) {
 	if surrealstore.EmbeddedAvailable {
 		t.Skip("built with surrealembed")
 	}
-	_, err := Open(context.Background(), Config{Graph: "surrealdb+mem://"})
+	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "surrealdb+mem://"})
 	if !errors.Is(err, surrealstore.ErrEmbeddedUnavailable) {
 		t.Fatalf("got %v, want ErrEmbeddedUnavailable", err)
 	}

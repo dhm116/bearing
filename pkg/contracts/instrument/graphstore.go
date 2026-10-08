@@ -52,6 +52,7 @@ const (
 	attrResult    = attribute.Key("bearing.result")
 	attrRule      = attribute.Key("bearing.rule")
 	attrCount     = attribute.Key("bearing.results.count")
+	attrNamespace = attribute.Key("bearing.key.namespace")
 )
 
 func must[T any](v T, err error) T {
@@ -63,13 +64,21 @@ func must[T any](v T, err error) T {
 
 // GraphStore wraps s so every call is traced and measured. backend names the
 // implementation (for example "postgresql" or "memory") in telemetry.
-func GraphStore(s contracts.GraphStore, backend string) contracts.GraphStore {
-	return &graphStore{next: s, backend: backend}
+// Metrics label key lookups with the namespaces given, the configured ones,
+// and every other namespace as "other", so keys from outside can't grow the
+// label set; spans keep the real namespace.
+func GraphStore(s contracts.GraphStore, backend string, namespaces ...string) contracts.GraphStore {
+	g := &graphStore{next: s, backend: backend, namespaces: map[string]bool{}}
+	for _, ns := range namespaces {
+		g.namespaces[ns] = true
+	}
+	return g
 }
 
 type graphStore struct {
-	next    contracts.GraphStore
-	backend string
+	next       contracts.GraphStore
+	backend    string
+	namespaces map[string]bool
 }
 
 // observe runs fn in a span and records its duration. ErrNotFound and
@@ -150,7 +159,11 @@ func (g *graphStore) ResolveKey(ctx context.Context, key model.Key, validAt, rec
 			result = "miss"
 		}
 		namespace, _, _, _ := key.Parse()
-		keyLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String(result), attribute.String("bearing.key.namespace", namespace)))
+		trace.SpanFromContext(ctx).SetAttributes(attrNamespace.String(namespace))
+		if !g.namespaces[namespace] {
+			namespace = "other"
+		}
+		keyLookups.Add(ctx, 1, metric.WithAttributes(attrResult.String(result), attrNamespace.String(namespace)))
 		return err
 	})
 	return s, err

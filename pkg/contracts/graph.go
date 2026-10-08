@@ -23,11 +23,11 @@ type SubjectID string
 
 // ApplyResult says what an Apply did.
 type ApplyResult struct {
-	// RecordedAt is the apply's record time, or the original apply's when
-	// Duplicate is set.
+	// RecordedAt is the apply's record time.
 	RecordedAt time.Time
-	// Duplicate is set when the event had already been applied; nothing was
-	// written.
+	// Duplicate is set when the event had already been applied: nothing was
+	// written, and the rest of the result is the original apply's, so a
+	// redelivery after a crash can still re-point vectors.
 	Duplicate bool
 	// Subjects maps each ref in the ChangeSet to the subject it named.
 	Subjects map[string]SubjectID
@@ -51,9 +51,11 @@ type ApplyResult struct {
 // merges recorded by the record time) unless a method says otherwise.
 type GraphStore interface {
 	// Apply writes cs in one transaction, once per event ID: a repeated
-	// event ID writes nothing and reports Duplicate. It fails with ErrStale
-	// if cs.base_recorded_at isn't the head, and with another error, writing
-	// nothing, if cs breaks a rule the store checks.
+	// event ID writes nothing and returns the original apply's result with
+	// Duplicate set. It fails with ErrStale if cs.base_recorded_at isn't the
+	// head, and with another error if cs is larger than MaxChangeSetBytes or
+	// breaks a rule the store checks. A failed Apply writes nothing and
+	// returns a zero result.
 	Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (ApplyResult, error)
 	// Head returns the latest apply's recorded_at, or zero for an empty store.
 	Head(ctx context.Context) (time.Time, error)
@@ -76,10 +78,15 @@ type GraphStore interface {
 	// recordedAt. Missing keys are left out.
 	State(ctx context.Context, keys []string, recordedAt time.Time) (map[string]*anypb.Any, error)
 
-	// Backup writes the store's complete state to w: every applied
-	// ChangeSet in apply order, as length-delimited protobuf.
+	// Backup writes the store's primary state to w as a backup stream
+	// (BackupWriter): a header, a body in a format the store defines, and a
+	// trailer.
 	Backup(ctx context.Context, w io.Writer) error
-	// Restore replays a Backup into an empty store, keeping its record
-	// times and subject IDs.
+	// Restore loads a Backup into an empty store. It refuses a format or
+	// version it doesn't know, a stream without its trailer and a bad
+	// checksum, and leaves the store empty on any failure. A restored store
+	// answers every read at every record time up to the head as the
+	// original did, keeps its processed events, head and subject IDs, and
+	// mints after the last of them.
 	Restore(ctx context.Context, r io.Reader) error
 }

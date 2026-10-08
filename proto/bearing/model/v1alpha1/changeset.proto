@@ -1,8 +1,8 @@
 // The ChangeSet: everything one event's apply writes to the graph store, and
 // the identity records it creates (docs/spec/contracts.md, "GraphStore").
 // The resolver computes a ChangeSet; the store applies it in one
-// transaction. Applied ChangeSets are kept, in apply order, for audit,
-// backup and replay.
+// transaction and keeps it, in apply order, in its change journal (not the
+// audit log, ADR 8).
 
 syntax = "proto3";
 
@@ -19,6 +19,10 @@ option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1
 // ("new:<label>") naming a subject a Mint or Unmerge in the same ChangeSet
 // creates; the store replaces them with the minted IDs. Items apply in this
 // order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
+// Merges apply in order, each seeing the ones before it. Un-merges don't:
+// every un-merge's target is resolved against the state before the
+// ChangeSet, and two un-merges may not claim the same merge record or
+// subject.
 //
 // Every timeline item (bindings for now) replaces the current timeline of its series: rows equal to a current row
 // are kept, current rows not repeated are retracted, and new rows are
@@ -38,10 +42,10 @@ message ChangeSet {
   repeated BindingTimeline bindings = 5;
   // Merges, applied in order.
   repeated Merge merges = 6;
-  // Un-merges, applied in order.
+  // Un-merges. Each target is resolved against the state before the
+  // ChangeSet, not after the un-merges listed before it.
   repeated Unmerge unmerges = 7;
   // Fields 8 to 11 are kept for the claim-store timelines (issue #37).
-  reserved 8 to 11;
   // The resolver's own state.
   repeated StateEntry state = 12;
 }
@@ -63,7 +67,7 @@ message Mint {
 message Merge {
   // The two subjects, in any order.
   repeated string subject_ids = 1;
-  // The rule that merges them.
+  // The rule that merges them. Required.
   MergeRule rule = 2;
   // The merge's confidence.
   uint32 confidence_ppm = 3;
@@ -80,6 +84,7 @@ message Unmerge {
   repeated string aliases = 2;
   // The ref ("new:<label>") the rest of the ChangeSet uses for the subject
   // the aliases move to: the reactivated subject, or a split mint.
+  // Required, and unique among the ChangeSet's mints and un-merges.
   string ref = 3;
   // Set by the store: the subject the aliases moved to.
   string target_id = 4;
