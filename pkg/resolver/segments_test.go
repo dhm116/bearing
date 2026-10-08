@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -188,19 +190,41 @@ func TestSeriesStateRoundTripsAndRefusesDamage(t *testing.T) {
 // series in every order, with endings and watermarks among them.
 func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
 	rng := rand.New(rand.NewSource(11)) //nolint:gosec // G404: a seeded shuffle, not security
+	// full describes a series down to what each support says of its keys and
+	// qualifiers, which show leaves out.
+	full := func(s series) string {
+		out := show(s)
+		for _, e := range s {
+			if e.live {
+				out += fmt.Sprintf(" %s/%v", e.sup.GetVia().GetObject(), e.sup.GetQualifiers())
+			}
+		}
+		return out
+	}
+	// claim is a live write of the one observation with its own via and
+	// qualifiers, as a second key of the subject would make it.
+	claim := func(from, to int64, conf uint32) seg {
+		w := liveSeg(1, "same", from, to, conf)
+		w.sup = proto.CloneOf(w.sup)
+		w.sup.Via = &modelv1alpha1.Via{Object: []string{"x", "y", "z"}[rng.Intn(3)]}
+		if rng.Intn(2) == 0 {
+			w.sup.Qualifiers = []*structpb.Struct{{Fields: map[string]*structpb.Value{"line": structpb.NewNumberValue(float64(rng.Intn(3)))}}}
+		}
+		return w
+	}
 	for range 300 {
 		var writes []seg
 		for range 2 + rng.Intn(3) {
 			from := hour(rng.Intn(8))
-			conf := 100_000 * uint32(1+rng.Intn(3)) //nolint:gosec // G115: 1 to 3
+			conf := 100_000 * uint32(1+rng.Intn(2)) //nolint:gosec // G115: 1 or 2
 			if rng.Intn(2) == 0 {
-				writes = append(writes, liveSeg(1, "same", from, posInf, conf))
+				writes = append(writes, claim(from, posInf, conf))
 				continue
 			}
 			// A claim with a valid_to: live until it, then an ending of the
 			// same observation.
 			to := from + int64(1+rng.Intn(5))*int64(time.Hour/time.Microsecond)
-			writes = append(writes, liveSeg(1, "same", from, to, conf), seg{from: to, to: posInf, key: writes0Key(), reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT})
+			writes = append(writes, claim(from, to, conf), seg{from: to, to: posInf, key: claim(0, 1, 1).key, reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT})
 		}
 		if rng.Intn(3) == 0 {
 			w := endSeg(1, "same", hour(rng.Intn(8)))
@@ -216,14 +240,9 @@ func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
 			for _, i := range rng.Perm(len(writes)) {
 				got = got.overlay(writes[i])
 			}
-			if show(got) != show(want) {
-				t.Fatalf("got %s, want %s", show(got), show(want))
+			if full(got) != full(want) {
+				t.Fatalf("got %s, want %s", full(got), full(want))
 			}
 		}
 	}
-}
-
-// writes0Key is the ordering key of liveSeg(1, "same", ...).
-func writes0Key() *resolverv1alpha1.OrderingKey {
-	return liveSeg(1, "same", 0, 1, 1).key
 }

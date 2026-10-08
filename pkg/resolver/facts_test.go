@@ -12,7 +12,6 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )

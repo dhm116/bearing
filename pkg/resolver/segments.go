@@ -137,7 +137,7 @@ func tieBreak(s *modelv1alpha1.Support) string {
 	for _, q := range s.GetQualifiers() {
 		b, err := model.JCS(structpb.NewStructValue(q))
 		if err != nil { // validated as finite UTF-8 text
-			b = []byte(q.String())
+			b, _ = proto.MarshalOptions{Deterministic: true}.Marshal(q)
 		}
 		parts = append(parts, string(b))
 	}
