@@ -24,7 +24,7 @@ Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
 
 | Command | What it does |
 | --- | --- |
-| `make check` | Exactly what CI runs: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `vuln`, `build` |
+| `make check` | Everything CI runs, in order: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `build`, `vuln`. CI runs the same steps as parallel jobs (see below), so it finishes sooner than this does |
 | `make generate` | After editing `proto/`: `buf format`, `buf lint`, then `buf generate` into `gen/go` and `gen/jsonschema` (buf and plugins pinned in `tools/go.mod`). Commit the output |
 | `make generate-check` | Fails if `proto/` isn't formatted or doesn't lint, or if `gen/` differs from what `buf generate` writes. `buf breaking` turns on when the MVP closes |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
@@ -281,7 +281,18 @@ Both are plain Markdown checklists; any agent can follow them.
   should know (untested paths, new dependencies, spec changes).
 - Keep changes focused. Spec, code and tests for one change land together.
 - PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
-- CI (`.github/workflows/ci.yml`) runs `make check`.
+- CI (`.github/workflows/ci.yml`) runs everything `make check` does, as jobs
+  that run side by side so a push gets its answer in minutes: `static`
+  (`make static`: everything but the tests), `test` (`make cover`, with
+  SurrealDB), `baseline` (the same tests at the merge base, `make
+  covergate-base`) and `check` (`make covergate-report`, which compares the
+  two sets of profiles and fails unless the other jobs passed). `test` and
+  `baseline` each run in three shards (`SHARD=` in the Makefile) on separate
+  runners, because the SurrealDB conformance cases that apply a 50,000-item
+  ChangeSet need a server core each; covergate merges the shards' profiles.
+  Keep the whole run to about five minutes: a test that takes longer than a
+  minute or two on its own gets split up or made parallel (`t.Parallel` with a
+  store per test), and nothing slow should be added to `static`.
 
 ## Review and merge process
 

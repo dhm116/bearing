@@ -93,7 +93,12 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Apply refuses what a backup cannot hold", g.unwritable},
 		{"Apply order of independent ChangeSets doesn't change valid-time state", g.order},
 	} {
-		t.Run(c.name, c.run)
+		t.Run(c.name, func(t *testing.T) {
+			// Every case builds its own store, and a large apply is slow on a
+			// backend that talks to a server, so they run side by side.
+			t.Parallel()
+			c.run(t)
+		})
 	}
 }
 

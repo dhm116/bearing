@@ -1,0 +1,27 @@
+name: Start SurrealDB
+description: >-
+  Starts the SurrealDB server the tests of internal/surrealstore and
+  pkg/store run against, at 127.0.0.1:8000, signing in with
+  BEARING_TEST_SURREALDB_USER and BEARING_TEST_SURREALDB_PASS from the
+  job's environment.
+
+runs:
+  using: composite
+  steps:
+    # A step rather than a `services:` container because services can't
+    # pass arguments to the image, and SurrealDB needs `start`. Network
+    # access from queries, scripting and guest access are off, as the
+    # threat model requires of a deployment (C-STORE-4).
+    - name: Start SurrealDB
+      shell: bash
+      run: |
+        docker run --detach --name surrealdb --publish 127.0.0.1:8000:8000 \
+          surrealdb/surrealdb:v3.3.0@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20 \
+          start --bind 0.0.0.0:8000 --user "$BEARING_TEST_SURREALDB_USER" --pass "$BEARING_TEST_SURREALDB_PASS" \
+          --deny-net --deny-scripting --deny-guests memory
+        for i in $(seq 30); do
+          curl --silent --fail http://127.0.0.1:8000/health && exit 0
+          sleep 1
+        done
+        docker logs surrealdb
+        exit 1

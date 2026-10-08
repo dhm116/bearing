@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -59,6 +61,38 @@ bearing.example/pkg/a.go:3.10,5.2 2 1
 	}
 	if pct := totalCoverage(got); pct < 66.6 || pct > 66.7 {
 		t.Fatalf("total %.2f, want 66.67", pct)
+	}
+}
+
+func TestReadProfilesMergesPerBlockAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// Two blocks share lines but not columns; they are different blocks.
+	// The second file has no final newline (it must still parse).
+	a := write("a.out", "mode: set\nm/a.go:3.2,3.10 1 1\nm/a.go:3.12,3.20 1 0\n")
+	b := write("b.out", "mode: set\nm/a.go:3.2,3.10 1 0\nm/a.go:3.12,3.20 1 1")
+	got, err := readProfiles([]string{a, b}, "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []block{
+		{file: "a.go", startLine: 3, endLine: 3, stmts: 1, covered: true},
+		{file: "a.go", startLine: 3, endLine: 3, stmts: 1, covered: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	if _, err := readProfiles([]string{a, write("bad.out", "mode: set\nnot a profile line\n")}, "m"); err == nil || !strings.Contains(err.Error(), "bad.out") {
+		t.Fatalf("got %v, want an error naming the bad profile", err)
+	}
+	if _, err := readProfiles([]string{filepath.Join(dir, "missing.out")}, "m"); err == nil {
+		t.Fatal("want an error for a missing profile")
 	}
 }
 
