@@ -76,7 +76,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
-| `cmd/bearing` | Developer CLI: `adapter describe`, and `adapter sync`, which validates every observation and prints them as ProtoJSON NDJSON. |
+| `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), and `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, optionally `--as-of`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
 | `spikes/` | Spike code, each in its own Go module(s) so the root module stays untouched; results in `docs/spikes/`. |
 | `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
