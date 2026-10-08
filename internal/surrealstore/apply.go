@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,18 +45,7 @@ func (s *Store) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contrac
 		} else if ok {
 			return res, nil
 		}
-		ld, err := s.load(ctx, applyScope(cs))
-		if err != nil {
-			return contracts.ApplyResult{}, err
-		}
-		if ld.lastID != "" {
-			// Another process may have minted past this one's source.
-			if err := s.IDs.Seed(ld.lastID); err != nil {
-				return contracts.ApplyResult{}, fmt.Errorf("seed IDs: %w", err)
-			}
-		}
-		ld.scratch.Now, ld.scratch.IDs = s.Now, s.IDs
-		res, err := ld.scratch.Apply(ctx, cs)
+		ld, res, err := s.decide(ctx, cs)
 		if err != nil {
 			return contracts.ApplyResult{}, err
 		}
@@ -76,6 +66,75 @@ func (s *Store) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contrac
 		}
 	}
 	return contracts.ApplyResult{}, fmt.Errorf("event %s: gave up after %d conflicting applies", cs.GetEventId(), maxApplyAttempts)
+}
+
+// decide loads what cs touches and applies it in a scratch store. The series
+// cs writes are known only once its refs and merged subjects are resolved (a
+// fact about a subject that an un-merge in the same ChangeSet revives is
+// keyed by the revived subject), so if the resolved ChangeSet writes a
+// series that was not loaded, it loads that too and decides again.
+func (s *Store) decide(ctx context.Context, cs *modelv1alpha1.ChangeSet) (*loaded, contracts.ApplyResult, error) {
+	sc := applyScope(cs)
+	for {
+		ld, err := s.load(ctx, sc)
+		if err != nil {
+			return nil, contracts.ApplyResult{}, err
+		}
+		if ld.lastID != "" {
+			// Another process may have minted past this one's source.
+			if err := s.IDs.Seed(ld.lastID); err != nil {
+				return nil, contracts.ApplyResult{}, fmt.Errorf("seed IDs: %w", err)
+			}
+		}
+		ld.scratch.Now, ld.scratch.IDs = s.Now, s.IDs
+		res, err := ld.scratch.Apply(ctx, cs)
+		if err != nil {
+			return nil, contracts.ApplyResult{}, err
+		}
+		more := false
+		for t, keys := range resolvedKeys(ld.scratch.LastEntry()) {
+			for _, key := range keys {
+				if !slices.Contains(sc.Keys[t], key) {
+					sc.Keys[t] = append(sc.Keys[t], key)
+					more = true
+				}
+			}
+		}
+		if !more {
+			return ld, res, nil
+		}
+	}
+}
+
+// resolvedKeys lists the series that an applied entry wrote, leaving out
+// those that name a subject the apply minted: they are new, and their keys
+// differ on every pass since each one mints new IDs.
+func resolvedKeys(e *modelv1alpha1.JournalEntry) map[memstore.Table][]string {
+	minted := map[string]bool{}
+	for _, m := range e.GetMinted() {
+		minted[m.GetSubjectId()] = true
+	}
+	names := func(m proto.Message) bool {
+		return slices.ContainsFunc(memstore.SubjectsIn(m), func(id string) bool { return minted[id] })
+	}
+	cs := e.GetChangeSet()
+	kept := &modelv1alpha1.ChangeSet{Bindings: cs.GetBindings()}
+	for _, st := range cs.GetSupports() {
+		if !names(st) {
+			kept.Supports = append(kept.Supports, st)
+		}
+	}
+	for _, ft := range cs.GetFacts() {
+		if !names(ft) {
+			kept.Facts = append(kept.Facts, ft)
+		}
+	}
+	for _, en := range cs.GetState() {
+		if !slices.ContainsFunc(e.GetMinted(), func(m *modelv1alpha1.Subject) bool { return strings.Contains(en.GetKey(), m.GetSubjectId()) }) {
+			kept.State = append(kept.State, en)
+		}
+	}
+	return memstore.ChangeSetKeys(kept)
 }
 
 // applyScope is what deciding cs needs: the subjects it names and their
@@ -258,7 +317,12 @@ func writeBulk(sql *strings.Builder, vars map[string]any, groups []bulkRows) {
 // stage writes new rows in transactions of their own, each checking that the
 // head has not moved.
 func (s *Store) stage(ctx context.Context, ld *loaded, tok string, groups []bulkRows) error {
-	vars := map[string]any{"expect": microsOf(ld.head), "tok": tok}
+	txs := 0
+	fresh := func() map[string]any {
+		txs++
+		return map[string]any{"expect": microsOf(ld.head), "tok": tok, "stx": fmt.Sprintf("%s/%d", tok, txs)}
+	}
+	vars := fresh()
 	var sql strings.Builder
 	sql.WriteString(stageHead)
 	n := 0
@@ -268,7 +332,7 @@ func (s *Store) stage(ctx context.Context, ld *loaded, tok string, groups []bulk
 		}
 		sql.WriteString("COMMIT TRANSACTION;")
 		_, err := s.q.Query(ctx, sql.String(), vars)
-		vars = map[string]any{"expect": microsOf(ld.head), "tok": tok}
+		vars = fresh()
 		sql.Reset()
 		sql.WriteString(stageHead)
 		n = 0
@@ -375,11 +439,15 @@ func subjectsOf(ser memstore.Series) []string {
 
 // stageHead starts a transaction that stages rows: it fails if the head has
 // moved, and writes meta:graph so it conflicts with a commit that moves it.
+// The value written is new for every transaction, because SurrealDB skips a
+// write that changes nothing and a skipped write conflicts with nothing: a
+// commit landing while a later stage transaction runs would leave its rows
+// visible.
 const stageHead = `
 BEGIN TRANSACTION;
 LET $m = (SELECT head FROM ONLY meta:graph);
 IF $m.head != $expect { THROW 'bearing: stale' };
-UPDATE meta:graph SET staged = $tok;
+UPDATE meta:graph SET staged = $stx;
 `
 
 // commitHead checks the head and the processed-event mark and clears the

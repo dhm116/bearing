@@ -56,7 +56,11 @@ func provisionScoped(t *testing.T, o ServerOptions) ServerOptions {
 	return o
 }
 
-func newTestStore(t *testing.T) *Store {
+func newTestStore(t *testing.T) *Store { return newTestStoreAs(t, scopedTests()) }
+
+// newTestStoreAs opens a store on a fresh database, as a scoped user or as
+// root.
+func newTestStoreAs(t *testing.T, scoped bool) *Store {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -72,7 +76,7 @@ func newTestStore(t *testing.T) *Store {
 			URL: url, Namespace: "bearing_test", Database: db,
 			Username: os.Getenv("BEARING_TEST_SURREALDB_USER"), Password: os.Getenv("BEARING_TEST_SURREALDB_PASS"),
 		}
-		if scopedTests() {
+		if scoped {
 			o = provisionScoped(t, o)
 		}
 		s, err = Dial(ctx, o)
