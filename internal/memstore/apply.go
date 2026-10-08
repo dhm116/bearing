@@ -167,9 +167,11 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 				undo = append(undo, func() { s.unindexAlias(subject, alias) })
 			}
 		}
+		old := s.bindings[b.GetAlias()]
 		if err := s.write(&undo, s.bindings, b.GetAlias(), &modelv1alpha1.BindingTimeline{Alias: b.GetAlias()}, rows, r); err != nil {
 			return res, err
 		}
+		s.relive(&undo, b.GetAlias(), old, s.bindings[b.GetAlias()])
 	}
 	recorded := 0                    // bytes of merge records so far: each carries two alias sets
 	s.direct = map[string][]string{} // bindings may have changed

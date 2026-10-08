@@ -3,6 +3,7 @@ package memstore
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -104,13 +105,24 @@ func (s *Store) aliasesOf(id string, r time.Time) []string {
 }
 
 // directAliases returns, sorted, the aliases with a row as recorded at r
-// that maps them to sub as written. The index lists every alias that ever
-// had such a row, so for a subject whose aliases moved elsewhere it is
-// longer than the answer; during an apply the answer is kept (s.direct)
-// until the bindings change, so a ChangeSet pays for it once per subject.
+// that maps them to sub as written. At or after the head (every Apply and
+// every read of now) it reads liveBy. Earlier it walks aliasesBy, which lists
+// every alias that ever had such a row, so for a subject whose aliases moved
+// elsewhere it costs the history of those aliases; only reads at an earlier
+// record time pay that. During an apply the answer is kept (s.direct) until
+// the bindings change, so a ChangeSet pays for it once per subject.
 func (s *Store) directAliases(sub string, r time.Time) []string {
 	if got, ok := s.direct[sub]; ok {
 		return got
+	}
+	if !r.Before(s.head) {
+		// Every row recorded so far is visible at r, so the rows with a
+		// current version are the answer, whatever the history.
+		out := slices.Sorted(maps.Keys(s.liveBy[sub]))
+		if s.direct != nil {
+			s.direct[sub] = out
+		}
+		return out
 	}
 	var out []string
 	for alias := range s.aliasesBy[sub] {
@@ -145,6 +157,57 @@ func (s *Store) indexAlias(subject, alias string) (added bool) {
 	}
 	s.aliasesBy[subject][alias] = true
 	return true
+}
+
+// relive updates liveBy for alias after its timeline went from old to now
+// (either may be nil) and registers the undo.
+func (s *Store) relive(undo *[]func(), alias string, old, now *series) {
+	subjects := func(ser *series) map[string]bool {
+		out := map[string]bool{}
+		if ser != nil {
+			for _, v := range ser.rows {
+				if b, _ := v.msg.(*modelv1alpha1.Binding); v.ret.IsZero() && b.GetSubjectId() != "" {
+					out[b.GetSubjectId()] = true
+				}
+			}
+		}
+		return out
+	}
+	was, is := subjects(old), subjects(now)
+	set := func(sub string, live bool) {
+		if live {
+			if s.liveBy[sub] == nil {
+				s.liveBy[sub] = map[string]bool{}
+			}
+			s.liveBy[sub][alias] = true
+			return
+		}
+		delete(s.liveBy[sub], alias)
+		if len(s.liveBy[sub]) == 0 {
+			delete(s.liveBy, sub)
+		}
+	}
+	var added, dropped []string
+	for sub := range is {
+		if !was[sub] {
+			set(sub, true)
+			added = append(added, sub)
+		}
+	}
+	for sub := range was {
+		if !is[sub] {
+			set(sub, false)
+			dropped = append(dropped, sub)
+		}
+	}
+	*undo = append(*undo, func() {
+		for _, sub := range added {
+			set(sub, false)
+		}
+		for _, sub := range dropped {
+			set(sub, true)
+		}
+	})
 }
 
 // unindexAlias undoes an indexAlias that added an entry.

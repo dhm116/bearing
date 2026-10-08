@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -143,6 +144,26 @@ func checkMergeIndex(t *testing.T, s *Store, when string) {
 	}
 }
 
+// checkLiveIndex fails unless liveBy lists exactly the aliases that have a
+// current row for each subject.
+func checkLiveIndex(t *testing.T, s *Store, when string) {
+	t.Helper()
+	want := map[string]map[string]bool{}
+	for alias, ser := range s.bindings {
+		for _, v := range ser.rows {
+			if b, _ := v.msg.(*modelv1alpha1.Binding); v.ret.IsZero() && b.GetSubjectId() != "" {
+				if want[b.GetSubjectId()] == nil {
+					want[b.GetSubjectId()] = map[string]bool{}
+				}
+				want[b.GetSubjectId()][alias] = true
+			}
+		}
+	}
+	if !reflect.DeepEqual(s.liveBy, want) {
+		t.Fatalf("%s: got live aliases %v, want %v", when, s.liveBy, want)
+	}
+}
+
 // TestMergeIndexFollowsTheRecords: the merge indexes stay exact through a
 // rolled-back apply, an un-merge, a re-merge, a backup and a restore.
 func TestMergeIndexFollowsTheRecords(t *testing.T) {
@@ -172,22 +193,29 @@ func TestMergeIndexFollowsTheRecords(t *testing.T) {
 		return &modelv1alpha1.Merge{SubjectIds: []string{x, y}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}
 	}
 	// Two merges, then a failure: both are rolled back.
-	if _, err := step(&modelv1alpha1.ChangeSet{EventId: "bad", Merges: []*modelv1alpha1.Merge{merge(a, b), merge(a, c)}, State: []*modelv1alpha1.StateEntry{{}}}); err == nil {
+	if _, err := step(&modelv1alpha1.ChangeSet{
+		EventId: "bad", Merges: []*modelv1alpha1.Merge{merge(a, b), merge(a, c)}, State: []*modelv1alpha1.StateEntry{{}},
+		Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "github:team_node/A", Bindings: []*modelv1alpha1.Binding{{Alias: "github:team_node/A", SubjectId: c}}}},
+	}); err == nil {
 		t.Fatal("got no error from the bad apply")
 	}
 	checkMergeIndex(t, s, "after a rolled-back apply")
+	checkLiveIndex(t, s, "after a rolled-back apply")
 	if _, err := step(&modelv1alpha1.ChangeSet{EventId: "m1", Merges: []*modelv1alpha1.Merge{merge(a, b)}}); err != nil {
 		t.Fatal(err)
 	}
 	checkMergeIndex(t, s, "after a merge")
+	checkLiveIndex(t, s, "after a merge")
 	if _, err := step(&modelv1alpha1.ChangeSet{EventId: "u1", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: a, Aliases: []string{"github:team_node/B1", "github:team_node/B2"}, Ref: "new:u"}}}); err != nil {
 		t.Fatal(err)
 	}
 	checkMergeIndex(t, s, "after an un-merge")
+	checkLiveIndex(t, s, "after an un-merge")
 	if _, err := step(&modelv1alpha1.ChangeSet{EventId: "m2", Merges: []*modelv1alpha1.Merge{merge(a, b), merge(a, c)}}); err != nil {
 		t.Fatal(err)
 	}
 	checkMergeIndex(t, s, "after a re-merge")
+	checkLiveIndex(t, s, "after a re-merge")
 	if got := len(must(s.Merges(ctx, contracts.SubjectID(a), time.Time{}))); got != 3 {
 		t.Fatalf("got %d merge records for %s, want 3", got, a)
 	}
@@ -201,6 +229,7 @@ func TestMergeIndexFollowsTheRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkMergeIndex(t, dst, "after a restore")
+	checkLiveIndex(t, dst, "after a restore")
 }
 
 func must[T any](v T, err error) T {
@@ -262,6 +291,38 @@ func TestReboundAliasesCostNothingLater(t *testing.T) {
 		merges.Merges = append(merges.Merges, &modelv1alpha1.Merge{SubjectIds: ids, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL})
 	}
 	applyTimed(t, s, merges)
+}
+
+// TestChurnedAliasesCostNothingLater: aliases rebound many times don't slow
+// the merges of the subjects they passed through, whether the merge applies
+// or is refused and rolled back (which a client can repeat).
+func TestChurnedAliasesCostNothingLater(t *testing.T) {
+	const subjects, aliases = 50, 6000
+	s, clk := newTestStore()
+	ids := make([]string, subjects)
+	for i := range subjects {
+		cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("churn%d", i), Mints: []*modelv1alpha1.Mint{mintRef("new:s", "Team")}}
+		for j := range aliases {
+			a := fmt.Sprintf("github:team_node/T%d", j)
+			cs.Bindings = append(cs.Bindings, &modelv1alpha1.BindingTimeline{Alias: a, Bindings: []*modelv1alpha1.Binding{{Alias: a, SubjectId: "new:s"}}})
+		}
+		clk.Advance(time.Second)
+		ids[i] = string(applyTimed(t, s, cs).Subjects["new:s"])
+	}
+	cs := &modelv1alpha1.ChangeSet{EventId: "merges", State: []*modelv1alpha1.StateEntry{{}}}
+	for i := 0; i+1 < subjects; i += 2 {
+		cs.Merges = append(cs.Merges, &modelv1alpha1.Merge{SubjectIds: []string{ids[i], ids[i+1]}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL})
+	}
+	cs.BaseRecordedAt = timestamppb.New(must(s.Head(context.Background())))
+	clk.Advance(time.Second)
+	start := time.Now()
+	if _, err := s.Apply(context.Background(), cs); err == nil {
+		t.Fatal("got no error from the bad apply")
+	}
+	if d, bound := time.Since(start), 500*time.Millisecond*raceSlowdown; d > bound {
+		t.Fatalf("the refused merges took %v, want under %v", d, bound)
+	}
+	checkLiveIndex(t, s, "after the refused apply")
 }
 
 // TestFailedAppliesLeaveNoIndexEntries: the alias index doesn't keep what a

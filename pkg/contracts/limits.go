@@ -10,8 +10,9 @@ import (
 // alone leaves the shape open: one timeline of thousands of rows, or
 // thousands of merges, each of which a naive store handles in time
 // quadratic in its size. A backend is expected to apply a ChangeSet at
-// these limits in about a second, whatever else it holds, and the reference
-// store's tests hold it to that. Raising a limit is compatible; lowering
+// these limits in about a second however much else it holds, including
+// aliases rebound many times, and the reference store's tests hold it to
+// that. Raising a limit is compatible; lowering
 // one can make an old backup unrestorable, so these are set low
 // (docs/spec/contracts.md, "GraphStore"). Every dimension not listed is
 // bounded by MaxChangeSetBytes alone.
