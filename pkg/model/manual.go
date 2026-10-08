@@ -42,7 +42,7 @@ func ValidateManualEvent(m proto.Message) error {
 			p := fmt.Sprintf("aliases[%d]", i)
 			c.key(p, a)
 			if seen[a] {
-				c.add(codeMalformed, p, "%q is listed twice", a)
+				c.add(codeMalformed, p, "%q is listed twice", clip(a))
 			}
 			seen[a] = true
 		}
@@ -94,7 +94,7 @@ func (c *checker) subjectID(path, id string) {
 	case id == "":
 		c.add(codeMalformed, path, "is required")
 	case !ValidSubjectID(id):
-		c.add(codeMalformed, path, "%q is not a canonical lowercase UUIDv7", id)
+		c.add(codeMalformed, path, "%q is not a canonical lowercase UUIDv7", clip(id))
 	}
 }
 
@@ -117,10 +117,10 @@ func (c *checker) predicate(path, name string) {
 		c.add(codeMalformed, path, "is required")
 	case validNamespacedAttribute(name):
 	case !ValidAttributeName(name):
-		c.add(codeMalformed, path, "%q is not a predicate name", name)
+		c.add(codeMalformed, path, "%q is not a predicate name", clip(name))
 	default:
 		if _, ok := LookupPredicate(name); !ok && !IsCorePredicate(name) {
-			c.add(codeMalformed, path, "%q is not registered; name an unregistered attribute <namespace>.<attribute>", name)
+			c.add(codeMalformed, path, "%q is not registered; name an unregistered attribute <namespace>.<attribute>", clip(name))
 		}
 	}
 }

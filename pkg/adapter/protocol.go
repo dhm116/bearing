@@ -64,6 +64,37 @@ type SyncResult struct {
 	// every entity of these kinds the source can see
 	// (docs/spec/data-model.md, "Sync completeness").
 	CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync,omitempty"`
+	// Undecodable describes each observation the client received but could
+	// not decode (an unknown field, a bad enum name), cut to model.MaxQuoted
+	// bytes. UnmarshalJSON sets it; adapters never do.
+	Undecodable []string `json:"-"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler. An observation that fails to
+// decode is left out of Observations and described in Undecodable, so one of
+// them doesn't fail the page (see Observations.UnmarshalJSON for the strict
+// decoding used by Handle).
+func (r *SyncResult) UnmarshalJSON(b []byte) error {
+	var wire struct {
+		Observations []json.RawMessage           `json:"observations"`
+		NextCursor   string                      `json:"next_cursor"`
+		Done         bool                        `json:"done"`
+		CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return err
+	}
+	out := SyncResult{NextCursor: wire.NextCursor, Done: wire.Done, CompleteSync: wire.CompleteSync, Observations: make(Observations, 0, len(wire.Observations))}
+	for i, raw := range wire.Observations {
+		o := &eventv1alpha1.Observation{}
+		if err := model.DecodeJSON(raw, o); err != nil {
+			out.Undecodable = append(out.Undecodable, fmt.Sprintf("observation %d: %s", i, model.Clip(err.Error())))
+			continue
+		}
+		out.Observations = append(out.Observations, o)
+	}
+	*r = out
+	return nil
 }
 
 // Observations is a list of observations that encodes as a JSON array of

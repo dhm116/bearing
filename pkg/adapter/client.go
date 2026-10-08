@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,9 +161,9 @@ func (c *Client) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
 	return res, err
 }
 
-// Handle calls bearing.handle.
-// Like SyncAll, it validates every observation and truncates its times to
-// microseconds, and fails on the first invalid one.
+// Handle calls bearing.handle. It validates every observation and truncates
+// its times to microseconds. Unlike SyncAll it fails on the first invalid
+// observation: a delivery is one event, not a sweep to carry on with.
 func (c *Client) Handle(ctx context.Context, p HandleParams) (HandleResult, error) {
 	var res HandleResult
 	if err := c.call(ctx, MethodHandle, p, &res); err != nil {
@@ -198,11 +199,72 @@ type Syncer interface {
 	Sync(context.Context, SyncParams) (SyncResult, error)
 }
 
+// SyncSummary counts what SyncAll did with an adapter's observations.
+type SyncSummary struct {
+	// Pages is how many sync pages the adapter returned.
+	Pages int
+	// Accepted is how many observations SyncAll passed to emit, with their
+	// rejected claims already removed.
+	Accepted int
+	// RejectedObservations were skipped whole: they failed validation, or
+	// could not be decoded at all.
+	RejectedObservations int
+	// RejectedClaims were removed from observations that were accepted.
+	RejectedClaims int
+}
+
+// Complete reports whether SyncAll skipped no observation, whole or because
+// it couldn't be decoded. A sync that skipped some has not seen every entity
+// the adapter returned, so the core must not count it as complete when it
+// looks for entities that went missing (docs/spec/data-model.md, "Sync
+// completeness"). It says nothing about whether the sync finished: callers
+// must also require that SyncAll returned no error.
+func (s SyncSummary) Complete() bool { return s.RejectedObservations == 0 }
+
+// maxRejectionLogs is how many rejections SyncAll logs one by one in a sync;
+// the rest are only counted, so a broken adapter can't flood the log.
+const maxRejectionLogs = 20
+
+// screenObservation validates an observation from a sync
+// (model.ValidateAdapterObservation) and says whether to keep it. An
+// observation with only claim-scoped problems is kept without those claims;
+// any other failure rejects it whole. Either way the sync goes on, and the
+// rejection is counted and, if warn is set, logged, so one bad observation
+// doesn't discard a whole sync. Times are truncated to microseconds only
+// after validation, so an invalid timestamp is rejected rather than
+// repaired.
+func screenObservation(ctx context.Context, log *slog.Logger, adapterName string, o *eventv1alpha1.Observation, warn bool) (keep bool, claims int) {
+	err := model.ValidateAdapterObservation(o)
+	if err == nil {
+		model.TruncateTimes(o)
+		return true, 0
+	}
+	id := model.Clip(o.GetId())
+	if n := model.DropRejectedClaims(o, err); n > 0 {
+		if warn {
+			log.WarnContext(ctx, "adapter claims rejected", string(attrAdapter), adapterName,
+				"observation", id, "claims", n, "reason", err.Error())
+		}
+		model.TruncateTimes(o)
+		return true, n
+	}
+	observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(adapterName)))
+	if warn {
+		log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), adapterName,
+			"observation", id, "reason", err.Error())
+	}
+	return false, 0
+}
+
 // SyncAll pages through a full sync, validating every observation
 // (model.ValidateAdapterObservation), truncating its times to microseconds
-// and passing it to emit. maxPages guards against adapters that never finish. The whole
-// sync runs in one span, with each page as a child.
-func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (err error) {
+// and passing it to emit. An observation that fails validation is skipped,
+// or, if only some of its claims are rejected, passed on without them; the
+// summary counts both and the sync goes on. An observation that can't be
+// decoded (an unknown field, say) counts as rejected too. maxPages guards
+// against adapters that never finish. The whole sync runs in one span, with
+// each page as a child.
+func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -210,49 +272,60 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 	log := telemetry.Logger(pkgName)
 	ctx, span := tracer.Start(ctx, "bearing.adapter.sync", trace.WithAttributes(attrAdapter.String(name)))
 	start := time.Now()
-	pages, accepted := 0, 0
 	defer func() {
-		span.SetAttributes(attrPages.Int(pages), attrCount.Int(accepted))
+		span.SetAttributes(attrPages.Int(sum.Pages), attrCount.Int(sum.Accepted))
 		attrs := []attribute.KeyValue{attrAdapter.String(name)}
 		if err != nil {
 			attrs = append(attrs, semconv.ErrorTypeKey.String(telemetry.ErrorType(err)))
-			telemetry.Fail(ctx, span, log, "adapter sync failed", err, attrAdapter.String(name), attrPages.Int(pages))
+			telemetry.Fail(ctx, span, log, "adapter sync failed", err, attrAdapter.String(name), attrPages.Int(sum.Pages))
 		} else {
 			log.InfoContext(ctx, "adapter sync finished", string(attrAdapter), name,
-				string(attrPages), pages, string(attrCount), accepted, "duration", time.Since(start).String())
+				string(attrPages), sum.Pages, string(attrCount), sum.Accepted, "duration", time.Since(start).String(),
+				"rejected_observations", sum.RejectedObservations, "rejected_claims", sum.RejectedClaims)
 		}
 		syncDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
 		span.End()
 	}()
 
 	cursor := ""
-	for pages < maxPages {
+	for sum.Pages < maxPages {
 		if err := ctx.Err(); err != nil {
-			return err
+			return sum, err
 		}
 		res, err := a.Sync(ctx, SyncParams{Config: config, Cursor: cursor})
 		if err != nil {
-			return fmt.Errorf("sync page %d: %w", pages+1, err)
+			return sum, fmt.Errorf("sync page %d: %w", sum.Pages+1, err)
 		}
-		pages++
+		sum.Pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
+		for _, why := range res.Undecodable {
+			observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
+			sum.RejectedObservations++
+			if sum.RejectedObservations+sum.RejectedClaims <= maxRejectionLogs {
+				log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), name, "reason", "malformed: "+why)
+			}
+		}
 		for _, o := range res.Observations {
-			if err := checkObservation(ctx, name, o); err != nil {
-				return fmt.Errorf("sync page %d: %w", pages, err)
+			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
+			keep, claims := screenObservation(ctx, log, name, o, warn)
+			sum.RejectedClaims += claims
+			if !keep {
+				sum.RejectedObservations++
+				continue
 			}
 			observationsReceived.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name), attrKind.String(o.GetData().GetEntity().GetKind())))
-			accepted++
+			sum.Accepted++
 			if err := emit(o); err != nil {
-				return err
+				return sum, err
 			}
 		}
 		if res.Done {
-			return nil
+			return sum, nil
 		}
 		if res.NextCursor == "" || res.NextCursor == cursor {
-			return fmt.Errorf("sync page %d: adapter is not done but returned no new cursor", pages)
+			return sum, fmt.Errorf("sync page %d: adapter is not done but returned no new cursor", sum.Pages)
 		}
 		cursor = res.NextCursor
 	}
-	return ErrTooManyPages
+	return sum, ErrTooManyPages
 }
