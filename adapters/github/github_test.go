@@ -3,160 +3,167 @@ package github
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
 
-func TestDefaultOwners(t *testing.T) {
-	file := `
-# Default owners
-*       @acme/platform
-*       @acme/payments @jdoe dev@example.com   # last match wins
-/docs/  @acme/docs
-`
-	got := DefaultOwners(file, "acme")
-	want := []model.Key{"github:team/acme/payments", "github:user/jdoe"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got := DefaultOwners("/src/ @acme/x\n", "acme"); got != nil {
-		t.Fatalf("no catch-all rule: got %v", got)
-	}
+const (
+	testToken  = "test-token"
+	testSecret = "s3cret"
+)
+
+// rig is the adapter pointed at the fictional org's GitHub fake.
+type rig struct {
+	t         *testing.T
+	clock     *testkit.FakeClock
+	org       *fakes.Org
+	srv       *fakes.GitHub
+	a         *Adapter
+	cfg       json.RawMessage
+	delivered int // deliveries already handled
 }
 
-// fakeGitHub serves a two-repo, two-team organization with per_page=1 so
-// every paging path is exercised.
-func fakeGitHub(t *testing.T) *httptest.Server {
+func newRig(t *testing.T, mod ...func(*Config)) *rig {
 	t.Helper()
-	pages := map[string]string{
-		"/orgs/acme/repos?page=1":                  `[{"name":"payments-api","full_name":"acme/payments-api","html_url":"https://github.com/acme/payments-api","default_branch":"main","language":"Go","topics":["tier-1"]}]`,
-		"/orgs/acme/repos?page=2":                  `[{"name":"docs","full_name":"acme/docs","html_url":"https://github.com/acme/docs","default_branch":"main"}]`,
-		"/orgs/acme/repos?page=3":                  `[]`,
-		"/orgs/acme/teams?page=1":                  `[{"slug":"payments","name":"Payments","html_url":"https://github.com/orgs/acme/teams/payments","parent":{"slug":"engineering"}}]`,
-		"/orgs/acme/teams?page=2":                  `[]`,
-		"/orgs/acme/teams/payments/members?page=1": `[{"login":"jdoe","html_url":"https://github.com/jdoe"}]`,
-		"/orgs/acme/teams/payments/members?page=2": `[]`,
+	c := testkit.NewClock(fakes.Start)
+	org := fakes.NewOrg(c)
+	srv := fakes.NewGitHub(t, org, fakes.GitHubOptions{Token: testToken, WebhookSecret: testSecret})
+	cfg := Config{Org: "acme", APIURL: srv.URL, PerPage: 2}
+	for _, m := range mod {
+		m(&cfg)
 	}
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
-			http.Error(w, "bad auth "+got, http.StatusUnauthorized)
-			return
-		}
-		if r.URL.Path == "/repos/acme/payments-api/contents/.github/CODEOWNERS" {
-			if !strings.Contains(r.Header.Get("Accept"), "raw") {
-				http.Error(w, "want raw", http.StatusBadRequest)
-				return
-			}
-			_, _ = fmt.Fprint(w, "* @acme/payments\n")
-			return
-		}
-		if strings.Contains(r.URL.Path, "/contents/") {
-			http.NotFound(w, r)
-			return
-		}
-		body, ok := pages[r.URL.Path+"?page="+r.URL.Query().Get("page")]
-		if !ok {
-			t.Errorf("unexpected request %s", r.URL)
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, body)
-	}))
-}
-
-func testAdapter(env map[string]string) *Adapter {
-	return &Adapter{
-		HTTP:   http.DefaultClient,
-		Now:    func() time.Time { return time.Date(2026, 9, 28, 2, 0, 0, 0, time.UTC) },
-		Getenv: func(k string) string { return env[k] },
-	}
-}
-
-func TestSyncWalksReposThenTeams(t *testing.T) {
-	srv := fakeGitHub(t)
-	defer srv.Close()
-	a := testAdapter(map[string]string{"GITHUB_TOKEN": "test-token"})
-	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL, PerPage: 1})
-
-	var got adapter.Observations
-	err := adapter.SyncAll(context.Background(), a, cfg, 20, func(o *eventv1alpha1.Observation) error {
-		got = append(got, o)
-		return nil
-	})
+	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
+	env := map[string]string{"GITHUB_TOKEN": testToken, "GITHUB_WEBHOOK_SECRET": testSecret}
+	a := &Adapter{HTTP: srv.Client(), Now: c.Now, Getenv: func(k string) string { return env[k] }}
+	return &rig{t: t, clock: c, org: org, srv: srv, a: a, cfg: raw}
+}
 
-	var keys []model.Key
-	for _, o := range got {
-		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
+// sync runs a full sync and returns every observation and the last page.
+func (r *rig) sync() (adapter.Observations, adapter.SyncResult) {
+	r.t.Helper()
+	obs, last, err := r.trySync()
+	if err != nil {
+		r.t.Fatal(err)
 	}
-	want := []model.Key{"github:repo/acme/payments-api", "github:repo/acme/docs", "github:team/acme/payments", "github:user/jdoe"}
-	if !reflect.DeepEqual(keys, want) {
-		t.Fatalf("keys = %v, want %v", keys, want)
-	}
+	return obs, last
+}
 
-	repo := got[0].GetData()
-	if rels := repo.GetRelations(); len(rels) != 1 || rels[0].GetType() != string(model.RelOwnedBy) || rels[0].GetTo() != "github:team/acme/payments" {
-		t.Fatalf("payments-api relations = %v", rels)
+func (r *rig) trySync() (adapter.Observations, adapter.SyncResult, error) {
+	var all adapter.Observations
+	cur := ""
+	for range 50 {
+		res, err := r.a.Sync(context.Background(), adapter.SyncParams{Config: r.cfg, Cursor: cur})
+		if err != nil {
+			return all, res, err
+		}
+		all = append(all, res.Observations...)
+		if res.Done {
+			return all, res, nil
+		}
+		if res.NextCursor == "" || res.NextCursor == cur {
+			r.t.Fatalf("not done but cursor %q after %q", res.NextCursor, cur)
+		}
+		cur = res.NextCursor
 	}
-	if file := repo.GetRelations()[0].GetAttributes()["file"].GetStringValue(); file != ".github/CODEOWNERS" {
-		t.Fatalf("got CODEOWNERS file %q, want .github/CODEOWNERS", file)
+	r.t.Fatal("sync never finished")
+	return nil, adapter.SyncResult{}, nil
+}
+
+// handleNew handles the deliveries made since the last call and returns
+// the observations of each.
+func (r *rig) handleNew() []adapter.Observations {
+	r.t.Helper()
+	ds := r.srv.Deliveries()
+	var out []adapter.Observations
+	for _, d := range ds[r.delivered:] {
+		res, err := r.a.Handle(context.Background(), adapter.HandleParams{Config: r.cfg, Headers: d.Header(), Body: d.Body})
+		if err != nil {
+			r.t.Fatalf("%s delivery: %v", d.Event, err)
+		}
+		out = append(out, res.Observations)
 	}
-	if rels := got[1].GetData().GetRelations(); len(rels) != 0 {
-		t.Fatalf("docs repo has no CODEOWNERS but got %v", rels)
+	r.delivered = len(ds)
+	return out
+}
+
+func byKey(obs adapter.Observations) map[string]*eventv1alpha1.Observation {
+	m := map[string]*eventv1alpha1.Observation{}
+	for _, o := range obs {
+		m[o.GetData().GetEntity().GetKey()] = o
 	}
-	if rels := got[2].GetData().GetRelations(); len(rels) != 1 || rels[0].GetTo() != "github:team/acme/engineering" {
-		t.Fatalf("team parent relation = %v", rels)
+	return m
+}
+
+// get returns the observation whose entity has alias, or fails.
+func get(t *testing.T, obs adapter.Observations, alias string) *modelv1alpha1.ObservationData {
+	t.Helper()
+	for _, o := range obs {
+		if slices.Contains(o.GetData().GetEntity().GetAliases(), alias) {
+			return o.GetData()
+		}
 	}
-	if rels := got[3].GetData().GetRelations(); rels[0].GetTo() != "github:team/acme/payments" {
-		t.Fatalf("membership = %v", rels)
+	t.Fatalf("no observation with alias %s", alias)
+	return nil
+}
+
+// links renders relations as "type to|from key file:line pattern".
+func links(d *modelv1alpha1.ObservationData) []string {
+	var out []string
+	for _, r := range d.GetRelations() {
+		end := "to " + r.GetTo()
+		if r.GetFrom() != "" {
+			end = "from " + r.GetFrom()
+		}
+		s := r.GetType() + " " + end
+		if a := r.GetAttributes(); a != nil {
+			s += fmt.Sprintf(" %s:%.0f %s", a["file"].GetStringValue(), a["line"].GetNumberValue(), a["pattern"].GetStringValue())
+		}
+		out = append(out, s)
 	}
-	checkGolden(t, "sync.golden.json", got)
+	return out
 }
 
 var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
-// checkGolden compares obs with a golden file of ProtoJSON observations and
-// checks the file round-trips: it decodes into the generated types, every
-// observation validates, and decoding gives back exactly obs.
+// checkGolden compares obs with a golden file of ProtoJSON observations,
+// one per line as the CLI prints them, and checks the file round-trips:
+// every observation validates as an adapter's and decoding gives back
+// exactly obs.
 func checkGolden(t *testing.T, name string, obs adapter.Observations) {
 	t.Helper()
-	compact, err := json.Marshal(obs)
-	if err != nil {
-		t.Fatal(err)
+	var buf bytes.Buffer
+	for _, o := range obs {
+		b, err := model.EncodeJSON(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
 	}
-	var pretty bytes.Buffer
-	if err := json.Indent(&pretty, compact, "", "  "); err != nil {
-		t.Fatal(err)
-	}
-	pretty.WriteByte('\n')
 	path := filepath.Join("testdata", name)
 	if *update {
-		if err := os.WriteFile(path, pretty.Bytes(), 0o600); err != nil {
+		if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -164,245 +171,195 @@ func checkGolden(t *testing.T, name string, obs adapter.Observations) {
 	if err != nil {
 		t.Fatalf("%v (run go test ./adapters/github -update)", err)
 	}
-	if !bytes.Equal(golden, pretty.Bytes()) {
-		t.Fatalf("output differs from %s (run go test ./adapters/github -update and review the diff):\n%s", path, pretty.String())
+	if !bytes.Equal(golden, buf.Bytes()) {
+		t.Fatalf("output differs from %s (run go test ./adapters/github -update and review the diff):\n%s", path, buf.String())
 	}
-	var decoded adapter.Observations
-	if err := json.Unmarshal(golden, &decoded); err != nil {
-		t.Fatal(err)
+	lines := bytes.Split(bytes.TrimSuffix(golden, []byte("\n")), []byte("\n"))
+	if len(lines) != len(obs) {
+		t.Fatalf("got %d observations from %s, want %d", len(lines), path, len(obs))
 	}
-	if len(decoded) != len(obs) {
-		t.Fatalf("got %d observations from %s, want %d", len(decoded), path, len(obs))
-	}
-	for i, o := range decoded {
-		if err := model.ValidateObservation(o); err != nil {
-			t.Errorf("%s[%d]: %v", path, i, err)
+	for i, l := range lines {
+		o := &eventv1alpha1.Observation{}
+		if err := model.DecodeJSON(l, o); err != nil {
+			t.Fatalf("%s:%d: %v", path, i+1, err)
+		}
+		if err := model.ValidateAdapterObservation(o); err != nil {
+			t.Errorf("%s:%d: %v", path, i+1, err)
 		}
 		if !proto.Equal(o, obs[i]) {
-			t.Errorf("%s[%d] decodes to %v, want %v", path, i, o, obs[i])
+			t.Errorf("%s:%d decodes to %v, want %v", path, i+1, o, obs[i])
 		}
 	}
 }
 
-func TestSyncRequiresOrg(t *testing.T) {
-	_, err := testAdapter(nil).Sync(context.Background(), adapter.SyncParams{Config: json.RawMessage(`{}`)})
-	var rpcErr *adapter.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeInvalidParams {
-		t.Fatalf("got %v, want invalid params", err)
-	}
-}
-
-func TestSyncReportsUpstreamErrors(t *testing.T) {
-	// The token is a canary, so the error can be checked for leaks.
-	secrets := testkit.NewSecrets()
-	token := testkit.Canary("env:GITHUB_TOKEN")
-	secrets.Set("env:GITHUB_TOKEN", token)
-
-	// The script asserts the adapter sends the configured token and the
-	// GitHub API headers, then rejects the token the way GitHub does.
-	srv := testkit.NewScriptServer(t, testkit.Route{
-		Method: http.MethodGet,
-		Path:   "/orgs/acme/repos",
-		Query:  url.Values{"page": {"1"}},
-		Header: http.Header{
-			"Authorization":        {"Bearer " + token},
-			"Accept":               {"application/vnd.github+json"},
-			"X-Github-Api-Version": {"2022-11-28"},
-		},
-		Responses: []testkit.Response{{
-			Status: http.StatusUnauthorized,
-			Body:   `{"message":"Bad credentials"}`,
-		}},
-	})
-	a := testAdapter(nil)
-	a.Getenv = secrets.Getenv
-	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL})
-	_, err := a.Sync(context.Background(), adapter.SyncParams{Config: cfg})
-	var rpcErr *adapter.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeUpstream || !strings.Contains(rpcErr.Message, "401") {
-		t.Fatalf("got %v, want upstream 401", err)
-	}
-	testkit.AssertNoLeaks(t, err.Error(), secrets.Values()...)
-	if n := len(srv.Requests()); n != 1 {
-		t.Fatalf("got %d requests, want 1 (no retry on 401)", n)
-	}
-}
-
-func sign(secret string, body []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
-}
-
-func TestHandleMembershipRemoved(t *testing.T) {
-	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
-	body := []byte(`{"action":"removed","member":{"login":"jdoe"},"team":{"slug":"payments"},"organization":{"login":"acme"}}`)
-	res, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"X-GitHub-Event": {"membership"}, "X-Hub-Signature-256": {sign("s3cret", body)}},
-		Body:    body,
-	})
+// checkDeclared checks obs against the reference declaration
+// testdata/declarations/github.json: declared kinds, key types, attributes,
+// relations (with their direction) and snapshot scopes, and that node-ID
+// keys are in the next format.
+func checkDeclared(t *testing.T, obs adapter.Observations) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "declarations", "github.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Observations) != 1 {
-		t.Fatalf("got %d observations", len(res.Observations))
-	}
-	o := res.Observations[0]
-	if err := model.ValidateObservation(o); err != nil {
+	decl := &modelv1alpha1.AdapterDeclaration{}
+	if err := model.DecodeJSON(raw, decl); err != nil {
 		t.Fatal(err)
 	}
-	if rel := o.GetData().GetRelations()[0]; rel.GetTo() != "github:team/acme/payments" || !rel.GetAbsent() {
-		t.Fatalf("relation = %v, want absent membership", rel)
+	kinds := map[string]*modelv1alpha1.KindDeclaration{}
+	keyTypes := map[string]bool{}
+	for _, k := range decl.GetKinds() {
+		kinds[k.GetKind()] = k
+		for _, kt := range k.GetKeys() {
+			keyTypes[kt.GetKeyType()] = true
+		}
 	}
-	checkGolden(t, "handle-membership-removed.golden.json", res.Observations)
-}
-
-func TestHandleNeedsWebhookSecret(t *testing.T) {
-	a := testAdapter(map[string]string{})
-	_, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"X-GitHub-Event": {"repository"}},
-		Body:    []byte(`{}`),
-	})
-	var rpcErr *adapter.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeInvalidParams || !strings.Contains(err.Error(), "GITHUB_WEBHOOK_SECRET") {
-		t.Fatalf("got %v, want an invalid-params error naming GITHUB_WEBHOOK_SECRET", err)
-	}
-}
-
-func TestHandleRejectsBadSignature(t *testing.T) {
-	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
-	body := []byte(`{"action":"deleted","repository":{"full_name":"acme/x"}}`)
-	_, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"X-GitHub-Event": {"repository"}, "X-Hub-Signature-256": {sign("wrong", body)}},
-		Body:    body,
-	})
-	if err == nil || !strings.Contains(err.Error(), "signature") {
-		t.Fatalf("got %v, want signature error", err)
-	}
-}
-
-func TestHandleRejectsMissingSignature(t *testing.T) {
-	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
-	_, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"X-GitHub-Event": {"repository"}},
-		Body:    []byte(`{"action":"deleted","repository":{"full_name":"acme/x"}}`),
-	})
-	var rpcErr *adapter.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != adapter.CodeInvalidParams || !strings.Contains(err.Error(), "signature") {
-		t.Fatalf("got %v, want an invalid-params signature error", err)
-	}
-}
-
-func TestHandleRepositoryDeleted(t *testing.T) {
-	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
-	body := []byte(`{"action":"deleted","repository":{"name":"x","full_name":"acme/x","html_url":"https://github.com/acme/x"}}`)
-	res, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"x-github-event": {"repository"}, "x-hub-signature-256": {sign("s3cret", body)}},
-		Body:    body,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e := res.Observations[0].GetData().GetEntity(); e.GetKey() != "github:repo/acme/x" || !e.GetDeleted() {
-		t.Fatalf("entity = %v", e)
-	}
-	checkGolden(t, "handle-repository-deleted.golden.json", res.Observations)
-}
-
-// TestSyncFollowsTheFictionalOrg runs today's adapter against the shared
-// fake: a full sync, then the rename and CODEOWNERS change of the story,
-// another sync, and a webhook delivery the fake signed.
-func TestSyncFollowsTheFictionalOrg(t *testing.T) {
-	c := testkit.NewClock(fakes.Start)
-	org := fakes.NewOrg(c)
-	srv := fakes.NewGitHub(t, org, fakes.GitHubOptions{Token: "test-token", WebhookSecret: "s3cret"})
-	a := &Adapter{
-		HTTP: srv.Client(), Now: c.Now,
-		Getenv: func(k string) string {
-			return map[string]string{"GITHUB_TOKEN": "test-token", "GITHUB_WEBHOOK_SECRET": "s3cret"}[k]
-		},
-	}
-	cfg, _ := json.Marshal(Config{Org: "acme", APIURL: srv.URL, PerPage: 2})
-	sync := func() map[string][]string {
-		t.Helper()
-		got := map[string][]string{} // entity key -> its relations, "type to (file)"
-		err := adapter.SyncAll(context.Background(), a, cfg, 50, func(o *eventv1alpha1.Observation) error {
-			key := o.GetData().GetEntity().GetKey()
-			got[key] = append(got[key], "seen")
-			for _, r := range o.GetData().GetRelations() {
-				got[key] = append(got[key], r.GetType()+" "+r.GetTo()+" "+r.GetAttributes()["file"].GetStringValue())
-			}
-			return nil
+	legacy := regexp.MustCompile(`^[A-Z]{1,4}_[A-Za-z0-9_-]+$`)
+	field := func(k *modelv1alpha1.KindDeclaration, predicate string, dir modelv1alpha1.Direction) bool {
+		return slices.ContainsFunc(k.GetFields(), func(f *modelv1alpha1.FieldDeclaration) bool {
+			return f.GetPredicate() == predicate && (f.GetDirection() == dir || (dir == modelv1alpha1.Direction_DIRECTION_OUT && f.GetDirection() == modelv1alpha1.Direction_DIRECTION_UNSPECIFIED))
 		})
-		if err != nil {
-			t.Fatal(err)
+	}
+	checkKey := func(who, key string) {
+		ns, kt, id, err := model.Key(key).Parse()
+		if err != nil || ns != "github" || !keyTypes[kt] {
+			t.Errorf("%s: key %q is not a declared github key (%v)", who, key, err)
 		}
-		return got
-	}
-
-	first := sync()
-	wantFirst := map[string][]string{
-		"github:repo/acme/payments-api": {"seen", "owned_by github:team/acme/payments .github/CODEOWNERS"},
-		"github:repo/acme/web":          {"seen", "owned_by github:team/acme/platform CODEOWNERS"},
-		"github:repo/acme/handbook":     {"seen"},
-		"github:repo/acme/ops-scripts":  {"seen", "owned_by github:team/acme/legacy-ops .github/CODEOWNERS"},
-		"github:repo/acme/sandbox":      {"seen"},
-		"github:team/acme/payments":     {"seen", "member_of github:team/acme/engineering "},
-	}
-	for key, want := range wantFirst {
-		if !reflect.DeepEqual(first[key], want) {
-			t.Errorf("first sync %s: got %v, want %v", key, first[key], want)
+		if strings.HasSuffix(kt, "_node") && !legacy.MatchString(id) {
+			t.Errorf("%s: key %q is not a next-format node ID", who, key)
 		}
 	}
-	// Today's adapter reads REST team members, which include child teams'
-	// members, so jdoe is reported in engineering too.
-	if got := first["github:user/jdoe"]; !slices.Contains(got, "member_of github:team/acme/engineering ") {
-		t.Errorf("first sync jdoe: got %v, want engineering among the teams", got)
-	}
-
-	for _, step := range fakes.Story()[:2] {
-		c.Set(step.At)
-		if err := step.Apply(org); err != nil {
-			t.Fatal(err)
+	for _, o := range obs {
+		d := o.GetData()
+		e := d.GetEntity()
+		k := kinds[e.GetKind()]
+		if k == nil {
+			t.Errorf("%s: kind %s is not declared", e.GetKey(), e.GetKind())
+			continue
 		}
-	}
-	second := sync()
-	if _, ok := second["github:repo/acme/payments-api"]; ok {
-		t.Error("second sync still reports the old repository name")
-	}
-	if got, want := second["github:repo/acme/payments"], []string{"seen", "owned_by github:team/acme/platform .github/CODEOWNERS"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("second sync payments: got %v, want %v", got, want)
-	}
-
-	c.Set(fakes.Story()[1].At.Add(time.Hour))
-	if err := org.EndMembership("jdoe", "payments"); err != nil {
-		t.Fatal(err)
-	}
-	deliveries := srv.Deliveries()
-	d := deliveries[len(deliveries)-1]
-	res, err := a.Handle(context.Background(), adapter.HandleParams{Config: cfg, Headers: d.Header(), Body: d.Body})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rel := res.Observations[0].GetData().GetRelations()[0]; rel.GetTo() != "github:team/acme/payments" || !rel.GetAbsent() {
-		t.Fatalf("membership delivery: got %v, want jdoe's payments membership ended", rel)
+		checkKey(e.GetKey(), e.GetKey())
+		for _, a := range e.GetAliases() {
+			checkKey(e.GetKey(), a)
+		}
+		for name := range e.GetAttributes() {
+			if !field(k, name, modelv1alpha1.Direction_DIRECTION_OUT) {
+				t.Errorf("%s: attribute %s is not declared", e.GetKey(), name)
+			}
+		}
+		for _, r := range d.GetRelations() {
+			dir, other := modelv1alpha1.Direction_DIRECTION_OUT, r.GetTo()
+			if r.GetFrom() != "" {
+				dir, other = modelv1alpha1.Direction_DIRECTION_IN, r.GetFrom()
+			}
+			if !field(k, r.GetType(), dir) {
+				t.Errorf("%s: relation %s (%s) is not declared", e.GetKey(), r.GetType(), dir)
+			}
+			checkKey(e.GetKey(), other)
+		}
+		for _, s := range d.GetSnapshots() {
+			for _, p := range s.GetPredicates() {
+				if !field(k, p, s.GetDirection()) {
+					t.Errorf("%s: snapshot of %s (%s) is not declared", e.GetKey(), p, s.GetDirection())
+				}
+			}
+		}
 	}
 }
 
-func TestHandleIgnoresUnknownEvents(t *testing.T) {
-	a := testAdapter(map[string]string{"GITHUB_WEBHOOK_SECRET": "s3cret"})
-	body := []byte(`{"zen":"Keep it logically awesome."}`)
-	res, err := a.Handle(context.Background(), adapter.HandleParams{
-		Config:  json.RawMessage(`{"org":"acme"}`),
-		Headers: map[string][]string{"X-GitHub-Event": {"ping"}, "X-Hub-Signature-256": {sign("s3cret", body)}},
-		Body:    body,
-	})
-	if err != nil || len(res.Observations) != 0 {
-		t.Fatalf("got %v, %v; want no observations and no error", res, err)
+func TestSyncFirstFollowsTheFictionalOrg(t *testing.T) {
+	r := newRig(t)
+	obs, last := r.sync()
+	checkGolden(t, "sync-first.ndjson", obs)
+	checkDeclared(t, obs)
+
+	if got, want := last.CompleteSync.GetKinds(), []string{"Repository", "Team"}; !slices.Equal(got, want) {
+		t.Errorf("complete_sync kinds = %v, want %v", got, want)
 	}
+	if b, _ := json.Marshal(last); !strings.Contains(string(b), `"complete_sync":{"kinds":["Repository","Team"]}`) {
+		t.Errorf("last page JSON lacks complete_sync: %s", b)
+	}
+	for i, req := range r.srv.Requests() {
+		if req.Method != http.MethodPost || req.Path != "/graphql" || req.Header.Get("X-Github-Next-Global-Id") != "1" ||
+			req.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Errorf("request %d: %s %s, next-ID header %q: want an authenticated GraphQL POST asking for next-format IDs",
+				i, req.Method, req.Path, req.Header.Get("X-Github-Next-Global-Id"))
+		}
+	}
+
+	repos := map[string][]string{
+		// Line 2: line 1 is a comment. A name key is an alias, the node ID the key.
+		"github:repo/acme/payments-api": {"approves_changes to github:team/acme/payments .github/CODEOWNERS:2 *"},
+		"github:repo/acme/web": {
+			"approves_changes to github:team/acme/platform CODEOWNERS:1 *",
+			"approves_changes to github:user/jdoe CODEOWNERS:2 /docs/",
+		},
+		// The stale root file is ignored: .github/ wins.
+		"github:repo/acme/ops-scripts": {"approves_changes to github:team/acme/legacy-ops .github/CODEOWNERS:1 *"},
+		"github:repo/acme/handbook": {
+			"approves_changes to github:team/acme/platform docs/CODEOWNERS:1 /guides/",
+			"approves_changes to github:team/acme/sre docs/CODEOWNERS:2 /runbooks/",
+		},
+		"github:repo/acme/sandbox": nil,
+	}
+	for alias, want := range repos {
+		d := get(t, obs, alias)
+		if got := links(d); !slices.Equal(got, want) {
+			t.Errorf("%s: got %q, want %q", alias, got, want)
+		}
+		if s := d.GetSnapshots(); len(s) != 1 || s[0].GetDirection() != modelv1alpha1.Direction_DIRECTION_OUT || !slices.Equal(s[0].GetPredicates(), []string{"approves_changes"}) {
+			t.Errorf("%s: snapshots = %v, want the approves_changes scope even with no CODEOWNERS", alias, s)
+		}
+	}
+	sandbox := get(t, obs, "github:repo/acme/sandbox").GetEntity().GetAttributes()
+	if !isNull(sandbox["codeowners_rules"]) || !isNull(sandbox["description"]) || !isNull(sandbox["language"]) ||
+		sandbox["default_branch"].GetStringValue() != "trunk" || !isEmptyList(sandbox["topics"]) {
+		t.Errorf("sandbox attributes = %v: want codeowners_rules, description and language null, topics [] and branch trunk", sandbox)
+	}
+	if n := get(t, obs, "github:repo/acme/web").GetEntity().GetAttributes()["codeowners_rules"].GetNumberValue(); n != 2 {
+		t.Errorf("web codeowners_rules = %v, want 2", n)
+	}
+	nodeOf := func(alias string) string { return get(t, obs, alias).GetEntity().GetKey() }
+	engineering := links(get(t, obs, "github:team/acme/engineering"))
+	for _, child := range []string{"payments", "platform", "sre"} {
+		if want := "member_of from " + nodeOf("github:team/acme/"+child); !slices.Contains(engineering, want) {
+			t.Errorf("engineering: %q missing from %q", want, engineering)
+		}
+	}
+	if len(engineering) != 3 {
+		t.Errorf("engineering lists %q: want its three child teams and no people (jdoe is in payments only)", engineering)
+	}
+	payments := links(get(t, obs, "github:team/acme/payments"))
+	want := []string{"member_of from " + nodeOf("github:user/jdoe"), "member_of from " + nodeOf("github:user/rpatel")}
+	if !slices.Equal(payments, want) {
+		t.Errorf("payments members = %q, want %q", payments, want)
+	}
+	if m := get(t, obs, "github:user/meichen").GetEntity().GetAttributes(); m["login"].GetStringValue() != "meichen" || m["name"].GetStringValue() != "Mei Chen" ||
+		!slices.Equal(listOf(m["verified_email"]), []string{"mchen@acme.example"}) {
+		t.Errorf("meichen = %v", m)
+	}
+	if m := get(t, obs, "github:user/sokafor-ext").GetEntity().GetAttributes(); !isEmptyList(m["verified_email"]) {
+		t.Errorf("sokafor-ext verified_email = %v, want []", m["verified_email"])
+	}
+	for _, o := range obs {
+		if strings.Contains(o.GetData().GetEntity().GetKey(), "lfischer") || slices.Contains(o.GetData().GetEntity().GetAliases(), "github:user/lfischer") {
+			t.Errorf("lfischer has no GitHub account but %v was observed", o.GetData().GetEntity())
+		}
+	}
+}
+
+func isNull(v *structpb.Value) bool {
+	_, ok := v.GetKind().(*structpb.Value_NullValue)
+	return ok
+}
+
+func isEmptyList(v *structpb.Value) bool {
+	return v.GetListValue() != nil && len(v.GetListValue().GetValues()) == 0
+}
+
+func listOf(v *structpb.Value) []string {
+	var out []string
+	for _, e := range v.GetListValue().GetValues() {
+		out = append(out, e.GetStringValue())
+	}
+	return out
 }

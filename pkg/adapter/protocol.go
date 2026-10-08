@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -59,6 +60,10 @@ type SyncResult struct {
 	Observations Observations `json:"observations"`
 	NextCursor   string       `json:"next_cursor,omitempty"`
 	Done         bool         `json:"done"`
+	// CompleteSync is set only on the last page (Done): the sync visited
+	// every entity of these kinds the source can see
+	// (docs/spec/data-model.md, "Sync completeness").
+	CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync,omitempty"`
 }
 
 // Observations is a list of observations that encodes as a JSON array of

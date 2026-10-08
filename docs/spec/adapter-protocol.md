@@ -126,6 +126,10 @@ Result:
   `next_cursor` until `done` is true.
 - If `done` is false, `next_cursor` MUST be non-empty and different from the
   cursor that was sent.
+- The last page (`done: true`) MAY carry `complete_sync: { "kinds": ["Repository"] }`:
+  the sync visited every entity of those kinds the source can see. Rules
+  for declaring it are in the
+  [data model](data-model.md#sync-completeness).
 - A page SHOULD stay well under 32 MiB.
 - The core runs a full sync on a schedule even when webhooks are configured,
   to catch missed deliveries and to backfill history.

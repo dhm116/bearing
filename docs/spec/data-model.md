@@ -1375,12 +1375,15 @@ artifacts are replaced, not migrated:
   example observations that follow this spec.
 - The default configuration: match weights per kind and method, the `link`
   weight, the `Team` merge threshold, the `codeowners` rule's ppm per shape.
-- `adapters/github`: node IDs as keys with the `X-Github-Next-Global-ID: 1`
-  header, names as aliases, `full_name`; the effective CODEOWNERS file as
-  `approves_changes` with line qualifiers, `codeowners_rules` and snapshot
-  scopes; the reference declaration; send `null`/`[]` for empty
-  attributes; `complete_sync` only after it moves to cursor (GraphQL)
-  paging; `observed_at` per the rules above.
+- `adapters/github`: the reference declaration, sent in `Describe` once the
+  adapter service exists (issue #35). The rest is done: node IDs as keys
+  with the `X-Github-Next-Global-ID: 1` header, names as aliases,
+  `full_name`; the effective CODEOWNERS file as `approves_changes` with line
+  qualifiers, `codeowners_rules` and snapshot scopes; `null` and `[]` for
+  empty attributes; GraphQL cursor paging with `complete_sync`; direct team
+  members only, listed on the team's own observation; `observed_at` per the
+  rules above. SAML identities (`links`) wait for the people matching that
+  needs them.
 - `pkg/adapter`: the declaration shape in `Describe`, `complete_sync` on
   the last page, the source `namespace`, `issues` and `links` fields; bump
   `adapter.ProtocolVersion`. Reconcile with ADR 9 and PR #26, which retire
