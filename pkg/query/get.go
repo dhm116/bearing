@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -118,8 +119,12 @@ func (q *Querier) keys(ctx context.Context, l *labeler, id contracts.SubjectID) 
 		if b.GetSubjectId() == "" || !covers(b, v) {
 			continue
 		}
-		if canon, err := q.Resolve(ctx, b.GetSubjectId(), Point{Recorded: l.p.Recorded}); err != nil || canon != id {
-			continue
+		canon, err := q.Resolve(ctx, b.GetSubjectId(), Point{Recorded: l.p.Recorded})
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		if err != nil || canon != id {
+			continue // bound to another subject
 		}
 		keys = append(keys, Key{Alias: b.GetAlias(), Redirect: b.GetReleased(), ValidFrom: optTime(b.GetValidFrom()), ValidTo: optTime(b.GetValidTo())})
 	}
