@@ -1,10 +1,10 @@
 # Threat model
 
-Status: draft for the MVP · Last reviewed: 2026-10-03
+Status: draft for the MVP · Last reviewed: 2026-10-08
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
-threat. It follows ADRs 2, 4–10 and 12 plus the MVP security decisions. ADR 9,
+threat. It follows ADRs 2 and 4–12 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
 [WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
 default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands.
@@ -126,12 +126,14 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   record.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
-- **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number
-  and head hash) outside the store: to the log stream, a file or the
-  configured exporter. A rewrite of the whole chain in the store no longer
-  matches the checkpoints.
+- **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,
+  head hash and time) outside the store: to the log stream, a file or the
+  configured exporter. When a signing key is configured (a secret
+  reference, C-SECRET-1), the checkpoint is signed. A rewrite of the whole
+  chain in the store no longer matches the checkpoints.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
-  it is given, and reports the first record that fails.
+  it is given, including signatures, and reports the first record that
+  fails.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
 - **C-AUDIT-6** Records name actors by stable ID (`iss` + `sub`, client ID,

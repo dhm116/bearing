@@ -10,7 +10,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | `GraphStore` | Entities, aliases and facts with history. The source of truth. | SurrealDB | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over entities and documents, keyed by graph ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
-| `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only when an operator configures one | Planned |
+| `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
 | `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md)) | OIDC group and client-ID to role mapping | OpenFGA, SpiceDB | Planned |
@@ -51,8 +51,10 @@ be written in any language. Those wire definitions will live in `proto/`.
 - **Candidates are not facts.** Anything an `Extractor` proposes goes through
   a `Judge` before it reaches the graph.
 - **No hosted LLM by default.** Source text is untrusted and often private,
-  so the default `Extractor` MUST NOT send it to a hosted LLM API. An
-  operator can configure a hosted model explicitly.
+  so no default component, including the default `Extractor`, MUST send it
+  to a hosted LLM or embedding API. An operator enables a hosted provider
+  explicitly, per provider, with its config listing the fields sent (threat
+  model C-MODEL-1, C-MODEL-2).
 - **Idempotent consumers.** Event delivery is at least once. Handlers must
   tolerate duplicates.
 - **Least privilege.** Components that read external systems (adapters) hold

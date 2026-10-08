@@ -34,13 +34,17 @@ record that can't be lost or quietly edited.
 - **Checkpoints outside the store.** A chain kept only in the store can be
   rewritten end to end by whoever can write to the store, and the result
   still verifies. So at an interval, and at every retention cut, Bearing
-  writes a checkpoint (sequence number, head hash and time) somewhere the
-  store's writers can't reach: the log stream, a file or the configured
-  exporter, never the store itself. Checkpoints are signed with a key held
-  outside the store when one is configured (threat model C-AUDIT-3). A
-  rewritten chain no longer matches the checkpoints, and `bearing audit
-  verify` checks the chain and every checkpoint it is given (C-AUDIT-4).
-  *Amended 2026-10-08: the original chain had no external anchor.*
+  writes a checkpoint (sequence number, head hash and time) outside the
+  store: to the log stream, a file or the configured exporter, never the
+  store itself. The operator keeps that location where the store's writers
+  can't edit it. Checkpoints are signed when a signing key is configured,
+  by secret reference like any other secret. A rewritten chain no longer
+  matches the checkpoints, and `bearing audit verify` checks the chain and
+  every checkpoint it is given, and their signatures (threat model
+  C-AUDIT-3, C-AUDIT-4).
+  *Amended 2026-10-08: the original chain had no external anchor. Optional
+  signing and the checkpoint time are added to C-AUDIT-3 and C-AUDIT-4 in
+  the same change.*
 - **Storage.** The default is an append-only table in the main store,
   written in the same transaction as the change it describes: no change
   without its record. An optional exporter streams records to object

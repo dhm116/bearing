@@ -20,13 +20,18 @@ the graph quietly.
   requests all become events on an **event log**:
   - `SyncRequested`: from the scheduler, the CLI or the API.
   - `WebhookReceived`: the raw delivery, authenticated by the host before it
-    is logged (ADR 9 A6, threat model C-INGEST-2). The host has one verifier
-    per signature scheme (for example HMAC-SHA256 over the raw body). The
-    adapter's manifest declares which scheme its source signs with and
-    which headers carry the signature, and the Source supplies the secret
-    by reference. Adapters never see the secret or verify a delivery. One
-    that fails is answered with 401 and not logged.
-    *Amended 2026-10-08: the original text left verification to the adapter.*
+    is logged (ADR 9 A6, threat model C-INGEST-2). For signed deliveries the
+    host has one verifier per signature scheme (for example HMAC-SHA256
+    over the raw body). The adapter's manifest declares which scheme its
+    source signs with, and the Source supplies the secret by reference.
+    The Source's other methods (client certificate, static token, OIDC
+    token) are configured on the Source, not declared by the adapter. A
+    WASM adapter never sees the secret or verifies a delivery; a
+    local-process adapter receives its own Source's secrets and may verify
+    after the host as defense in depth (ADR 9 A15). A delivery that fails
+    is answered with 401 and not appended to the log.
+    *Amended 2026-10-08: names the per-scheme verifier model and the
+    manifest declaration.*
   - `ObservationsEmitted`: adapter output.
 
   The CLI is a client of the running server. It does not run adapters itself.
@@ -79,9 +84,10 @@ A webhook delivery, end to end:
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Ingest needs a registry of host verifiers, one per signature scheme, and
-  the adapter manifest gains a field naming the scheme. A scheme the host
-  has no verifier for cannot be declared, so a Source using it cannot
-  receive events.
+  the adapter manifest gains a field naming the scheme (tracked in
+  [#58](https://github.com/dhm116/bearing/issues/58)). A scheme the host has
+  no verifier for cannot be declared, so a Source using it cannot receive
+  signed events.
 - Supersedes the `EventBus` row in `docs/spec/contracts.md`.
 - Superseded in part by [ADR 11](0011-identity-store-is-primary-state.md):
   replaying the log rebuilds facts only inside the retention window, the

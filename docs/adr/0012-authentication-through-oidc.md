@@ -27,9 +27,9 @@ the MVP plan already rely on.
 - **Bearing never mints, issues, refreshes or stores credentials.** There
   are no local users, passwords or API keys (C-IDP-4). It validates what an
   identity provider issued and nothing more.
-- **Remote access is OIDC.** The TCP API and MCP listeners are off by
-  default and refuse to start unless an OIDC issuer is configured; there is
-  no setting for unauthenticated access (C-API-2). Bearing verifies bearer
+- **Remote access is OIDC.** The TCP API listener is off by default and refuse to start unless an OIDC issuer is configured; there is
+  no setting for unauthenticated access, apart from the health endpoints,
+  which return no data (C-API-2). Bearing verifies bearer
   access tokens against the issuer's JWKS (C-IDP-1, C-IDP-2). People sign
   in at the identity provider, and agents and automation use its client
   credentials flow.
@@ -40,10 +40,13 @@ the MVP plan already rely on.
 - **Roles come from the identity provider.** Only the configured groups
   claim, or the client ID for a client-credentials token, maps to a role
   (C-IDP-3). The roles are `read`, `ingest` (for named Sources) and `admin`;
-  an unmapped caller is denied, and an agent gets `read` only (C-API-4).
+  an unmapped caller is denied, an agent gets `read` only, and a client ID
+  may map to `read` or `ingest` but never `admin`; config apply rejects
+  that mapping (C-API-4).
 - **An `Authorizer` contract decides every request.** It takes the verified
   caller (issuer, subject or client ID, groups), the method and, where it
-  applies, the Source, and returns allow or deny with a reason. Each API
+  applies, the Source, and returns allow or deny with a reason. This is the intended shape; the
+  contract PR settles it. Each API
   method declares its required role in one table, and a method with no
   entry is denied (C-API-5). The default backend is the group-to-role
   mapping above. Relationship-based backends such as OpenFGA or SpiceDB can
@@ -61,11 +64,14 @@ the MVP plan already rely on.
 
 - A remote deployment needs an OIDC provider. A single-machine deployment
   needs none, because the socket is enough.
+- A local socket caller is an administrator, so a local-process adapter
+  running as the service user can act as one through the socket. Threat
+  model B2 accepts this (C-API-1).
 - There is no credential database to leak, back up or rotate, and audit
   records name callers by stable identity provider IDs (C-AUDIT-6).
 - Roles are only as good as the identity provider's groups. Changing
   who is an administrator is done there, not in Bearing.
 - Follow-up work: the `Authorizer` interface and its conformance suite land
   in `pkg/contracts` in their own PR before any code that depends on them,
-  and the API and MCP servers arrive with M3 (auth and ingest). The spec's
+  and the API and MCP servers arrive with M3 (durable, always-on core). The spec's
   [contracts page](../spec/contracts.md) lists `Authorizer` as planned.

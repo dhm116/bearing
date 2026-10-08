@@ -9,6 +9,8 @@ Date: 2026-09-29 · Status: accepted (with amendment), 2026-10-02
 > See [the amendment](#amendment-accepted-with-conditions-2026-10-02).
 > A13 was revised on 2026-10-03: the stdio transport is retired, and
 > adapters that can't run as WASM run as local processes on a Unix socket.
+> On 2026-10-08, A6 gained the per-scheme host verifiers declared in the
+> manifest, and A8 says Extism's own host functions are disabled.
 
 ## Context
 
@@ -185,8 +187,7 @@ still unproven. Control IDs refer to the
   must be verified under the fake wall clock (an A12 case) before the
   profile is final. Any import outside the profile fails the load. If
   Extism is used, its own HTTP, config, var and path host functions are
-  disabled (`allowed_hosts` and `allowed_paths` empty, no manifest config
-  or vars), so a guest reaches the network, configuration and files only
+  disabled (`allowed_hosts` and `allowed_paths` empty), so a guest reaches the network, configuration and files only
   through `bearing_call` and its grant (C-ADAPTER-1), and Bearing refuses
   to start with `EXTISM_ENABLE_WASI_OUTPUT` set.
 - **A9. Limits.** Every guest call runs under a deadline with wazero's
