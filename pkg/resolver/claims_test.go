@@ -88,8 +88,8 @@ func TestIncomingRelationAndLinkedIDGetPlaceholders(t *testing.T) {
 		t.Fatalf("member got subject %q, want a placeholder of its own", person)
 	}
 
-	// An Authentik person links to a GitHub user_node: a placeholder holds the
-	// linked id until the GitHub user is observed.
+	// An Authentik person links to a GitHub user_node, which is authoritative
+	// evidence: the person holds the linked id until the GitHub user is observed.
 	link := obsAt("2026-10-03T00:00:00Z", "Person", "authentik:user/u1")
 	link.Data.Entity.LinkedIds = []string{"github:user_node/U1"}
 	got := e.apply(event("authentik-acme", link))
@@ -97,11 +97,11 @@ func TestIncomingRelationAndLinkedIDGetPlaceholders(t *testing.T) {
 		t.Fatalf("got rejections %v", got.Rejections)
 	}
 	linked := e.resolveKey("github:user_node/U1", time.Time{})
-	if linked == "" || linked == e.resolveKey("authentik:user/u1", time.Time{}) {
-		t.Fatalf("linked ID got subject %q, want a placeholder of its own (matching on links is a later part)", linked)
+	if want := e.resolveKey("authentik:user/u1", time.Time{}); linked == "" || linked != want {
+		t.Fatalf("linked ID got subject %q, want the Authentik person's %q", linked, want)
 	}
-	// Observing the GitHub user adopts both placeholders: the one the linked
-	// ID made and the one the team's member relation made are one person.
+	// Observing the GitHub user adopts the person and the placeholder the
+	// team's member relation made: they are one person.
 	e.apply(event("github-acme", obsAt("2026-10-04T00:00:00Z", "Person", "github:user_node/U1", "github:user/jdoe")))
 	survivor := min(linked, person)
 	wantSubject(t, "user_node after the GitHub observation", e.resolveKey("github:user_node/U1", time.Time{}), survivor)

@@ -42,6 +42,9 @@ type run struct {
 	// resolved maps each key the claims refer to, folded, to the subject it
 	// resolved to: an ID, or the ref of a mint.
 	resolved map[model.Key]string
+	// held lists the `id` aliases this ChangeSet binds to each subject it
+	// names (the entity's, a placeholder's), for the merge guard.
+	held map[string][]keyRef
 	// pendingOwners are subjects of planned merges whose names now compete.
 	pendingOwners []string
 	// consolidate lists the (survivor, merged) pairs whose deletion marks
@@ -59,7 +62,7 @@ func (r *Resolver) identify(ctx context.Context, g *graph, p *prepared, cs *mode
 	u := &run{
 		g: g, eng: newEngine(g, r.ix), ix: r.ix, p: p, cs: cs,
 		mints: map[string]model.Kind{}, timelines: map[model.Key]*modelv1alpha1.BindingTimeline{},
-		resolved: map[model.Key]string{},
+		resolved: map[model.Key]string{}, held: map[string][]keyRef{},
 	}
 	rejected, err := u.resolveEntity(ctx)
 	if err != nil || rejected {
@@ -291,11 +294,13 @@ func (u *run) resolveReferences(ctx context.Context) error {
 		refs = append(refs, r.other)
 	}
 	refs = append(refs, u.p.links...)
+	u.held[u.chosen] = u.idKeys()
 	slices.SortFunc(refs, func(a, b keyRef) int { return cmp.Compare(a.key, b.key) })
 	refs = slices.CompactFunc(refs, func(a, b keyRef) bool { return a.key == b.key })
 	if err := u.g.load(ctx, aliasesOf(refs)...); err != nil {
 		return err
 	}
+	var targets []linkTarget
 	for _, k := range refs {
 		if u.entityHas(k) {
 			u.resolved[k.key] = u.chosen
@@ -311,6 +316,7 @@ func (u *run) resolveReferences(ctx context.Context) error {
 			if err := u.mintPlaceholder(ctx, k); err != nil {
 				return err
 			}
+			subject = u.resolved[k.key]
 		case tentative && k.isName():
 			// A later reference moves the tentative binding's key forward,
 			// which is the latest valid time a reference resolved through
@@ -322,8 +328,11 @@ func (u *run) resolveReferences(ctx context.Context) error {
 			n.add(write{key: u.p.key, subject: subject, tentative: true})
 			u.seeds = append(u.seeds, k)
 		}
+		if u.p.authLinks[k.key] {
+			targets = append(targets, linkTarget{k, subject})
+		}
 	}
-	return nil
+	return u.mergeOnLinks(ctx, targets)
 }
 
 // entityHas reports whether k is one of the observed entity's own keys.
@@ -361,6 +370,7 @@ func (u *run) mintPlaceholder(ctx context.Context, k keyRef) error {
 	u.resolved[k.key] = ref
 	if k.isID() {
 		u.timelines[k.key] = &modelv1alpha1.BindingTimeline{Alias: string(k.key), Bindings: []*modelv1alpha1.Binding{{Alias: string(k.key), SubjectId: ref, Tentative: true}}}
+		u.held[ref] = []keyRef{k}
 		return nil
 	}
 	n, err := u.eng.name(ctx, k)
@@ -422,7 +432,7 @@ func (u *run) settle(ctx context.Context) (map[model.Key][]*modelv1alpha1.Bindin
 		if !merged {
 			merged = true
 			for _, m := range u.placeholderMerges(ctx, rows) {
-				u.merge(u.chosen, m, modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER)
+				u.merge(u.g.mustCanon(ctx, u.chosen), m, modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER)
 				redo = true
 			}
 		}

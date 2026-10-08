@@ -28,6 +28,9 @@ type Config struct {
 	// that copy each other, so their confidence counts once
 	// (docs/spec/data-model.md, "Confidence").
 	ConfidenceGroups [][]string
+	// Codeowners sets the confidence of the owned_by claims derived from
+	// CODEOWNERS files.
+	Codeowners Codeowners
 }
 
 // Source is one configured adapter instance, the unit of provenance
@@ -96,6 +99,8 @@ type index struct {
 	namespaces map[string]*namespace
 	sources    map[string]*sourceInfo
 	threshold  uint32
+	// codeowners are the confidences of the codeowners rule, defaults applied.
+	codeowners Codeowners
 	// groups maps a source system to the group of systems it counts in.
 	groups map[string]string
 }
@@ -109,6 +114,13 @@ func newIndex(cfg Config) (*index, error) {
 	ix.threshold = cmp.Or(cfg.Threshold, DefaultThreshold)
 	if ix.threshold > model.MaxConfidence {
 		return nil, fmt.Errorf("resolver: threshold %d is above %d", ix.threshold, model.MaxConfidence)
+	}
+	ix.codeowners = Codeowners{
+		SoleTeam: cmp.Or(cfg.Codeowners.SoleTeam, DefaultCodeownersSoleTeam),
+		Mixed:    cmp.Or(cfg.Codeowners.Mixed, DefaultCodeownersMixed),
+	}
+	if ix.codeowners.SoleTeam > model.MaxConfidence || ix.codeowners.Mixed > model.MaxConfidence {
+		return nil, fmt.Errorf("resolver: codeowners confidence is above %d", model.MaxConfidence)
 	}
 	for _, group := range cfg.ConfidenceGroups {
 		name := strings.Join(slices.Sorted(slices.Values(group)), "+")
@@ -213,6 +225,9 @@ var ErrUnknownSource = errors.New("resolver: unknown source")
 // group of systems its system is configured in, or the system alone. A
 // support can come from a source the current configuration no longer has.
 func (ix *index) confidenceGroup(source string) string {
+	if input, ok := derivedFrom(source); ok {
+		source = input // a derived support counts in its input's system
+	}
 	system := source // a source the configuration dropped keeps its own group
 	if src := ix.sources[source]; src != nil {
 		system = src.reads

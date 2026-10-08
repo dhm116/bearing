@@ -98,6 +98,9 @@ type prepared struct {
 	relations  []relation
 	attributes []attribute
 	links      []keyRef
+	// authLinks holds the admitted links that are authoritative evidence: a
+	// link declared authoritative, to an id-class key.
+	authLinks map[model.Key]bool
 	// dropped lists the claims admission rejected, whose predicates leave the
 	// snapshot scopes (docs/spec/data-model.md, "Snapshot scopes").
 	dropped []droppedClaim
@@ -288,6 +291,14 @@ func (r *Resolver) admitClaims(p *prepared) {
 			continue
 		}
 		p.links = append(p.links, kr)
+		if kr.isID() && slices.ContainsFunc(kd.GetLinks(), func(ld *modelv1alpha1.LinkDeclaration) bool {
+			return ld.GetIssuerType() == issuer && ld.GetKeyType() == kr.kt && ld.GetAuthority().GetAuthoritative()
+		}) {
+			if p.authLinks == nil {
+				p.authLinks = map[model.Key]bool{}
+			}
+			p.authLinks[kr.key] = true
+		}
 	}
 }
 

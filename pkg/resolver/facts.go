@@ -122,6 +122,9 @@ func (u *run) facts(ctx context.Context) error {
 	if err := r.recompute(ctx); err != nil {
 		return err
 	}
+	if err := r.derive(ctx); err != nil {
+		return err
+	}
 	return r.statuses(ctx)
 }
 
