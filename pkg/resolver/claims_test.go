@@ -28,17 +28,24 @@ func TestClaimRejectionsLeaveTheRestOfTheObservation(t *testing.T) {
 		{"an end outside the predicate's range", func() *modelv1alpha1.ObservationData {
 			return relData("Repository", "github:repo_node/R1", "approves_changes", "github:repo/acme/x")
 		}, "data.relations[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH, "github:repo/acme/x"},
-		{"a link the kind doesn't declare", func() *modelv1alpha1.ObservationData {
+		{"a link in a namespace the source doesn't link", func() *modelv1alpha1.ObservationData {
 			d := relData("Person", "github:user_node/U1", "member_of", "github:team/acme/ok")
 			d.Entity.LinkedIds = []string{"saml-bogus:name_id/x"}
 			return d
 		}, "data.entity.linked_ids[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_NAMESPACE_NOT_ALLOWED, "saml-bogus:name_id/x"},
+		{"a link to another kind", func() *modelv1alpha1.ObservationData {
+			return &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{Kind: "Person", Key: "authentik:user/u1", LinkedIds: []string{"github:team_node/T1"}}}
+		}, "data.entity.linked_ids[0]", modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, "github:team_node/T1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
+			source := "github-acme"
+			if tc.name == "a link to another kind" {
+				source = "authentik-acme"
+			}
 			o := model.NewObservation("adapter/test", ts("2026-10-01T00:00:00Z"), tc.obs())
-			got := e.apply(event("github-acme", o))
+			got := e.apply(event(source, o))
 			if len(got.Rejections) != 1 || got.Rejections[0].Code != tc.code || got.Rejections[0].Scope != model.ScopeClaim || got.Rejections[0].Path != tc.path {
 				t.Fatalf("got %v, want one claim-scoped %s at %s", got.Rejections, model.ShortName(tc.code), tc.path)
 			}
@@ -92,4 +99,28 @@ func TestIncomingRelationAndLinkedIDGetPlaceholders(t *testing.T) {
 	survivor := min(linked, person)
 	wantSubject(t, "user_node after the GitHub observation", e.resolveKey("github:user_node/U1", time.Time{}), survivor)
 	wantSubject(t, "member after the GitHub observation", e.resolveKey("github:user/jdoe", ts("2026-10-05T00:00:00Z")), survivor)
+}
+
+// Text that isn't UTF-8 is a rejection, never an error: an error would leave
+// the event unprocessed and the host retrying it.
+func TestInvalidUTF8IsRejectedNotAnError(t *testing.T) {
+	bad := "github:team/acme/a\xff"
+	tests := map[string]*modelv1alpha1.ObservationData{
+		"entity key":   {Entity: &modelv1alpha1.Entity{Kind: "Team", Key: bad}},
+		"entity alias": {Entity: &modelv1alpha1.Entity{Kind: "Team", Key: "github:team_node/T1", Aliases: []string{bad}}},
+		"relation end": relData("Repository", "github:repo_node/R1", "approves_changes", bad),
+	}
+	for name, d := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			ev := Event{ID: "event-" + name, Source: "github-acme", Observation: model.NewObservation("adapter/test", ts("2026-10-01T00:00:00Z"), d)}
+			got := e.apply(ev)
+			if len(got.Rejections) == 0 {
+				t.Fatal("got no rejection")
+			}
+			if again := e.apply(ev); !again.Duplicate {
+				t.Fatalf("got %+v, want the rejected event processed once", again)
+			}
+		})
+	}
 }

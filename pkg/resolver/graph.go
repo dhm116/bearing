@@ -244,18 +244,6 @@ func (g *graph) states(ctx context.Context, keys ...string) (map[string]*anypb.A
 	return out, nil
 }
 
-// kindOf returns the kind of a subject, or of a planned mint.
-func (g *graph) kindOf(ctx context.Context, id string, mints map[string]model.Kind) (model.Kind, error) {
-	if k, ok := mints[id]; ok {
-		return k, nil
-	}
-	s, err := g.subject(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	return model.Kind(s.GetKind()), nil
-}
-
 // sameRow reports whether two rows say the same, ignoring the record times
 // the store sets.
 func sameRow(a, b *modelv1alpha1.Binding) bool {

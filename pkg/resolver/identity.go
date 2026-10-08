@@ -72,10 +72,6 @@ func (r *Resolver) identify(ctx context.Context, g *graph, p *prepared, cs *mode
 	return u.rejections, nil
 }
 
-func (u *run) reject(code modelv1alpha1.RejectionCode, scope model.Scope, path, format string, args ...any) {
-	u.rejections = append(u.rejections, Rejection{Code: code, Scope: scope, Path: path, Message: fmt.Sprintf(format, args...)})
-}
-
 // idKeys and nameKeys split the entity's keys by class.
 func (u *run) idKeys() []keyRef   { return u.keysOf(keyRef.isID) }
 func (u *run) nameKeys() []keyRef { return u.keysOf(keyRef.isName) }
@@ -118,17 +114,9 @@ func (u *run) resolveEntity(ctx context.Context) (bool, error) {
 		}
 	}
 	matched := slices.Sorted(maps.Keys(found))
-	for _, id := range matched {
-		kind, err := u.g.kindOf(ctx, id, nil)
-		if err != nil {
-			return false, err
-		}
-		if kind != u.p.kind {
-			u.reject(modelv1alpha1.RejectionCode_REJECTION_CODE_KIND_MISMATCH, model.ScopeObservation, "data.entity.key",
-				"an id alias is bound to a %s, and the entity is a %s", kind, u.p.kind)
-			return true, nil
-		}
-	}
+	// The subjects' kinds agree with the entity's: a key type is declared for
+	// one kind, prepare refused keys of another, and every subject an id alias
+	// is bound to was minted for its key type's kind.
 	if len(matched) > 0 {
 		u.chosen = matched[0]
 		for _, other := range matched[1:] {

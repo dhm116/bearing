@@ -24,7 +24,7 @@
 // remembered, so any order gives the same valid-time bindings. One case is
 // not covered yet: a write whose subject appears in none of the name's rows
 // (it was released by a greater key at the same instant) isn't found again
-// when the name is next computed.
+// when the name is next computed (issue #86).
 //
 // # State
 //
