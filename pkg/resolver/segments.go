@@ -1,10 +1,10 @@
 package resolver
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -104,10 +104,10 @@ func (e seg) weak() bool {
 
 // beats reports whether the write e decides a valid time over the existing
 // segment o: the greater key; at equal keys a claim over a watermark, then the
-// greater reason, then the greater confidence, then the greater encoding of
-// the support. Equal keys with different content come from two keys of one
-// subject in one observation, and the order makes the choice the same whichever
-// is written first.
+// greater reason, a live segment over an ending, the greater confidence, and
+// the greater via and qualifiers. Equal keys with different content come from
+// two keys of one subject in one observation, and this total order makes the
+// choice the same whichever is written first.
 func (e seg) beats(o seg) bool {
 	if c := model.CompareOrderingKeys(e.key, o.key); c != 0 {
 		return c > 0
@@ -118,18 +118,30 @@ func (e seg) beats(o seg) bool {
 	if e.reason != o.reason {
 		return e.reason > o.reason
 	}
-	if e.live && o.live {
-		if a, b := e.sup.GetConfidencePpm(), o.sup.GetConfidencePpm(); a != b {
-			return a > b
-		}
-		return bytes.Compare(encoded(e.sup), encoded(o.sup)) >= 0
+	if e.live != o.live {
+		return e.live
 	}
-	return true
+	if !e.live {
+		return true
+	}
+	if a, b := e.sup.GetConfidencePpm(), o.sup.GetConfidencePpm(); a != b {
+		return a > b
+	}
+	return strings.Compare(tieBreak(e.sup), tieBreak(o.sup)) >= 0
 }
 
-func encoded(s *modelv1alpha1.Support) []byte {
-	b, _ := proto.MarshalOptions{Deterministic: true}.Marshal(s) // a message of plain fields
-	return b
+// tieBreak orders supports that differ only in what the claim says about its
+// own keys and qualifiers.
+func tieBreak(s *modelv1alpha1.Support) string {
+	parts := append([]string{s.GetVia().GetObject()}, s.GetVia().GetSubject()...)
+	for _, q := range s.GetQualifiers() {
+		b, err := model.JCS(structpb.NewStructValue(q))
+		if err != nil { // validated as finite UTF-8 text
+			b = []byte(q.String())
+		}
+		parts = append(parts, string(b))
+	}
+	return strings.Join(parts, "\x00")
 }
 
 // normalized sorts segments and joins neighbours that say the same, so a

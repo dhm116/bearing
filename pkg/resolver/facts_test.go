@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
@@ -587,5 +590,36 @@ func TestOneFactClaimedUnderTwoKeysDoesNotDependOnApplyOrder(t *testing.T) {
 				t.Fatalf("want the stronger claim, %q, in\n%s", want, got[0])
 			}
 		})
+	}
+}
+
+// The two claims can also differ in when they hold: a short-lived one by ID
+// and an open one by slug are the same fact, and it holds from the earlier
+// start to the open end whichever is applied first.
+func TestOneFactClaimedUnderTwoKeysWithDifferentTimes(t *testing.T) {
+	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
+	repo := withRelation(withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1"), "approves_changes", "github:team/acme/s1")
+	short, open := repo.Data.Relations[0], repo.Data.Relations[1]
+	ppm := uint32(600_000)
+	short.ConfidencePpm = &ppm
+	short.ValidFrom, short.ValidTo = timestamppb.New(ts("2026-10-02T00:00:00Z")), timestamppb.New(ts("2026-10-06T00:00:00Z"))
+	open.ValidFrom = timestamppb.New(ts("2026-10-03T00:00:00Z"))
+	var got []string
+	for _, order := range [][]Event{{team, event("github-acme", repo)}, {event("github-acme", repo), team}} {
+		e := newEnv(t)
+		for _, ev := range order {
+			e.apply(ev)
+		}
+		var b strings.Builder
+		for _, day := range []string{"2026-10-02T12:00:00Z", "2026-10-04T00:00:00Z", "2026-10-08T00:00:00Z"} {
+			fmt.Fprintf(&b, "== %s\n%s\n", day, factsAt(t, e, ts(day)))
+		}
+		got = append(got, b.String())
+	}
+	if got[0] != got[1] {
+		t.Fatalf("team first:\n%s\nteam last:\n%s", got[0], got[1])
+	}
+	if !strings.Contains(got[0], "== 2026-10-08T00:00:00Z\n") || !strings.Contains(got[0][strings.Index(got[0], "== 2026-10-08"):], "approves_changes") {
+		t.Fatalf("want the open claim to hold on October 8:\n%s", got[0])
 	}
 }

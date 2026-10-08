@@ -8,6 +8,7 @@ import (
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -180,4 +181,49 @@ func TestSeriesStateRoundTripsAndRefusesDamage(t *testing.T) {
 	if _, err := seriesOf(overlap); err == nil {
 		t.Fatal("got no error for overlapping segments")
 	}
+}
+
+// Writes of one observation that share an ordering key (two keys of one
+// subject claiming a fact at different times and confidences) still give one
+// series in every order, with endings and watermarks among them.
+func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
+	rng := rand.New(rand.NewSource(11)) //nolint:gosec // G404: a seeded shuffle, not security
+	for range 300 {
+		var writes []seg
+		for range 2 + rng.Intn(3) {
+			from := hour(rng.Intn(8))
+			conf := 100_000 * uint32(1+rng.Intn(3)) //nolint:gosec // G115: 1 to 3
+			if rng.Intn(2) == 0 {
+				writes = append(writes, liveSeg(1, "same", from, posInf, conf))
+				continue
+			}
+			// A claim with a valid_to: live until it, then an ending of the
+			// same observation.
+			to := from + int64(1+rng.Intn(5))*int64(time.Hour/time.Microsecond)
+			writes = append(writes, liveSeg(1, "same", from, to, conf), seg{from: to, to: posInf, key: writes0Key(), reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT})
+		}
+		if rng.Intn(3) == 0 {
+			w := endSeg(1, "same", hour(rng.Intn(8)))
+			w.reason = modelv1alpha1.SupportReason_SUPPORT_REASON_SNAPSHOT
+			writes = append(writes, w)
+		}
+		var want series
+		for _, w := range writes {
+			want = want.overlay(w)
+		}
+		for range 12 {
+			var got series
+			for _, i := range rng.Perm(len(writes)) {
+				got = got.overlay(writes[i])
+			}
+			if show(got) != show(want) {
+				t.Fatalf("got %s, want %s", show(got), show(want))
+			}
+		}
+	}
+}
+
+// writes0Key is the ordering key of liveSeg(1, "same", ...).
+func writes0Key() *resolverv1alpha1.OrderingKey {
+	return liveSeg(1, "same", 0, 1, 1).key
 }
