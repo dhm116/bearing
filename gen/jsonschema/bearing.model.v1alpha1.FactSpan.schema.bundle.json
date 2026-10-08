@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.FactSpan.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactSpan is a fact's status over one valid-time interval.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The fact's confidence."
+        },
+        "^(statusReason)$": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The fact's confidence."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^FACT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "FACT_STATUS_NONE",
+                "FACT_STATUS_ASSERTED",
+                "FACT_STATUS_CANDIDATE",
+                "FACT_STATUS_CONFLICTED",
+                "FACT_STATUS_OVERRIDDEN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status.",
+          "title": "Fact Status"
+        },
+        "status_reason": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "title": "Fact Span",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.FactSpan.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.FactSpan.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

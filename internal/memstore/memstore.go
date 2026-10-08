@@ -34,16 +34,21 @@ type Store struct {
 	Now func() time.Time
 	IDs IDSource
 
-	mu       sync.RWMutex
-	head     time.Time // the latest apply's recorded_at
-	lastID   string    // the latest minted subject ID
-	journal  []*modelv1alpha1.JournalEntry
-	events   map[string]int                    // event ID to journal index
-	subjects map[string]*modelv1alpha1.Subject // as minted
-	merges   []*modelv1alpha1.MergeRecord      // in record order
-	bindings table                             // by alias
-	state    table                             // by the resolver's key
-	vectors  map[string]contracts.VectorPoint
+	mu   sync.RWMutex
+	head time.Time // the latest apply's recorded_at
+	// restoreUntil is the latest record time a Restore in progress accepts:
+	// the backup's taken_at.
+	restoreUntil time.Time
+	lastID       string // the latest minted subject ID
+	journal      []*modelv1alpha1.JournalEntry
+	events       map[string]int                    // event ID to journal index
+	subjects     map[string]*modelv1alpha1.Subject // as minted
+	merges       []*modelv1alpha1.MergeRecord      // in record order
+	bindings     table                             // by alias
+	supports     table                             // by source, subject, predicate, object
+	facts        table                             // by subject, predicate, object
+	state        table                             // by the resolver's key
+	vectors      map[string]contracts.VectorPoint
 }
 
 var _ contracts.GraphStore = (*Store)(nil)
@@ -59,7 +64,7 @@ func New() *Store {
 func (s *Store) reset() {
 	s.head, s.lastID, s.journal, s.merges = time.Time{}, "", nil, nil
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
-	s.bindings, s.state = table{}, table{}
+	s.bindings, s.supports, s.facts, s.state = table{}, table{}, table{}, table{}
 }
 
 // A table holds series of bitemporal rows. A series is one timeline

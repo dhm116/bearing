@@ -92,7 +92,7 @@
     "bearing.model.v1alpha1.ChangeSet.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "Every timeline item (bindings for now) replaces the current timeline of its series: rows equal to a current row\n are kept, current rows not repeated are retracted, and new rows are\n recorded. An empty timeline retracts the series.",
+      "description": "Every timeline item (bindings, supports, facts) replaces the current timeline of its series: rows equal to a current row\n are kept, current rows not repeated are retracted, and new rows are\n recorded. An empty timeline retracts the series.",
       "patternProperties": {
         "^(baseRecordedAt)$": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
@@ -125,6 +125,13 @@
           "description": "The event applied. Required; the store applies each event ID once.",
           "type": "string"
         },
+        "facts": {
+          "description": "Fact status timelines.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactTimeline.schema.json"
+          },
+          "type": "array"
+        },
         "merges": {
           "description": "Merges, applied in order.",
           "items": {
@@ -144,9 +151,16 @@
           "description": "Set by the store: this apply's record time."
         },
         "state": {
-          "description": "Fields 8 to 11 are kept for the claim-store timelines (issue #37).\n The resolver's own state.",
+          "description": "The resolver's own state.",
           "items": {
             "$ref": "#/$defs/bearing.model.v1alpha1.StateEntry.schema.json"
+          },
+          "type": "array"
+        },
+        "supports": {
+          "description": "Support version timelines.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.SupportTimeline.schema.json"
           },
           "type": "array"
         },
@@ -173,6 +187,239 @@
         }
       },
       "title": "Evidence",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactObject.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactObject is a fact's object: { \"subject_id\" } for a relation, or\n { \"type\", \"value\" } for an attribute.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "subject_id": {
+          "default": "",
+          "description": "A relation's object. Set alone.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type. Set with value.",
+          "title": "Value Type"
+        },
+        "value": {
+          "$ref": "#/$defs/google.protobuf.Value.schema.json",
+          "description": "An attribute's value, in canonical form. Set with type. string and time\n are strings (time in the 6-digit canonical form), float a number, bool\n a boolean, json any JSON value."
+        }
+      },
+      "title": "Fact Object",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactSpan.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactSpan is a fact's status over one valid-time interval.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The fact's confidence."
+        },
+        "^(statusReason)$": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The fact's confidence."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^FACT_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "FACT_STATUS_NONE",
+                "FACT_STATUS_ASSERTED",
+                "FACT_STATUS_CANDIDATE",
+                "FACT_STATUS_CONFLICTED",
+                "FACT_STATUS_OVERRIDDEN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status.",
+          "title": "Fact Status"
+        },
+        "status_reason": {
+          "anyOf": [
+            {
+              "pattern": "^STATUS_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "STATUS_REASON_NONE",
+                "STATUS_REASON_NO_SUPPORT",
+                "STATUS_REASON_OVERRIDE",
+                "STATUS_REASON_BELOW_THRESHOLD",
+                "STATUS_REASON_CONFLICT",
+                "STATUS_REASON_DISTINCT_FROM",
+                "STATUS_REASON_MERGE_POLICY",
+                "STATUS_REASON_UNOBSERVED_OBJECT",
+                "STATUS_REASON_PRECEDENCE",
+                "STATUS_REASON_AUTHORITY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The status step that decided it.",
+          "title": "Status Reason"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "title": "Fact Span",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FactTimeline.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FactTimeline is one fact's complete status timeline. Valid times no span\n covers have status none.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject as written.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json",
+          "description": "The object as written."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "spans": {
+          "description": "Spans that don't overlap in valid time.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FactSpan.schema.json"
+          },
+          "type": "array"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject as written.",
+          "type": "string"
+        }
+      },
+      "title": "Fact Timeline",
       "type": "object"
     },
     "bearing.model.v1alpha1.Merge.schema.json": {
@@ -507,6 +754,48 @@
       "title": "Support",
       "type": "object"
     },
+    "bearing.model.v1alpha1.SupportTimeline.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "SupportTimeline is one source's complete support timeline for one fact\n as written: its subject and object are kept as written, and reads\n canonicalize them (docs/spec/data-model.md, \"Merge\" step 3).",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject as written.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.FactObject.schema.json",
+          "description": "The object as written."
+        },
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "description": "The source.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject as written.",
+          "type": "string"
+        },
+        "versions": {
+          "description": "Live support versions that don't overlap in valid time. fact_id,\n recorded_at and retracted_at are set by the store; last_confirmed_at\n may change without a new version.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.Support.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Support Timeline",
+      "type": "object"
+    },
     "bearing.model.v1alpha1.Unmerge.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -591,6 +880,10 @@
       "format": "date-time",
       "title": "Timestamp",
       "type": "string"
+    },
+    "google.protobuf.Value.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Value"
     }
   },
   "$id": "bearing.model.v1alpha1.ChangeSet.schema.bundle.json",

@@ -18,7 +18,7 @@ import (
 // accepts, and the largest frame Restore reads. A store also refuses an
 // apply whose backup record would be larger, so every backup it writes can
 // be restored.
-const MaxChangeSetBytes = 4 << 20
+const MaxChangeSetBytes = 16 << 20
 
 // BackupWriter writes a backup stream (docs/spec/contracts.md, "Backup"):
 // a header, the store's records, and a trailer with the record count and a
@@ -69,7 +69,7 @@ type BackupReader struct {
 // NewBackupReader reads the header of the backup stream r.
 func NewBackupReader(r io.Reader) (*BackupReader, error) {
 	b := &BackupReader{src: &hashingReader{r: bufio.NewReader(r), sum: sha256.New()}}
-	f, err := b.frame()
+	f, err := b.frame(maxHeaderBytes)
 	if errors.Is(err, io.EOF) {
 		return nil, errors.New("backup header: the stream is empty")
 	}
@@ -83,9 +83,13 @@ func NewBackupReader(r io.Reader) (*BackupReader, error) {
 	return b, nil
 }
 
-func (b *BackupReader) frame() (*modelv1alpha1.BackupFrame, error) {
+// maxHeaderBytes caps the header frame, so a stream that claims a huge one
+// is refused before anything is allocated for it.
+const maxHeaderBytes = 64 << 10
+
+func (b *BackupReader) frame(limit int64) (*modelv1alpha1.BackupFrame, error) {
 	f := &modelv1alpha1.BackupFrame{}
-	return f, protodelim.UnmarshalOptions{MaxSize: MaxChangeSetBytes}.UnmarshalFrom(b.src, f)
+	return f, protodelim.UnmarshalOptions{MaxSize: limit}.UnmarshalFrom(b.src, f)
 }
 
 // Next returns the next record. After the last one it checks the trailer
@@ -96,7 +100,7 @@ func (b *BackupReader) Next() ([]byte, error) {
 		return nil, io.EOF
 	}
 	sum := b.src.sum.Sum(nil)
-	f, err := b.frame()
+	f, err := b.frame(MaxChangeSetBytes)
 	if errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("backup: truncated after %d records: no trailer", b.records)
 	}

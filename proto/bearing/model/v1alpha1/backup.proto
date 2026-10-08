@@ -35,6 +35,10 @@ message BackupHeader {
   google.protobuf.Timestamp head = 3;
   // The last subject ID the store minted; empty if none.
   string last_subject_id = 4;
+  // The store's clock when it wrote the backup, or its head if that was
+  // later. No record in the backup is later than this, whatever the clock
+  // of the store that restores it says.
+  google.protobuf.Timestamp taken_at = 5;
 }
 
 // BackupTrailer closes a backup stream. A stream without one is truncated.

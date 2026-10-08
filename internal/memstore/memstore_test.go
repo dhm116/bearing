@@ -216,6 +216,29 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Two backups of one store are the same bytes, so a hash taken of one can be
+// compared with another's.
+func TestBackupIsDeterministic(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestStore()
+	cs := &modelv1alpha1.ChangeSet{EventId: "e"}
+	for i := range 16 { // enough refs that a map's order would show
+		cs.Mints = append(cs.Mints, &modelv1alpha1.Mint{Ref: fmt.Sprintf("new:%d", i), Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION})
+	}
+	if _, err := s.Apply(ctx, cs); err != nil {
+		t.Fatal(err)
+	}
+	var first, second bytes.Buffer
+	for _, b := range []*bytes.Buffer{&first, &second} {
+		if err := s.Backup(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(first.Bytes(), second.Bytes()) {
+		t.Fatal("two backups of one store differ")
+	}
+}
+
 func TestBackupReportsAWriteFailure(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore()
@@ -233,6 +256,11 @@ func TestBackupReportsAWriteFailure(t *testing.T) {
 		}
 	}
 }
+
+// failingSeed panics when Restore seeds it, after every record has replayed.
+type failingSeed struct{ IDSource }
+
+func (failingSeed) Seed(string) error { panic("seed failed") }
 
 // A panic mid-restore leaves the store empty, so a retry can restore.
 func TestRestoreResetsAfterAPanic(t *testing.T) {
@@ -254,18 +282,12 @@ func TestRestoreResetsAfterAPanic(t *testing.T) {
 	}
 	dst, dclk := newTestStore()
 	dclk.Set(clk.Now())
-	calls := 0
-	dst.Now = func() time.Time {
-		// Replay reads the clock once per record: panic in the second.
-		if calls++; calls == 2 {
-			panic("clock failed")
-		}
-		return dclk.Now()
-	}
+	orig := dst.IDs
+	dst.IDs = failingSeed{orig}
 	func() {
 		defer func() {
 			if recover() == nil {
-				t.Fatal("got no panic, want the clock's")
+				t.Fatal("got no panic, want the ID source's")
 			}
 		}()
 		_ = dst.Restore(ctx, bytes.NewReader(buf.Bytes()))
@@ -273,7 +295,7 @@ func TestRestoreResetsAfterAPanic(t *testing.T) {
 	if head, _ := dst.Head(ctx); !head.IsZero() {
 		t.Fatalf("got head %s after the panic, want an empty store", head)
 	}
-	dst.Now = dclk.Now
+	dst.IDs = orig
 	if err := dst.Restore(ctx, bytes.NewReader(buf.Bytes())); err != nil {
 		t.Fatalf("retry after the panic: %v", err)
 	}
@@ -307,10 +329,14 @@ func journal(t *testing.T, s *Store) []*modelv1alpha1.JournalEntry {
 	}
 }
 
-// backupOf writes entries as a backup whose header matches the last one.
-func backupOf(t *testing.T, entries []*modelv1alpha1.JournalEntry) *bytes.Buffer {
+// backupOf writes entries as a backup taken at taken (a zero taken leaves
+// it out), whose header matches the last entry.
+func backupOf(t *testing.T, entries []*modelv1alpha1.JournalEntry, taken time.Time) *bytes.Buffer {
 	t.Helper()
 	h := &modelv1alpha1.BackupHeader{Format: backupFormat, Version: backupVersion}
+	if !taken.IsZero() {
+		h.TakenAt = timestamppb.New(taken)
+	}
 	for _, e := range entries {
 		h.Head = e.GetChangeSet().GetRecordedAt()
 		for _, m := range e.GetMinted() {
@@ -379,7 +405,7 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 			return j
 		},
 		"recorded_at in the future": func(j []*modelv1alpha1.JournalEntry) []*modelv1alpha1.JournalEntry {
-			retime(j[2], clk.Now().Add(maxSkew+time.Second))
+			retime(j[2], clk.Now().Add(time.Second))
 			return j
 		},
 		"an event twice": func(j []*modelv1alpha1.JournalEntry) []*modelv1alpha1.JournalEntry {
@@ -400,7 +426,7 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 			j := tamper(journal(t, src))
 			dst, dclk := newTestStore()
 			dclk.Set(clk.Now())
-			if err := dst.Restore(ctx, backupOf(t, j)); err == nil {
+			if err := dst.Restore(ctx, backupOf(t, j, clk.Now())); err == nil {
 				t.Fatal("got no error, want one")
 			}
 			if head, _ := dst.Head(ctx); !head.IsZero() {
@@ -413,10 +439,14 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 			}
 		})
 	}
+	// A backup that doesn't say when it was taken restores nothing.
+	if empty, _ := newTestStore(); empty.Restore(ctx, backupOf(t, journal(t, src), time.Time{})) == nil {
+		t.Fatal("restored a backup with no taken_at")
+	}
 	// Untampered, the same journal restores.
 	dst, dclk := newTestStore()
 	dclk.Set(clk.Now())
-	if err := dst.Restore(ctx, backupOf(t, journal(t, src))); err != nil {
+	if err := dst.Restore(ctx, backupOf(t, journal(t, src), clk.Now())); err != nil {
 		t.Fatal(err)
 	}
 }

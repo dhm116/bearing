@@ -31,6 +31,10 @@
           "default": "",
           "description": "The last subject ID the store minted; empty if none.",
           "type": "string"
+        },
+        "^(takenAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The store's clock when it wrote the backup, or its head if that was\n later. No record in the backup is later than this, whatever the clock\n of the store that restores it says."
         }
       },
       "properties": {
@@ -47,6 +51,10 @@
           "default": "",
           "description": "The last subject ID the store minted; empty if none.",
           "type": "string"
+        },
+        "taken_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The store's clock when it wrote the backup, or its head if that was\n later. No record in the backup is later than this, whatever the clock\n of the store that restores it says."
         },
         "version": {
           "anyOf": [

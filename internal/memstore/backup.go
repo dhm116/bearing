@@ -25,9 +25,14 @@ func (s *Store) Backup(ctx context.Context, w io.Writer) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	h := &modelv1alpha1.BackupHeader{Format: backupFormat, Version: backupVersion, LastSubjectId: s.lastID}
+	taken := s.Now().UTC()
 	if !s.head.IsZero() {
 		h.Head = timestamppb.New(s.head)
+		if s.head.After(taken) { // the clock stepped back since the last apply
+			taken = s.head
+		}
 	}
+	h.TakenAt = timestamppb.New(taken)
 	bw, err := contracts.NewBackupWriter(w, h)
 	if err != nil {
 		return fmt.Errorf("backup header: %w", err)
@@ -36,7 +41,7 @@ func (s *Store) Backup(ctx context.Context, w io.Writer) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		b, err := proto.Marshal(e)
+		b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("backup event %s: %w", e.GetChangeSet().GetEventId(), err)
 		}
@@ -73,6 +78,11 @@ func (s *Store) Restore(ctx context.Context, r io.Reader) (err error) {
 	if h.GetFormat() != backupFormat || h.GetVersion() != backupVersion {
 		return fmt.Errorf("restore: backup format %q version %d; this store reads %q version %d", h.GetFormat(), h.GetVersion(), backupFormat, backupVersion)
 	}
+	if h.GetTakenAt() == nil {
+		return errors.New("restore: the backup has no taken_at")
+	}
+	s.restoreUntil = h.GetTakenAt().AsTime()
+	defer func() { s.restoreUntil = time.Time{} }()
 	for n := 1; ; n++ {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("restore: %w", err)

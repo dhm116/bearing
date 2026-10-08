@@ -185,8 +185,13 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if want != nil && !proto.Equal(entry, want) {
 		return res, fmt.Errorf("event %s: replay decided differently from the journal", cs.GetEventId())
 	}
-	// The entry must fit in one backup frame, or the backup won't restore.
-	if n := protowire.SizeTag(2) + protowire.SizeBytes(proto.Size(entry)); n > contracts.MaxChangeSetBytes {
+	// The entry must marshal (proto3 strings must be UTF-8) and fit in one
+	// backup frame, or the backup won't write or restore.
+	b, err := proto.Marshal(entry)
+	if err != nil {
+		return res, fmt.Errorf("event %s: %w", cs.GetEventId(), err)
+	}
+	if n := protowire.SizeTag(2) + protowire.SizeBytes(len(b)); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes as recorded, over the %d-byte limit", cs.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
 	// Nothing after this can fail, so it needs no undo.
@@ -195,11 +200,10 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	return result(entry, false), nil
 }
 
-// maxSkew is how far past the store's clock a restored record time may be.
-const maxSkew = 5 * time.Minute
-
 // recordTime is the record time of an apply: max(now, head + 1µs), or on
-// replay the journal's, which must be after the head and not in the future.
+// replay the journal's, which must be after the head and no later than the
+// time the backup was taken. It doesn't compare with the clock, which may
+// have stepped back since.
 func (s *Store) recordTime(cs *modelv1alpha1.ChangeSet, replay bool) (time.Time, error) {
 	if replay {
 		if cs.GetRecordedAt() == nil {
@@ -209,8 +213,8 @@ func (s *Store) recordTime(cs *modelv1alpha1.ChangeSet, replay bool) (time.Time,
 		if !r.After(s.head) {
 			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is not after %s", cs.GetEventId(), r, s.head)
 		}
-		if limit := s.Now().Add(maxSkew); r.After(limit) {
-			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is after now plus %s", cs.GetEventId(), r, maxSkew)
+		if r.After(s.restoreUntil) {
+			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is after the backup was taken at %s", cs.GetEventId(), r, s.restoreUntil)
 		}
 		return r, nil
 	}
@@ -375,8 +379,11 @@ func (s *Store) write(undo *[]func(), t table, key string, head proto.Message, r
 	return nil
 }
 
-// writeClaims writes the resolver's state.
+// writeClaims writes the claim-store timelines and the resolver's state.
 func (s *Store) writeClaims(undo *[]func(), cs *modelv1alpha1.ChangeSet, r time.Time) error {
+	if err := s.writeFacts(undo, cs, r); err != nil {
+		return err
+	}
 	keys := map[string]bool{}
 	for _, e := range cs.GetState() {
 		if e.GetKey() == "" {

@@ -62,12 +62,26 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"ResolveKey follows bindings in valid and record time", g.resolve},
 		{"Timelines replace rows and keep unchanged ones", g.replace},
 		{"A renamed repository keeps its subject", g.rename},
+		{"A renamed repository keeps its facts", g.renameKeepsFacts},
 		{"Merge keeps the lower ID and canonicalizes reads from then on", g.merge},
+		{"A merged subject's facts count for the survivor", g.mergeFacts},
 		{"Merges in one ChangeSet apply in order", g.mergeOrder},
 		{"Un-merge reactivates the subject that merged", g.unmerge},
 		{"Un-merge of a new alias set mints a split subject", g.split},
+		{"A 5,000-fact ChangeSet applies", g.large},
+		{"Support versions keep recorded_at and take confirmations", g.replaceSupports},
+		{"AsOf answers both sides of a time-bounded fact", g.asOf},
+		{"A snapshot ending one source's support leaves another's", g.snapshot},
+		{"Changes compares two points on either axis", g.changes},
+		{"Valid and record axes differ for late data; zero times are now", g.axes},
+		{"Timelines that merge into one fact combine the same way every time", g.combine},
+		{"Supports come back in a fixed order", g.supportsOrder},
+		{"Changes across a merge matches one fact and compares its supports", g.mergeChanges},
+		{"Reads canonicalize a merged object and an un-merge restores it", g.mergedObject},
 		{"Backup and Restore keep primary state", g.backup},
 		{"Restore refuses a damaged backup", g.damaged},
+		{"Apply refuses what a backup cannot hold", g.unwritable},
+		{"Apply order of independent ChangeSets doesn't change valid-time state", g.order},
 	} {
 		t.Run(c.name, c.run)
 	}
@@ -344,23 +358,38 @@ func (g *suite) checks(t *testing.T) {
 	r, p, l := seed(t, s)
 	val, _ := anypb.New(wrapperspb.String("v"))
 	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
-		"merge without a rule":   {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}}}},
-		"alias twice":            {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "")), bind("github:team/acme/x", row(p, "", ""))}},
-		"state key twice":        {State: []*modelv1alpha1.StateEntry{{Key: "k", Value: val}, {Key: "k"}}},
-		"empty binding interval": {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"))}},
-		"no event ID":            {},
-		"unregistered kind":      {Mints: []*modelv1alpha1.Mint{mint("new:x", "Widget")}},
-		"split mint rule":        {Mints: []*modelv1alpha1.Mint{{Ref: "new:x", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_SPLIT}}},
-		"ref without prefix":     {Mints: []*modelv1alpha1.Mint{mint("x", "Team")}},
-		"unknown ref":            {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("new:x", "", ""))}},
-		"unknown subject":        {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("0192b1c4-0000-7000-8000-000000000000", "", ""))}},
-		"bad alias":              {Bindings: []*modelv1alpha1.BindingTimeline{bind("not a key", row(p, "", ""))}},
-		"alias mismatch":         {Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "github:team/acme/x", Bindings: []*modelv1alpha1.Binding{{Alias: "github:team/acme/y", SubjectId: p}}}}},
-		"overlapping rows":       {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "2026-10-01T00:00:00Z"), row(r, "2026-09-30T00:00:00Z", ""))}},
-		"state without key":      {State: []*modelv1alpha1.StateEntry{{}}},
-		"merge of one":           {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
-		"unmerge of one alias":   {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
-		"unmerge of no subject":  {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"merge without a rule":       {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}}}},
+		"alias twice":                {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "")), bind("github:team/acme/x", row(p, "", ""))}},
+		"state key twice":            {State: []*modelv1alpha1.StateEntry{{Key: "k", Value: val}, {Key: "k"}}},
+		"empty binding interval":     {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"))}},
+		"no event ID":                {},
+		"unregistered kind":          {Mints: []*modelv1alpha1.Mint{mint("new:x", "Widget")}},
+		"split mint rule":            {Mints: []*modelv1alpha1.Mint{{Ref: "new:x", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_SPLIT}}},
+		"ref without prefix":         {Mints: []*modelv1alpha1.Mint{mint("x", "Team")}},
+		"unknown ref":                {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("new:x", "", ""))}},
+		"unknown subject":            {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row("0192b1c4-0000-7000-8000-000000000000", "", ""))}},
+		"bad alias":                  {Bindings: []*modelv1alpha1.BindingTimeline{bind("not a key", row(p, "", ""))}},
+		"alias mismatch":             {Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "github:team/acme/x", Bindings: []*modelv1alpha1.Binding{{Alias: "github:team/acme/y", SubjectId: p}}}}},
+		"overlapping rows":           {Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", row(p, "", "2026-10-01T00:00:00Z"), row(r, "2026-09-30T00:00:00Z", ""))}},
+		"empty interval":             {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), span(asserted, 1, "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"))}},
+		"bad object":                 {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", &modelv1alpha1.FactObject{}, span(asserted, 1, "", ""))}},
+		"support without source":     {Supports: []*modelv1alpha1.SupportTimeline{supports("", r, "name", str("a"))}},
+		"zero confidence":            {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 0, "", ""))}},
+		"other source":               {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("t", 1, "", ""))}},
+		"support twice":              {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 1, "", "")), supports("s", r, "name", str("a"), version("s", 1, "", ""))}},
+		"fact twice":                 {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), span(asserted, 1, "", "")), fact(r, "name", str("a"), span(asserted, 1, "", ""))}},
+		"unknown ref in a fact":      {Facts: []*modelv1alpha1.FactTimeline{fact("new:x", "name", str("a"), span(asserted, 1, "", ""))}},
+		"unknown object ref":         {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "owned_by", ref("new:x"), version("s", 1, "", ""))}},
+		"nil support version":        {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), nil)}},
+		"nil fact span":              {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), nil)}},
+		"span without status":        {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), &modelv1alpha1.FactSpan{StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE})}},
+		"span confidence too big":    {Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str("a"), span(asserted, 1_000_001, "", ""))}},
+		"support confidence too big": {Supports: []*modelv1alpha1.SupportTimeline{supports("s", r, "name", str("a"), version("s", 1_000_001, "", ""))}},
+		"invalid UTF-8":              {State: []*modelv1alpha1.StateEntry{{Key: "k\xff", Value: val}}},
+		"state without key":          {State: []*modelv1alpha1.StateEntry{{}}},
+		"merge of one":               {Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p}}}},
+		"unmerge of one alias":       {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
+		"unmerge of no subject":      {Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: "nope", Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}},
 	} {
 		if name != "no event ID" {
 			cs.EventId = "bad/" + name
@@ -752,6 +781,10 @@ func dump(t *testing.T, s contracts.GraphStore, ids []string, v, r time.Time) st
 		}
 		b.WriteString(prototext.MarshalOptions{}.Format(m) + "\n")
 	}
+	states, err := s.AsOf(ctx, contracts.FactFilter{}, v, r)
+	for _, st := range states {
+		add(st, err)
+	}
 	for _, id := range ids {
 		add(s.Subject(ctx, contracts.SubjectID(id), r))
 		merges, err := s.Merges(ctx, contracts.SubjectID(id), r)
@@ -767,6 +800,10 @@ func dump(t *testing.T, s contracts.GraphStore, ids []string, v, r time.Time) st
 	}(), r)
 	for _, bd := range bindings {
 		add(bd, err)
+	}
+	sups, err := s.Supports(ctx, contracts.SupportFilter{}, r)
+	for _, sp := range sups {
+		add(sp, err)
 	}
 	st, err := s.State(ctx, []string{"k"}, r)
 	add(st["k"], err)
@@ -784,12 +821,16 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 	for i, cs := range []*modelv1alpha1.ChangeSet{
 		{
 			Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")}, Bindings: []*modelv1alpha1.BindingTimeline{bind("authentik:group/G", row("new:g", "", ""))},
-			State: []*modelv1alpha1.StateEntry{{Key: "k", Value: val}},
+			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", ""))},
+			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
+			State:    []*modelv1alpha1.StateEntry{{Key: "k", Value: val}},
 		},
 		{Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{l, p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_SCORE, ConfidencePpm: 900_000}}},
 		{
 			Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_l"}, Ref: "new:l"}},
 			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/payments-api", row(r, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
+			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
+			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
 			State:    []*modelv1alpha1.StateEntry{{Key: "k"}},
 		},
 		{
@@ -815,7 +856,7 @@ func (g *suite) backup(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored, clk2 := g.store(t)
-	clk2.Set(clk.Now())
+	clk2.Set(clk.Now().Add(-time.Hour)) // a restoring clock behind the backup's records
 	if err := restored.Restore(ctx, bytes.NewReader(buf.Bytes())); err != nil {
 		t.Fatal(err)
 	}
@@ -900,6 +941,8 @@ func (g *suite) damaged(t *testing.T) {
 		"bad checksum":                    badSum,
 		"data after the trailer":          append(slices.Clone(good), "\x05junk"...),
 		"empty":                           nil,
+		"no taken_at":                     reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.TakenAt = nil }, 0),
+		"a record after taken_at":         reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.TakenAt = timestamppb.New(h.Head.AsTime().Add(-time.Second)) }, 0),
 		"a header claiming a later head":  reframe(t, good, func(h *modelv1alpha1.BackupHeader) { h.Head.Seconds++ }, 0),
 	} {
 		empty, clk2 := g.store(t)
@@ -917,5 +960,79 @@ func (g *suite) damaged(t *testing.T) {
 	clk2.Set(clk.Now())
 	if err := ok.Restore(ctx, bytes.NewReader(reframe(t, good, nil, 0))); err != nil {
 		t.Fatalf("restore of an undamaged copy: %v", err)
+	}
+}
+
+func (g *suite) order(t *testing.T) {
+	// Two independent events after one seed, applied in both orders, give
+	// the same valid-time state; record times may differ.
+	var dumps []string
+	for _, flip := range []bool{false, true} {
+		s, _ := g.store(t)
+		r, p, l := seed(t, s)
+		x := &modelv1alpha1.ChangeSet{
+			EventId:  "x",
+			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/payments", row(p, "2026-09-28T01:30:00Z", "2026-10-02T09:00:00Z"))},
+			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", ""))},
+			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
+		}
+		y := &modelv1alpha1.ChangeSet{
+			EventId:  "y",
+			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/platform", row(l, "2026-10-01T00:00:00Z", ""))},
+			Supports: []*modelv1alpha1.SupportTimeline{supports("catalog-acme", r, "owned_by", ref(l), version("catalog-acme", 600_000, "2026-10-01T00:00:00Z", ""))},
+			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(l), span(candidate, 600_000, "2026-10-01T00:00:00Z", ""))},
+		}
+		if flip {
+			x, y = y, x
+		}
+		apply(t, s, x)
+		apply(t, s, y)
+		var buf bytes.Buffer
+		if err := s.Backup(ctx, &buf); err != nil {
+			t.Fatal(err)
+		}
+		restored, _ := g.store(t)
+		if err := restored.Restore(ctx, &buf); err != nil {
+			t.Fatal(err)
+		}
+		var d []string
+		for _, v := range []string{"2026-09-30T00:00:00Z", "2026-10-03T00:00:00Z"} {
+			for _, k := range []model.Key{"github:team/acme/payments", "github:team/acme/platform"} {
+				sub, _ := restored.ResolveKey(ctx, k, at(v), time.Time{})
+				d = append(d, fmt.Sprintf("%s %s %s", v, k, sub.GetSubjectId()))
+			}
+			d = append(d, asOf(t, restored, contracts.FactFilter{}, at(v), time.Time{})...)
+		}
+		dumps = append(dumps, strings.NewReplacer(r, "R", p, "P", l, "L").Replace(strings.Join(d, "\n")))
+	}
+	if dumps[0] != dumps[1] || !strings.Contains(dumps[0], "P") {
+		t.Fatalf("got\n%s\nand\n%s, want the same state", dumps[0], dumps[1])
+	}
+}
+
+// A ChangeSet whose strings aren't UTF-8 can't be marshaled into a backup,
+// so Apply refuses it; a store that took it could never be backed up again.
+func (g *suite) unwritable(t *testing.T) {
+	s, _ := g.store(t)
+	seed(t, s)
+	val, _ := anypb.New(wrapperspb.String("v"))
+	for name, cs := range map[string]*modelv1alpha1.ChangeSet{
+		"event ID":  {EventId: "bad\xff"},
+		"state key": {EventId: "e", State: []*modelv1alpha1.StateEntry{{Key: "k\xff", Value: val}}},
+		"ref":       {EventId: "e", Mints: []*modelv1alpha1.Mint{mint("new:\xff", "Team")}},
+	} {
+		res, err := tryApply(s, cs)
+		if err == nil || len(res.Subjects) != 0 {
+			t.Errorf("%s: got %v, %v, want an error and a zero result", name, res, err)
+		}
+	}
+	var buf bytes.Buffer
+	if err := s.Backup(ctx, &buf); err != nil {
+		t.Fatalf("backup after refused applies: %v", err)
+	}
+	restored, clk := g.store(t)
+	clk.Set(at("2026-09-28T01:30:02Z"))
+	if err := restored.Restore(ctx, &buf); err != nil {
+		t.Fatalf("restore: %v", err)
 	}
 }
