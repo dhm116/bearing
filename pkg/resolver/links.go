@@ -27,8 +27,8 @@ type linkTarget struct {
 // apart from becoming one: subjects that hold different `id` aliases of one
 // key type in one namespace never merge. Targets that the guard excludes from
 // each other are evidence for neither, so none of them merges; across applies
-// the first merge stands. The conflict records that flag such a pair come
-// with the next part.
+// the first merge stands. The pairs the guard keeps apart are listed as
+// id_conflict issues (issues.go).
 //
 // Evidence is judged when the observation that carries the link is applied.
 // A merge is never undone by evidence ending, so a later complete linked_ids
@@ -38,32 +38,53 @@ func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
 		targets[i].subject = u.g.mustCanon(ctx, targets[i].subject)
 	}
 	for _, t := range targets {
-		clash := false
+		var inClash []keyRef
 		for _, o := range targets {
 			if o.subject == t.subject {
 				continue
 			}
-			held, err := u.holdDifferentIDs(ctx, t.subject, o.subject)
+			clashing, err := u.clashingIDs(ctx, t.subject, o.subject)
 			if err != nil {
 				return err
 			}
-			clash = clash || held
+			if len(clashing) > 0 {
+				inClash = append(inClash, clashing...)
+				u.flag(t.subject, o.subject, clashing, t.key)
+			}
 		}
 		chosen := u.g.mustCanon(ctx, u.chosen)
-		if clash || chosen == u.g.mustCanon(ctx, t.subject) {
+		if chosen == u.g.mustCanon(ctx, t.subject) {
 			continue
 		}
-		held, err := u.holdDifferentIDs(ctx, chosen, t.subject)
+		clashing, err := u.clashingIDs(ctx, chosen, t.subject)
 		if err != nil {
 			return err
 		}
-		if held {
+		if len(clashing) > 0 {
+			u.flag(chosen, t.subject, clashing, t.key)
+		}
+		if len(clashing) > 0 {
+			continue
+		}
+		if len(inClash) > 0 {
+			// The entity has links to subjects the guard keeps apart; none of
+			// them merges and each pair with the entity is flagged.
+			u.flag(chosen, t.subject, inClash, t.key)
 			continue
 		}
 		u.merge(chosen, t.subject, modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE)
 		u.merges[len(u.merges)-1].Evidence = []*modelv1alpha1.Support{u.linkEvidence(t.key)}
 	}
 	return nil
+}
+
+// flag records a pair the guard keeps apart, for the id_conflict issue.
+func (u *run) flag(a, b string, clashing []keyRef, link keyRef) {
+	c := idConflict{a: a, b: b, support: u.linkEvidence(link)}
+	for _, k := range clashing {
+		c.aliases = append(c.aliases, k.key)
+	}
+	u.idConflicts = append(u.idConflicts, c)
 }
 
 // linkEvidence is the support of the identity evidence an authoritative link
@@ -81,25 +102,26 @@ func (u *run) linkEvidence(k keyRef) *modelv1alpha1.Support {
 	}
 }
 
-// holdDifferentIDs reports whether two subjects hold different `id` aliases
-// of one key type in one namespace: the merge guard.
-func (u *run) holdDifferentIDs(ctx context.Context, a, b string) (bool, error) {
+// clashingIDs returns the `id` aliases that make the merge guard keep two
+// subjects apart: those of one key type in one namespace that differ.
+func (u *run) clashingIDs(ctx context.Context, a, b string) ([]keyRef, error) {
 	ha, err := u.heldIDs(ctx, a)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	hb, err := u.heldIDs(ctx, b)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	var out []keyRef
 	for _, x := range ha {
 		for _, y := range hb {
 			if x.groupKey() == y.groupKey() && x.key != y.key {
-				return true, nil
+				out = append(out, x, y)
 			}
 		}
 	}
-	return false, nil
+	return out, nil
 }
 
 // heldIDs returns the `id` aliases a canonical subject holds, counting the

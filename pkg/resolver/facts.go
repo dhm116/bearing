@@ -90,6 +90,9 @@ type factRun struct {
 	retired map[string]*modelv1alpha1.SupportTimeline
 	groups  map[string]map[string]*groupFact
 	stored  map[string][]*modelv1alpha1.SupportTimeline
+	// existsChanged are the subjects whose live exists times the ChangeSet
+	// changes: their unobserved_object issues are recomputed.
+	existsChanged map[string]bool
 }
 
 func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
@@ -98,6 +101,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 		series: map[string]*seriesEntry{}, marks: map[string]*wmEntry{}, touched: map[string]affected{},
 		out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
 		groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
+		existsChanged: map[string]bool{},
 	}
 }
 

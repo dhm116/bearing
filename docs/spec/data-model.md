@@ -1133,7 +1133,7 @@ their `source` and `evidence`:
 | `issue` | Listed when |
 | --- | --- |
 | `unobserved_object` | An object referenced by live relation supports that has no live `exists` support: for relations with a conflict policy (it fails step 5), or a placeholder referenced by any relation (typically a misspelled team in CODEOWNERS, including path-only files). Placeholders minted only by `linked_ids` are not listed. |
-| `id_conflict` | A `same_as` the [merge guard](#merge) excludes (step 4c). |
+| `id_conflict` | A `same_as`, or an authoritative link, that the [merge guard](#merge) excludes (step 4c). The issue names the pair and the clashing `id` aliases and covers all valid time. |
 
 A placeholder never counts as an owner: it fails step 5 of
 [Status](#status) for predicates with a conflict policy. Relations with
