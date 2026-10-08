@@ -1165,6 +1165,7 @@ applies.
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset) |
 | `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
+| `too_large` | observation | The ChangeSet the observation needs is over the store's count limits ([contracts](contracts.md#graphstore)) even after versions were compacted, for example more than 50,000 supports. The event applies as processed and changes nothing; the reason names the limit and the counts |
 
 ## Wire mapping
 

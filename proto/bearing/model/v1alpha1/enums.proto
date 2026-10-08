@@ -288,4 +288,7 @@ enum RejectionCode {
   // A required field is missing or not well formed (an unparsable key, a
   // missing entity). The spec's list has no code for structural errors.
   REJECTION_CODE_MALFORMED = 15;
+  // A ChangeSet over the store's count limits even after the resolver
+  // compacted what it could (contracts.CheckChangeSetLimits).
+  REJECTION_CODE_TOO_LARGE = 16;
 }
