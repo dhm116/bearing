@@ -1,9 +1,10 @@
 # Bearing specification
 
-Version 0.2 (draft). 0.2 rewrites the [data model](data-model.md) around
-stable subjects and facts over time; see its "Changes in this revision".
-[Contracts](contracts.md) and the [adapter protocol](adapter-protocol.md)
-still describe 0.1 and are updated when the data model is implemented.
+Version 0.3 (draft). 0.3 builds on 0.2's stable subjects and facts over
+time; see the [data model](data-model.md)'s "Changes in this revision". The
+[contracts](contracts.md) follow 0.3. The [adapter protocol](adapter-protocol.md)
+still describes the stdio scaffold (protocol 0.2) until the Protobuf adapter
+service replaces it.
 
 The specification is the product. Code in this repository implements it, but
 anyone should be able to write an adapter or a backend from these documents

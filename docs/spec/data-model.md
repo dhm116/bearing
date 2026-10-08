@@ -1399,57 +1399,18 @@ ProtoJSON names on the wire and in configuration (no hand-written codecs,
 ADR 6); short forms appear in prose, in `fact_id` and in the CLI's output
 for people.
 
-## Follow-ups
+## Still to build
 
-To do once this is approved, in the first implementation. The scaffold
-artifacts are replaced, not migrated:
+Parts of this model that nothing implements yet:
 
-- `proto/bearing/model/`: the data model, events and declarations as
-  Protobuf, with JSON Schema generated from it. Declarations are fields of
-  `DescribeResponse` in `proto/bearing/adapter/v1alpha1` (issue #11).
-  Packages are `v1alpha1` until the MVP closes, then `v1` (ADR 6).
-- Delete `schema/observation.v1.schema.json`, the hand-written types in
-  `pkg/model`, `testdata/observations.ndjson` and the `bearing validate`
-  command (and its row in `AGENTS.md`'s commands table); replace them with
-  generated types plus small helpers (key parsing, `fact_id`) and new
-  example observations that follow this spec.
-- The default configuration: match weights per kind and method, the `link`
-  weight, the `Team` merge threshold, the `codeowners` rule's ppm per shape.
-- `adapters/github`: the reference declaration, sent in `Describe` once the
-  adapter service exists (issue #35). The rest is done: node IDs as keys
-  with the `X-Github-Next-Global-ID: 1` header, names as aliases,
-  `full_name`; the effective CODEOWNERS file as `approves_changes` with line
-  qualifiers, `codeowners_rules` and snapshot scopes; `null` and `[]` for
-  empty attributes; GraphQL cursor paging with `complete_sync`; direct team
-  members only, listed on the team's own observation together with its
-  direct child teams (`member_of` from the child), under one `in` scope;
-  `observed_at` per the rules above. A CODEOWNERS file GitHub returns
-  without its text (binary or truncated) declares no scope. SAML identities (`links`) wait for the people matching that
-  needs them.
-- `pkg/adapter`: the declaration shape in `Describe`, `complete_sync` on
-  the last page, the source `namespace`, `issues` and `links` fields; bump
-  `adapter.ProtocolVersion`. Reconcile with ADR 9 and PR #26, which retire
-  the stdio transport for a Protobuf adapter service.
-- `docs/spec/contracts.md` and `pkg/contracts`: entities become subjects;
-  `GraphStore` gains resolution, merge, un-merge, `Apply`, `as_of`,
-  `changes`, `data_quality` and conflicts; vector points re-point on merge;
-  `EventBus` superseded by ADR 7's `EventLog`, with a home for the new event
-  types; conformance tests and shared test vectors for every rule here,
-  a backup-and-restore conformance test for primary state,
-  including apply-order independence and merge-trigger order.
-- ADR 7: partition key (`(source, key)` vs subject), event IDs that include
-  the source, and the new event types (manual operations,
+- The Protobuf adapter service (`Describe`, `Sync`, `Handle`), with the
+  declarations as fields of `DescribeResponse`, `complete_sync` on the last
+  `Sync` page, and the Unix-socket transport for local-process adapters
+  (issue #35). Until then the stdio scaffold carries the same data and the
+  adapter protocol stays at version 0.2. SAML identities (`links`) wait for
+  the people matching that needs them.
+- The durable event log, with its new event types (manual operations,
   `ValidTimeBoundaryReached`, derived deletions, compaction, and a
-  declaration change when a source's adapter is upgraded).
-- ADR 8: reconcile its "what gets recorded" list and retention with
-  [Audit](#audit) and [Retention and compaction](#retention-and-compaction).
-- ADR 10: `namespace`, `issues` (with `key_classes`), `links`, `authority`,
-  `confidence_groups`, match weights, merge policies, derivation rules and
-  the `Retention` resource's tiers as configuration; reconcile its settings
-  descriptor in `Describe` with `config_schema`.
-- `docs/telemetry.md`: spans and metrics for apply, matching, merges,
-  conflicts and compaction.
-- Issue #27: the apply-clock load benchmark against SurrealDB.
-- `AGENTS.md`, `README.md` and the `new-adapter` skill: declarations, keys,
-  aliases, snapshots and the "send `null` for empty" rule in the adapter
-  checklist.
+  declaration change when a source's adapter is upgraded), replacing the
+  `EventBus` contract.
+- The apply-clock load benchmark against SurrealDB (issue #27).
