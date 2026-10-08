@@ -647,13 +647,18 @@ Assets: A1, A3, A4, A5, A6.
   store URL that contains a password is rejected at start. Store errors
   name a server only by scheme and host, never its path or query.
 - **C-STORE-2** Bearing connects as a database-scoped user, never root or a
-  namespace user.
+  namespace user. `surrealstore.Provision` creates that user (EDITOR on one
+  database) and a store URL with `?auth=database` signs in as it; CI runs
+  the SurrealDB suites that way. Until the compose deployment provisions the
+  user, `auth=root` stays the default for development.
 - **C-STORE-3** The compose deployment generates a random SurrealDB password
   on first start into a secrets file (mode 0600), passes it as a Docker
   secret, and does not publish the SurrealDB port. The store secret is
   mounted outside the Source secrets directory.
 - **C-STORE-4** SurrealDB runs with network access from functions and
-  embedded scripting denied, and with guest access off.
+  embedded scripting denied, and with guest access off (`--deny-net
+  --deny-scripting --deny-guests`). The CI server runs that way, and a test
+  checks that a scoped user cannot reach another database.
 - **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
   driver forces inlining (the embedded driver's arrays of objects, ADR 5),
   one escaping function does it, covered by fuzz tests.
