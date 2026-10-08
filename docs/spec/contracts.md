@@ -105,7 +105,7 @@ so every backend refuses the same `ChangeSet`s:
 | --- | --- | --- |
 | `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts, conflicts, issues and state |
 | `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
-| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions, objects, subjects and supports of one conflict or issue |
+| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions of one conflict, objects of one position, subjects, aliases and supports of one issue |
 
 The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
 thousands of rows, or thousands of merges, costs a naive store time
@@ -236,9 +236,9 @@ References are to sections of the [data model](data-model.md).
 
 Every read takes a record time and returns what was recorded at or before
 it; `ResolveKey`, `AsOf`, `Conflicts` and `DataQuality` also take a valid
-time, and `Changes` compares two points on the valid or the record axis. A zero time means now,
-for either point of `Changes` too. Subject IDs in answers are canonical as of
-the record time, except where a method returns rows as written (`Bindings`,
+time, and `Changes` compares two points on the valid or the record axis. A
+zero time means now, for either point of `Changes` too. Subject IDs in
+answers are canonical as of the record time, except where a method returns rows as written (`Bindings`,
 `Supports`). The resolver reads the head with `Head`, reads at that record
 time, and sets `base_recorded_at` to it, so its reads are a consistent
 snapshot.
@@ -267,21 +267,32 @@ every time and in every backend:
   everything.
 - `Conflicts` returns the conflicts covering the valid time, ordered by
   canonical subject ID, predicate, then the key of the timeline as written
-  (subject ID as written). Timelines written under different subjects can
+  (subject ID as written). An empty subject or predicate matches anything;
+  a subject is canonicalized before it is matched, so a merged-away ID
+  finds the survivor's conflicts. A conflict stays queryable after its
+  `resolution` is set. Timelines written under different subjects can
   canonicalize to one (subject, predicate) after a merge; each still
-  answers. Objects in a position that a merge makes equal are named once,
-  keeping the first.
+  answers, so the resolver MUST retract or rewrite the merged-away
+  subject's timeline in the `ChangeSet` that records the merge, or a caller
+  sees the stale conflict beside the new one. Objects in a position that a
+  merge makes equal are named once, keeping the first.
 - `DataQuality` returns the issues covering the valid time, ordered by the
   key of their timeline. Subject IDs are canonical, and a subject that
   several merged subjects canonicalize to is named once. An `IssueFilter`
-  with an unspecified or unknown issue type is an error. `Kinds` matches an
-  issue naming a subject of one of those kinds, `Sources` one with a support
-  from one of those sources.
+  with an unspecified or unknown issue type is an error. Its fields combine
+  with AND, and a value within a field with OR; an empty field matches
+  anything. `Types` matches issues of one of those types, `Kinds` an issue
+  naming a subject of one of those kinds, `Sources` one with a support from
+  one of those sources.
+- A conflict or issue span covers the half-open interval from `valid_from`
+  to `valid_to`, as every timeline row does.
 - What `Apply` accepts: a conflict timeline needs a subject and a predicate,
   none twice in a `ChangeSet`; each conflict in it is for that subject and
   predicate, with at least one position, each with a `source_system` and
   valid objects. An issue timeline needs a key, none twice; each span needs
-  a known issue type, and each support in it a source.
+  a known issue type, and each support in it a source. Nothing else in a
+  conflict or issue is validated: a position's `authority` and a support's
+  `confidence_ppm` are kept as written.
 
 ## Rules that apply to every component
 

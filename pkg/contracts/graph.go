@@ -75,7 +75,8 @@ type IssueFilter struct {
 	Kinds []string
 	// Sources matches issues with a support from one of these sources.
 	Sources []string
-	Issues  []modelv1alpha1.IssueType
+	// Types matches issues of one of these types.
+	Types []modelv1alpha1.IssueType
 }
 
 // GraphStore holds Bearing's state bitemporally: the identity store
@@ -135,7 +136,8 @@ type GraphStore interface {
 	// An unknown axis or an invalid filter object is an error.
 	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
 	// Conflicts returns the conflicts on (subject, predicate) at validAt as
-	// recorded at recordedAt. Empty arguments match anything.
+	// recorded at recordedAt. An empty subject or predicate matches anything;
+	// a zero time is now.
 	Conflicts(ctx context.Context, subject SubjectID, predicate string, validAt, recordedAt time.Time) ([]*modelv1alpha1.Conflict, error)
 	// DataQuality returns the issues matching f at validAt as recorded at
 	// recordedAt (docs/spec/data-model.md, "Data quality").

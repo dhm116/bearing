@@ -228,9 +228,17 @@ func (g *graphStore) Changes(ctx context.Context, f contracts.FactFilter, t1, t2
 	return out, err
 }
 
+// subjectAttr tags a read with the subject it asks about, if any.
+func subjectAttr(id contracts.SubjectID) []attribute.KeyValue {
+	if id == "" {
+		return nil
+	}
+	return []attribute.KeyValue{attrSubject.String(string(id))}
+}
+
 // Conflicts implements contracts.GraphStore.
 func (g *graphStore) Conflicts(ctx context.Context, subject contracts.SubjectID, predicate string, validAt, recordedAt time.Time) (out []*modelv1alpha1.Conflict, err error) {
-	err = g.observe(ctx, "conflicts", nil, func(ctx context.Context) error {
+	err = g.observe(ctx, "conflicts", subjectAttr(subject), func(ctx context.Context) error {
 		out, err = g.next.Conflicts(ctx, subject, predicate, validAt, recordedAt)
 		count(ctx, out)
 		return err

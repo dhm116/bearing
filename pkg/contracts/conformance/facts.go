@@ -700,11 +700,11 @@ func (g *suite) limits(t *testing.T) {
 			case "conflict timelines":
 				ok = len(must(s.Conflicts(ctx, contracts.SubjectID(r), "", at("2026-10-03T00:00:00Z"), time.Time{}))) == c.n
 			case "issue timelines":
-				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Issues: []modelv1alpha1.IssueType{unobserved}}, time.Time{}, time.Time{}))) == c.n
+				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Types: []modelv1alpha1.IssueType{unobserved}}, time.Time{}, time.Time{}))) == c.n
 			case "conflict rows":
 				ok = len(must(s.Conflicts(ctx, contracts.SubjectID(r), "owned_by", hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
 			case "issue spans":
-				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Issues: []modelv1alpha1.IssueType{modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT}}, hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
+				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Types: []modelv1alpha1.IssueType{modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT}}, hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
 			case "binding rows":
 				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/long"}, nil, time.Time{}))) == c.n
 			case "support versions":

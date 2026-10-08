@@ -28,6 +28,7 @@ func TestCheckChangeSetLimits(t *testing.T) {
 		"position objects":   {&modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{{Conflicts: []*modelv1alpha1.Conflict{{Positions: []*modelv1alpha1.ConflictPosition{{Objects: make([]*modelv1alpha1.FactObject, n)}}}}}}}, "conflict position"},
 		"issue spans":        {&modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{{Key: "k", Spans: make([]*modelv1alpha1.IssueSpan, n)}}}, "issue timeline"},
 		"issue subjects":     {&modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{{Key: "k", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{SubjectIds: make([]string, n)}}}}}}, "issue"},
+		"issue aliases":      {&modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{{Key: "k", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{Aliases: make([]string, n)}}}}}}, "issue"},
 		"issue supports":     {&modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{{Key: "k", Spans: []*modelv1alpha1.IssueSpan{{Issue: &modelv1alpha1.DataQualityIssue{Supports: make([]*modelv1alpha1.Support, n)}}}}}}, "issue"},
 		"too much state":     {&modelv1alpha1.ChangeSet{State: make([]*modelv1alpha1.StateEntry, MaxChangeSetItems+1)}, "state"},
 		"binding rows":       {&modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{{Alias: "a", Bindings: make([]*modelv1alpha1.Binding, n)}}}, "binding timeline"},

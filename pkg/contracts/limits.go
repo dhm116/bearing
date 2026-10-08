@@ -29,8 +29,9 @@ const (
 	// merges in a store of 50,000 aliases take under a second.
 	MaxChangeSetMerges = 250
 	// MaxTimelineRows is the most rows in one timeline (a binding, support,
-	// fact, conflict or issue timeline), aliases in one un-merge, and the
-	// positions, objects, subjects and supports of one conflict or issue. A naive store compares old
+	// fact, conflict or issue timeline), aliases in one un-merge, the
+	// positions of one conflict, the objects of one position, and the
+	// subjects, aliases and supports of one issue. A naive store compares old
 	// and new rows pairwise, which at 1,000 rows costs about 0.5 s per
 	// timeline whose every row changes. The reference store matches rows
 	// by content: 400 full timelines, all changed, take about a second.

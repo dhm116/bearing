@@ -147,7 +147,7 @@ func (s *Store) canonicalObjects(objects []*modelv1alpha1.FactObject, r time.Tim
 
 // DataQuality implements contracts.GraphStore.
 func (s *Store) DataQuality(_ context.Context, f contracts.IssueFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.DataQualityIssue, error) {
-	for _, t := range f.Issues {
+	for _, t := range f.Types {
 		if t == modelv1alpha1.IssueType_ISSUE_TYPE_UNSPECIFIED || !validIssue(t) {
 			return nil, fmt.Errorf("filter: unknown issue type %d", t)
 		}
@@ -158,7 +158,7 @@ func (s *Store) DataQuality(_ context.Context, f contracts.IssueFilter, validAt,
 	var out []*modelv1alpha1.DataQualityIssue
 	for _, k := range sortedKeys(s.issues) {
 		sp, _ := covering(s.issues[k].at(r), v).(*modelv1alpha1.IssueSpan)
-		if sp == nil || len(f.Issues) > 0 && !slices.Contains(f.Issues, sp.GetIssue().GetIssue()) {
+		if sp == nil || len(f.Types) > 0 && !slices.Contains(f.Types, sp.GetIssue().GetIssue()) {
 			continue
 		}
 		issue := proto.CloneOf(sp.GetIssue())
