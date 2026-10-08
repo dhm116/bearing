@@ -539,7 +539,7 @@ Example (CloudEvents envelope fields `specversion`, `type`,
 | `entity.key` | Primary key; SHOULD be `id` class when the source has one. |
 | `entity.aliases` | More keys for the entity, only in the source's `namespace` or its `issues` namespaces. |
 | `entity.linked_ids` | Keys in the source's `links` namespaces that the source records for the entity, of key types in the kind's declared `links`. Identity evidence, never an alias. By itself the list only adds evidence; see `linked_ids_complete`. |
-| `entity.linked_ids_complete` | `true` when `linked_ids` is this source's complete set of links for the entity at `time`: evidence from this source for any link not listed ends at `time`, and an empty list ends all of it, so "read, and there are none" can be said. Default `false`: `linked_ids` adds evidence and ends none. A source MUST NOT set it unless it read the entity's full set of links (not after a failed, partial or paged read); a source that emits several observations for one entity sets it only on the one that read the links. If the core drops any entry of `linked_ids` ([Audit](#audit): claim-scoped rejections), the flag acts as `false` for that observation. Ending evidence never un-merges: a merge is only undone by an un-merge. |
+| `entity.linked_ids_complete` | `true` when `linked_ids` is this source's complete set of links for the entity at `time`: evidence from this source for any link not listed ends at `time`, and an empty list ends all of it, so "read, and there are none" can be said. Default `false`: `linked_ids` adds evidence and ends none. A source MUST NOT set it unless it read the entity's full set of links (not after a failed read, or one assembled from fewer than all of its pages); a source that emits several observations for one entity sets it only on the one that read the links. If the core drops any entry of `linked_ids` ([Audit](#audit): claim-scoped rejections), the flag acts as `false` for that observation. Ending evidence never un-merges: a merge is only undone by an un-merge. |
 | `entity.attributes` | Attribute claims. A value, an array (the complete set) or `null` (none). |
 | `entity.deleted` | The entity no longer exists in the source. |
 | `relations[]` | `type`; exactly one of `to` (entity is subject) or `from` (entity is object); `attributes` (qualifiers, not part of the fact); `absent`; optional `valid_from`, `valid_to`, `confidence_ppm`. |
@@ -646,7 +646,11 @@ than leaving stale ones. So when the core drops a claim
 predicate from the observation's scopes in the claim's direction (`out` for
 attributes and `to` relations, `in` for `from` relations), and a `["*"]` scope
 in that direction goes whole. Facts the source no longer lists are then left
-as they are. The same goes for `linked_ids_complete`: if any `linked_ids` entry is dropped, the observation's linked-id scope does not apply, and evidence for links it did not list is left as it is.
+as they are.
+
+The same goes for `linked_ids_complete`: if any `linked_ids` entry is
+dropped, the observation's linked-id scope does not apply, and evidence for
+links it did not list is left as it is.
 
 ### Sync completeness
 
