@@ -27,8 +27,12 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 		name string
 		n    int
 	}{
-		{"mints", len(cs.GetMints())}, {"bindings", len(cs.GetBindings())}, {"merges", len(cs.GetMerges())},
-		{"unmerges", len(cs.GetUnmerges())}, {"supports", len(cs.GetSupports())}, {"facts", len(cs.GetFacts())},
+		{"mints", len(cs.GetMints())},
+		{"bindings", len(cs.GetBindings())},
+		{"merges", len(cs.GetMerges())},
+		{"unmerges", len(cs.GetUnmerges())},
+		{"supports", len(cs.GetSupports())},
+		{"facts", len(cs.GetFacts())},
 		{"state", len(cs.GetState())},
 	} {
 		if l.n > MaxChangeSetItems {
