@@ -7,30 +7,31 @@ import (
 )
 
 // The count limits of a ChangeSet, beside MaxChangeSetBytes. The byte limit
-// alone does not bound the work: a store's replacement of one timeline is
-// quadratic in its rows, and each merge and un-merge reads the alias sets of
-// the subjects it names. Raising a limit is compatible; lowering one can
-// make an old backup unrestorable, so these are set low, from measurements
-// on the reference store (docs/spec/contracts.md, "GraphStore"). Every
-// dimension not listed is bounded by MaxChangeSetBytes alone.
+// alone leaves the shape open: one timeline of thousands of rows, or
+// thousands of merges, each of which a naive store handles in time
+// quadratic in its size. A backend is expected to apply a ChangeSet at
+// these limits in about a second, whatever else it holds, and the reference
+// store's tests hold it to that. Raising a limit is compatible; lowering
+// one can make an old backup unrestorable, so these are set low
+// (docs/spec/contracts.md, "GraphStore"). Every dimension not listed is
+// bounded by MaxChangeSetBytes alone.
 const (
 	// MaxChangeSetItems is the most entries in each of a ChangeSet's lists:
 	// mints, bindings, supports, facts and state.
 	//
-	// Work in the reference store is linear in the items: 8,000 single-row
-	// binding timelines apply in about 40 ms.
+	// In the reference store the work is linear in the items: 50,000
+	// single-row binding timelines apply in under a second.
 	MaxChangeSetItems = 50_000
 	// MaxChangeSetMerges is the most merges, and the most un-merges, in a
 	// ChangeSet. It is lower than MaxChangeSetItems because each one reads
 	// the alias sets of the subjects it names: in the reference store 250
-	// merges over 500 aliases take about 50 ms and 1,000 over 2,000 take
-	// about 1 s, growing with the square.
+	// merges in a store of 50,000 aliases take under a second.
 	MaxChangeSetMerges = 250
 	// MaxTimelineRows is the most rows in one timeline (a binding, support or
-	// fact timeline) and aliases in one un-merge. Replacing a timeline
-	// compares old and new rows pairwise: in the reference store a
-	// 1,000-row timeline whose every row changes takes about 0.5 s, so 100
-	// of them in one ChangeSet would take about 50 s.
+	// fact timeline) and aliases in one un-merge. A naive store compares old
+	// and new rows pairwise, which at 1,000 rows costs about 0.5 s per
+	// timeline whose every row changes. The reference store matches rows
+	// by content: 400 full timelines, all changed, take about a second.
 	MaxTimelineRows = 256
 )
 
@@ -59,8 +60,8 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 	}
 	over := func(name, of string, n int) error {
 		if n > MaxTimelineRows {
-			// of is input, so only the start of it is quoted.
-			return fmt.Errorf("%s of %.64q has %d entries, over the limit of %d", name, of, n, MaxTimelineRows)
+			// of is input, so only the first 64 bytes of it are quoted.
+			return fmt.Errorf("%s of %q has %d entries, over the limit of %d", name, of[:min(len(of), 64)], n, MaxTimelineRows)
 		}
 		return nil
 	}

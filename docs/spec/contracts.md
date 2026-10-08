@@ -105,15 +105,18 @@ so every backend refuses the same `ChangeSet`s:
 | `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
 | `MaxTimelineRows` | 256 | Rows in one binding, support or fact timeline; aliases in one un-merge |
 
-The byte limit alone doesn't bound the work: replacing a timeline compares
-old and new rows pairwise, and each merge reads the alias sets of its
-subjects. The values come from measurements on the reference store (see the
-comments on the constants), and are low because raising a limit is
-compatible, while lowering one can make an old backup unrestorable
-(`Restore` applies every record under the limits in force) and makes a
-redelivered old event fail instead of returning its original result. A merge
-has exactly two subjects. Everything else, such as `Merge.evidence`, the
-aliases of a subject and string lengths, is bounded by the byte limit alone.
+The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
+thousands of rows, or thousands of merges, costs a naive store time
+quadratic in its size, and a merge reads the alias sets of its subjects. A
+backend MUST apply a `ChangeSet` at the limits in about a second, whatever
+else it holds (the reference store's tests hold it to that), so it needs to
+match rows by content and find a subject's aliases without scanning every
+alias. The values are low because raising a limit is compatible, while
+lowering one can make an old backup unrestorable (`Restore` applies every
+record under the limits in force) and makes a redelivered old event fail
+instead of returning its original result. A merge has exactly two subjects.
+Everything else, such as `Merge.evidence`, the aliases of a subject and string
+lengths, is bounded by the byte limit alone.
 A failed `Apply` writes nothing and returns a zero result. A repeated event ID returns the original
 apply's result with `Duplicate` set, so a redelivery after a crash can
 still re-point vectors.

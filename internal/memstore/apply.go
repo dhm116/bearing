@@ -159,15 +159,20 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 				return res, fmt.Errorf("binding of %s in the timeline of %s", row.GetAlias(), b.GetAlias())
 			}
 			rows[i] = row
+			s.indexAlias(row.GetSubjectId(), b.GetAlias())
 		}
 		if err := s.write(&undo, s.bindings, b.GetAlias(), &modelv1alpha1.BindingTimeline{Alias: b.GetAlias()}, rows, r); err != nil {
 			return res, err
 		}
 	}
+	recorded := 0 // bytes of merge records so far: each carries two alias sets
 	for _, m := range cs.GetMerges() {
 		rec, err := s.merge(m, cs.GetEventId(), r)
 		if err != nil {
 			return res, err
+		}
+		if recorded += proto.Size(rec); recorded > contracts.MaxChangeSetBytes {
+			return res, fmt.Errorf("event %s: merge records are %d bytes, over the %d-byte limit", cs.GetEventId(), recorded, contracts.MaxChangeSetBytes)
 		}
 		undo = append(undo, s.addMerge(rec))
 		entry.Merges = append(entry.Merges, proto.CloneOf(rec))
@@ -263,8 +268,12 @@ func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map
 	if len(d) == 0 || len(d) >= len(held) {
 		return "", nil, fmt.Errorf("unmerge %s: want a non-empty proper subset of its %d aliases", a.GetSubjectId(), len(held))
 	}
+	heldSet := map[string]bool{}
+	for _, k := range held {
+		heldSet[k] = true
+	}
 	for _, k := range d {
-		if !slices.Contains(held, k) {
+		if !heldSet[k] {
 			return "", nil, fmt.Errorf("unmerge %s: alias %s is not one of its aliases", a.GetSubjectId(), k)
 		}
 	}
@@ -289,7 +298,7 @@ func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map
 func (s *Store) merge(m *modelv1alpha1.Merge, eventID string, r time.Time) (*modelv1alpha1.MergeRecord, error) {
 	ids := m.GetSubjectIds()
 	if len(ids) != 2 || ids[0] == ids[1] {
-		return nil, fmt.Errorf("merge: want two different subjects, got %v", ids)
+		return nil, fmt.Errorf("merge: want two different subjects, got %d IDs", len(ids))
 	}
 	if m.GetRule() == modelv1alpha1.MergeRule_MERGE_RULE_UNSPECIFIED {
 		return nil, fmt.Errorf("merge of %v: rule is required", ids)

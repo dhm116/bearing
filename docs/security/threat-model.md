@@ -685,6 +685,16 @@ Assets: A1, A3, A4, A5, A6.
   SHA-256. The SHA-256 catches corruption and truncation, not a forger who
   recomputes it or sets `taken_at`: the audited hash will let an operator
   compare the restored backup with the one they took.
+- **C-STORE-9** `GraphStore.Apply` refuses a ChangeSet over `MaxChangeSetBytes`
+  (by `proto.Size`) or over a count limit (`MaxChangeSetItems`,
+  `MaxChangeSetMerges`, `MaxTimelineRows`; `contracts.CheckChangeSetLimits`,
+  docs/spec/contracts.md) before it looks at any item or writes anything. A
+  backend MUST apply a ChangeSet at the limits in about a second, whatever
+  else it holds: the reference store's tests apply 250 merges to a store of
+  50,000 aliases and 400 full 256-row timelines, all changed, under a
+  five-second bound. A record that grows past the byte limit when recorded
+  is refused too. A limit error names the limit and quotes at most 64 bytes
+  of the input; other errors don't echo lists from the input.
 
 ### B7. Operators and configuration
 
@@ -703,13 +713,6 @@ Assets: A5, A2, A6, the container and host.
 | T-OPS-6 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
 | T-OPS-7 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
 
-- **C-STORE-9** `GraphStore.Apply` refuses a ChangeSet over `MaxChangeSetBytes`
-  (by `proto.Size`) or over a count limit (`MaxChangeSetItems`,
-  `MaxChangeSetMerges`, `MaxTimelineRows`; `contracts.CheckChangeSetLimits`,
-  docs/spec/contracts.md) before it looks at any item, takes any write or
-  does any work proportional to the input. A record that grows past the byte
-  limit when recorded is refused too. The error names the limit and quotes at
-  most 64 bytes of the input.
 - **C-OPS-1** Config apply validates types, validation rules (C-GEN-3), adapter
   settings and grants (ADR 10). `bearing diff` shows grant changes
   separately from other changes.

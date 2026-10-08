@@ -75,17 +75,52 @@ func (s *Store) canonical(id string, r time.Time) string {
 // aliasesOf returns, sorted, every alias with a row as recorded at r that
 // maps it to id after canonicalization.
 func (s *Store) aliasesOf(id string, r time.Time) []string {
-	var out []string
-	for alias, ser := range s.bindings {
-		for _, m := range ser.at(r) {
-			if b, _ := m.(*modelv1alpha1.Binding); b.GetSubjectId() != "" && s.canonical(b.GetSubjectId(), r) == id {
-				out = append(out, alias)
-				break
+	// The subjects that canonicalize to id: id and, through the merges
+	// recorded at r, the ones merged into it.
+	subjects := []string{id}
+	for i := 0; i < len(subjects); i++ {
+		for _, j := range s.survivorOf[subjects[i]] {
+			if m := s.merges[j]; mergeLive(m, r) {
+				subjects = append(subjects, m.GetMergedId())
 			}
 		}
 	}
-	slices.Sort(out)
-	return out
+	found := map[string]bool{}
+	for _, sub := range subjects {
+		for alias := range s.aliasesBy[sub] {
+			ser := s.bindings[alias]
+			if ser == nil { // indexed by an apply that was rolled back
+				continue
+			}
+			for _, m := range ser.at(r) {
+				if b, _ := m.(*modelv1alpha1.Binding); b.GetSubjectId() == sub {
+					found[alias] = true
+					break
+				}
+			}
+		}
+	}
+	return slices.Sorted(func(yield func(string) bool) {
+		for a := range found {
+			if !yield(a) {
+				return
+			}
+		}
+	})
+}
+
+// indexAlias records that alias has a row for subject, so aliasesOf looks at
+// the aliases of the subjects it names, not at every alias. The index only
+// grows (a rolled-back apply leaves entries behind), and aliasesOf checks
+// the rows themselves.
+func (s *Store) indexAlias(subject, alias string) {
+	if subject == "" {
+		return
+	}
+	if s.aliasesBy[subject] == nil {
+		s.aliasesBy[subject] = map[string]bool{}
+	}
+	s.aliasesBy[subject][alias] = true
 }
 
 // subjectAt returns id as recorded at r, with its status then.
@@ -166,8 +201,11 @@ func (s *Store) Merges(_ context.Context, id contracts.SubjectID, recordedAt tim
 	defer s.mu.RUnlock()
 	_, r := s.times(time.Time{}, recordedAt)
 	var out []*modelv1alpha1.MergeRecord
-	for _, m := range s.merges {
-		if (m.GetSurvivorId() == string(id) || m.GetMergedId() == string(id)) && !m.GetRecordedAt().AsTime().After(r) {
+	idx := slices.Concat(s.survivorOf[string(id)], s.mergedBy[string(id)])
+	slices.Sort(idx) // record order
+	for _, i := range idx {
+		m := s.merges[i]
+		if !m.GetRecordedAt().AsTime().After(r) {
 			m = proto.CloneOf(m)
 			if m.GetUnmergedAt() != nil && m.GetUnmergedAt().AsTime().After(r) {
 				m.UnmergedAt, m.UnmergeEventId = nil, ""
