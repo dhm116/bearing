@@ -53,6 +53,7 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 	}{
 		{"Apply mints subjects in increasing ID order", g.mints},
 		{"Apply writes each event once", g.idempotent},
+		{"State keys name subjects the ChangeSet mints", g.stateKeys},
 		{"recorded_at strictly increases", g.recordTime},
 		{"Apply fails as stale when the head moved", g.stale},
 		{"A failed Apply writes nothing", g.atomic},
@@ -261,6 +262,62 @@ func (g *suite) idempotent(t *testing.T) {
 	n := &wrapperspb.Int64Value{}
 	if err := st["k"].UnmarshalTo(n); err != nil || n.GetValue() != 1 {
 		t.Fatalf("got state %v, want the first delivery's value 1", st["k"])
+	}
+}
+
+// stateKeys: a ref standing alone between "/" in a state key becomes the
+// minted ID, so the resolver can key its entries by subjects it creates.
+func (g *suite) stateKeys(t *testing.T) {
+	s, _ := g.store(t)
+	val, _ := anypb.New(wrapperspb.Int64(7))
+	res := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "e1",
+		Mints:   []*modelv1alpha1.Mint{mint("new:a", "Team"), mint("new:b", "Person")},
+		State: []*modelv1alpha1.StateEntry{
+			{Key: "sup/src/new:a/member_of/new:b", Value: val},
+			{Key: "scope/src/new:b", Value: val},
+		},
+	})
+	a, b := string(res.Subjects["new:a"]), string(res.Subjects["new:b"])
+	keys := []string{"sup/src/" + a + "/member_of/" + b, "scope/src/" + b}
+	st, err := s.State(ctx, append(keys, "scope/src/new:b"), time.Time{})
+	if err != nil || len(st) != 2 {
+		t.Fatalf("got %v, %v, want the two entries under their substituted keys and none under the ref", st, err)
+	}
+	for _, k := range keys {
+		if st[k] == nil {
+			t.Errorf("no entry under %q", k)
+		}
+	}
+	// A ref the ChangeSet declares is replaced wherever a whole segment is it.
+	twice := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "e2", BaseRecordedAt: timestamppb.New(res.RecordedAt),
+		Mints: []*modelv1alpha1.Mint{mint("new:c", "Team")},
+		State: []*modelv1alpha1.StateEntry{{Key: "pair/new:c/new:c", Value: val}},
+	})
+	c := string(twice.Subjects["new:c"])
+	if st, _ := s.State(ctx, []string{"pair/" + c + "/" + c}, time.Time{}); len(st) != 1 {
+		t.Fatalf("got %v, want the entry under %s/%s", st, c, c)
+	}
+	// Any other segment that starts with "new:" fails the apply and writes
+	// nothing: an undeclared ref, or text that only looks like one.
+	for name, key := range map[string]string{
+		"undeclared ref": "scope/src/new:nope",
+		"ref prefix":     "scope/src/new:c-suffix",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := tryApply(s, &modelv1alpha1.ChangeSet{
+				EventId: "e3-" + name, BaseRecordedAt: timestamppb.New(twice.RecordedAt),
+				Mints: []*modelv1alpha1.Mint{mint("new:c", "Team")},
+				State: []*modelv1alpha1.StateEntry{{Key: key, Value: val}},
+			})
+			if err == nil {
+				t.Fatalf("applied state key %q", key)
+			}
+			if head, _ := s.Head(ctx); !head.Equal(twice.RecordedAt) {
+				t.Fatalf("got head %s after the refused apply, want %s", head, twice.RecordedAt)
+			}
+		})
 	}
 }
 

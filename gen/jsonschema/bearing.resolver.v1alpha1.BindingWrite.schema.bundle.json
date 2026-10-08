@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "bearing.resolver.v1alpha1.BindingWrite.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "BindingWrite is one observed write to an alias: a binding of the name to\n a subject from valid_from on, or its release.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject as written, or empty for a release without a redirect.",
+          "type": "string"
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Where the write starts in valid time, extending to infinity. Absent\n means all valid time (id aliases) or, with tentative, no start."
+        }
+      },
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
+          "description": "The write's ordering key."
+        },
+        "released": {
+          "default": false,
+          "description": "The name is released from valid_from on; subject_id, if set, is where\n it redirects.",
+          "type": "boolean"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject as written, or empty for a release without a redirect.",
+          "type": "string"
+        },
+        "tentative": {
+          "default": false,
+          "description": "Written by a reference when minting a placeholder.",
+          "type": "boolean"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Where the write starts in valid time, extending to infinity. Absent\n means all valid time (id aliases) or, with tentative, no start."
+        }
+      },
+      "title": "Binding Write",
+      "type": "object"
+    },
+    "bearing.resolver.v1alpha1.OrderingKey.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "OrderingKey is the key every write is compared by, left to right:\n (observed_at, observation_id, event_id, content_hash)\n (docs/spec/data-model.md, \"Ordering and idempotency\"). The strings compare\n by their UTF-8 bytes; pkg/model compares keys.",
+      "patternProperties": {
+        "^(contentHash)$": {
+          "default": "",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "type": "string"
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event that carried it, which includes the source.",
+          "type": "string"
+        },
+        "^(observationId)$": {
+          "default": "",
+          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "type": "string"
+        },
+        "^(observedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The write's observed_at."
+        }
+      },
+      "properties": {
+        "content_hash": {
+          "default": "",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "type": "string"
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event that carried it, which includes the source.",
+          "type": "string"
+        },
+        "observation_id": {
+          "default": "",
+          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "type": "string"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The write's observed_at."
+        }
+      },
+      "title": "Ordering Key",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.resolver.v1alpha1.BindingWrite.schema.bundle.json",
+  "$ref": "#/$defs/bearing.resolver.v1alpha1.BindingWrite.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

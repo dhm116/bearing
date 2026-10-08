@@ -175,7 +175,9 @@ message FactTimeline {
 // watermarks, sync progress and the like. It is primary state, backed up
 // with the graph, and versioned by record time like everything else.
 message StateEntry {
-  // The resolver's key.
+  // The resolver's key. Any segment between "/" that is a ref ("new:<label>")
+  // is replaced by the subject the ref names, so a key can name a subject
+  // the same ChangeSet creates.
   string key = 1;
   // The value; absent deletes the entry.
   google.protobuf.Any value = 2;

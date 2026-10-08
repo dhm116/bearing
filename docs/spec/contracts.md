@@ -7,7 +7,7 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses and the resolver's state, bitemporally; conflicts and data-quality issues to follow ([below](#graphstore)). The source of truth. | SurrealDB (from issue #44; in-memory until then) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses and the resolver's state, bitemporally; conflicts and data-quality issues to follow ([below](#graphstore)). The source of truth. | SurrealDB (PR #78; in-memory until it merges) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
@@ -40,8 +40,8 @@ In a vector index, a point's kind is its `kind` payload field, which
 `VectorQuery.Kinds` filters on. When subjects merge, the core calls
 `Repoint` to move the merged subject's points to the survivor.
 
-Until issue #44, the SurrealDB backend serves only `VectorIndex`: opening a
-SurrealDB URL as the graph fails with "not implemented until issue #44".
+Until PR #78 merges, the SurrealDB backend serves only `VectorIndex`: opening
+a SurrealDB URL as the graph fails with "not implemented until issue #44".
 Use `mem://` for the graph meanwhile.
 
 Beyond Go interfaces, components that run as separate services expose the
@@ -78,7 +78,7 @@ is one event's writes:
 | `facts` | Fact status timelines: status, reason and confidence per valid-time span. Valid times no span covers have status `none`. |
 | `merges` | Applied in order, each seeing the merges before it. Each needs a rule. |
 | `unmerges` | Each un-merge's target is resolved against the state before the `ChangeSet`, not after the un-merges listed before it, and two un-merges may not claim the same merge record or subject. An un-merge has a ref (`new:<label>`, required, unique among the `ChangeSet`'s mints and un-merges) for the subject its aliases move to. |
-| `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. |
+| `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
 
 Anywhere a subject ID appears in a `ChangeSet`, a ref may stand for a
 subject the same `ChangeSet` creates; the store substitutes the minted ID.
@@ -92,9 +92,9 @@ it is not bitemporal. Items apply in this order: mints, un-merge targets,
 bindings, merges, un-merges, supports, facts, state.
 
 A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
-`proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support is
-about 2 MiB, and the conformance suite keeps it under a quarter of the
-limit) is refused, as is one that grows past it when recorded, so
+`proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support and a
+state entry per fact is about 3.4 MiB, and the conformance suite keeps it
+under a quarter of the limit) is refused, as is one that grows past it when recorded, so
 every backup a store writes can be restored. So is one over a count limit,
 which `contracts.CheckChangeSetLimits` checks (before the duplicate lookup)
 so every backend refuses the same `ChangeSet`s:
@@ -138,6 +138,27 @@ the apply that minted them. After a restore the store seeds its ID source
 with the last restored ID, so if the clock is behind the restored data, new
 IDs carry that ID's timestamp: IDs stay strictly increasing and can drift
 from wall-clock time.
+
+#### State keys
+
+A state entry's key is opaque to the store, with one exception: the store
+splits it at `/` and replaces every segment that is exactly a ref declared
+in the `ChangeSet` (a mint's or an un-merge's) by the ID minted, as written.
+A segment that starts with `new:` and isn't a declared ref makes the
+`ChangeSet` invalid, as an unknown ref in a `subject_id` field does, and
+nothing is written. So the resolver can key what it remembers about a
+subject by the subject's ID in the event that creates it. The resolver MUST
+percent-encode `/` and `:` in any source-supplied text it puts in a key, so
+only a subject segment can be a ref.
+
+A state value is any `google.protobuf.Any`; the store keeps it as given and
+never looks inside. The resolver's are the messages in
+[`resolver/v1alpha1/state.proto`](../../proto/bearing/resolver/v1alpha1/state.proto),
+which are not part of the data model. A backup replays state entries
+verbatim, so those messages are part of the backup format: until the MVP
+closes they change only by adding fields, never by renumbering or reusing
+one, and they carry no version field. An entry is written in the same
+`ChangeSet` as the rows it describes, so the two never disagree.
 
 ### Backup
 
@@ -198,7 +219,7 @@ References are to sections of the [data model](data-model.md).
 | Backup and restore of primary state (ADR 11) | Store ([Backup](#backup)) |
 | Vector points re-pointed on merge | Core, through `VectorIndex.Repoint` |
 | Supports and fact statuses as timelines; reads that canonicalize subject, object and `fact_id` through merges; `last_confirmed_at` updated in place without a new version | Store (`Supports`, `AsOf`, `Changes`) |
-| Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, audit | Resolver, which writes the resulting support and fact timelines |
+| Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, audit | Resolver, which writes the resulting support and fact timelines. The ordering keys of writes, which the support rows don't carry, are the resolver's state ([State keys](#state-keys)). |
 | Conflicts and data-quality issues | Resolver; the store's part arrives in a later change |
 
 ### Reads
@@ -277,4 +298,4 @@ every time and in every backend:
 [`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
 and `VectorIndex` and shows the pattern.
 [`internal/surrealstore`](../../internal/surrealstore) passes the
-`VectorIndex` suite; its `GraphStore` arrives with issue #44.
+`VectorIndex` suite; its `GraphStore` lands in PR #78.
