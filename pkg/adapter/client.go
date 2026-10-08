@@ -201,36 +201,57 @@ type Syncer interface {
 
 // SyncSummary counts what SyncAll did with an adapter's observations.
 type SyncSummary struct {
-	Pages    int
-	Accepted int // observations passed to emit, rejected claims removed
-	// RejectedObservations were skipped whole; RejectedClaims were removed
-	// from accepted observations.
+	// Pages is how many sync pages the adapter returned.
+	Pages int
+	// Accepted is how many observations SyncAll passed to emit, with their
+	// rejected claims already removed.
+	Accepted int
+	// RejectedObservations were skipped whole: they failed validation, or
+	// could not be decoded at all.
 	RejectedObservations int
-	RejectedClaims       int
+	// RejectedClaims were removed from observations that were accepted.
+	RejectedClaims int
 }
+
+// Complete reports whether every observation the adapter sent was accepted
+// (perhaps without some claims). A sync that skipped observations has not
+// seen every entity it returned, so the core must not count it as complete
+// when it looks for entities that went missing (docs/spec/data-model.md,
+// "Sync completeness").
+func (s SyncSummary) Complete() bool { return s.RejectedObservations == 0 }
+
+// maxRejectionLogs is how many rejections SyncAll logs one by one in a sync;
+// the rest are only counted, so a broken adapter can't flood the log.
+const maxRejectionLogs = 20
 
 // screenObservation validates an observation from a sync
 // (model.ValidateAdapterObservation) and says whether to keep it. An
 // observation with only claim-scoped problems is kept without those claims;
 // any other failure rejects it whole. Either way the sync goes on, and the
-// rejection is counted and logged, so one bad observation doesn't discard a
-// whole sync. Times are truncated to microseconds only after validation, so
-// an invalid timestamp is rejected rather than repaired.
-func screenObservation(ctx context.Context, log *slog.Logger, adapterName string, o *eventv1alpha1.Observation) (keep bool, claims int) {
+// rejection is counted and, if warn is set, logged, so one bad observation
+// doesn't discard a whole sync. Times are truncated to microseconds only
+// after validation, so an invalid timestamp is rejected rather than
+// repaired.
+func screenObservation(ctx context.Context, log *slog.Logger, adapterName string, o *eventv1alpha1.Observation, warn bool) (keep bool, claims int) {
 	err := model.ValidateAdapterObservation(o)
 	if err == nil {
 		model.TruncateTimes(o)
 		return true, 0
 	}
+	id := model.Clip(o.GetId())
 	if n := model.DropRejectedClaims(o, err); n > 0 {
-		log.WarnContext(ctx, "adapter claims rejected", string(attrAdapter), adapterName,
-			"observation", o.GetId(), "claims", n, "reason", err.Error())
+		if warn {
+			log.WarnContext(ctx, "adapter claims rejected", string(attrAdapter), adapterName,
+				"observation", id, "claims", n, "reason", err.Error())
+		}
 		model.TruncateTimes(o)
 		return true, n
 	}
 	observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(adapterName)))
-	log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), adapterName,
-		"observation", o.GetId(), "reason", err.Error())
+	if warn {
+		log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), adapterName,
+			"observation", id, "reason", err.Error())
+	}
 	return false, 0
 }
 
@@ -238,9 +259,10 @@ func screenObservation(ctx context.Context, log *slog.Logger, adapterName string
 // (model.ValidateAdapterObservation), truncating its times to microseconds
 // and passing it to emit. An observation that fails validation is skipped,
 // or, if only some of its claims are rejected, passed on without them; the
-// summary counts both and the sync goes on. maxPages guards against adapters
-// that never finish. The whole sync runs in one span, with each page as a
-// child.
+// summary counts both and the sync goes on. An observation that can't be
+// decoded (an unknown field, say) counts as rejected too. maxPages guards
+// against adapters that never finish. The whole sync runs in one span, with
+// each page as a child.
 func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
@@ -275,8 +297,16 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 		}
 		sum.Pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
+		for _, why := range res.Undecodable {
+			observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
+			sum.RejectedObservations++
+			if sum.RejectedObservations+sum.RejectedClaims <= maxRejectionLogs {
+				log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), name, "reason", "malformed: "+why)
+			}
+		}
 		for _, o := range res.Observations {
-			keep, claims := screenObservation(ctx, log, name, o)
+			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
+			keep, claims := screenObservation(ctx, log, name, o, warn)
 			sum.RejectedClaims += claims
 			if !keep {
 				sum.RejectedObservations++

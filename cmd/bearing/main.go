@@ -168,7 +168,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	if err == nil && sum.RejectedObservations+sum.RejectedClaims > 0 {
 		// The valid observations are written; the exit status says the adapter
 		// is not clean, and the log names each rejection.
-		err = fmt.Errorf("adapter sent %d observations and %d claims the core rejects", sum.RejectedObservations, sum.RejectedClaims)
+		err = fmt.Errorf("rejected %d observation(s) and %d claim(s); see the log", sum.RejectedObservations, sum.RejectedClaims)
 	}
 	return err
 }

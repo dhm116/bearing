@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -262,10 +263,17 @@ func TestObservationsJSONRoundTrip(t *testing.T) {
 	if len(out.Observations) != 1 || !proto.Equal(out.Observations[0], in[0]) {
 		t.Fatalf("got %v, want %v", out.Observations, in)
 	}
-	for _, bad := range []string{`{"observations":{}}`, `{"observations":[{"nope":1}]}`} {
-		if err := json.Unmarshal([]byte(bad), &out); err == nil {
-			t.Errorf("decoding %s: got no error, want one", bad)
-		}
+	if err := json.Unmarshal([]byte(`{"observations":{}}`), &out); err == nil {
+		t.Error("decoding a non-array: got no error, want one")
+	}
+	// A sync page keeps going past an observation it can't decode; a
+	// delivery's result doesn't.
+	if err := json.Unmarshal([]byte(`{"observations":[{"nope":1}]}`), &out); err != nil || len(out.Observations) != 0 || len(out.Undecodable) != 1 {
+		t.Errorf("sync page: got %v, %+v; want it decoded with one undecodable", err, out)
+	}
+	var handled HandleResult
+	if err := json.Unmarshal([]byte(`{"observations":[{"nope":1}]}`), &handled); err == nil {
+		t.Error("delivery: got no error for an undecodable observation, want one")
 	}
 }
 
@@ -298,5 +306,67 @@ func TestClientHandleValidatesAndTruncates(t *testing.T) {
 	}
 	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
 		t.Fatalf("got nanos %d, want 123456000", got)
+	}
+}
+
+// TestSyncAllSkipsUndecodableObservationsOnTheWire sends a page over the real
+// client with an unknown field on the middle observation: the page and the
+// sync survive, and the summary counts it.
+func TestSyncAllSkipsUndecodableObservationsOnTheWire(t *testing.T) {
+	reqR, reqW := io.Pipe()
+	respR, respW := io.Pipe()
+	good := func(key string) string {
+		return `{"specversion":"1.0","id":"` + key + `","source":"adapter/raw","type":"dev.bearing.observation.v1","time":"1970-01-01T00:00:00Z",` +
+			`"data":{"entity":{"kind":"Team","key":"` + key + `"}}}`
+	}
+	go func() {
+		defer func() { _ = respW.Close() }()
+		sc := bufio.NewScanner(reqR)
+		for sc.Scan() {
+			var req struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if json.Unmarshal(sc.Bytes(), &req) != nil {
+				return
+			}
+			page := `{"observations":[` + good("test:team/a") + `,{"specversion":"1.0","traceparent":"` + strings.Repeat("x", 5000) + `"},` +
+				good("test:team/b") + `],"done":true}`
+			_, _ = io.WriteString(respW, `{"jsonrpc":"2.0","id":`+string(req.ID)+`,"result":`+page+"}\n")
+		}
+	}()
+	t.Cleanup(func() { _ = reqW.Close() })
+	c := NewClient("raw", respR, reqW)
+	var keys []string
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
+		keys = append(keys, o.GetData().GetEntity().GetKey())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(keys, []string{"test:team/a", "test:team/b"}) {
+		t.Fatalf("emitted %v, want the two decodable observations", keys)
+	}
+	if want := (SyncSummary{Pages: 1, Accepted: 2, RejectedObservations: 1}); sum != want || sum.Complete() {
+		t.Fatalf("got %+v (complete %v), want %+v and not complete", sum, sum.Complete(), want)
+	}
+	// The decode error carries the adapter's text, so it must be cut.
+	var res SyncResult
+	if err := json.Unmarshal([]byte(`{"observations":[{"traceparent":"`+strings.Repeat("x", 5000)+`"}]}`), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Undecodable) != 1 || len(res.Undecodable[0]) > 2*model.MaxQuoted {
+		t.Fatalf("got %d undecodable, first %d bytes; want one cut to about %d", len(res.Undecodable), len(res.Undecodable[0]), model.MaxQuoted)
+	}
+}
+
+func TestSyncSummaryCompleteIgnoresRejectedClaims(t *testing.T) {
+	c := connect(t, mixed{})
+	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	if err != nil || sum.Complete() {
+		t.Fatalf("got %+v (%v), want a sync that skipped observations to be incomplete", sum, err)
+	}
+	if !(SyncSummary{Pages: 1, Accepted: 3, RejectedClaims: 2}).Complete() {
+		t.Fatal("got incomplete for a sync that only lost claims, want complete: every entity was seen")
 	}
 }

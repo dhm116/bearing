@@ -18,14 +18,14 @@ import (
 // childEnv makes the test binary serve fakeAdapter on stdio instead of
 // running tests, so the CLI has a real adapter process to start. "serve"
 // exits 0 when stdin closes; "fail" serves the same way, then exits 1;
-// "reject" serves rejectingAdapter.
+// "reject" and "reject-claim" serve rejectingAdapter.
 const childEnv = "BEARING_CLI_TEST_ADAPTER"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(childEnv); mode != "" {
 		var a adapter.Adapter = fakeAdapter{}
-		if mode == "reject" {
-			a = rejectingAdapter{}
+		if mode == "reject" || mode == "reject-claim" {
+			a = rejectingAdapter{claimOnly: mode == "reject-claim"}
 		}
 		if err := adapter.ServeStdio(context.Background(), a); err != nil || mode == "fail" {
 			os.Exit(1)
@@ -53,14 +53,25 @@ func (fakeAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 	return adapter.HandleResult{}, adapter.ErrNotSupported
 }
 
-// rejectingAdapter emits fakeAdapter's Team and one whose key doesn't parse.
-type rejectingAdapter struct{ fakeAdapter }
+// rejectingAdapter emits fakeAdapter's Team and then a Team the core rejects:
+// one whose key doesn't parse (rejected whole), or with claimOnly, a relation
+// of an unregistered type (rejected claim only).
+type rejectingAdapter struct {
+	fakeAdapter
+	claimOnly bool
+}
 
 func (r rejectingAdapter) Sync(ctx context.Context, p adapter.SyncParams) (adapter.SyncResult, error) {
 	res, err := r.fakeAdapter.Sync(ctx, p)
 	bad := model.NewObservation("adapter/fake", time.Unix(0, 0), &modelv1alpha1.ObservationData{
 		Entity: &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "no key"},
 	})
+	if r.claimOnly {
+		bad = model.NewObservation("adapter/fake", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+			Entity:    &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: "test:team/other"},
+			Relations: []*modelv1alpha1.Relation{{Type: "likes", End: &modelv1alpha1.Relation_To{To: "test:team/x"}}},
+		})
+	}
 	res.Observations = append(res.Observations, bad)
 	return res, err
 }
@@ -153,10 +164,22 @@ func TestSyncWritesValidObservationsAndFailsOnRejections(t *testing.T) {
 	t.Setenv(childEnv, "reject")
 	var out bytes.Buffer
 	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, &out)
-	if err == nil || !strings.Contains(err.Error(), "1 observations and 0 claims") {
+	if err == nil || !strings.Contains(err.Error(), "rejected 1 observation(s) and 0 claim(s)") {
 		t.Fatalf("got %v, want an error counting the rejected observation", err)
 	}
 	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "test:team/payments") {
 		t.Fatalf("got %q, want only the valid observation written", out.String())
+	}
+}
+
+func TestSyncFailsWhenOnlyClaimsAreRejected(t *testing.T) {
+	t.Setenv(childEnv, "reject-claim")
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"adapter", "sync", "--", os.Args[0]}, &out)
+	if err == nil || !strings.Contains(err.Error(), "rejected 0 observation(s) and 1 claim(s)") {
+		t.Fatalf("got %v, want an error counting the rejected claim", err)
+	}
+	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 2 {
+		t.Fatalf("got %d observations written, want both (the second without its claim)", len(lines))
 	}
 }

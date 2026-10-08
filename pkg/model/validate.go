@@ -87,6 +87,10 @@ type claimRef struct {
 	field claimField
 	index int    // into relations or attribute_claims
 	name  string // of an entity attribute
+	// predicate and in say which snapshot scope would cover the claim: out
+	// for attributes and `to` relations, in for `from` relations.
+	predicate string
+	in        bool
 }
 
 type claimField int
@@ -323,6 +327,13 @@ func (c *checker) observation(o *eventv1alpha1.Observation) {
 // ValidateObservation or ValidateAdapterObservation, rejects with claim
 // scope, and returns how many it removed. It does nothing if err rejects the
 // whole observation or isn't a *ValidationError.
+//
+// A snapshot scope says the observation lists every fact in it, which is no
+// longer true of a scope covering a removed claim, and the core would end
+// the facts the claim should have kept alive. So DropRejectedClaims also
+// removes those predicates from the scopes (a "*" scope in the claim's
+// direction goes whole, and a scope left with no predicates goes too). Facts
+// the source stops listing are then left as they are, never ended.
 func DropRejectedClaims(o *eventv1alpha1.Observation, err error) int {
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Scope() != ScopeClaim {
@@ -342,10 +353,39 @@ func DropRejectedClaims(o *eventv1alpha1.Observation, err error) int {
 	}
 	d.Relations = filterIndex(d.GetRelations(), func(i int) bool { return !rels[i] })
 	d.AttributeClaims = filterIndex(d.GetAttributeClaims(), func(i int) bool { return !claims[i] })
+	d.Snapshots = uncoverSnapshots(d.GetSnapshots(), ve.claims)
 	return len(ve.claims)
 }
 
-// filterIndex returns the elements of s whose index passes keep, in order.
+// uncoverSnapshots returns the scopes without what covers the dropped claims.
+func uncoverSnapshots(scopes []*modelv1alpha1.SnapshotScope, dropped []claimRef) []*modelv1alpha1.SnapshotScope {
+	out := make([]*modelv1alpha1.SnapshotScope, 0, len(scopes))
+	for _, sc := range scopes {
+		in := sc.GetDirection() == modelv1alpha1.Direction_DIRECTION_IN
+		var preds []string
+		all := false
+		for _, p := range sc.GetPredicates() {
+			covers := false
+			for _, ref := range dropped {
+				if ref.in == in && (p == "*" || p == ref.predicate) {
+					covers = true
+					all = all || p == "*"
+				}
+			}
+			if !covers {
+				preds = append(preds, p)
+			}
+		}
+		if len(preds) > 0 && !all {
+			sc.Predicates = preds
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
+// filterIndex returns the elements of s whose index passes keep, in order. It
+// reuses s's storage.
 func filterIndex[T any](s []T, keep func(int) bool) []T {
 	out := s[:0]
 	for i, v := range s {
@@ -429,7 +469,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 		c.key(fmt.Sprintf("%s.linked_ids[%d]", ep, i), k)
 	}
 	for _, name := range sortedKeys(e.GetAttributes()) {
-		c.claim(claimRef{field: fieldAttribute, name: name}, func() {
+		c.claim(claimRef{field: fieldAttribute, name: name, predicate: name}, func() {
 			c.attribute(fmt.Sprintf("%s.attributes[%q]", ep, clip(name)), kind, name, e.GetAttributes()[name], true)
 		})
 	}
@@ -438,7 +478,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 	oneRels := map[string][]claim{}
 	for i, r := range d.GetRelations() {
 		rp := fmt.Sprintf("%s.relations[%d]", path, i)
-		if c.claim(claimRef{field: fieldRelation, index: i}, func() { c.relation(rp, kind, r) }) {
+		if c.claim(claimRef{field: fieldRelation, index: i, predicate: r.GetType(), in: isFrom(r)}, func() { c.relation(rp, kind, r) }) {
 			continue // dropped, so not part of the duplicate and cardinality checks
 		}
 		object := r.GetTo() + r.GetFrom()
@@ -468,7 +508,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 		if _, ok := e.GetAttributes()[name]; ok {
 			c.add(codeDuplicateClaim, ap, "%q is also in entity.attributes", clip(name))
 		}
-		rejected := c.claim(claimRef{field: fieldAttributeClaim, index: i}, func() {
+		rejected := c.claim(claimRef{field: fieldAttributeClaim, index: i, predicate: name}, func() {
 			if a.GetValue() == nil {
 				c.add(codeMalformed, ap+".value", "is required")
 				c.attributeName(ap+".predicate", kind, name)
@@ -799,6 +839,10 @@ func (s clip) Format(f fmt.State, verb rune) {
 		_, _ = io.WriteString(f, v)
 	}
 }
+
+// Clip returns s cut to MaxQuoted bytes, with "…" at the cut, for messages
+// that carry an adapter's text.
+func Clip(s string) string { return fmt.Sprint(clip(s)) }
 
 // quote is strconv.Quote of s cut to MaxQuoted bytes.
 func quote(s string) string { return fmt.Sprintf("%q", clip(s)) }

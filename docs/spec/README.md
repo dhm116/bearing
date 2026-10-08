@@ -27,6 +27,9 @@ alone.
   fields is backwards compatible. Removing or changing the meaning of
   anything requires `v2`, except that before spec 1.0 a draft may make
   listed incompatible changes within `v1` (as 0.2 does, below).
+  Readers decode observations strictly, so "compatible" means the core is
+  upgraded before an adapter sends a new field: a core rejects an
+  observation with a field it doesn't define (`malformed`).
 - The specification as a whole has a draft version (0.1, 0.2, …) that
   changes whenever its rules change. Rules that change what the core builds
   from the same observations (resolution, ordering, confidence) change the

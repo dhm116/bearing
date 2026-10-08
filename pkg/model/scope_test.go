@@ -3,11 +3,13 @@ package model
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
@@ -158,5 +160,78 @@ func TestDecodeObservationReportsUnknownFieldsAsMalformed(t *testing.T) {
 	}
 	if len(err.Error()) > 2*MaxQuoted+100 {
 		t.Fatalf("got a %d-byte error, want the adapter's text cut", len(err.Error()))
+	}
+}
+
+func scopeObservation(snapshots ...*modelv1alpha1.SnapshotScope) *eventv1alpha1.Observation {
+	return NewObservation("adapter/test", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{Kind: string(KindTeam), Key: "x:team/a"},
+		Relations: []*modelv1alpha1.Relation{
+			// A member with a confidence of 0 is claim-scoped invalid_value.
+			{Type: string(RelMemberOf), End: &modelv1alpha1.Relation_From{From: "x:user/u1"}, ConfidencePpm: new(uint32)},
+			{Type: string(RelMemberOf), End: &modelv1alpha1.Relation_From{From: "x:user/u2"}},
+		},
+		Snapshots: snapshots,
+	})
+}
+
+func scope(dir modelv1alpha1.Direction, preds ...string) *modelv1alpha1.SnapshotScope {
+	return &modelv1alpha1.SnapshotScope{Direction: dir, Predicates: preds}
+}
+
+func TestDroppingAClaimUncoversItsSnapshotScope(t *testing.T) {
+	in, out := modelv1alpha1.Direction_DIRECTION_IN, modelv1alpha1.Direction_DIRECTION_OUT
+	tests := []struct {
+		name  string
+		scope []*modelv1alpha1.SnapshotScope
+		want  []*modelv1alpha1.SnapshotScope
+	}{
+		{"covering predicate goes", []*modelv1alpha1.SnapshotScope{scope(in, string(RelMemberOf))}, nil},
+		{"the others stay", []*modelv1alpha1.SnapshotScope{scope(in, string(RelMemberOf), "other")}, []*modelv1alpha1.SnapshotScope{scope(in, "other")}},
+		{"star in the same direction goes whole", []*modelv1alpha1.SnapshotScope{scope(in, "*")}, nil},
+		{
+			"other direction stays",
+			[]*modelv1alpha1.SnapshotScope{scope(out, string(RelMemberOf)), scope(out, "*")},
+			[]*modelv1alpha1.SnapshotScope{scope(out, string(RelMemberOf)), scope(out, "*")},
+		},
+		{"other predicate stays", []*modelv1alpha1.SnapshotScope{scope(in, "other")}, []*modelv1alpha1.SnapshotScope{scope(in, "other")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := scopeObservation(tt.scope...)
+			err := ValidateObservation(o)
+			if n := DropRejectedClaims(o, err); n != 1 {
+				t.Fatalf("dropped %d claims from %v, want 1", n, err)
+			}
+			got := o.GetData().GetSnapshots()
+			if len(got) != len(tt.want) {
+				t.Fatalf("got scopes %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if !proto.Equal(got[i], tt.want[i]) {
+					t.Fatalf("got scopes %v, want %v", got, tt.want)
+				}
+			}
+			if err := ValidateObservation(o); err != nil {
+				t.Fatalf("got %v after dropping, want a valid observation", err)
+			}
+		})
+	}
+}
+
+func TestDroppingAnAttributeUncoversItsOutScope(t *testing.T) {
+	out := modelv1alpha1.Direction_DIRECTION_OUT
+	o := NewObservation("adapter/test", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+		Entity: &modelv1alpha1.Entity{
+			Kind: string(KindRepository), Key: "x:repo/a",
+			Attributes: map[string]*structpb.Value{"language": structpb.NewNumberValue(1)}, // type_mismatch
+		},
+		Snapshots: []*modelv1alpha1.SnapshotScope{scope(out, "language", "name")},
+	})
+	if n := DropRejectedClaims(o, ValidateObservation(o)); n != 1 {
+		t.Fatalf("dropped %d, want 1", n)
+	}
+	if got := o.GetData().GetSnapshots(); len(got) != 1 || !slices.Equal(got[0].GetPredicates(), []string{"name"}) {
+		t.Fatalf("got scopes %v, want one over name", got)
 	}
 }

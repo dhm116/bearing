@@ -127,7 +127,7 @@ func DecodeObservation(b []byte) (*eventv1alpha1.Observation, error) {
 	o := &eventv1alpha1.Observation{}
 	if err := DecodeJSON(b, o); err != nil {
 		return nil, &ValidationError{
-			Problems:    []Problem{{Code: codeMalformed, Message: fmt.Sprint(clip(err.Error()))}},
+			Problems:    []Problem{{Code: codeMalformed, Message: Clip(err.Error())}},
 			codes:       []modelv1alpha1.RejectionCode{codeMalformed},
 			observation: true,
 		}
