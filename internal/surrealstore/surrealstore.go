@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"bearing.example/pkg/contracts"
@@ -68,27 +67,6 @@ func New(ctx context.Context, q Querier) (*Store, error) {
 // Close closes the underlying connection or engine.
 func (s *Store) Close(ctx context.Context) error { return s.q.Close(ctx) }
 
-// Thrown errors that start with this prefix mean "not found".
-const notFound = "bearing: not found: "
-
-func (s *Store) query(ctx context.Context, sql string, vars map[string]any) ([]any, error) {
-	res, err := s.q.Query(ctx, sql, vars)
-	if err != nil {
-		if strings.Contains(err.Error(), notFound) {
-			return nil, fmt.Errorf("%s: %w", strings.TrimSpace(after(err.Error(), notFound)), contracts.ErrNotFound)
-		}
-		return nil, err
-	}
-	return res, nil
-}
-
-func after(s, sep string) string {
-	if _, rest, ok := strings.Cut(s, sep); ok {
-		return strings.Trim(rest, `"' `)
-	}
-	return s
-}
-
 // decode converts a query result into dst. Results cross the wire as CBOR
 // and come back as generic values; JSON is the common shape for both
 // transports.
@@ -112,7 +90,7 @@ func (s *Store) ensureIndex(ctx context.Context, dim int) error {
 	}
 	// DIMENSION can't be a parameter; dim is an int, so formatting it is safe.
 	sql := fmt.Sprintf(`DEFINE INDEX IF NOT EXISTS vector_hnsw ON vector FIELDS vector HNSW DIMENSION %d DIST COSINE TYPE F32`, dim)
-	if _, err := s.query(ctx, sql, nil); err != nil {
+	if _, err := s.q.Query(ctx, sql, nil); err != nil {
 		return fmt.Errorf("define vector index: %w", err)
 	}
 	s.dim = dim
@@ -137,7 +115,7 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 	if err := s.ensureIndex(ctx, len(points[0].Vector)); err != nil {
 		return err
 	}
-	_, err := s.query(ctx, `
+	_, err := s.q.Query(ctx, `
 BEGIN TRANSACTION;
 FOR $p IN $points {
 	UPSERT type::record('vector', $p.id) CONTENT {
@@ -183,7 +161,7 @@ func (s *Store) Search(ctx context.Context, q contracts.VectorQuery) ([]contract
 	sql := fmt.Sprintf(`SELECT record::id(id) AS id, subject AS subject_id, vector, text, payload,
 	vector::similarity::cosine(vector, $v) AS score
 FROM vector WHERE vector <|%d,%d|> $v%s ORDER BY score DESC LIMIT %d`, limit, max(limit*4, 40), filter, limit)
-	res, err := s.query(ctx, sql, map[string]any{"v": q.Vector, "kinds": kinds})
+	res, err := s.q.Query(ctx, sql, map[string]any{"v": q.Vector, "kinds": kinds})
 	if err != nil {
 		return nil, err
 	}
@@ -202,13 +180,13 @@ FROM vector WHERE vector <|%d,%d|> $v%s ORDER BY score DESC LIMIT %d`, limit, ma
 
 // DeleteBySubject implements contracts.VectorIndex.
 func (s *Store) DeleteBySubject(ctx context.Context, id contracts.SubjectID) error {
-	_, err := s.query(ctx, `DELETE vector WHERE subject = $id`, map[string]any{"id": string(id)})
+	_, err := s.q.Query(ctx, `DELETE vector WHERE subject = $id`, map[string]any{"id": string(id)})
 	return err
 }
 
 // Repoint implements contracts.VectorIndex.
 func (s *Store) Repoint(ctx context.Context, from, to contracts.SubjectID) error {
-	_, err := s.query(ctx, `UPDATE vector SET subject = $to WHERE subject = $from`, map[string]any{"from": string(from), "to": string(to)})
+	_, err := s.q.Query(ctx, `UPDATE vector SET subject = $to WHERE subject = $from`, map[string]any{"from": string(from), "to": string(to)})
 	return err
 }
 

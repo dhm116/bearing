@@ -73,6 +73,39 @@ func TestDialRejectsBadCredentials(t *testing.T) {
 	}
 }
 
+// A failed transaction reports why it failed, not that the other statements
+// did not run.
+func TestQueryReportsTheStatementThatFailed(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.q.Query(context.Background(), `
+BEGIN TRANSACTION;
+CREATE probe:1;
+THROW "probe failed";
+COMMIT TRANSACTION;`, nil)
+	if err == nil || !strings.Contains(err.Error(), "probe failed") {
+		t.Fatalf("got %v, want the thrown error", err)
+	}
+}
+
+func TestStatementErrorPicksTheCause(t *testing.T) {
+	const skipped = "The query was not executed due to a failed transaction"
+	for _, tc := range []struct {
+		name string
+		msgs []string
+		want string
+	}{
+		{"cause after skipped statements", []string{skipped, "An error occurred: boom", skipped}, "An error occurred: boom"},
+		{"only skipped statements", []string{skipped, "The query was not executed due to a cancelled transaction"}, skipped},
+		{"no messages", nil, "query failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := statementError(tc.msgs).Error(); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // The v0.3 GraphStore arrives in issue #44; until then pkg/store refuses to
 // open a SurrealDB graph.
 func TestGraphConformance(t *testing.T) {

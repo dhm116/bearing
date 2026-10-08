@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"bearing.example/pkg/contracts"
@@ -100,6 +101,17 @@ func VectorIndex(t *testing.T, newIndex func(t *testing.T) contracts.VectorIndex
 		}
 		if n != 1 || len(hits) != len(points) {
 			t.Fatalf("got %v, want %d unique points", ids(hits), len(points))
+		}
+	})
+
+	t.Run("Upsert rejects a point that refers to no subject", func(t *testing.T) {
+		ix := fresh(t)
+		orphan := contracts.VectorPoint{ID: "orphan", Vector: []float32{0, 0, 0, 1}}
+		if err := ix.Upsert(ctx, []contracts.VectorPoint{orphan}); err == nil {
+			t.Fatal("got no error, want one for a point without a subject")
+		}
+		if hits, err := ix.Search(ctx, contracts.VectorQuery{Vector: orphan.Vector, Limit: 10}); err != nil || slices.Contains(ids(hits), orphan.ID) {
+			t.Fatalf("got %v, %v, want the rejected point not stored", ids(hits), err)
 		}
 	})
 

@@ -252,7 +252,7 @@ func (g *suite) stale(t *testing.T) {
 
 func (g *suite) atomic(t *testing.T) {
 	s, clk := g.store(t)
-	r, p, _ := seed(t, s)
+	r, p, l := seed(t, s)
 	head, _ := s.Head(ctx)
 	val, _ := anypb.New(wrapperspb.String("v"))
 	bad := &modelv1alpha1.ChangeSet{
@@ -282,6 +282,25 @@ func (g *suite) atomic(t *testing.T) {
 	}
 	if len(res.Minted) != 1 || string(res.Subjects["new:x"]) != res.Minted[0].GetSubjectId() {
 		t.Fatalf("got %+v, want the one mint reported", res)
+	}
+	// A state entry without a key fails after the ChangeSet's merge or
+	// un-merge has been made; neither may stay.
+	noKey := []*modelv1alpha1.StateEntry{{}}
+	merge := []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}
+	if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: merge, State: noKey}); err == nil {
+		t.Fatal("applied a state entry without a key")
+	}
+	if recs, _ := s.Merges(ctx, contracts.SubjectID(l), time.Time{}); len(recs) != 0 {
+		t.Fatalf("got %v, want the failed apply's merge gone", recs)
+	}
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: merge})
+	unmerge := []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_l"}, Ref: "new:l"}}
+	if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "e3", Unmerges: unmerge, State: noKey}); err == nil {
+		t.Fatal("applied a state entry without a key")
+	}
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e4"}) // reads at the next record time
+	if sub, _ := s.Subject(ctx, contracts.SubjectID(l), time.Time{}); sub.GetMergedInto() != p {
+		t.Fatalf("got %v, want %s still merged into %s", sub, l, p)
 	}
 }
 

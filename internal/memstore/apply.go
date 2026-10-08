@@ -189,14 +189,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, restore bool) (res contracts.
 	if err := s.writeClaims(&undo, cs, r); err != nil {
 		return res, err
 	}
-	prevHead := s.head
+	// Nothing after this can fail, so it needs no undo.
 	s.head, s.events[cs.GetEventId()] = r, r
 	s.journal = append(s.journal, cs)
-	undo = append(undo, func() {
-		s.head = prevHead
-		delete(s.events, cs.GetEventId())
-		s.journal = s.journal[:len(s.journal)-1]
-	})
 	return res, nil
 }
 

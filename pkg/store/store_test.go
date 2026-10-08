@@ -33,6 +33,13 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	}
 }
 
+func TestOpenRequiresAGraphURL(t *testing.T) {
+	_, err := Open(context.Background(), Config{Vectors: "mem://"})
+	if err == nil || !strings.Contains(err.Error(), "a graph store URL is required") {
+		t.Fatalf("got %v, want an error asking for a graph store URL", err)
+	}
+}
+
 func TestOpenRejectsUnknownSchemes(t *testing.T) {
 	_, err := Open(context.Background(), Config{Graph: "neo4j://localhost"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported URL scheme") {
