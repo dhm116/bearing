@@ -37,7 +37,7 @@ keeps the adapters that fetch it small.
 | [`pkg/model`](pkg/model) | Helpers around the generated types: kind and predicate registry, keys, validation, `fact_id` |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
 | [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
-| [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, bindings and merges today; claims and status next |
+| [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, claims, supports and status |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |

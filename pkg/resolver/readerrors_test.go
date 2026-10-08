@@ -15,8 +15,8 @@ import (
 
 var errInjected = errors.New("injected store failure")
 
-// failingStore fails its failAt-th read (counting Head, Subject, Bindings
-// and State) and no other; corrupt makes State return values of the wrong
+// failingStore fails its failAt-th read (counting Head, Subject, Bindings,
+// Supports and State) and no other; corrupt makes State return values of the wrong
 // type.
 type failingStore struct {
 	contracts.GraphStore
@@ -54,6 +54,13 @@ func (s *failingStore) Bindings(ctx context.Context, a []model.Key, ids []contra
 	return s.GraphStore.Bindings(ctx, a, ids, at)
 }
 
+func (s *failingStore) Supports(ctx context.Context, f contracts.SupportFilter, at time.Time) ([]*modelv1alpha1.SupportTimeline, error) {
+	if err := s.fail(); err != nil {
+		return nil, err
+	}
+	return s.GraphStore.Supports(ctx, f, at)
+}
+
 func (s *failingStore) State(ctx context.Context, keys []string, at time.Time) (map[string]*anypb.Any, error) {
 	if err := s.fail(); err != nil {
 		return nil, err
@@ -71,7 +78,11 @@ func (s *failingStore) State(ctx context.Context, keys []string, at time.Time) (
 // Every read the resolver makes can fail, and the failure is returned, never
 // swallowed into a ChangeSet that forgets what the store couldn't say.
 func TestResolveReturnsStoreReadErrors(t *testing.T) {
-	events := scenario()
+	t.Run("identity", func(t *testing.T) { failEveryRead(t, scenario()) })
+	t.Run("claims", func(t *testing.T) { failEveryRead(t, claimScenario()) })
+}
+
+func failEveryRead(t *testing.T, events []Event) {
 	e := newEnv(t)
 	for i, ev := range events {
 		ctx := context.Background()

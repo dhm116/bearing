@@ -60,9 +60,14 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 	}
 	rejs = append(rejs, p.rejections...)
 	g := newGraph(r.store, head)
-	more, err := r.identify(ctx, g, p, cs)
+	u, more, err := r.identify(ctx, g, p, cs)
 	if err != nil {
 		return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
+	}
+	if u != nil {
+		if err := u.facts(ctx); err != nil {
+			return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
+		}
 	}
 	return &Result{ChangeSet: cs, Rejections: append(rejs, more...)}, nil
 }

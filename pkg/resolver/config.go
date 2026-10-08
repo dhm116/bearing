@@ -21,6 +21,13 @@ type Config struct {
 	Declarations []*modelv1alpha1.AdapterDeclaration
 	// Sources are the configured adapter instances, by name.
 	Sources map[string]*Source
+	// Threshold is the confidence at which a fact is asserted, in parts per
+	// million. Default: DefaultThreshold.
+	Threshold uint32
+	// ConfidenceGroups lists source systems (the namespaces sources read)
+	// that copy each other, so their confidence counts once
+	// (docs/spec/data-model.md, "Confidence").
+	ConfidenceGroups [][]string
 }
 
 // Source is one configured adapter instance, the unit of provenance
@@ -88,6 +95,9 @@ type index struct {
 	keyTypes   map[ktID]*keyType
 	namespaces map[string]*namespace
 	sources    map[string]*sourceInfo
+	threshold  uint32
+	// groups maps a source system to the group of systems it counts in.
+	groups map[string]string
 }
 
 // newIndex validates cfg and builds its lookups. It rejects what the data
@@ -95,7 +105,20 @@ type index struct {
 // that differ, a namespace used with two issuer types, and an issued or
 // linked namespace whose key types nobody declares.
 func newIndex(cfg Config) (*index, error) {
-	ix := &index{keyTypes: map[ktID]*keyType{}, namespaces: map[string]*namespace{}, sources: map[string]*sourceInfo{}}
+	ix := &index{keyTypes: map[ktID]*keyType{}, namespaces: map[string]*namespace{}, sources: map[string]*sourceInfo{}, groups: map[string]string{}}
+	ix.threshold = cmp.Or(cfg.Threshold, DefaultThreshold)
+	if ix.threshold > model.MaxConfidence {
+		return nil, fmt.Errorf("resolver: threshold %d is above %d", ix.threshold, model.MaxConfidence)
+	}
+	for _, group := range cfg.ConfidenceGroups {
+		name := strings.Join(slices.Sorted(slices.Values(group)), "+")
+		for _, system := range group {
+			if _, dup := ix.groups[system]; dup || system == "" {
+				return nil, fmt.Errorf("resolver: confidence group %q: system %q is empty or in two groups", name, system)
+			}
+			ix.groups[system] = name
+		}
+	}
 	decls := map[string]*modelv1alpha1.AdapterDeclaration{}
 	for _, d := range cfg.Declarations {
 		if err := model.ValidateDeclaration(d); err != nil {
@@ -185,3 +208,17 @@ func newIndex(cfg Config) (*index, error) {
 // ErrUnknownSource is returned for an event from a source the configuration
 // doesn't have: the host's mistake, not a rejection of the observation.
 var ErrUnknownSource = errors.New("resolver: unknown source")
+
+// confidenceGroup returns the group a source's confidence counts in: the
+// group of systems its system is configured in, or the system alone. A
+// support can come from a source the current configuration no longer has.
+func (ix *index) confidenceGroup(source string) string {
+	system := source // a source the configuration dropped keeps its own group
+	if src := ix.sources[source]; src != nil {
+		system = src.reads
+	}
+	if g, ok := ix.groups[system]; ok {
+		return g
+	}
+	return system
+}

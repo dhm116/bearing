@@ -403,3 +403,85 @@ func mustValue(t *testing.T, v any) *structpb.Value {
 	}
 	return pv
 }
+
+// A source that declares an attribute the registry doesn't have gets the
+// same checks for it as for a registered one.
+func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
+	declared := map[string]Predicate{
+		"score": {Name: "test.score", Type: modelv1alpha1.ValueType_VALUE_TYPE_FLOAT, Cardinality: one},
+		"tags2": {Name: "test.tags2", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: many},
+	}
+	build := func(claims []*modelv1alpha1.AttributeClaim, snapshots ...*modelv1alpha1.SnapshotScope) *eventv1alpha1.Observation {
+		return NewObservation("adapter/test", time.Unix(0, 0), &modelv1alpha1.ObservationData{
+			Entity:          &modelv1alpha1.Entity{Kind: string(KindRepository), Key: "test:x/1"},
+			AttributeClaims: claims,
+			Snapshots:       snapshots,
+		})
+	}
+	claim := func(pred string, v *structpb.Value) *modelv1alpha1.AttributeClaim {
+		return &modelv1alpha1.AttributeClaim{Predicate: pred, Value: v}
+	}
+	tests := []struct {
+		name string
+		obs  *eventv1alpha1.Observation
+		want modelv1alpha1.RejectionCode // 0: valid
+	}{
+		{"a value of the declared type", build([]*modelv1alpha1.AttributeClaim{claim("score", structpb.NewNumberValue(1))}), 0},
+		{"a value of the wrong type", build([]*modelv1alpha1.AttributeClaim{claim("score", structpb.NewStringValue("high"))}), codeTypeMismatch},
+		{"two values of a single-valued attribute", build([]*modelv1alpha1.AttributeClaim{
+			claim("score", structpb.NewNumberValue(1)), claim("score", structpb.NewNumberValue(2)),
+		}), codeCardinality},
+		{"many values of a many attribute", build([]*modelv1alpha1.AttributeClaim{
+			claim("tags2", structpb.NewStringValue("a")), claim("tags2", structpb.NewStringValue("b")),
+		}), 0},
+		{"a snapshot of an attribute it lists", build(nil, &modelv1alpha1.SnapshotScope{
+			Direction: modelv1alpha1.Direction_DIRECTION_OUT, Predicates: []string{"tags2"},
+		}), 0},
+		{"an attribute nobody declared", build([]*modelv1alpha1.AttributeClaim{claim("other", structpb.NewNumberValue(1))}), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateObservationWith(tt.obs, declared)
+			if tt.want == 0 {
+				if err != nil {
+					t.Fatalf("got %v, want no error", err)
+				}
+				return
+			}
+			ve, ok := err.(*ValidationError) //nolint:errorlint // returned unwrapped
+			if !ok || !ve.Has(tt.want) {
+				t.Fatalf("got %v, want %v", err, tt.want)
+			}
+		})
+	}
+	// Without the declaration the same observation is checked as before.
+	o := build([]*modelv1alpha1.AttributeClaim{claim("score", structpb.NewStringValue("high"))})
+	if err := ValidateObservation(o); err != nil {
+		t.Fatalf("got %v, want an unregistered attribute left unchecked", err)
+	}
+	if err := ValidateObservationWith(o, nil); err != nil {
+		t.Fatalf("got %v, want nil declarations to behave as ValidateObservation", err)
+	}
+}
+
+func TestJCSOrdersKeysAndRefusesWhatIsNotJSON(t *testing.T) {
+	a := mustValue(t, map[string]any{"b": 1.0, "a": []any{"x", true, nil}})
+	b := mustValue(t, map[string]any{"a": []any{"x", true, nil}, "b": 1.0})
+	got, err := JCS(a)
+	if err != nil || string(got) != `{"a":["x",true,null],"b":1}` {
+		t.Fatalf("got %s, %v, want keys sorted and 1.0 written as 1", got, err)
+	}
+	if again, _ := JCS(b); string(again) != string(got) {
+		t.Fatalf("got %s and %s, want one form for equal values", got, again)
+	}
+	nan := &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: math.NaN()}}
+	nested := structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{nan}})
+	inStruct := structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"x": nan}})
+	for name, v := range map[string]*structpb.Value{
+		"NaN": nan, "NaN in a list": nested, "NaN in an object": inStruct, "invalid UTF-8": structpb.NewStringValue("\xff"),
+	} {
+		if _, err := JCS(v); err == nil {
+			t.Errorf("%s: got no error, want one", name)
+		}
+	}
+}

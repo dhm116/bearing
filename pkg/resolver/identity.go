@@ -39,6 +39,9 @@ type run struct {
 	merges []*modelv1alpha1.Merge
 	// placeholders counts the placeholders minted, to name their refs.
 	placeholders int
+	// resolved maps each key the claims refer to, folded, to the subject it
+	// resolved to: an ID, or the ref of a mint.
+	resolved map[model.Key]string
 	// pendingOwners are subjects of planned merges whose names now compete.
 	pendingOwners []string
 	// consolidate lists the (survivor, merged) pairs whose deletion marks
@@ -50,26 +53,28 @@ type run struct {
 
 // identify resolves the observed entity and its references to subjects and
 // writes the mints, bindings, merges and binding state to cs. It returns the
-// rejections it made; a rejected observation leaves cs without changes.
-func (r *Resolver) identify(ctx context.Context, g *graph, p *prepared, cs *modelv1alpha1.ChangeSet) ([]Rejection, error) {
+// run, which has what the claims need, and the rejections it made. A
+// rejected observation leaves cs without changes and returns no run.
+func (r *Resolver) identify(ctx context.Context, g *graph, p *prepared, cs *modelv1alpha1.ChangeSet) (*run, []Rejection, error) {
 	u := &run{
 		g: g, eng: newEngine(g, r.ix), ix: r.ix, p: p, cs: cs,
 		mints: map[string]model.Kind{}, timelines: map[model.Key]*modelv1alpha1.BindingTimeline{},
+		resolved: map[model.Key]string{},
 	}
 	rejected, err := u.resolveEntity(ctx)
 	if err != nil || rejected {
-		return u.rejections, err
+		return nil, u.rejections, err
 	}
 	if err := u.writeBindings(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := u.resolveReferences(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := u.finish(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return u.rejections, nil
+	return u, u.rejections, nil
 }
 
 // idKeys and nameKeys split the entity's keys by class.
@@ -293,12 +298,14 @@ func (u *run) resolveReferences(ctx context.Context) error {
 	}
 	for _, k := range refs {
 		if u.entityHas(k) {
+			u.resolved[k.key] = u.chosen
 			continue
 		}
 		subject, tentative, err := u.lookupReference(ctx, k)
 		if err != nil {
 			return err
 		}
+		u.resolved[k.key] = subject
 		switch {
 		case subject == "":
 			if err := u.mintPlaceholder(ctx, k); err != nil {
@@ -351,6 +358,7 @@ func (u *run) mintPlaceholder(ctx context.Context, k keyRef) error {
 	u.placeholders++
 	u.cs.Mints = append(u.cs.Mints, &modelv1alpha1.Mint{Ref: ref, Kind: string(k.typ.kind), Rule: modelv1alpha1.MintRule_MINT_RULE_REFERENCE})
 	u.mints[ref] = k.typ.kind
+	u.resolved[k.key] = ref
 	if k.isID() {
 		u.timelines[k.key] = &modelv1alpha1.BindingTimeline{Alias: string(k.key), Bindings: []*modelv1alpha1.Binding{{Alias: string(k.key), SubjectId: ref, Tentative: true}}}
 		return nil

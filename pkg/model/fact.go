@@ -107,6 +107,36 @@ func CanonicalValue(t modelv1alpha1.ValueType, v *structpb.Value) (*structpb.Val
 
 var errTypeMismatch = errors.New("value does not have its declared type")
 
+// JCS returns the RFC 8785 form of v, for ordering and comparing values by
+// their canonical bytes. It fails for NaN, infinities and text that is not
+// UTF-8.
+func JCS(v *structpb.Value) ([]byte, error) {
+	return canonicalJSON(plain(v))
+}
+
+// plain is v.AsInterface without its habit of turning NaN and infinities
+// into the strings "NaN" and "Infinity", which would collide with those
+// strings.
+func plain(v *structpb.Value) any {
+	switch k := v.GetKind().(type) {
+	case *structpb.Value_NumberValue:
+		return k.NumberValue
+	case *structpb.Value_ListValue:
+		out := make([]any, len(k.ListValue.GetValues()))
+		for i, e := range k.ListValue.GetValues() {
+			out[i] = plain(e)
+		}
+		return out
+	case *structpb.Value_StructValue:
+		out := make(map[string]any, len(k.StructValue.GetFields()))
+		for name, e := range k.StructValue.GetFields() {
+			out[name] = plain(e)
+		}
+		return out
+	}
+	return v.AsInterface()
+}
+
 // ContentHash returns the content_hash part of an observation's ordering
 // key: the lowercase hex SHA-256 of the JCS form of the ProtoJSON of its
 // data (proto field names, enum value names, unset fields omitted).

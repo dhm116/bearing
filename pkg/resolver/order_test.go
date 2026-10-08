@@ -92,10 +92,10 @@ func universe(events []Event) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// snapshot describes the identity store in a form that doesn't depend on
-// the subject IDs the store minted: each canonical subject is named by the
-// smallest alias bound to it.
-func snapshot(t testing.TB, e *env, keys []string) string {
+// labeler names subjects in a form that doesn't depend on the IDs the store
+// minted: each canonical subject is named by the smallest id alias bound to
+// it, or any alias if it has none (a placeholder).
+func labeler(t testing.TB, e *env) func(id string) string {
 	t.Helper()
 	ctx := context.Background()
 	canon := func(id string) string {
@@ -110,12 +110,8 @@ func snapshot(t testing.TB, e *env, keys []string) string {
 			id = s.GetMergedInto()
 		}
 	}
-	rows, err := e.store.Bindings(ctx, aliasKeys(keys), nil, time.Time{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	label := map[string]string{}
-	name := func(id string) string {
+	return func(id string) string {
 		c := canon(id)
 		if l, ok := label[c]; ok {
 			return l
@@ -124,8 +120,6 @@ func snapshot(t testing.TB, e *env, keys []string) string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Name a subject by its smallest id alias, or any alias if it has no
-		// id (a placeholder).
 		best, bestID := "", false
 		for _, b := range owned {
 			k, ok := e.r.ix.lookup(b.GetAlias())
@@ -138,6 +132,17 @@ func snapshot(t testing.TB, e *env, keys []string) string {
 		label[c] = fmt.Sprintf("%s(%s)", best, s.GetKind())
 		return label[c]
 	}
+}
+
+// snapshot describes the identity store in a form that doesn't depend on
+// the subject IDs the store minted.
+func snapshot(t testing.TB, e *env, keys []string) string {
+	t.Helper()
+	rows, err := e.store.Bindings(context.Background(), aliasKeys(keys), nil, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := labeler(t, e)
 	var lines []string
 	for _, b := range rows {
 		subject := ""
