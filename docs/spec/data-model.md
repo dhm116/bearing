@@ -1187,6 +1187,8 @@ form. Examples use the default configuration and the reference
 | L: team `acme/platform` | `0192b1c4-6000-7c5e-a04f-8b3c4d5e6f70` |
 | J: person jdoe | `0192b2d0-1a01-7e70-b261-ad5e6f708192` |
 | G: directory group `payments` | `0192b2d0-1a02-7d6f-a150-9c4d5e6f7081` |
+| F: person lfischer | `0192b2d0-1a03-7a81-b372-ad5e6f708192` |
+| E: directory group `engineering` | `0192b2d0-1a04-7c92-a483-be6f70819203` |
 
 ### 1. A repository with a CODEOWNERS team
 
@@ -1263,21 +1265,26 @@ nothing: at valid times from 09:00 the watermark's key is greater.
 
 ### 4. A directory group membership with an end date
 
-Source `authentik-acme` reports group G and its members; jdoe's
+Source `authentik-acme` reports group E and its members; lfischer's
 membership ends on 1 November, and the directory records its start (a
-backfilled `valid_from`):
+backfilled `valid_from`). lfischer has no GitHub account, so only the
+directory reports this membership. That is deliberate: if GitHub's
+`acme/engineering` team (which merges with E) also listed lfischer, GitHub's
+open-ended claim would keep `(F, member_of, E)` asserted past 1 November
+and the end date would never show.
 
 ```json
-{ "id": "authentik:group/5b0e…@2026-10-02T06:00:00.000000Z", "time": "2026-10-02T06:00:00Z",
-  "data": { "entity": { "kind": "Team", "key": "authentik:group/5b0e…",
-                        "aliases": ["authentik:group_name/payments"], "attributes": { "name": "payments" } },
-            "relations": [ { "type": "member_of", "from": "authentik:user/7f3c…",
-                             "valid_from": "2026-03-01T00:00:00Z", "valid_to": "2026-11-01T00:00:00Z" } ],
+{ "id": "authentik:group/2a7d…@2026-10-02T06:00:00.000000Z", "time": "2026-10-02T06:00:00Z",
+  "data": { "entity": { "kind": "Team", "key": "authentik:group/2a7d…",
+                        "aliases": ["authentik:group_name/engineering"], "attributes": { "name": "engineering" } },
+            "relations": [ { "type": "member_of", "from": "authentik:user/9e8d…",
+                             "valid_from": "2024-01-01T00:00:00Z", "valid_to": "2026-11-01T00:00:00Z" } ],
             "snapshots": [ { "direction": "in", "predicates": ["member_of"] } ] } }
 ```
 
-- The Authentik user is J once the person merge in example 7 is applied.
-- `(J, member_of, G)` is asserted on `[2026-03-01, 2026-11-01)` and ended
+- The Authentik user `9e8d…` is F, minted from this source alone: nothing
+  else names lfischer.
+- `(F, member_of, E)` is asserted on `[2024-01-01, 2026-11-01)` and ended
   from 2026-11-01. `as_of(valid_at: 2026-10-15T00:00:00Z)` gives
   `asserted`; `as_of(valid_at: 2026-11-02T00:00:00Z)` gives `none`, with no
   further event.
@@ -1339,7 +1346,8 @@ ownership would end.
   earlier mint survives).
   A matching email alone would leave a `candidate` to confirm.
 - P and G match on `name` and, once their members have merged, on
-  `members`. At or above the `Team` threshold they merge (rule `score`);
+  `members`. G's directory members include jdoe with no end date; the
+  ending membership in example 4 is lfischer's, in E. At or above the `Team` threshold they merge (rule `score`);
   below it `same_as` stays a `candidate`.
 
 ## Open questions

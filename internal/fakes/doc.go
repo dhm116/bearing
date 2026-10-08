@@ -65,8 +65,11 @@
 // [GitHubOptions.Token] gets a 401. Without an Authorization header, REST
 // serves only public repositories (other repositories and all teams are
 // 404) and GraphQL answers 401. Every response, errors included, carries
-// the X-RateLimit-* headers, and [GitHub.RateLimitNext] makes the next
-// requests fail with GitHub's 403 rate-limit reply.
+// the X-RateLimit-* headers. Credentials are checked before the rate limit,
+// so a bad token gets a 401 and is not counted. Authenticated callers have a
+// budget of 5000 requests and anonymous callers their own of 60; a request
+// over budget, or one of the next n after [GitHub.RateLimitNext](n), gets
+// GitHub's 403 rate-limit reply.
 //
 //   - GET /orgs/acme/repos, /orgs/acme/teams and
 //     /orgs/acme/teams/{slug}/members, paged by page and per_page with Link
