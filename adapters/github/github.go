@@ -5,6 +5,8 @@
 //
 // It needs a token with read-only access: "Metadata: read" and
 // "Contents: read" on repositories and "Members: read" on the organization.
+// Verified-domain emails of people (verified_email) are visible only to
+// organization owners; for other tokens they read as none.
 package github
 
 import (
@@ -56,7 +58,7 @@ const configSchema = `{
   "required": ["org"],
   "properties": {
     "org": {"type": "string", "description": "GitHub organization login"},
-    "api_url": {"type": "string", "default": "https://api.github.com", "description": "REST base URL; GitHub Enterprise Server uses https://HOST/api/v3"},
+    "api_url": {"type": "string", "default": "https://api.github.com", "description": "API base URL, from which the GraphQL endpoint follows; GitHub Enterprise Server uses https://HOST/api/v3"},
     "namespace": {"type": "string", "default": "github", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Key namespace, e.g. ghes-acme for a GitHub Enterprise Server source"},
     "token_env": {"type": "string", "default": "GITHUB_TOKEN"},
     "webhook_secret_env": {"type": "string", "default": "GITHUB_WEBHOOK_SECRET"},
@@ -412,11 +414,23 @@ func (c *client) repoObservation(ctx context.Context, r gqlRepo, at time.Time) (
 
 	// The effective CODEOWNERS file is read in full by this one response, so
 	// the observation lists every approves_changes fact the source claims,
-	// including none when there is no file.
-	path, text, found := r.codeowners()
+	// including none when there is no file. A file that exists but can't be
+	// read in full (binary or truncated) leaves the facts alone: no scope,
+	// and codeowners_rules not read.
+	path, text, found, readable := r.codeowners()
 	result, ev := "missing", r.URL
 	var rels []*modelv1alpha1.Relation
-	if found {
+	var snapshots []*modelv1alpha1.SnapshotScope
+	switch {
+	case found && !readable:
+		result = "unreadable"
+		delete(attrs, "codeowners_rules")
+	default:
+		snapshots = []*modelv1alpha1.SnapshotScope{{
+			Direction: modelv1alpha1.Direction_DIRECTION_OUT, Predicates: []string{string(model.RelApprovesChanges)},
+		}}
+	}
+	if found && readable {
 		result = "found"
 		if branch != "" {
 			ev = r.URL + "/blob/" + branch + "/" + path
@@ -447,10 +461,8 @@ func (c *client) repoObservation(ctx context.Context, r gqlRepo, at time.Time) (
 			Aliases: []string{string(repoName(c.cfg.Namespace, r.NameWithOwner))}, Attributes: attrs,
 		},
 		Relations: rels,
-		Snapshots: []*modelv1alpha1.SnapshotScope{{
-			Direction: modelv1alpha1.Direction_DIRECTION_OUT, Predicates: []string{string(model.RelApprovesChanges)},
-		}},
-		Evidence: evidence(ev),
+		Snapshots: snapshots,
+		Evidence:  evidence(ev),
 	}), nil
 }
 
@@ -528,6 +540,7 @@ func deleted(kind model.Kind, key string, at time.Time) *eventv1alpha1.Observati
 // observation is as complete as a sync's and its observed_at is the send
 // time of that read, never a time in the payload an author could set.
 type webhookEvent struct {
+	Action  string `json:"action"`
 	Ref     string `json:"ref"`
 	Commits []struct {
 		Added    []string `json:"added"`
@@ -567,21 +580,33 @@ func (e webhookEvent) pushedCodeowners() bool {
 	return false
 }
 
+// handledEvents are the deliveries Handle acts on.
+var handledEvents = []string{"repository", "push", "team", "membership"}
+
 // Handle turns "repository", "push" (to CODEOWNERS), "team" and
 // "membership" deliveries into observations by re-reading the repository or
 // team they name. Other events are acknowledged with no observations; the
 // next scheduled sync picks up anything they changed. A change to a team's
-// parent reaches the parent's observation at the next sync.
+// parent reaches the parent's observation at the next sync. An object GitHub
+// no longer returns is observed as deleted, so that trusts what the token can
+// see: a repository transferred away or no longer shared with it reads the
+// same as one deleted.
 func (a *Adapter) Handle(ctx context.Context, p adapter.HandleParams) (res adapter.HandleResult, err error) {
+	// The header is not authenticated until the signature is checked, so it
+	// labels spans and metrics only if it names an event the adapter knows.
 	event := header(p.Headers, "X-GitHub-Event")
-	ctx, span := tracer.Start(ctx, "github.webhook "+event, trace.WithAttributes(attrEvent.String(event)))
+	label := "other"
+	if slices.Contains(handledEvents, event) {
+		label = event
+	}
+	ctx, span := tracer.Start(ctx, "github.webhook "+label, trace.WithAttributes(attrEvent.String(label)))
 	result := "accepted"
 	defer func() {
 		if err != nil {
 			result = "rejected"
-			telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "github webhook rejected", err, attrEvent.String(event))
+			telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "github webhook rejected", err, attrEvent.String(label))
 		}
-		webhooks.Add(ctx, 1, metric.WithAttributes(attrEvent.String(event), attrResult.String(result)))
+		webhooks.Add(ctx, 1, metric.WithAttributes(attrEvent.String(label), attrResult.String(result)))
 		span.SetAttributes(attrResult.String(result))
 		span.End()
 	}()
@@ -604,16 +629,11 @@ func (a *Adapter) handle(ctx context.Context, event string, p adapter.HandlePara
 		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: "webhook signature does not match"}
 	}
 
-	repo, team := false, false
-	switch event {
-	case "repository", "push":
-		repo = true
-	case "team", "membership":
-		team = true
-	default:
+	if !slices.Contains(handledEvents, event) {
 		*result = "ignored"
 		return adapter.HandleResult{}, nil
 	}
+	repo := event == "repository" || event == "push"
 	var ev webhookEvent
 	if err := json.Unmarshal(p.Body, &ev); err != nil {
 		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: err.Error()}
@@ -628,19 +648,27 @@ func (a *Adapter) handle(ctx context.Context, event string, p adapter.HandlePara
 	var obs adapter.Observations
 	switch {
 	case repo && ev.Repository.ID > 0:
-		obs, err = c.rereadRepo(ctx, ev.Repository.ID)
-	case team && ev.Team.ID > 0 && ev.Organization.ID > 0:
-		obs, err = c.rereadTeam(ctx, ev.Organization.ID, ev.Team.ID)
+		obs, err = c.rereadRepo(ctx, ev.Repository.ID, ev.Action == "deleted")
+	case !repo && ev.Team.ID > 0 && ev.Organization.ID > 0:
+		obs, err = c.rereadTeam(ctx, ev.Organization.ID, ev.Team.ID, ev.Action == "deleted")
 	default:
 		err = &adapter.Error{Code: adapter.CodeInvalidParams, Message: event + " payload has no repository, team or organization ID"}
 	}
 	return adapter.HandleResult{Observations: obs}, err
 }
 
+// notFound is the error for an object a delivery names that GitHub doesn't
+// return although the delivery doesn't say it was deleted: it may not be
+// readable yet, or the token may have lost access, so no deletion is
+// inferred and the core can retry.
+func notFound(what string, id int64) error {
+	return &adapter.Error{Code: adapter.CodeUpstream, Message: fmt.Sprintf("%s %d named by a webhook was not found (not yet readable, or not visible to the token)", what, id)}
+}
+
 // rereadRepo observes the repository with database ID id as it is now, or
-// as deleted if it is gone. The ID is derived from the payload's numeric id
+// as deleted if it is gone and the delivery says it was deleted. The ID is derived from the payload's numeric id
 // because its node_id is legacy-format.
-func (c *client) rereadRepo(ctx context.Context, id int64) (adapter.Observations, error) {
+func (c *client) rereadRepo(ctx context.Context, id int64, deletedEvent bool) (adapter.Observations, error) {
 	nodeID := nextNodeID("R", id)
 	var data struct {
 		Node *gqlRepo `json:"node"`
@@ -650,6 +678,9 @@ func (c *client) rereadRepo(ctx context.Context, id int64) (adapter.Observations
 		return nil, err
 	}
 	if data.Node == nil || data.Node.ID == "" {
+		if !deletedEvent {
+			return nil, notFound("repository", id)
+		}
 		return adapter.Observations{deleted(model.KindRepository, c.node("repo_node", nodeID), sent)}, nil
 	}
 	if owner, _, _ := strings.Cut(data.Node.NameWithOwner, "/"); !strings.EqualFold(owner, c.cfg.Org) {
@@ -660,8 +691,8 @@ func (c *client) rereadRepo(ctx context.Context, id int64) (adapter.Observations
 }
 
 // rereadTeam observes the team as it is now, with its members, or as
-// deleted if it is gone.
-func (c *client) rereadTeam(ctx context.Context, orgID, id int64) (adapter.Observations, error) {
+// deleted if it is gone and the delivery says it was deleted.
+func (c *client) rereadTeam(ctx context.Context, orgID, id int64, deletedEvent bool) (adapter.Observations, error) {
 	nodeID := nextNodeID("T", orgID, id)
 	var data struct {
 		Node *gqlTeam `json:"node"`
@@ -671,6 +702,9 @@ func (c *client) rereadTeam(ctx context.Context, orgID, id int64) (adapter.Obser
 		return nil, err
 	}
 	if data.Node == nil || data.Node.ID == "" {
+		if !deletedEvent {
+			return nil, notFound("team", id)
+		}
 		return adapter.Observations{deleted(model.KindTeam, c.node("team_node", nodeID), sent)}, nil
 	}
 	return c.readTeam(ctx, *data.Node, sent, map[int64]bool{})

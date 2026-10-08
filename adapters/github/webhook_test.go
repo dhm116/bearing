@@ -168,6 +168,18 @@ func TestHandleRejectsWhatItCannotTrust(t *testing.T) {
 	}
 }
 
+func TestHandleDoesNotInferDeletionFromAnotherEvent(t *testing.T) {
+	r := newRig(t)
+	_, err := r.handle("repository", []byte(`{"action":"created","repository":{"id":999},"organization":{"login":"acme","id":81234567}}`))
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got %v, want an error: a created event for an unreadable repository is not a deletion", err)
+	}
+	_, err = r.handle("membership", []byte(`{"action":"removed","team":{"id":999},"organization":{"login":"acme","id":81234567}}`))
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got %v, want an error for a team that can't be read", err)
+	}
+}
+
 func TestHandleFailsWhenTheReReadFails(t *testing.T) {
 	r := newRig(t)
 	r.srv.RateLimitNext(1)

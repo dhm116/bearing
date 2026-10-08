@@ -25,9 +25,9 @@ const repoFields = `id databaseId name nameWithOwner url description isArchived
         defaultBranchRef { name }
         primaryLanguage { name }
         repositoryTopics(first: 100) { nodes { topic { name } } }
-        githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { ... on Blob { text } }
-        rootCodeowners: object(expression: "HEAD:CODEOWNERS") { ... on Blob { text } }
-        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { ... on Blob { text } }`
+        githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+        rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }`
 
 const teamFields = `id databaseId slug name description url
         childTeams(first: 100, immediateOnly: true) { totalCount nodes { id } }`
@@ -104,9 +104,18 @@ type gqlName struct {
 	Name string `json:"name"`
 }
 
+// gqlBlob is a file. Text is null for a binary or truncated blob, which is
+// not an empty file.
 type gqlBlob struct {
-	Text string `json:"text"`
+	// Typename is Blob for a file; a directory has no fields to select.
+	Typename    string  `json:"__typename"`
+	Text        *string `json:"text"`
+	IsTruncated bool    `json:"isTruncated"`
+	IsBinary    bool    `json:"isBinary"`
 }
+
+// readable reports whether the whole text of the file was returned.
+func (b gqlBlob) readable() bool { return b.Text != nil && !b.IsTruncated && !b.IsBinary }
 
 type gqlRepo struct {
 	ID               string   `json:"id"`
@@ -129,14 +138,19 @@ type gqlRepo struct {
 	DocsCodeowners   *gqlBlob `json:"docsCodeowners"`
 }
 
-// codeowners returns the effective CODEOWNERS file: the first found.
-func (r gqlRepo) codeowners() (path, text string, found bool) {
+// codeowners returns the effective CODEOWNERS file: the first found. If it
+// exists but can't be read in full, found is true and readable is false.
+func (r gqlRepo) codeowners() (path, text string, found, readable bool) {
 	for i, b := range []*gqlBlob{r.GithubCodeowners, r.RootCodeowners, r.DocsCodeowners} {
-		if b != nil {
-			return codeownersPaths[i], b.Text, true
+		// A directory named CODEOWNERS isn't a file, and GitHub passes over it.
+		if b != nil && b.Typename == "Blob" {
+			if !b.readable() {
+				return codeownersPaths[i], "", true, false
+			}
+			return codeownersPaths[i], *b.Text, true, true
 		}
 	}
-	return "", "", false
+	return "", "", false, false
 }
 
 type gqlTeam struct {

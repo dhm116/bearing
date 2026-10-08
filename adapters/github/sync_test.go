@@ -128,7 +128,7 @@ func TestSyncRefusesLegacyNodeIDs(t *testing.T) {
 			"nodes":[{"id":"MDEwOlJlcG9zaXRvcnk1MjU3NzY0OTU=","databaseId":525776495,"name":"x","nameWithOwner":"acme/x","url":"https://github.com/acme/x"}]}}}}`))
 	}))
 	t.Cleanup(srv.Close)
-	a := &Adapter{HTTP: srv.Client(), Now: time.Now, Getenv: func(string) string { return testToken }}
+	a := &Adapter{HTTP: srv.Client(), Now: testkit.NewClock(fakes.Start).Now, Getenv: func(string) string { return testToken }}
 	_, err := a.Sync(context.Background(), adapter.SyncParams{Config: json.RawMessage(`{"org":"acme","api_url":"` + srv.URL + `"}`)})
 	if err == nil || !strings.Contains(err.Error(), "next format") {
 		t.Fatalf("got %v, want a refusal to emit a legacy node ID", err)
@@ -180,5 +180,54 @@ func TestSyncAllAcceptsEverySyncObservation(t *testing.T) {
 	err := adapter.SyncAll(context.Background(), r.a, r.cfg, 50, func(*eventv1alpha1.Observation) error { n++; return nil })
 	if err != nil || n == 0 {
 		t.Fatalf("SyncAll: %d observations, %v", n, err)
+	}
+}
+
+// TestSyncDoesNotEndApprovalsOfAnUnreadableCodeowners: a CODEOWNERS blob GitHub
+// returns without its text (binary or truncated) is not an empty file, so
+// the repository declares no approves_changes scope and no rule count.
+func TestSyncDoesNotEndApprovalsOfAnUnreadableCodeowners(t *testing.T) {
+	for name, blob := range map[string]string{
+		"truncated": `{"__typename":"Blob","text":"* @acme/a\n","isTruncated":true,"isBinary":false}`,
+		"binary":    `{"__typename":"Blob","text":null,"isTruncated":false,"isBinary":true}`,
+		"null text": `{"__typename":"Blob","text":null,"isTruncated":false,"isBinary":false}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"data":{"organization":{"repositories":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+					{"id":"R_kgDOH1a2bw","databaseId":525776495,"name":"x","nameWithOwner":"acme/x","url":"https://github.com/acme/x","githubCodeowners":` + blob + `}]}}}}`))
+			}))
+			t.Cleanup(srv.Close)
+			a := &Adapter{HTTP: srv.Client(), Now: testkit.NewClock(fakes.Start).Now, Getenv: func(string) string { return testToken }}
+			res, err := a.Sync(context.Background(), adapter.SyncParams{Config: json.RawMessage(`{"org":"acme","api_url":"` + srv.URL + `"}`)})
+			if err != nil || len(res.Observations) != 1 {
+				t.Fatalf("got %v, %v", res.Observations, err)
+			}
+			d := res.Observations[0].GetData()
+			if len(d.GetSnapshots()) != 0 || len(d.GetRelations()) != 0 || d.GetEntity().GetAttributes()["codeowners_rules"] != nil {
+				t.Fatalf("got snapshots %v, relations %v, attributes %v: want no scope, no claims and codeowners_rules unread",
+					d.GetSnapshots(), d.GetRelations(), d.GetEntity().GetAttributes())
+			}
+		})
+	}
+}
+
+// TestSyncPassesOverADirectoryNamedCodeowners: a directory at the first
+// candidate path has no blob fields, and the next candidate is the file.
+func TestSyncPassesOverADirectoryNamedCodeowners(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"organization":{"repositories":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+			{"id":"R_kgDOH1a2bw","databaseId":525776495,"name":"x","nameWithOwner":"acme/x","url":"https://github.com/acme/x",
+			 "githubCodeowners":{"__typename":"Tree"},"rootCodeowners":{"__typename":"Blob","text":"* @acme/a\n","isTruncated":false,"isBinary":false}}]}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	a := &Adapter{HTTP: srv.Client(), Now: testkit.NewClock(fakes.Start).Now, Getenv: func(string) string { return testToken }}
+	res, err := a.Sync(context.Background(), adapter.SyncParams{Config: json.RawMessage(`{"org":"acme","api_url":"` + srv.URL + `"}`)})
+	if err != nil || len(res.Observations) != 1 {
+		t.Fatalf("got %v, %v", res.Observations, err)
+	}
+	d := res.Observations[0].GetData()
+	if got, want := links(d), []string{"approves_changes to github:team/acme/a CODEOWNERS:1 *"}; !slices.Equal(got, want) || len(d.GetSnapshots()) != 1 {
+		t.Fatalf("got %q with %d scopes, want %q with one", got, len(d.GetSnapshots()), want)
 	}
 }

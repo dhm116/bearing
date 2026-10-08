@@ -43,7 +43,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count` |
 | `bearing.describe`, `bearing.sync`, `bearing.handle` | client | core, per protocol call | `rpc.system.name=jsonrpc`, `rpc.method`, `jsonrpc.request.id` |
 | `bearing.describe`, `bearing.sync`, `bearing.handle` | server | adapter, per request | same, plus `rpc.response.status_code` on error |
-| `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.page` |
+| `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.phase`, `bearing.github.sync.page` |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore` | `db.system.name`, `db.operation.name` |
@@ -61,7 +61,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.adapter.observations.received` | counter | {observation} | `bearing.adapter.name`, `bearing.entity.kind` | What the core accepted |
 | `bearing.adapter.observations.invalid` | counter | {observation} | `bearing.adapter.name` | Adapters emitting schema-invalid data; should be zero |
 | `bearing.github.webhooks` | counter | {delivery} | `bearing.github.webhook.event`, `bearing.result` | Accepted, ignored and rejected deliveries; rejections can mean a wrong secret or spoofing |
-| `bearing.github.codeowners.lookups` | counter | {repository} | `bearing.result` (`found`, `missing`) | Ownership coverage: repos with no CODEOWNERS have no declared owner |
+| `bearing.github.codeowners.lookups` | counter | {repository} | `bearing.result` (`found`, `missing`, `unreadable`) | Ownership coverage: repos with no CODEOWNERS have no declared owner; `unreadable` is a binary or truncated file, whose facts are left as they are |
 | `bearing.github.ratelimit.remaining` | gauge | {request} | `bearing.github.ratelimit.resource` | Headroom before GitHub starts refusing requests |
 | `http.client.request.duration` | histogram | s | OTel HTTP semantic conventions | Upstream API latency and error codes (from otelhttp) |
 | `bearing.graph.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Graph backend latency per operation |

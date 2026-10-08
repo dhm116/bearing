@@ -750,7 +750,7 @@ The GitHub adapter reports only the effective CODEOWNERS file (the first
 found of `.github/`, the root and `docs/`, as GitHub looks them up): for
 each rule line and each owner, `(Repository, approves_changes, owner)` at
 1000000 with qualifiers `{ "file", "pattern", "line" }`, a snapshot scope
-over `approves_changes`, and the attribute `github.codeowners_rules`, the
+over `approves_changes`, and the attribute `codeowners_rules` (stored as `github.codeowners_rules`), the
 number of rule lines including those with no owner. Lines naming one owner
 collapse into one fact whose qualifiers list every line.
 
@@ -1381,8 +1381,10 @@ artifacts are replaced, not migrated:
   `full_name`; the effective CODEOWNERS file as `approves_changes` with line
   qualifiers, `codeowners_rules` and snapshot scopes; `null` and `[]` for
   empty attributes; GraphQL cursor paging with `complete_sync`; direct team
-  members only, listed on the team's own observation; `observed_at` per the
-  rules above. SAML identities (`links`) wait for the people matching that
+  members only, listed on the team's own observation together with its
+  direct child teams (`member_of` from the child), under one `in` scope;
+  `observed_at` per the rules above. A CODEOWNERS file GitHub returns
+  without its text (binary or truncated) declares no scope. SAML identities (`links`) wait for the people matching that
   needs them.
 - `pkg/adapter`: the declaration shape in `Describe`, `complete_sync` on
   the last page, the source `namespace`, `issues` and `links` fields; bump

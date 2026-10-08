@@ -28,9 +28,9 @@ var GraphQLQueries = map[string]string{
         defaultBranchRef { name }
         primaryLanguage { name }
         repositoryTopics(first: 100) { nodes { topic { name } } }
-        githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { ... on Blob { text } }
-        rootCodeowners: object(expression: "HEAD:CODEOWNERS") { ... on Blob { text } }
-        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { ... on Blob { text } }
+        githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+        rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
       }
     }
   }
@@ -54,9 +54,9 @@ var GraphQLQueries = map[string]string{
       defaultBranchRef { name }
       primaryLanguage { name }
       repositoryTopics(first: 100) { nodes { topic { name } } }
-      githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { ... on Blob { text } }
-      rootCodeowners: object(expression: "HEAD:CODEOWNERS") { ... on Blob { text } }
-      docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { ... on Blob { text } }
+      githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+      rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+      docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
     }
   }
 }`,
@@ -293,7 +293,7 @@ func repoNode(r Repo, next bool) map[string]any {
 	for _, a := range codeownersAliases {
 		n[a[0]] = nil
 		if text, ok := r.Files[a[1]]; ok {
-			n[a[0]] = map[string]any{"text": text}
+			n[a[0]] = map[string]any{"__typename": "Blob", "text": text, "isTruncated": false, "isBinary": false}
 		}
 	}
 	return n

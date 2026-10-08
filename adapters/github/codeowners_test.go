@@ -1,7 +1,6 @@
 package github
 
 import (
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -117,8 +116,5 @@ func TestDescribeAndConfigDefaults(t *testing.T) {
 	if err != nil || c.APIURL != "https://ghe.example.com/api/v3" || c.Namespace != "github" || c.TokenEnv != "GITHUB_TOKEN" ||
 		c.WebhookSecretEnv != "GITHUB_WEBHOOK_SECRET" || c.PerPage != 100 {
 		t.Errorf("config = %+v, %v", c, err)
-	}
-	if _, err := os.Stat("testdata"); err != nil {
-		t.Fatal(err)
 	}
 }
