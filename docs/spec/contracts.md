@@ -170,6 +170,20 @@ closes they change only by adding fields, never by renumbering or reusing
 one, and they carry no version field. An entry is written in the same
 `ChangeSet` as the rows it describes, so the two never disagree.
 
+**Known limit.** The resolver's state entries grow with every
+re-observation, because each is a new write with a greater ordering key and
+the key decides what a late, older write does. Nothing prunes them in M2.
+Measured after 200 identical hourly syncs of one repository, one relation and
+one attribute (about 200 bytes per sync for a binding or a scope's watermarks
+and about 420 for a fact's support segments): a scope's watermarks (`wm/`) about 40 KB, an alias's binding
+writes (`bind/`) about 40 KB, and a fact's support segments (`sup/`) 80 to 85
+KB. An entry is rewritten whole by each sync and the store keeps every version
+in the change journal, so storage grows quadratically per entry. The growth
+also reaches the `ChangeSet`: it carries every entry its observation rewrites,
+so a source that lists many facts approaches `MaxChangeSetBytes` and then has
+every observation rejected as `too_large`. The `bearing.graph.state_entry.bytes`
+metric shows the sizes. Tracked in [#77](https://github.com/dhm116/bearing/issues/77).
+
 ### Backup
 
 `Backup` writes a stream of length-delimited `BackupFrame` messages

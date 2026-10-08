@@ -46,7 +46,7 @@
     "bearing.resolver.v1alpha1.BindingWrites.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "BindingWrites is every write to one alias, in no particular order. The\n binding timeline in the graph is computed from it.",
+      "description": "BindingWrites is every write to one alias, in no particular order. The\n binding timeline in the graph is computed from it. It gains a write for each\n sync that mentions the alias.",
       "properties": {
         "writes": {
           "description": "The writes.",

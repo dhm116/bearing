@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
@@ -103,6 +104,7 @@ func TestGraphMetrics(t *testing.T) {
 		"bearing.graph.subjects.minted",
 		"bearing.graph.subjects.merged",
 		"bearing.graph.key.lookups",
+		"bearing.graph.state_entry.bytes",
 	} {
 		if !seen[name] {
 			t.Errorf("metric %s was not recorded", name)
@@ -140,5 +142,54 @@ func TestKeyLookupsLabelUnconfiguredNamespacesOther(t *testing.T) {
 	}
 	if len(labels) != 2 || !labels["github"] || !labels["other"] {
 		t.Fatalf("got namespace labels %v, want github and other", labels)
+	}
+}
+
+// stateBytes returns the bytes recorded so far in the state-entry histogram,
+// by key prefix.
+func stateBytes(t *testing.T) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if h, ok := m.Data.(metricdata.Histogram[int64]); ok && m.Name == "bearing.graph.state_entry.bytes" {
+				for _, dp := range h.DataPoints {
+					v, _ := dp.Attributes.Value("bearing.state.prefix")
+					got[v.AsString()] += dp.Sum
+				}
+			}
+		}
+	}
+	return got
+}
+
+// A state entry's size is recorded under the resolver's key prefix, and any
+// other prefix is "other", so keys can't grow the label set. The reader is
+// shared with the other tests, so the test compares before and after.
+func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
+	s, _, _ := newStore(t)
+	before := stateBytes(t)
+	val := func(n int) *anypb.Any { return &anypb.Any{TypeUrl: "t", Value: make([]byte, n)} }
+	cs := &modelv1alpha1.ChangeSet{EventId: "state-sizes", State: []*modelv1alpha1.StateEntry{
+		{Key: "sup/github/a/owned_by/b", Value: val(3000)},
+		{Key: "sup/github/a/owned_by/c", Value: val(5000)},
+		{Key: "wm/github/a/out/owned_by", Value: val(700)},
+		{Key: "attacker-1234/x", Value: val(9)},
+	}}
+	if _, err := s.Apply(context.Background(), cs); err != nil {
+		t.Fatal(err)
+	}
+	after := stateBytes(t)
+	for prefix, want := range map[string]int64{"sup": 8000, "wm": 700, "other": 9} {
+		if got := after[prefix] - before[prefix]; got != want {
+			t.Errorf("prefix %s: got %d bytes recorded, want %d", prefix, got, want)
+		}
+	}
+	if _, ok := after["attacker-1234"]; ok {
+		t.Errorf("got labels %v, want an unknown prefix recorded as other", after)
 	}
 }

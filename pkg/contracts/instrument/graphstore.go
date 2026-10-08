@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -42,6 +43,10 @@ var (
 	keyLookups = must(meter.Int64Counter("bearing.graph.key.lookups",
 		metric.WithDescription("Keys resolved to subjects, by result (hit, miss). A high miss rate means identity resolution is behind."),
 		metric.WithUnit("{lookup}")))
+	stateEntryBytes = must(meter.Int64Histogram("bearing.graph.state_entry.bytes",
+		metric.WithDescription("Payload bytes of each state entry in an applied ChangeSet, by key prefix. Entries are rewritten whole, so a size that keeps growing across syncs is the state growth of issue #77."),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15, 1<<16, 1<<17, 1<<18, 1<<19, 1<<20, 1<<21, 1<<22, 1<<23, 1<<24)))
 )
 
 const (
@@ -53,7 +58,23 @@ const (
 	attrRule      = attribute.Key("bearing.rule")
 	attrCount     = attribute.Key("bearing.results.count")
 	attrNamespace = attribute.Key("bearing.key.namespace")
+	attrPrefix    = attribute.Key("bearing.state.prefix")
 )
+
+// statePrefixes are the first key segments the resolver gives its state
+// entries (pkg/resolver). Keys come from outside the store, so any other
+// prefix is "other" in the metric label.
+var statePrefixes = map[string]bool{"bind": true, "del": true, "sup": true, "wm": true}
+
+// statePrefix returns the label for a state key: its first segment if the
+// resolver uses it, else "other".
+func statePrefix(key string) string {
+	first, _, _ := strings.Cut(key, "/")
+	if statePrefixes[first] {
+		return first
+	}
+	return "other"
+}
 
 func must[T any](v T, err error) T {
 	if err != nil {
@@ -126,6 +147,9 @@ func (g *graphStore) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (re
 		}
 		for _, m := range res.Merges {
 			merged.Add(ctx, 1, metric.WithAttributes(attrRule.String(model.ShortName(m.GetRule()))))
+		}
+		for _, e := range cs.GetState() {
+			stateEntryBytes.Record(ctx, int64(len(e.GetValue().GetValue())), metric.WithAttributes(attrPrefix.String(statePrefix(e.GetKey()))))
 		}
 		return nil
 	})

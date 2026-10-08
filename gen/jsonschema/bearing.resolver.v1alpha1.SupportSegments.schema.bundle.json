@@ -327,7 +327,7 @@
     "bearing.resolver.v1alpha1.SupportSegments.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "SupportSegments is one source's segments for one fact, sorted by\n valid_from and not overlapping.",
+      "description": "SupportSegments is one source's segments for one fact, sorted by\n valid_from and not overlapping. A sync that repeats the fact adds a segment\n with a greater key.",
       "properties": {
         "segments": {
           "description": "The segments.",

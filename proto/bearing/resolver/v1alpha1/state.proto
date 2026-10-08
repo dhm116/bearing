@@ -5,6 +5,11 @@
 // the same ChangeSet as the rows it describes. Stores keep the entries and
 // read them back; they never look inside (docs/spec/contracts.md, "State
 // keys"). These messages are not part of the data model.
+//
+// Known limit: every message below is rewritten whole by each apply that
+// touches it and grows with every sync, because each re-observation is a new
+// write with a greater ordering key. Nothing prunes them yet
+// (docs/spec/contracts.md, "State keys"; issue #77).
 
 syntax = "proto3";
 
@@ -53,7 +58,8 @@ message BindingWrite {
 }
 
 // BindingWrites is every write to one alias, in no particular order. The
-// binding timeline in the graph is computed from it.
+// binding timeline in the graph is computed from it. It gains a write for each
+// sync that mentions the alias.
 message BindingWrites {
   // The writes.
   repeated BindingWrite writes = 1;
@@ -83,7 +89,8 @@ message SupportSegment {
 }
 
 // SupportSegments is one source's segments for one fact, sorted by
-// valid_from and not overlapping.
+// valid_from and not overlapping. A sync that repeats the fact adds a segment
+// with a greater key.
 message SupportSegments {
   // The segments.
   repeated SupportSegment segments = 1;
@@ -105,7 +112,8 @@ message Watermark {
 // ScopeWatermarks is every watermark of one scope (source, subject,
 // direction and predicates, or the subject's identity evidence), sorted by
 // `at`. A watermark is dropped once another with an earlier or equal `at`
-// has a greater or equal key.
+// has a greater or equal key. In a wm/ entry each sync of the scope adds
+// one, and watermarks at later times are not dropped.
 message ScopeWatermarks {
   // The watermarks.
   repeated Watermark watermarks = 1;
