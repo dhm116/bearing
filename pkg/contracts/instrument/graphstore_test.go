@@ -145,23 +145,12 @@ func TestKeyLookupsLabelUnconfiguredNamespacesOther(t *testing.T) {
 	}
 }
 
-// A state entry's size is recorded under the resolver's key prefix, and any
-// other prefix is "other", so keys can't grow the label set.
-func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
-	s, _, _ := newStore(t)
-	ctx := context.Background()
-	val := func(n int) *anypb.Any { return &anypb.Any{TypeUrl: "t", Value: make([]byte, n)} }
-	cs := &modelv1alpha1.ChangeSet{EventId: "state-sizes", State: []*modelv1alpha1.StateEntry{
-		{Key: "sup/github/a/owned_by/b", Value: val(3000)},
-		{Key: "sup/github/a/owned_by/c", Value: val(5000)},
-		{Key: "wm/github/a/out/owned_by", Value: val(700)},
-		{Key: "attacker-1234/x", Value: val(9)},
-	}}
-	if _, err := s.Apply(ctx, cs); err != nil {
-		t.Fatal(err)
-	}
+// stateBytes returns the bytes recorded so far in the state-entry histogram,
+// by key prefix.
+func stateBytes(t *testing.T) map[string]int64 {
+	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := metrics.Collect(ctx, &rm); err != nil {
+	if err := metrics.Collect(context.Background(), &rm); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]int64{}
@@ -175,15 +164,32 @@ func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
 			}
 		}
 	}
-	for prefix, min := range map[string]int64{"sup": 8000, "wm": 700} {
-		if got[prefix] < min {
-			t.Errorf("prefix %s: got %d bytes recorded, want at least %d", prefix, got[prefix], min)
+	return got
+}
+
+// A state entry's size is recorded under the resolver's key prefix, and any
+// other prefix is "other", so keys can't grow the label set. The reader is
+// shared with the other tests, so the test compares before and after.
+func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
+	s, _, _ := newStore(t)
+	before := stateBytes(t)
+	val := func(n int) *anypb.Any { return &anypb.Any{TypeUrl: "t", Value: make([]byte, n)} }
+	cs := &modelv1alpha1.ChangeSet{EventId: "state-sizes", State: []*modelv1alpha1.StateEntry{
+		{Key: "sup/github/a/owned_by/b", Value: val(3000)},
+		{Key: "sup/github/a/owned_by/c", Value: val(5000)},
+		{Key: "wm/github/a/out/owned_by", Value: val(700)},
+		{Key: "attacker-1234/x", Value: val(9)},
+	}}
+	if _, err := s.Apply(context.Background(), cs); err != nil {
+		t.Fatal(err)
+	}
+	after := stateBytes(t)
+	for prefix, want := range map[string]int64{"sup": 8000, "wm": 700, "other": 9} {
+		if got := after[prefix] - before[prefix]; got != want {
+			t.Errorf("prefix %s: got %d bytes recorded, want %d", prefix, got, want)
 		}
 	}
-	if _, ok := got["attacker-1234"]; ok {
-		t.Errorf("got labels %v, want an unknown prefix recorded as other", got)
-	}
-	if got["other"] < 9 {
-		t.Errorf("got %d bytes under other, want at least 9", got["other"])
+	if _, ok := after["attacker-1234"]; ok {
+		t.Errorf("got labels %v, want an unknown prefix recorded as other", after)
 	}
 }

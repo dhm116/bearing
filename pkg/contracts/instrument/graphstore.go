@@ -44,9 +44,9 @@ var (
 		metric.WithDescription("Keys resolved to subjects, by result (hit, miss). A high miss rate means identity resolution is behind."),
 		metric.WithUnit("{lookup}")))
 	stateEntryBytes = must(meter.Int64Histogram("bearing.graph.state_entry.bytes",
-		metric.WithDescription("Size of each state entry in an applied ChangeSet, by key prefix. Entries are rewritten whole, so a size that keeps growing across syncs is the state growth of issue #77."),
+		metric.WithDescription("Payload bytes of each state entry in an applied ChangeSet, by key prefix. Entries are rewritten whole, so a size that keeps growing across syncs is the state growth of issue #77."),
 		metric.WithUnit("By"),
-		metric.WithExplicitBucketBoundaries(1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15, 1<<16, 1<<17, 1<<18, 1<<19, 1<<20, 1<<21, 1<<22, 1<<23, 1<<24)))
+		metric.WithExplicitBucketBoundaries(1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15, 1<<16, 1<<17, 1<<18, 1<<19, 1<<20, 1<<21, 1<<22, 1<<23, 1<<24)))
 )
 
 const (

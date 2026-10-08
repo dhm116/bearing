@@ -59,7 +59,7 @@ message BindingWrite {
 
 // BindingWrites is every write to one alias, in no particular order. The
 // binding timeline in the graph is computed from it. It gains a write for each
-// sync that mentions the alias, about 200 bytes each.
+// sync that mentions the alias.
 message BindingWrites {
   // The writes.
   repeated BindingWrite writes = 1;
@@ -90,7 +90,7 @@ message SupportSegment {
 
 // SupportSegments is one source's segments for one fact, sorted by
 // valid_from and not overlapping. A sync that repeats the fact adds a segment
-// with a greater key, about 420 bytes each.
+// with a greater key.
 message SupportSegments {
   // The segments.
   repeated SupportSegment segments = 1;
@@ -112,8 +112,8 @@ message Watermark {
 // ScopeWatermarks is every watermark of one scope (source, subject,
 // direction and predicates, or the subject's identity evidence), sorted by
 // `at`. A watermark is dropped once another with an earlier or equal `at`
-// has a greater or equal key. Each sync of the scope adds one, about 200
-// bytes, and watermarks at later times are not dropped.
+// has a greater or equal key. In a wm/ entry each sync of the scope adds
+// one, and watermarks at later times are not dropped.
 message ScopeWatermarks {
   // The watermarks.
   repeated Watermark watermarks = 1;

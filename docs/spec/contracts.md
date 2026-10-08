@@ -174,7 +174,8 @@ one, and they carry no version field. An entry is written in the same
 re-observation, because each is a new write with a greater ordering key and
 the key decides what a late, older write does. Nothing prunes them in M2.
 Measured after 200 identical hourly syncs of one repository, one relation and
-one attribute: a scope's watermarks (`wm/`) about 40 KB, an alias's binding
+one attribute (about 200 bytes per sync for a binding or a scope's watermarks
+and about 420 for a fact's support segments): a scope's watermarks (`wm/`) about 40 KB, an alias's binding
 writes (`bind/`) about 40 KB, and a fact's support segments (`sup/`) 80 to 85
 KB. An entry is rewritten whole by each sync and the store keeps every version
 in the change journal, so storage grows quadratically per entry. The growth

@@ -34,8 +34,8 @@ func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 			o = withRelation(o, "approves_changes", fmt.Sprintf("github:team/acme/t%d", f))
 		}
 		o = withScope(o, false, "approves_changes")
-		// Real event and observation IDs are long, and both are in every
-		// write's ordering key, so they set the size of a write.
+		// IDs are in every write's ordering key, so they set the size of a
+		// write; event() builds them the way the core does.
 		ev := event("github-acme", o)
 		res, err := e.r.Resolve(ctx, ev)
 		if err != nil {
@@ -62,10 +62,11 @@ func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 // Resolver state grows with every re-observation of the same facts (issue
 // #77, docs/spec/contracts.md "State keys", Known limit). The bounds are
 // generous ceilings of what was measured, about 200 bytes per sync for a
-// binding or a scope's watermarks and about 420 for a fact's support segments;
-// they fail if growth gets worse, not if it gets better. The test also
-// extrapolates when a 500-fact observation reaches contracts.MaxChangeSetBytes,
-// where the source's observations would be rejected as too_large.
+// binding or a scope's watermarks and about 420 for a fact's support segments.
+// The test also pins the rate: whoever fixes #77 updates the ceilings and the
+// window below. It extrapolates when a 500-fact observation reaches
+// contracts.MaxChangeSetBytes, where the source's observations would be
+// rejected as too_large.
 func TestRepeatedSyncsGrowStateWithinMeasuredBounds(t *testing.T) {
 	const facts, syncs = 50, 40
 	got := repeatSyncs(t, facts, syncs)
