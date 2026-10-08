@@ -66,6 +66,14 @@ payments-api [Repository 01a0e5a2-15c1-7000-8000-000000000000] name payments-api
       valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
       evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
 
+payments-api [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
+  none 0% to asserted 95%
+  after
+    core/derive/codeowners/github-acme: 95%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+      qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
+
 payments-api [Repository 01a0e5a2-15c1-7000-8000-000000000000] topics tier-1
   none 0% to asserted 100%
   after

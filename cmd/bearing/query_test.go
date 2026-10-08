@@ -102,13 +102,10 @@ func TestQueryGoldens(t *testing.T) {
 	}
 }
 
-// TestOwnerGoldens pins `bearing owner` on the fictional org. It waits for the
-// resolver to derive owned_by from CODEOWNERS (issue #43, part 2b): until
-// then no repository has an owner to show, and the CLI must not derive one.
-// Enable it by removing the Skip, running with -update and reviewing every
-// golden against docs/spec/data-model.md, "CODEOWNERS".
+// TestOwnerGoldens pins `bearing owner` on the fictional org. The resolver
+// derives owned_by from CODEOWNERS (issue #43); the CLI only reads it. Review
+// every golden against docs/spec/data-model.md, "CODEOWNERS".
 func TestOwnerGoldens(t *testing.T) {
-	t.Skip("derived owned_by lands with resolver part 2b (#43)")
 	tests := []struct {
 		name  string
 		until time.Time
@@ -278,10 +275,18 @@ func TestOwnerTakesARepoOrAKey(t *testing.T) {
 	if byRepo.Subject.ID == "" || byRepo.Subject.ID != byKey.Subject.ID {
 		t.Errorf("owner acme/payments-api is %q, and by key %q: want the same subject", byRepo.Subject.ID, byKey.Subject.ID)
 	}
-	// Nothing derives owned_by yet, so the CLI must not invent an owner from
-	// approves_changes.
-	if len(byRepo.Owners) != 0 {
-		t.Errorf("owners = %v, want none until the resolver derives owned_by", byRepo.Owners)
+	// The owner is the resolver's derived owned_by, with its derivation as
+	// the source; the CLI invents none from approves_changes.
+	if len(byRepo.Owners) != 1 || byRepo.Owners[0].Object.Subject == nil || byRepo.Owners[0].Object.Subject.Name != "Payments" {
+		t.Fatalf("owners = %v, want the Payments team", byRepo.Owners)
+	}
+	if sups := byRepo.Owners[0].Supports; len(sups) != 1 || sups[0].Source != codeownersSource {
+		t.Errorf("owner supports = %+v, want one from %s", sups, codeownersSource)
+	}
+	var handbook query.Ownership
+	ask(t, w, &handbook, "owner", "acme/handbook")
+	if len(handbook.Owners) != 0 {
+		t.Errorf("handbook owners = %v, want none: its CODEOWNERS has only path rules", handbook.Owners)
 	}
 	if _, err := w.cli("owner", "acme/payments-api", "--namespace", "nope"); !errors.Is(err, query.ErrNotFound) {
 		t.Errorf("owner in an unknown namespace: got %v, want not found", err)
@@ -326,7 +331,7 @@ func TestEveryAnswerCarriesProvenance(t *testing.T) {
 			t.Errorf("fact %s %s has no supports", f.Predicate, f.Object)
 		}
 		for _, s := range f.Supports {
-			if s.Source != githubSource || s.EventID == "" || s.ObservedAt.IsZero() || s.ConfidencePPM == 0 {
+			if (s.Source != githubSource && s.Source != codeownersSource) || s.EventID == "" || s.ObservedAt.IsZero() || s.ConfidencePPM == 0 {
 				t.Errorf("fact %s %s: support %+v lacks a source, event, observed time or confidence", f.Predicate, f.Object, s)
 			}
 		}
