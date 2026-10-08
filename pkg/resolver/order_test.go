@@ -29,10 +29,8 @@ func day(n int) string {
 func scenario() []Event {
 	gh := func(o *eventv1alpha1.Observation) Event { return event("github-acme", o) }
 	ak := func(o *eventv1alpha1.Observation) Event { return event("authentik-acme", o) }
-	del := obsAt(day(9), "Repository", "github:repo_node/R2")
-	del.Data.Entity.Deleted = true
-	gone := obsAt(day(15), "Team", "github:team_node/T4")
-	gone.Data.Entity.Deleted = true
+	del := deletedAt(day(9), "Repository", "github:repo_node/R2")
+	gone := deletedAt(day(15), "Team", "github:team_node/T4")
 	return []Event{
 		gh(withRelation(obsAt(day(1), "Repository", "github:repo_node/R1", "github:repo/acme/a"), "approves_changes", "github:team/acme/s1")),
 		gh(obsAt(day(2), "Team", "github:team_node/T1", "github:team/acme/s1")),
@@ -56,7 +54,23 @@ func scenario() []Event {
 		gh(gone),
 		gh(obsAt(day(16), "Team", "github:team_node/T5", "github:team/acme/s4")),
 		gh(withRelation(obsAt(day(17), "Repository", "github:repo_node/R5", "github:repo/acme/e"), "approves_changes", "github:team/acme/s4")),
+		// Two repositories claim one name at the same instant; the key's
+		// tie-breakers decide, and the loser keeps its other name.
+		gh(obsAt(day(20), "Repository", "github:repo_node/R6", "github:repo/acme/t1")),
+		gh(obsAt(day(25), "Repository", "github:repo_node/R6", "github:repo/acme/t2")),
+		gh(obsAt(day(25), "Repository", "github:repo_node/R7", "github:repo/acme/t2")),
+		// A team is observed and deleted at the same instant.
+		gh(obsAt(day(27), "Team", "github:team_node/T6", "github:team/acme/s6")),
+		gh(deletedAt(day(27), "Team", "github:team_node/T6")),
 	}
+}
+
+// deletedAt is an observation that the entity is gone.
+func deletedAt(at, kind, key string) *eventv1alpha1.Observation {
+	o := obsAt(at, kind, key)
+	o.Id += "#deleted" // else the event ID is the creation's
+	o.Data.Entity.Deleted = true
+	return o
 }
 
 // universe lists every key the events mention.

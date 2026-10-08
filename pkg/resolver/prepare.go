@@ -88,6 +88,12 @@ func (r *Resolver) prepare(ev Event) (*prepared, []Rejection, error) {
 	}
 	obs := proto.CloneOf(ev.Observation)
 	model.TruncateTimes(obs)
+	// The content hash is of the data as delivered, not as admitted, so the
+	// ordering key doesn't depend on the declarations in force.
+	hash, err := model.ContentHash(obs.GetData())
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolver: content hash: %w", err)
+	}
 	var rejs []Rejection
 	if err := model.ValidateObservation(obs); err != nil {
 		var ve *model.ValidationError
@@ -119,10 +125,6 @@ func (r *Resolver) prepare(ev Event) (*prepared, []Rejection, error) {
 	kind := model.Kind(entity.GetKind())
 	if src.kinds[kind] == nil {
 		return reject(modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, "data.entity.kind", "adapter %q doesn't declare kind %q", src.Adapter, model.Clip(entity.GetKind()))
-	}
-	hash, err := model.ContentHash(obs.GetData())
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolver: content hash: %w", err)
 	}
 	p := &prepared{ev: ev, src: src, obs: obs, at: obs.GetTime().AsTime(), kind: kind}
 	p.key = model.NewOrderingKey(p.at, obs.GetId(), ev.ID, hash)

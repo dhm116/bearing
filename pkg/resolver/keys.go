@@ -52,9 +52,11 @@ func (ix *index) lookup(key string) (keyRef, bool) {
 	return keyRef{key: model.NewKey(ns, kt, id), ns: ns, kt: kt, id: id, typ: typ, class: class}, true
 }
 
-// fold applies Unicode simple case folding: runes that SimpleFold puts in
-// one orbit compare equal, and each is stored as the smallest member of its
-// orbit that isn't upper or title case (so "A" and "a" both become "a").
+// fold applies Unicode simple case folding (CaseFolding.txt, statuses C and
+// S): runes that SimpleFold puts in one orbit compare equal, and each is
+// stored as the orbit's folded form, which is the lower case of its upper
+// case ("A", "a" and "ǅ" become "a" and "ǆ"; "ς" becomes "σ"), except that
+// Cherokee folds to upper case.
 func fold(s string) string {
 	if !strings.ContainsFunc(s, func(r rune) bool { return foldRune(r) != r }) {
 		return s
@@ -63,21 +65,23 @@ func fold(s string) string {
 }
 
 func foldRune(r rune) rune {
-	best, found := r, false
-	pick := func(c rune) {
-		if !unicode.IsUpper(c) && !unicode.IsTitle(c) && (!found || c < best) {
-			best, found = c, true
+	upper := unicode.ToUpper(r)
+	if cherokee(upper) {
+		return upper
+	}
+	lower := unicode.ToLower(upper)
+	// The simple mapping only counts inside the rune's orbit (İ has none).
+	for c := unicode.SimpleFold(r); ; c = unicode.SimpleFold(c) {
+		if c == lower {
+			return lower
+		}
+		if c == r {
+			return r
 		}
 	}
-	pick(r)
-	for c := unicode.SimpleFold(r); c != r; c = unicode.SimpleFold(c) {
-		pick(c)
-	}
-	if !found {
-		return r
-	}
-	return best
 }
+
+func cherokee(r rune) bool { return r >= 0x13A0 && r <= 0x13F5 }
 
 // escape percent-encodes "%", "/" and ":" in source-supplied text that goes
 // into a state key, so only a subject segment can be a ref

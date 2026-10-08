@@ -21,7 +21,10 @@
 // "State, determinism and apply"), for example a reference resolves to a
 // team that a deletion applied later turns out to have ended. Within one
 // subject-and-name the bindings do not: the ordering key of every write is
-// remembered, so any order gives the same valid-time bindings.
+// remembered, so any order gives the same valid-time bindings. One case is
+// not covered yet: a write whose subject appears in none of the name's rows
+// (it was released by a greater key at the same instant) isn't found again
+// when the name is next computed.
 //
 // # State
 //

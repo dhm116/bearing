@@ -299,11 +299,20 @@ func (e *engine) closure(ctx context.Context, seeds []keyRef) ([]*nameState, err
 		if !k.typ.perSubject {
 			continue
 		}
+		// The subjects of its writes, and of writes this ChangeSet dropped:
+		// a dropped write may have released the subject's other names, and
+		// they have to be computed again without it.
+		subjects := map[string]bool{}
 		for _, w := range n.writes {
-			if w.tentative {
-				continue
+			if !w.tentative {
+				subjects[w.subject] = true
 			}
-			c, err := e.g.canon(ctx, w.subject)
+		}
+		for s := range n.dirty {
+			subjects[s] = true
+		}
+		for _, subject := range slices.Sorted(maps.Keys(subjects)) {
+			c, err := e.g.canon(ctx, subject)
 			if err != nil {
 				return nil, err
 			}

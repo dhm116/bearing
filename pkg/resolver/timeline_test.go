@@ -195,7 +195,12 @@ func TestBindingRowsApplyTheBindingRules(t *testing.T) {
 }
 
 func TestFoldAndEscape(t *testing.T) {
-	for in, want := range map[string]string{"ACME": "acme", "Acme/Pay": "acme/pay", "straße": "straße", "ǅ": "ǆ", "": ""} {
+	// Targets as CaseFolding.txt gives them (statuses C and S).
+	for in, want := range map[string]string{
+		"ACME": "acme", "Acme/Pay": "acme/pay", "straße": "straße", "ǅ": "ǆ", "": "",
+		"Σ": "σ", "ς": "σ", "σ": "σ", "Ι": "ι", "\u0345": "ι", "\u1FBE": "ι", "ẞ": "ß",
+		"\u212A": "k", "ſ": "s", "İ": "İ", "ꭰ": "Ꭰ", "ᏸ": "Ᏸ", "Ᏸ": "Ᏸ",
+	} {
 		if got := fold(in); got != want {
 			t.Errorf("fold(%q) = %q, want %q", in, got, want)
 		}
