@@ -114,6 +114,13 @@ func apply(t *testing.T, s contracts.GraphStore, cs *modelv1alpha1.ChangeSet) co
 	if err != nil {
 		t.Fatalf("Apply(%s): %v", cs.GetEventId(), err)
 	}
+	// An ID is never stamped after the apply that mints it.
+	for _, sub := range res.Minted {
+		if at, err := model.UUIDv7Time(sub.GetSubjectId()); err != nil || at.After(sub.GetMintedAt().AsTime()) {
+			t.Fatalf("Apply(%s): minted %s stamped %s (%v), want a UUIDv7 stamped no later than minted_at %s",
+				cs.GetEventId(), sub.GetSubjectId(), at, err, sub.GetMintedAt().AsTime())
+		}
+	}
 	return res
 }
 

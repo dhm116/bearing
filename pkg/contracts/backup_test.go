@@ -86,6 +86,7 @@ func TestBackupReaderRefusesBadFraming(t *testing.T) {
 		{"a second header", frames(t, header, header), "is not a record or trailer"},
 		{"a miscounting trailer", miscount, "trailer counts 2 records"},
 		{"cut inside a frame", frames(t, header, record)[:len(frames(t, header))+1], "frame 1"},
+		{"records complete, no trailer", frames(t, header, record, record), "truncated after 2 records: no trailer"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			br, err := NewBackupReader(bytes.NewReader(tc.stream))

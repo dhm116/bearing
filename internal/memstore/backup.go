@@ -57,8 +57,12 @@ func (s *Store) Restore(ctx context.Context, r io.Reader) (err error) {
 		return errors.New("restore: the store is not empty")
 	}
 	defer func() {
-		if err != nil {
+		p := recover()
+		if p != nil || err != nil {
 			s.reset()
+		}
+		if p != nil {
+			panic(p)
 		}
 	}()
 	br, err := contracts.NewBackupReader(r)

@@ -30,11 +30,17 @@ func NewUUIDv7Source(now func() time.Time, rnd io.Reader) *UUIDv7Source {
 	return &UUIDv7Source{now: now, rnd: rnd}
 }
 
-// NewID returns the next ID.
-func (g *UUIDv7Source) NewID() string {
+// NewID returns the next ID, stamped with the clock's time.
+func (g *UUIDv7Source) NewID() string { return g.NewIDAt(g.now()) }
+
+// NewIDAt returns the next ID, stamped with at unless the last ID was
+// stamped later. A store passes an apply's record time, so an ID is never
+// stamped after the apply that mints it, however the clock moves between
+// reads.
+func (g *UUIDv7Source) NewIDAt(at time.Time) string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	ms := uint64(g.now().UnixMilli())
+	ms := uint64(at.UnixMilli())
 	if ms > g.lastMS {
 		var b [16]byte
 		if _, err := io.ReadFull(g.rnd, b[:]); err != nil {

@@ -98,7 +98,7 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 			return "", fmt.Errorf("ref %s: kind %q is not registered", ref, kind)
 		}
 		if want == nil {
-			id = s.IDs.NewID()
+			id = s.IDs.NewIDAt(r)
 		}
 		if err := s.checkID(id, r); err != nil {
 			return "", fmt.Errorf("ref %s: %w", ref, err)

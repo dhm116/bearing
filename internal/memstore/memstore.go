@@ -18,10 +18,11 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// IDSource issues subject IDs, each greater than the last. Seed moves it
+// IDSource issues subject IDs, each greater than the last. NewIDAt stamps
+// an ID with the apply's record time, never later. Seed moves the source
 // past an ID issued elsewhere, as Restore does. *model.UUIDv7Source is one.
 type IDSource interface {
-	NewID() string
+	NewIDAt(at time.Time) string
 	Seed(last string) error
 }
 

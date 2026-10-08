@@ -95,6 +95,9 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		return nil, err
 	}
 	s.closers = append(s.closers, g.close)
+	if g.graph == nil {
+		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
+	}
 	v := g
 	if c.Vectors != c.Graph {
 		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {

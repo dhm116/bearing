@@ -4,18 +4,22 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/contracts/conformance"
+	"bearing.example/pkg/model"
 )
 
 func newTestStore() (*Store, *testkit.FakeClock) {
@@ -51,7 +55,7 @@ type fixedIDs struct {
 	panics bool
 }
 
-func (f fixedIDs) NewID() string {
+func (f fixedIDs) NewIDAt(time.Time) string {
 	if f.panics {
 		panic(f.id)
 	}
@@ -101,6 +105,40 @@ func TestApplyRefusesAnIDNotAfterTheLast(t *testing.T) {
 	}
 }
 
+// The clock moves on between an apply's reads of it, as a real one does
+// during a large apply; minted IDs are stamped with the record time anyway.
+func TestApplyMintsWhileTheClockTicks(t *testing.T) {
+	ctx := context.Background()
+	clk := testkit.NewClock(time.Date(2026, 9, 28, 1, 30, 2, 0, time.UTC))
+	s := New()
+	s.Now = func() time.Time {
+		clk.Advance(time.Millisecond)
+		return clk.Now()
+	}
+	s.IDs = testkit.NewUUIDv7s(s.Now)
+	big, err := anypb.New(wrapperspb.Bytes(make([]byte, 3<<20)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 6 {
+		cs := mintTeam(fmt.Sprintf("e%d", i))
+		if i%2 == 1 {
+			cs.State = []*modelv1alpha1.StateEntry{{Key: "k", Value: big}}
+		}
+		if head, _ := s.Head(ctx); !head.IsZero() {
+			cs.BaseRecordedAt = timestamppb.New(head)
+		}
+		res, err := s.Apply(ctx, cs)
+		if err != nil {
+			t.Fatalf("apply %d: %v", i, err)
+		}
+		id := string(res.Subjects["new:a"])
+		if at, err := model.UUIDv7Time(id); err != nil || at.After(res.RecordedAt) {
+			t.Fatalf("apply %d: got ID %s stamped %s, %v, want no later than %s", i, id, at, err, res.RecordedAt)
+		}
+	}
+}
+
 // A panic mid-apply undoes what the apply did and frees the store.
 func TestApplyUndoesAPanickingApply(t *testing.T) {
 	ctx := context.Background()
@@ -131,11 +169,11 @@ type panicOnSecond struct {
 	first string
 }
 
-func (p *panicOnSecond) NewID() string {
+func (p *panicOnSecond) NewIDAt(at time.Time) string {
 	if p.first != "" {
 		panic("second ID")
 	}
-	p.first = p.next.NewID()
+	p.first = p.next.NewIDAt(at)
 	return p.first
 }
 
@@ -193,6 +231,51 @@ func TestBackupReportsAWriteFailure(t *testing.T) {
 		if err := s.Backup(ctx, &failingWriter{n: n}); err == nil || !strings.Contains(err.Error(), "disk full") {
 			t.Errorf("writer failing after %d of %d bytes: got %v, want the write error", n, full.Len(), err)
 		}
+	}
+}
+
+// A panic mid-restore leaves the store empty, so a retry can restore.
+func TestRestoreResetsAfterAPanic(t *testing.T) {
+	ctx := context.Background()
+	src, clk := newTestStore()
+	for _, event := range []string{"e1", "e2"} {
+		cs := mintTeam(event)
+		if head, _ := src.Head(ctx); !head.IsZero() {
+			cs.BaseRecordedAt = timestamppb.New(head)
+		}
+		clk.Advance(time.Second)
+		if _, err := src.Apply(ctx, cs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var buf bytes.Buffer
+	if err := src.Backup(ctx, &buf); err != nil {
+		t.Fatal(err)
+	}
+	dst, dclk := newTestStore()
+	dclk.Set(clk.Now())
+	calls := 0
+	dst.Now = func() time.Time {
+		// Replay reads the clock once per record: panic in the second.
+		if calls++; calls == 2 {
+			panic("clock failed")
+		}
+		return dclk.Now()
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("got no panic, want the clock's")
+			}
+		}()
+		_ = dst.Restore(ctx, bytes.NewReader(buf.Bytes()))
+	}()
+	if head, _ := dst.Head(ctx); !head.IsZero() {
+		t.Fatalf("got head %s after the panic, want an empty store", head)
+	}
+	dst.Now = dclk.Now
+	if err := dst.Restore(ctx, bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatalf("retry after the panic: %v", err)
 	}
 }
 
