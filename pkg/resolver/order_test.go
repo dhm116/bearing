@@ -59,6 +59,13 @@ func scenario() []Event {
 		gh(obsAt(day(20), "Repository", "github:repo_node/R6", "github:repo/acme/t1")),
 		gh(obsAt(day(25), "Repository", "github:repo_node/R6", "github:repo/acme/t2")),
 		gh(obsAt(day(25), "Repository", "github:repo_node/R7", "github:repo/acme/t2")),
+		// An Authentik person links a GitHub account that a team's member list
+		// names before and after GitHub observes it; another links one GitHub
+		// never observes.
+		ak(linked(day(18), "authentik:user/u2", "github:user_node/U9")),
+		gh(withMember(obsAt(day(19), "Team", "github:team_node/T5"), "github:user_node/U9", "", "")),
+		gh(obsAt(day(21), "Person", "github:user_node/U9", "github:user/lsmith")),
+		ak(linked(day(22), "authentik:user/u1", "github:user_node/U8")),
 		// A team is observed and deleted at the same instant.
 		gh(obsAt(day(27), "Team", "github:team_node/T6", "github:team/acme/s6")),
 		gh(deletedAt(day(27), "Team", "github:team_node/T6")),
