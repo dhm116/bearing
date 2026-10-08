@@ -9,8 +9,9 @@ permissions:
   contents: read
 
 # A new push to a pull request makes the run of the last one pointless.
+# Pushes to main each keep their own run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -47,10 +48,17 @@ jobs:
 
       - run: make static
 
-  # The tests of the pull request's merge commit, with coverage.
+  # The tests of the pull request's merge commit, with coverage. The Makefile
+  # splits them into shards (see SHARD there) because the SurrealDB
+  # conformance cases that apply 50,000-item ChangeSets take a server most of
+  # a core each, and a runner has four.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, limits-a, limits-b]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,21 +73,28 @@ jobs:
 
       - uses: ./.github/actions/surrealdb
 
-      - run: make cover
+      - run: make cover SHARD=${{ matrix.shard }} COVER_OUT=cover-${{ matrix.shard }}.out
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cover-head
-          path: cover.out
+          name: cover-head-${{ matrix.shard }}
+          path: cover-${{ matrix.shard }}.out
           retention-days: 1
+          # "Re-run all jobs" uploads into the same run again.
+          overwrite: true
 
-  # The same tests at the merge base with main, for the gate's comparison of
-  # total coverage. It doesn't wait for the test job: the two run at once on
-  # different runners. A push to main has no merge base to measure.
+  # The same tests, in the same shards, at the merge base with main, for the
+  # gate's comparison of total coverage. They don't wait for the test jobs:
+  # all run at once on different runners. A push to main has no merge base to
+  # measure.
   baseline:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, limits-a, limits-b]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,27 +112,28 @@ jobs:
 
       - uses: ./.github/actions/surrealdb
 
-      # Writes baseline/base.out, or nothing when the gate would skip (only
-      # documentation changed). The marker keeps the artifact from being
-      # empty either way.
+      # Writes baseline/base-<shard>.out, or nothing when the gate would skip
+      # (only documentation changed). The marker keeps the artifact from
+      # being empty either way.
       - run: |
           mkdir baseline
-          make covergate-base BASE_PROFILE=baseline/base.out
-          echo measured > baseline/done
+          make covergate-base SHARD=${{ matrix.shard }} BASE_PROFILE=baseline/base-${{ matrix.shard }}.out
+          echo measured > baseline/done-${{ matrix.shard }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cover-base
+          name: cover-base-${{ matrix.shard }}
           path: baseline/
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
   # The coverage gate, and the one check a branch rule needs: it fails unless
   # the other jobs passed.
   check:
     needs: [static, test, baseline]
-    # Runs after a failure too, to report it as this check.
-    if: ${{ !cancelled() }}
+    # Runs after a failure or a cancellation too, to report it as this check.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -135,23 +151,32 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # No module cache: covergate imports only the standard library.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache: false
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: cover-head
+          pattern: cover-head-*
+          path: cover
+          merge-multiple: true
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: needs.baseline.result == 'success'
         with:
-          name: cover-base
+          pattern: cover-base-*
           path: baseline
+          merge-multiple: true
 
       # Without a baseline (a push to main) there is no merge base to
       # compare with, and the gate skips.
-      - run: make covergate-report BASE_PROFILE=baseline/base.out
+      - name: Compare coverage with the merge base
+        run: |
+          shopt -s nullglob
+          join() { local IFS=,; echo "$*"; }
+          heads=$(join cover/*.out)
+          bases=$(join baseline/*.out)
+          echo "head profiles: $heads; baseline profiles: ${bases:-none}"
+          make covergate-report COVER_OUT="$heads" BASE_PROFILE="$bases"

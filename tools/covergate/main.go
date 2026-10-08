@@ -37,10 +37,12 @@
 //	covergate -profile cover.out -base origin/main -min 80
 //
 // or, with the baseline measured elsewhere (when the gate would skip,
-// -measure-base writes nothing):
+// -measure-base writes nothing), and the tests run in shards that each wrote
+// a profile (a block is covered if any shard covers it):
 //
-//	covergate -base origin/main -measure-base base.out
-//	covergate -profile cover.out -base origin/main -base-profile base.out
+//	covergate -base origin/main -measure-base base-1.out -test '...'
+//	covergate -base origin/main -measure-base base-2.out -test '...'
+//	covergate -profile cover-1.out,cover-2.out -base origin/main -base-profile base-1.out,base-2.out
 package main
 
 import (
@@ -82,12 +84,12 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	fs := flag.NewFlagSet("covergate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var c config
-	fs.StringVar(&c.profile, "profile", "cover.out", "coverage profile of the working tree")
+	fs.StringVar(&c.profile, "profile", "cover.out", "coverage profile of the working tree; several, comma-separated, are merged")
 	fs.StringVar(&c.base, "base", "origin/main", "git ref whose merge base with HEAD is the baseline")
 	fs.Float64Var(&c.min, "min", 80, "minimum percent of changed lines that must be covered")
 	fs.StringVar(&c.test, "test", "go test -count=1 -coverpkg=./... -coverprofile={profile} ./...",
 		"command that writes the baseline's profile to {profile}, run in the exported merge base")
-	fs.StringVar(&c.baseProfile, "base-profile", "", "merge-base profile that -measure-base wrote, used instead of running -test")
+	fs.StringVar(&c.baseProfile, "base-profile", "", "merge-base profiles that -measure-base wrote (comma-separated if several), used instead of running -test")
 	fs.StringVar(&c.measureBase, "measure-base", "", "run -test at the merge base, write its profile to this file, and skip the gate")
 	fs.BoolVar(&c.requireBase, "require-base", false, "fail, rather than skip, when the base ref is missing")
 	fs.BoolVar(&c.requireBaseline, "require-baseline", false, "fail, rather than skip the total comparison, when the baseline can't be measured")
@@ -206,11 +208,14 @@ func (g gate) check(c config) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	profile := c.profile
-	if !filepath.IsAbs(profile) {
-		profile = filepath.Join(g.root, profile)
+	var profiles []string
+	for _, p := range splitList(c.profile) {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(g.root, p)
+		}
+		profiles = append(profiles, p)
 	}
-	head, err := readProfile(profile, module)
+	head, err := readProfiles(profiles, module)
 	if err != nil {
 		return false, err
 	}
@@ -463,19 +468,25 @@ func (g gate) baseCoverage(mergeBase, module string, c config) (float64, error) 
 		return 0, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	profile := c.baseProfile
-	if profile != "" {
-		got, err := os.ReadFile(profile + mergeBaseSuffix)
+	profiles := splitList(c.baseProfile)
+	if len(profiles) > 0 {
+		for _, profile := range profiles {
+			got, err := os.ReadFile(profile + mergeBaseSuffix)
+			if err != nil {
+				return 0, fmt.Errorf("base profile: %w", err)
+			}
+			if strings.TrimSpace(string(got)) != mergeBase {
+				return 0, fmt.Errorf("base profile %s was measured at %.12s, not at merge base %.12s", profile, strings.TrimSpace(string(got)), mergeBase)
+			}
+		}
+	} else {
+		profile, err := g.runBaseline(dir, mergeBase, c.test)
 		if err != nil {
-			return 0, fmt.Errorf("base profile: %w", err)
+			return 0, err
 		}
-		if strings.TrimSpace(string(got)) != mergeBase {
-			return 0, fmt.Errorf("base profile %s was measured at %.12s, not at merge base %.12s", profile, strings.TrimSpace(string(got)), mergeBase)
-		}
-	} else if profile, err = g.runBaseline(dir, mergeBase, c.test); err != nil {
-		return 0, err
+		profiles = []string{profile}
 	}
-	blocks, err := readProfile(profile, module)
+	blocks, err := readProfiles(profiles, module)
 	if err != nil {
 		return 0, err
 	}
@@ -586,15 +597,40 @@ type block struct {
 	covered            bool
 }
 
-// readProfile reads a coverage profile, merging the duplicate blocks that
-// -coverpkg produces, and makes file names relative to the module root.
-func readProfile(path, module string) ([]block, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+// splitList splits a comma-separated list of files, ignoring empty items.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
 	}
-	defer func() { _ = f.Close() }()
-	return parseProfile(f, module)
+	return out
+}
+
+// readProfiles reads coverage profiles, as one run of the tests would write
+// them, or several runs of parts of it (CI shards the tests): a block is
+// covered if any profile covers it. File names are made relative to the
+// module root.
+func readProfiles(paths []string, module string) ([]block, error) {
+	var all []byte
+	for i, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 {
+			// Only the first profile's mode line is kept.
+			if _, rest, ok := bytes.Cut(b, []byte("\n")); ok && bytes.HasPrefix(b, []byte("mode:")) {
+				b = rest
+			}
+		}
+		if len(b) > 0 && b[len(b)-1] != '\n' {
+			b = append(b, '\n')
+		}
+		all = append(all, b...)
+	}
+	return parseProfile(bytes.NewReader(all), module)
 }
 
 func parseProfile(r io.Reader, module string) ([]block, error) {

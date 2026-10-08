@@ -672,11 +672,15 @@ func (g *suite) limits(t *testing.T) {
 	// the limit is the slowest thing a backend does, and the cases are
 	// independent.
 	for i, c := range cases("", "") {
-		t.Run(c.name, func(t *testing.T) {
+		name := c.name
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s, _ := g.store(t)
 			r, p, _ := seed(t, s)
 			c := cases(r, p)[i]
+			if c.name != name {
+				t.Fatalf("limit case %d is %q once seeded, want %q", i, c.name, name)
+			}
 			over := c.make(c.n + 1)
 			over.EventId = "over/" + c.name
 			head := must(s.Head(ctx))

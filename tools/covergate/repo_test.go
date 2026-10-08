@@ -413,3 +413,80 @@ func TestRunRejectsMeasuringAndReadingABaseline(t *testing.T) {
 		t.Fatalf("run = %d, stderr %q; want 2 and a complaint", got, errOut.String())
 	}
 }
+
+// CI shards the tests, so each profile covers part of the code; the gate
+// merges them, and a block counts as covered if any shard covers it.
+func TestCheckMergesProfilesOfShardedRuns(t *testing.T) {
+	dir := newRepo(t)
+	addFeature(t, dir)
+	// The head profile split in two: each shard instruments everything and
+	// covers some of it.
+	writeFile(t, dir, "cover-a.out", `mode: set
+example.com/m/pkg/a.go:3.14,5.2 1 1
+example.com/m/pkg/a.go:7.14,9.2 1 0
+example.com/m/pkg/new.go:3.16,5.2 1 1
+example.com/m/pkg/new.go:7.16,9.2 1 0
+example.com/m/pkg/u.go:3.14,5.2 1 0
+example.com/m/pkg/gen.go:3.14,5.2 1 0
+example.com/m/pkg/é.go:3.14,5.2 1 1
+example.com/m/cmd/x/main.go:3.13,5.2 1 0
+`)
+	writeFile(t, dir, "cover-b.out", `mode: set
+example.com/m/pkg/a.go:3.14,5.2 1 0
+example.com/m/pkg/a.go:7.14,9.2 1 1
+example.com/m/pkg/new.go:3.16,5.2 1 0
+example.com/m/pkg/new.go:7.16,9.2 1 0
+example.com/m/pkg/u.go:3.14,5.2 1 1
+example.com/m/pkg/gen.go:3.14,5.2 1 0
+example.com/m/pkg/é.go:3.14,5.2 1 0
+example.com/m/cmd/x/main.go:3.13,5.2 1 0`) // no final newline
+	var want bytes.Buffer
+	{
+		g, out := newGate(dir, false)
+		if _, err := g.check(config{profile: "cover.out", base: "main", min: 70, test: baseFixture(t, basePct50)}); err != nil {
+			t.Fatal(err)
+		}
+		want = *out
+	}
+	g, out := newGate(dir, false)
+	ok, err := g.check(config{profile: "cover-a.out, cover-b.out,", base: "main", min: 70, test: baseFixture(t, basePct50)})
+	if err != nil || !ok {
+		t.Fatalf("ok = %v, err = %v\n%s", ok, err, out)
+	}
+	if out.String() != want.String() {
+		t.Errorf("merged shards report\n%s\nwant what the whole run reports\n%s", out, &want)
+	}
+}
+
+// Each shard of the baseline writes its own profile; the gate merges them,
+// and refuses the set if any was measured at another commit.
+func TestShardedBaselineProfilesAreMergedAndEachChecked(t *testing.T) {
+	dir := newRepo(t)
+	addFeature(t, dir)
+	tmp := t.TempDir()
+	a, b := filepath.Join(tmp, "base-a.out"), filepath.Join(tmp, "base-b.out")
+	// Between them the shards cover A and Old, the whole baseline.
+	for out, profile := range map[string]string{
+		a: "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 1\nexample.com/m/pkg/old.go:3.16,5.2 1 0\n",
+		b: "mode: set\nexample.com/m/pkg/a.go:3.14,5.2 1 0\nexample.com/m/pkg/old.go:3.16,5.2 1 1\n",
+	} {
+		g, _ := newGate(dir, false)
+		if err := g.measure(config{base: "main", measureBase: out, test: baseFixture(t, profile)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, out := newGate(dir, false)
+	ok, err := g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: a + "," + b, requireBaseline: true})
+	// Either shard alone would put the baseline at 50% and let the head's
+	// 83.33% pass; together they make it 100%.
+	if err != nil || ok || !strings.Contains(out.String(), "100.00%") || !strings.Contains(out.String(), "dropped by 16.67 points") {
+		t.Fatalf("ok = %v, err = %v; want the merged shards to give a 100%% baseline\n%s", ok, err, out)
+	}
+	if err := os.WriteFile(b+mergeBaseSuffix, []byte("0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = newGate(dir, false)
+	if _, err := g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: a + "," + b, requireBaseline: true}); err == nil || !strings.Contains(err.Error(), "base-b.out was measured at 0123456789ab") {
+		t.Fatalf("got %v, want a refusal naming the shard measured at another commit", err)
+	}
+}
