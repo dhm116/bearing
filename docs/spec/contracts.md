@@ -95,8 +95,37 @@ A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support is
 about 2 MiB, and the conformance suite keeps it under a quarter of the
 limit) is refused, as is one that grows past it when recorded, so
-every backup a store writes can be restored. A failed `Apply` writes
-nothing and returns a zero result. A repeated event ID returns the original
+every backup a store writes can be restored. So is one over a count limit,
+which `contracts.CheckChangeSetLimits` checks (before the duplicate lookup)
+so every backend refuses the same `ChangeSet`s:
+
+| Limit | Value | Applies to |
+| --- | --- | --- |
+| `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts and state |
+| `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
+| `MaxTimelineRows` | 256 | Rows in one binding, support or fact timeline; aliases in one un-merge |
+
+The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
+thousands of rows, or thousands of merges, costs a naive store time
+quadratic in its size, and a merge reads the alias sets of its subjects. A
+backend's `Apply` work MUST depend on the `ChangeSet` and the subjects and
+aliases it names, not on the rest of the store: it matches rows by content
+and finds a subject's current aliases without scanning every alias or
+reading the history of aliases that moved away. At the limits the
+reference store takes a second or two, whether or not its aliases were
+rebound many times, and its tests fail at five seconds; a `ChangeSet` near
+the byte limit takes a few seconds. A merge record carries both full alias
+sets, so merges into a subject with many aliases are refused once their
+records pass the byte limit; that amplification is accepted for now. A read
+of aliases at an earlier record time is not a `ChangeSet` and has no such
+bound: the reference store reads the history of every alias ever bound to
+the subject. The values are low because raising a limit is compatible,
+while lowering one can make an old backup unrestorable (`Restore` applies
+every record under the limits in force) and makes a redelivered old event
+fail instead of returning its original result. A merge has exactly two
+subjects. Everything else, such as `Merge.evidence`, the aliases of a
+subject and string lengths, is bounded by the byte limit alone.
+A failed `Apply` writes nothing and returns a zero result. A repeated event ID returns the original
 apply's result with `Duplicate` set, so a redelivery after a crash can
 still re-point vectors.
 
@@ -158,6 +187,9 @@ References are to sections of the [data model](data-model.md).
 | Bindings: what each binding write maps, `per_subject`, back-extension, tentative bindings, redirects | Resolver, which writes the resulting timeline |
 | Resolution: looking up an alias at a valid and record time, following merges | Store (`ResolveKey`, `Bindings`) |
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
+| Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
+| Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Configuration apply, which reads the bindings and rejects the change. The store doesn't know key types. |
+| Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying. |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
 | Merge: same kind, both active | Store checks; resolver decides |
 | Merge triggers, policies, the guard, evidence re-evaluation | Resolver |

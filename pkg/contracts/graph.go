@@ -85,11 +85,14 @@ type GraphStore interface {
 	// Apply writes cs in one transaction, once per event ID: a repeated
 	// event ID writes nothing and returns the original apply's result with
 	// Duplicate set. It fails with ErrStale if cs.base_recorded_at isn't the
-	// head, and with another error if cs is larger than MaxChangeSetBytes or
-	// breaks a rule the store checks. A failed Apply writes nothing and
-	// returns a zero result.
+	// head, and with another error if cs is larger than MaxChangeSetBytes,
+	// is over a count limit (CheckChangeSetLimits) or breaks a rule the store
+	// checks. A failed Apply writes nothing and returns a zero result.
 	Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (ApplyResult, error)
 	// Head returns the latest apply's recorded_at, or zero for an empty store.
+	// An absent cs.base_recorded_at means the store is empty. A zero time
+	// passed to a read means now, not "before everything", so an empty store
+	// answers it as it would any other: with nothing.
 	Head(ctx context.Context) (time.Time, error)
 
 	// Subject returns a subject as recorded at recordedAt, with its status

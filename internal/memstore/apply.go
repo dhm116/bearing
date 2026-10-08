@@ -65,6 +65,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if n := proto.Size(in); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes, over the %d-byte limit", in.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
+	if err := contracts.CheckChangeSetLimits(in); err != nil {
+		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
+	}
 	if i, ok := s.events[in.GetEventId()]; ok {
 		if want != nil {
 			return res, fmt.Errorf("event %s: applied twice", in.GetEventId())
@@ -126,11 +129,14 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	// before anything moves, so the rest of the ChangeSet can name them.
 	revived := map[*modelv1alpha1.Unmerge]*modelv1alpha1.MergeRecord{}
 	claimed := map[string]bool{}
+	held := map[string][]string{} // each subject's aliases before the ChangeSet, found once
+	s.direct = map[string][]string{}
+	defer func() { s.direct = nil }()
 	for _, u := range cs.GetUnmerges() {
 		if ref := u.GetRef(); !strings.HasPrefix(ref, refPrefix) || entry.GetSubjects()[ref] != "" {
 			return res, fmt.Errorf("unmerge of %s: ref %q: want a unique %q ref", u.GetSubjectId(), ref, refPrefix)
 		}
-		target, rec, err := s.unmergeTarget(u, r, claimed, mint)
+		target, rec, err := s.unmergeTarget(u, r, claimed, held, mint)
 		if err != nil {
 			return res, err
 		}
@@ -156,23 +162,33 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 				return res, fmt.Errorf("binding of %s in the timeline of %s", row.GetAlias(), b.GetAlias())
 			}
 			rows[i] = row
+			if s.indexAlias(row.GetSubjectId(), b.GetAlias()) {
+				subject, alias := row.GetSubjectId(), b.GetAlias()
+				undo = append(undo, func() { s.unindexAlias(subject, alias) })
+			}
 		}
+		old := s.bindings[b.GetAlias()]
 		if err := s.write(&undo, s.bindings, b.GetAlias(), &modelv1alpha1.BindingTimeline{Alias: b.GetAlias()}, rows, r); err != nil {
 			return res, err
 		}
+		s.relive(&undo, b.GetAlias(), old, s.bindings[b.GetAlias()])
 	}
+	recorded := 0                    // bytes of merge records so far: each carries two alias sets
+	s.direct = map[string][]string{} // bindings may have changed
 	for _, m := range cs.GetMerges() {
 		rec, err := s.merge(m, cs.GetEventId(), r)
 		if err != nil {
 			return res, err
 		}
-		s.merges = append(s.merges, rec)
-		undo = append(undo, func() { s.merges = s.merges[:len(s.merges)-1] })
+		if recorded += proto.Size(rec); recorded > contracts.MaxChangeSetBytes {
+			return res, fmt.Errorf("event %s: merge records are %d bytes, over the %d-byte limit", cs.GetEventId(), recorded, contracts.MaxChangeSetBytes)
+		}
+		undo = append(undo, s.addMerge(rec))
 		entry.Merges = append(entry.Merges, proto.CloneOf(rec))
 	}
 	for _, u := range cs.GetUnmerges() {
 		if old := revived[u]; old != nil {
-			i := slices.Index(s.merges, old)
+			i := s.indexOfMerge(old)
 			next := proto.CloneOf(old)
 			next.UnmergedAt, next.UnmergeEventId = cs.RecordedAt, cs.GetEventId()
 			s.merges[i] = next
@@ -250,24 +266,28 @@ func (s *Store) checkID(id string, r time.Time) error {
 // unmergeTarget finds where an un-merge's aliases go: the subject that
 // merged into A with exactly those aliases, or a split mint. claimed holds
 // the targets of the ChangeSet's earlier un-merges; none may be reused.
-func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map[string]bool, mint func(ref, kind, id string, rule modelv1alpha1.MintRule) (string, error)) (string, *modelv1alpha1.MergeRecord, error) {
+func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map[string]bool, heldBy map[string][]string, mint func(ref, kind, id string, rule modelv1alpha1.MintRule) (string, error)) (string, *modelv1alpha1.MergeRecord, error) {
 	a, ok := s.subjects[u.GetSubjectId()]
 	if !ok || s.canonical(a.GetSubjectId(), r) != a.GetSubjectId() {
 		return "", nil, fmt.Errorf("unmerge: subject %s is not active", u.GetSubjectId())
 	}
-	held := s.aliasesOf(a.GetSubjectId(), r)
+	held, ok := heldBy[a.GetSubjectId()]
+	if !ok {
+		held = s.aliasesOf(a.GetSubjectId(), r)
+		heldBy[a.GetSubjectId()] = held
+	}
 	d := slices.Sorted(slices.Values(u.GetAliases()))
 	d = slices.Compact(d)
 	if len(d) == 0 || len(d) >= len(held) {
 		return "", nil, fmt.Errorf("unmerge %s: want a non-empty proper subset of its %d aliases", a.GetSubjectId(), len(held))
 	}
 	for _, k := range d {
-		if !slices.Contains(held, k) {
+		if _, found := slices.BinarySearch(held, k); !found {
 			return "", nil, fmt.Errorf("unmerge %s: alias %s is not one of its aliases", a.GetSubjectId(), k)
 		}
 	}
-	for _, rec := range s.merges {
-		if rec.GetSurvivorId() == a.GetSubjectId() && mergeLive(rec, r) && slices.Equal(rec.GetMergedAliases(), d) {
+	for _, i := range s.survivorOf[a.GetSubjectId()] {
+		if rec := s.merges[i]; mergeLive(rec, r) && slices.Equal(rec.GetMergedAliases(), d) {
 			if rec.GetRule() == modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER {
 				return "", nil, fmt.Errorf("unmerge %s: a placeholder merge can't be un-merged", a.GetSubjectId())
 			}
@@ -287,10 +307,10 @@ func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map
 func (s *Store) merge(m *modelv1alpha1.Merge, eventID string, r time.Time) (*modelv1alpha1.MergeRecord, error) {
 	ids := m.GetSubjectIds()
 	if len(ids) != 2 || ids[0] == ids[1] {
-		return nil, fmt.Errorf("merge: want two different subjects, got %v", ids)
+		return nil, fmt.Errorf("merge: want two different subjects, got %d IDs", len(ids))
 	}
 	if m.GetRule() == modelv1alpha1.MergeRule_MERGE_RULE_UNSPECIFIED {
-		return nil, fmt.Errorf("merge of %v: rule is required", ids)
+		return nil, errors.New("merge: rule is required")
 	}
 	for _, id := range ids {
 		if s.canonical(id, r) != id {

@@ -1,11 +1,12 @@
 // Package memstore is an in-memory GraphStore and VectorIndex, the
 // reference implementation of both contracts. It is for tests and local
 // trials only: it has no size limits beyond the contract's per-ChangeSet
-// limit, keeps everything in memory and loses it on exit.
+// limits, keeps everything in memory and loses it on exit.
 package memstore
 
 import (
 	"crypto/rand"
+	"fmt"
 	"sync"
 	"time"
 
@@ -44,6 +45,11 @@ type Store struct {
 	events       map[string]int                    // event ID to journal index
 	subjects     map[string]*modelv1alpha1.Subject // as minted
 	merges       []*modelv1alpha1.MergeRecord      // in record order
+	mergedBy     map[string][]int                  // indexes into merges, by merged subject
+	survivorOf   map[string][]int                  // indexes into merges, by survivor
+	aliasesBy    map[string]map[string]bool        // aliases that ever had a row for a subject, as written
+	liveBy       map[string]map[string]bool        // aliases with a current (not retracted) row for a subject, as written
+	direct       map[string][]string               // during an apply: aliasesOf's per-subject scans, until bindings change
 	bindings     table                             // by alias
 	supports     table                             // by source, subject, predicate, object
 	facts        table                             // by subject, predicate, object
@@ -64,6 +70,8 @@ func New() *Store {
 func (s *Store) reset() {
 	s.head, s.lastID, s.journal, s.merges = time.Time{}, "", nil, nil
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
+	s.mergedBy, s.survivorOf = map[string][]int{}, map[string][]int{}
+	s.aliasesBy, s.liveBy = map[string]map[string]bool{}, map[string]map[string]bool{}
 	s.bindings, s.supports, s.facts, s.state = table{}, table{}, table{}, table{}
 }
 
@@ -124,20 +132,24 @@ func (t table) replace(key string, head proto.Message, rows []proto.Message, r t
 	}
 	used := make([]bool, len(fresh))
 	if existed {
+		// Equal rows are matched by their deterministic encoding, so the
+		// comparison is linear in the rows.
+		byContent := map[string][]int{}
+		for i, m := range fresh {
+			k := content(m)
+			byContent[k] = append(byContent[k], i)
+		}
 		for _, v := range old.rows {
 			if !v.ret.IsZero() {
 				next.rows = append(next.rows, v)
 				continue
 			}
-			kept := false
-			for i, m := range fresh {
-				if !used[i] && proto.Equal(withoutConfirmation(v.msg), withoutConfirmation(m)) {
-					used[i], kept = true, true
-					next.rows = append(next.rows, &version{msg: m, rec: v.rec})
-					break
-				}
-			}
-			if !kept {
+			k := content(v.msg)
+			if idx := byContent[k]; len(idx) > 0 {
+				used[idx[0]] = true
+				byContent[k] = idx[1:]
+				next.rows = append(next.rows, &version{msg: fresh[idx[0]], rec: v.rec})
+			} else {
 				next.rows = append(next.rows, &version{msg: v.msg, rec: v.rec, ret: r})
 			}
 		}
@@ -155,6 +167,21 @@ func (t table) replace(key string, head proto.Message, rows []proto.Message, r t
 			delete(t, key)
 		}
 	}
+}
+
+// content is a row's identity for replace: its deterministic encoding
+// without last_confirmed_at.
+func content(m proto.Message) string {
+	// Rows that proto.Equal would call equal but that encode differently
+	// (-0 and 0 inside a google.protobuf.Value) are retracted and rewritten
+	// instead of kept; qualifiers are canonical JSON, so none arise.
+	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(withoutConfirmation(m))
+	if err != nil {
+		// An unencodable row (invalid UTF-8) matches nothing; Apply refuses
+		// the ChangeSet when it encodes the journal entry.
+		return fmt.Sprintf("unencodable %p", m)
+	}
+	return string(b)
 }
 
 var recordFields = map[protoreflect.Name]bool{"recorded_at": true, "retracted_at": true, "fact_id": true}
