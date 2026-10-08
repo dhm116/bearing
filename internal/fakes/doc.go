@@ -78,8 +78,11 @@
 //     GET /repos/acme/{repo}/contents/{path}: raw text with a ".raw" media
 //     type, else a contents object. Old repository names answer 301 to
 //     /repositories/{id}/..., which is also served.
-//   - POST /graphql: the operations in [GraphQLQueries] (Repositories,
-//     Teams, TeamMembers), with cursor paging in database ID order.
+//   - POST /graphql: the operations in [GraphQLQueries], with cursor
+//     paging in database ID order: Repositories, Teams (with each team's
+//     direct child teams) and TeamMembers list the org; Repository and
+//     Team read one object by node ID (either format), as an adapter
+//     re-reads after a webhook, with a null node once it is gone.
 //
 // [GitHub.Deliveries] renders the org's changes as webhook deliveries
 // (repository renamed, push, team edited or deleted, membership added or
