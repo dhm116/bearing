@@ -24,6 +24,11 @@ type ServerOptions struct {
 // Dial connects to a SurrealDB server and returns a store that uses it. It
 // needs no CGO.
 func Dial(ctx context.Context, o ServerOptions) (*Store, error) {
+	// The driver's parse error quotes the whole URL, so a malformed one
+	// is refused here, before the driver sees it.
+	if u, err := url.Parse(o.URL); err != nil || u.Host == "" {
+		return nil, fmt.Errorf("surrealstore: connect to %s: invalid URL", safeName(o.URL))
+	}
 	db, err := surrealdb.FromEndpointURLString(ctx, o.URL)
 	if err != nil {
 		return nil, fmt.Errorf("surrealstore: connect to %s: %w", safeName(o.URL), err)

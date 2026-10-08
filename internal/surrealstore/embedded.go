@@ -21,7 +21,7 @@ const EmbeddedAvailable = true
 func OpenEmbedded(ctx context.Context, endpoint, namespace, database string) (*Store, error) {
 	db, err := surrealdb.Open(ctx, endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("surrealstore: open embedded %s: %w", endpoint, err)
+		return nil, fmt.Errorf("surrealstore: open embedded store: %w", err)
 	}
 	q := &embeddedQuerier{db: db}
 	if err := useDatabase(ctx, q, namespace, database, db.Use); err != nil {
