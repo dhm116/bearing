@@ -185,8 +185,13 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if want != nil && !proto.Equal(entry, want) {
 		return res, fmt.Errorf("event %s: replay decided differently from the journal", cs.GetEventId())
 	}
-	// The entry must fit in one backup frame, or the backup won't restore.
-	if n := protowire.SizeTag(2) + protowire.SizeBytes(proto.Size(entry)); n > contracts.MaxChangeSetBytes {
+	// The entry must marshal (proto3 strings must be UTF-8) and fit in one
+	// backup frame, or the backup won't write or restore.
+	b, err := proto.Marshal(entry)
+	if err != nil {
+		return res, fmt.Errorf("event %s: %w", cs.GetEventId(), err)
+	}
+	if n := protowire.SizeTag(2) + protowire.SizeBytes(len(b)); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes as recorded, over the %d-byte limit", cs.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
 	// Nothing after this can fail, so it needs no undo.
