@@ -56,6 +56,7 @@ func (q *sleepQ) Query(ctx context.Context, sql string, vars map[string]any) ([]
 // running must make that transaction fail, not leave its rows behind the
 // head where every reader sees them.
 func TestCommitDuringALaterStageTransactionLeavesNoOrphans(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	// The test holds a transaction open with sleep, which only root may call.
 	clk := testkit.NewClock(time.Date(2026, 10, 8, 3, 0, 0, 0, time.UTC))

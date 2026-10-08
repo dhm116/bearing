@@ -335,3 +335,81 @@ func TestCheckComparesTotalWithoutMeasuredChanges(t *testing.T) {
 		})
 	}
 }
+
+// -measure-base writes the merge base's profile once, and -base-profile lets
+// the gate compare against it without running the tests again.
+func TestMeasuredBaseProfileReplacesTheBaselineRun(t *testing.T) {
+	dir := newRepo(t)
+	addFeature(t, dir)
+	out := filepath.Join(t.TempDir(), "base.out")
+
+	g, report := newGate(dir, false)
+	if err := g.measure(config{base: "main", measureBase: out, test: baseFixture(t, basePct50)}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(out); err != nil || string(b) != basePct50 {
+		t.Fatalf("got %q, %v, want the baseline profile", b, err)
+	}
+	if !strings.Contains(report.String(), "measuring merge base") {
+		t.Errorf("want the measurement reported\n%s", report)
+	}
+
+	// The gate reads that profile; a -test that would fail proves it isn't run.
+	g, report = newGate(dir, false)
+	ok, err := g.check(config{profile: "cover.out", base: "main", min: 70, test: "false", baseProfile: out, requireBaseline: true})
+	if err != nil || !ok || !strings.Contains(report.String(), "50.00%") {
+		t.Fatalf("ok = %v, err = %v; want a pass against the 50%% baseline\n%s", ok, err, report)
+	}
+
+	// A profile measured at another commit is refused, not trusted.
+	if err := os.WriteFile(out+mergeBaseSuffix, []byte("0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = newGate(dir, false)
+	_, err = g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: out, requireBaseline: true})
+	if err == nil || !strings.Contains(err.Error(), "was measured at 0123456789ab") {
+		t.Fatalf("got %v, want a refusal of a profile from another merge base", err)
+	}
+	// Without -require-baseline the total comparison is skipped, as for any
+	// unmeasurable baseline.
+	g, report = newGate(dir, false)
+	if ok, err := g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: out}); err != nil || !ok || !strings.Contains(report.String(), "baseline unavailable") {
+		t.Fatalf("ok = %v, err = %v; want the total comparison skipped\n%s", ok, err, report)
+	}
+	// So is a missing one.
+	g, _ = newGate(dir, false)
+	_, err = g.check(config{profile: "cover.out", base: "main", min: 70, baseProfile: out + ".missing", requireBaseline: true})
+	if err == nil || !strings.Contains(err.Error(), "base profile") {
+		t.Fatalf("got %v, want an error for a missing base profile", err)
+	}
+}
+
+func TestMeasureBaseSkipsWhenTheGateWould(t *testing.T) {
+	dir := newRepo(t)
+	out := filepath.Join(t.TempDir(), "base.out")
+	g, report := newGate(dir, false)
+	if err := g.measure(config{base: "main", measureBase: out, test: "false"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("a skipped measurement wrote %s (%v)", out, err)
+	}
+	if !strings.Contains(report.String(), "skipping") {
+		t.Errorf("want the skip reported\n%s", report)
+	}
+	// A baseline whose tests produce no profile is an error, since the gate
+	// would have needed it.
+	addFeature(t, dir)
+	g, _ = newGate(dir, false)
+	if err := g.measure(config{base: "main", measureBase: out, test: "false"}); err == nil {
+		t.Error("measured a baseline whose tests wrote no profile")
+	}
+}
+
+func TestRunRejectsMeasuringAndReadingABaseline(t *testing.T) {
+	var errOut bytes.Buffer
+	got := run([]string{"-measure-base", "a", "-base-profile", "b"}, io.Discard, &errOut, func(string) string { return "" })
+	if got != 2 || !strings.Contains(errOut.String(), "exclusive") {
+		t.Fatalf("run = %d, stderr %q; want 2 and a complaint", got, errOut.String())
+	}
+}

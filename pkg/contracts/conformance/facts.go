@@ -571,22 +571,8 @@ func (g *suite) mergeChanges(t *testing.T) {
 // limits proves each count limit from both sides: a ChangeSet exactly at it
 // applies, and one more is refused without a write.
 func (g *suite) limits(t *testing.T) {
-	s, _ := g.store(t)
-	r, p, _ := seed(t, s)
 	hour := func(i int) *timestamppb.Timestamp {
 		return timestamppb.New(at("2026-01-01T00:00:00Z").Add(time.Duration(i) * time.Hour))
-	}
-	rows := func(n int) (bs []*modelv1alpha1.Binding, vs []*modelv1alpha1.Support, ss []*modelv1alpha1.FactSpan) {
-		for i := range n {
-			bs = append(bs, &modelv1alpha1.Binding{SubjectId: r, ValidFrom: hour(i), ValidTo: hour(i + 1)})
-			v := version("github-acme", 1_000_000, "2026-01-01T00:00:00Z", "")
-			v.ValidFrom, v.ValidTo, v.ObservedAt = hour(i), hour(i+1), hour(i)
-			vs = append(vs, v)
-			sp := span(asserted, 1_000_000, "", "")
-			sp.ValidFrom, sp.ValidTo = hour(i), hour(i+1)
-			ss = append(ss, sp)
-		}
-		return
 	}
 	note, _ := anypb.New(wrapperspb.String("watermark"))
 	state := func(n int) (out []*modelv1alpha1.StateEntry) {
@@ -606,67 +592,91 @@ func (g *suite) limits(t *testing.T) {
 			return cs
 		}
 	}
-	for _, c := range []struct {
+	type limitCase struct {
 		name string
 		n    int
 		make func(n int) *modelv1alpha1.ChangeSet
-	}{
-		{"mints", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Mints: []*modelv1alpha1.Mint{mint(fmt.Sprintf("new:%d", i), "Team")}}
-		})},
-		{"binding timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind(fmt.Sprintf("github:repo/acme/r%d", i), row(r, "", ""))}}
-		})},
-		{"support timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "name", str(fmt.Sprint(i)), version("github-acme", 1_000_000, "", ""))}}
-		})},
-		{"fact timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str(fmt.Sprint(i)), span(asserted, 1_000_000, "", ""))}}
-		})},
-		{"merges", contracts.MaxChangeSetMerges, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			a, b := fmt.Sprintf("new:a%d", i), fmt.Sprintf("new:b%d", i)
-			return &modelv1alpha1.ChangeSet{
-				Mints:  []*modelv1alpha1.Mint{mint(a, "Team"), mint(b, "Team")},
-				Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
-			}
-		})},
-		{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{State: state(n)}
-		}},
-		{"conflict timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, fmt.Sprintf("p%d", i), "2026-10-02T10:00:00Z", position("github"))}}
-		})},
-		{"issue timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
-			return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{issueOf(fmt.Sprintf("k%d", i), unobserved, r)}}
-		})},
-		{"conflict rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
-			ct := &modelv1alpha1.ConflictTimeline{SubjectId: r, Predicate: "owned_by"}
+	}
+	// cases builds the table for a store whose seed subjects are r and p.
+	cases := func(r, p string) []limitCase {
+		rows := func(n int) (bs []*modelv1alpha1.Binding, vs []*modelv1alpha1.Support, ss []*modelv1alpha1.FactSpan) {
 			for i := range n {
-				ct.Conflicts = append(ct.Conflicts, &modelv1alpha1.Conflict{SubjectId: r, Predicate: "owned_by", ValidFrom: hour(i), ValidTo: hour(i + 1), Positions: []*modelv1alpha1.ConflictPosition{position("github")}})
+				bs = append(bs, &modelv1alpha1.Binding{SubjectId: r, ValidFrom: hour(i), ValidTo: hour(i + 1)})
+				v := version("github-acme", 1_000_000, "2026-01-01T00:00:00Z", "")
+				v.ValidFrom, v.ValidTo, v.ObservedAt = hour(i), hour(i+1), hour(i)
+				vs = append(vs, v)
+				sp := span(asserted, 1_000_000, "", "")
+				sp.ValidFrom, sp.ValidTo = hour(i), hour(i+1)
+				ss = append(ss, sp)
 			}
-			return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{ct}}
-		}},
-		{"issue spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
-			it := &modelv1alpha1.IssueTimeline{Key: "long"}
-			for i := range n {
-				it.Spans = append(it.Spans, &modelv1alpha1.IssueSpan{ValidFrom: hour(i), ValidTo: hour(i + 1), Issue: &modelv1alpha1.DataQualityIssue{Issue: modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT, SubjectIds: []string{r}}})
-			}
-			return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{it}}
-		}},
-		{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
-			bs, _, _ := rows(n)
-			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
-		}},
-		{"support versions", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
-			_, vs, _ := rows(n)
-			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "approves_changes", ref(p), vs...)}}
-		}},
-		{"fact spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
-			_, _, ss := rows(n)
-			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "approves_changes", ref(p), ss...)}}
-		}},
-	} {
+			return
+		}
+		return []limitCase{
+			{"mints", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Mints: []*modelv1alpha1.Mint{mint(fmt.Sprintf("new:%d", i), "Team")}}
+			})},
+			{"binding timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind(fmt.Sprintf("github:repo/acme/r%d", i), row(r, "", ""))}}
+			})},
+			{"support timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "name", str(fmt.Sprint(i)), version("github-acme", 1_000_000, "", ""))}}
+			})},
+			{"fact timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str(fmt.Sprint(i)), span(asserted, 1_000_000, "", ""))}}
+			})},
+			{"merges", contracts.MaxChangeSetMerges, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				a, b := fmt.Sprintf("new:a%d", i), fmt.Sprintf("new:b%d", i)
+				return &modelv1alpha1.ChangeSet{
+					Mints:  []*modelv1alpha1.Mint{mint(a, "Team"), mint(b, "Team")},
+					Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+				}
+			})},
+			{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{State: state(n)}
+			}},
+			{"conflict timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, fmt.Sprintf("p%d", i), "2026-10-02T10:00:00Z", position("github"))}}
+			})},
+			{"issue timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+				return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{issueOf(fmt.Sprintf("k%d", i), unobserved, r)}}
+			})},
+			{"conflict rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+				ct := &modelv1alpha1.ConflictTimeline{SubjectId: r, Predicate: "owned_by"}
+				for i := range n {
+					ct.Conflicts = append(ct.Conflicts, &modelv1alpha1.Conflict{SubjectId: r, Predicate: "owned_by", ValidFrom: hour(i), ValidTo: hour(i + 1), Positions: []*modelv1alpha1.ConflictPosition{position("github")}})
+				}
+				return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{ct}}
+			}},
+			{"issue spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+				it := &modelv1alpha1.IssueTimeline{Key: "long"}
+				for i := range n {
+					it.Spans = append(it.Spans, &modelv1alpha1.IssueSpan{ValidFrom: hour(i), ValidTo: hour(i + 1), Issue: &modelv1alpha1.DataQualityIssue{Issue: modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT, SubjectIds: []string{r}}})
+				}
+				return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{it}}
+			}},
+			{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+				bs, _, _ := rows(n)
+				return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
+			}},
+			{"support versions", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+				_, vs, _ := rows(n)
+				return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "approves_changes", ref(p), vs...)}}
+			}},
+			{"fact spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+				_, _, ss := rows(n)
+				return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "approves_changes", ref(p), ss...)}}
+			}},
+		}
+	}
+	// Each case gets its own store and runs alongside the others: an apply at
+	// the limit is the slowest thing a backend does, and the cases are
+	// independent.
+	for i, c := range cases("", "") {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			s, _ := g.store(t)
+			r, p, _ := seed(t, s)
+			c := cases(r, p)[i]
 			over := c.make(c.n + 1)
 			over.EventId = "over/" + c.name
 			head := must(s.Head(ctx))

@@ -65,6 +65,7 @@ func withQ(s *Store, q Querier) *Store {
 // Whatever query fails, or comes back unreadable, an operation reports an
 // error rather than a wrong answer, and the store works afterwards.
 func TestEveryQueryMayFailWithoutHarmingTheStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, clk := graphStoreAt(t)
 	object := &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewStringValue("payments")}

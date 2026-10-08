@@ -150,6 +150,7 @@ func TestStatementErrorPicksTheCause(t *testing.T) {
 }
 
 func TestGraphConformance(t *testing.T) {
+	t.Parallel()
 	conformance.GraphStore(t, func(t *testing.T) (contracts.GraphStore, conformance.Clock, conformance.IDs) {
 		clk := testkit.NewClock(time.Time{})
 		s := newTestStore(t)
@@ -405,6 +406,7 @@ INSERT INTO subject { sid: 'lost-subject', kind: 'Team', rec: $rec, stg: 'lost',
 // apply commits before it does, the staged rows are deleted by that commit,
 // never shown, and the large apply reports the head moved.
 func TestLargeApplyStagesRowsAndLosesCleanly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, clk := graphStoreAt(t)
 	other := graphStore(t, s, clk)

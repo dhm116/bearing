@@ -1,4 +1,4 @@
-.PHONY: all build test test-surrealdb test-embedded fmt lint vet cover covergate vuln tools-test generate generate-check check clean
+.PHONY: all build test test-surrealdb test-embedded fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -21,9 +21,15 @@ COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)
 
 all: fmt test build
 
-# check is exactly what CI runs. vuln goes last because it needs the
-# network (vuln.go.dev).
+# check is everything CI runs, in one process. CI runs the same steps as
+# parallel jobs so a push is answered in the time of the slowest one: static
+# (no test run), cover (the tests, with SurrealDB), covergate-base (the same
+# tests at the merge base) and covergate-report (compares the two profiles).
+# vuln goes last because it needs the network (vuln.go.dev).
 check: generate-check lint vet tools-test cover covergate build vuln
+
+# static is check without the test run and the coverage gate.
+static: generate-check lint vet tools-test build vuln
 
 build:
 	go build -o bin/ ./cmd/...
@@ -84,8 +90,22 @@ generate-check: $(PROTO_TOOLS)
 cover:
 	$(COVER_TEST)=cover.out ./...
 
-covergate: cover $(COVERGATE)
-	$(COVERGATE) -profile cover.out -base $(COVER_BASE) -min $(COVER_MIN) $(COVER_FLAGS) -test '$(COVER_TEST)={profile} ./...'
+# BASE_PROFILE is where covergate-base writes the merge base's coverage and
+# covergate-report reads it. Left empty, covergate-report measures the merge
+# base itself, which costs as much as `make cover`.
+BASE_PROFILE ?=
+
+covergate: cover covergate-report
+
+covergate-report: $(COVERGATE)
+	$(COVERGATE) -profile cover.out -base $(COVER_BASE) -min $(COVER_MIN) $(COVER_FLAGS) \
+		$(if $(BASE_PROFILE),-base-profile $(BASE_PROFILE)) -test '$(COVER_TEST)={profile} ./...'
+
+# covergate-base runs the tests at the merge base and writes their profile to
+# BASE_PROFILE, unless covergate-report would skip the comparison.
+covergate-base: $(COVERGATE)
+	test -n '$(BASE_PROFILE)'
+	$(COVERGATE) -base $(COVER_BASE) $(COVER_FLAGS) -measure-base $(BASE_PROFILE) -test '$(COVER_TEST)={profile} ./...'
 
 vuln: $(GOVULNCHECK)
 	$(GOVULNCHECK) ./...

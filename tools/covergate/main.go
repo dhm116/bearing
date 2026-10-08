@@ -7,7 +7,10 @@
 //
 // It reads the coverage profile `go test -coverprofile` wrote for the
 // working tree, and measures the merge base by exporting it with git archive
-// into a temporary directory and running -test there. Main packages (cmd/),
+// into a temporary directory and running -test there. That run costs as much
+// as the head's, so CI does it in a job of its own, in parallel with the
+// head's tests: -measure-base writes the merge base's profile, and -base-profile
+// hands it to the gate instead of measuring in the gate. Main packages (cmd/),
 // generated code (gen/ and files marked "Code generated ... DO NOT EDIT."),
 // the tools/ module and test files are left out of both measures.
 //
@@ -32,6 +35,12 @@
 //
 //	go test -coverpkg=./... -coverprofile=cover.out ./...
 //	covergate -profile cover.out -base origin/main -min 80
+//
+// or, with the baseline measured elsewhere (when the gate would skip,
+// -measure-base writes nothing):
+//
+//	covergate -base origin/main -measure-base base.out
+//	covergate -profile cover.out -base origin/main -base-profile base.out
 package main
 
 import (
@@ -62,6 +71,8 @@ func main() {
 // config is what the flags set.
 type config struct {
 	profile, base, test string
+	baseProfile         string // a merge-base profile measured earlier, instead of measuring here
+	measureBase         string // write the merge-base profile here and do nothing else
 	min                 float64
 	requireBase         bool
 	requireBaseline     bool
@@ -76,6 +87,8 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	fs.Float64Var(&c.min, "min", 80, "minimum percent of changed lines that must be covered")
 	fs.StringVar(&c.test, "test", "go test -count=1 -coverpkg=./... -coverprofile={profile} ./...",
 		"command that writes the baseline's profile to {profile}, run in the exported merge base")
+	fs.StringVar(&c.baseProfile, "base-profile", "", "merge-base profile that -measure-base wrote, used instead of running -test")
+	fs.StringVar(&c.measureBase, "measure-base", "", "run -test at the merge base, write its profile to this file, and skip the gate")
 	fs.BoolVar(&c.requireBase, "require-base", false, "fail, rather than skip, when the base ref is missing")
 	fs.BoolVar(&c.requireBaseline, "require-baseline", false, "fail, rather than skip the total comparison, when the baseline can't be measured")
 	if err := fs.Parse(args); err != nil {
@@ -83,7 +96,17 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	}
 	out := &printer{w: stdout, actions: getenv("GITHUB_ACTIONS") == "true"}
 	g := gate{root: ".", out: out, stderr: stderr}
-	ok, err := g.check(c)
+	if c.measureBase != "" && c.baseProfile != "" {
+		_, _ = fmt.Fprintln(stderr, "covergate: -measure-base and -base-profile are exclusive")
+		return 2
+	}
+	var ok bool
+	var err error
+	if c.measureBase != "" {
+		ok, err = true, g.measure(c)
+	} else {
+		ok, err = g.check(c)
+	}
 	if err != nil {
 		// Exit status 2 reports the failure even if stderr is gone.
 		_, _ = fmt.Fprintf(stderr, "covergate: %v\n", err)
@@ -132,34 +155,52 @@ type gate struct {
 	stderr io.Writer // baseline test output, when it fails
 }
 
-func (g gate) check(c config) (bool, error) {
+// plan says what the gate has to look at: the merge base with c.base, the
+// lines changed since it, and whether the gate should skip because there is
+// no base or nothing but inert paths changed.
+type plan struct {
+	mergeBase string
+	changed   map[string]map[int]bool
+	skip      bool
+}
+
+func (g gate) plan(c config) (plan, error) {
 	if _, err := g.git("rev-parse", "--verify", "--quiet", c.base+"^{commit}"); err != nil {
 		if c.requireBase {
-			return false, fmt.Errorf("base %s not found; fetch it (actions/checkout needs fetch-depth: 0)", c.base)
+			return plan{}, fmt.Errorf("base %s not found; fetch it (actions/checkout needs fetch-depth: 0)", c.base)
 		}
 		g.out.skip("base %s not found; skipping", c.base)
-		return true, nil
+		return plan{skip: true}, nil
 	}
 	mergeBase, err := g.git("merge-base", "HEAD", c.base)
 	if err != nil {
-		return false, err
+		return plan{}, err
 	}
 	mergeBase = strings.TrimSpace(mergeBase)
 
 	changed, err := g.changedLines(mergeBase)
 	if err != nil {
-		return false, err
+		return plan{}, err
 	}
 	if len(changed) == 0 {
 		relevant, err := g.anyTestRelevantChange(mergeBase)
 		if err != nil {
-			return false, err
+			return plan{}, err
 		}
 		if !relevant {
 			g.out.skip("no changes outside documentation and other inert paths since merge base %.12s; skipping", mergeBase)
-			return true, nil
+			return plan{mergeBase: mergeBase, skip: true}, nil
 		}
 	}
+	return plan{mergeBase: mergeBase, changed: changed}, nil
+}
+
+func (g gate) check(c config) (bool, error) {
+	pl, err := g.plan(c)
+	if err != nil || pl.skip {
+		return err == nil, err
+	}
+	mergeBase, changed := pl.mergeBase, pl.changed
 
 	module, err := modulePath(filepath.Join(g.root, "go.mod"))
 	if err != nil {
@@ -197,7 +238,7 @@ func (g gate) check(c config) (bool, error) {
 
 	// Total against the merge base.
 	headPct := totalCoverage(head)
-	basePct, err := g.baseCoverage(mergeBase, module, c.test)
+	basePct, err := g.baseCoverage(mergeBase, module, c)
 	switch {
 	case err != nil && c.requireBaseline:
 		return false, fmt.Errorf("measure merge base %.12s: %w", mergeBase, err)
@@ -331,29 +372,38 @@ func (g gate) changedLines(mergeBase string) (map[string]map[int]bool, error) {
 	return changed, nil
 }
 
-// baseCoverage exports mergeBase, runs testCmd in it and returns its total.
-func (g gate) baseCoverage(mergeBase, module, testCmd string) (float64, error) {
+// export extracts mergeBase into a new temporary directory, which the caller
+// removes.
+func (g gate) export(mergeBase string) (string, error) {
 	dir, err := os.MkdirTemp("", "covergate-")
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
 	archive := exec.Command("git", "archive", "--format=tar", mergeBase)
 	archive.Dir = g.root
 	tar := exec.Command("tar", "-x", "-C", dir)
 	tar.Stdin, err = archive.StdoutPipe()
+	if err == nil {
+		err = tar.Start()
+	}
+	if err == nil {
+		if err = archive.Run(); err != nil {
+			err = fmt.Errorf("git archive %s: %w", mergeBase, err)
+		}
+		if werr := tar.Wait(); err == nil && werr != nil {
+			err = fmt.Errorf("extract %s: %w", mergeBase, werr)
+		}
+	}
 	if err != nil {
-		return 0, err
+		_ = os.RemoveAll(dir)
+		return "", err
 	}
-	if err := tar.Start(); err != nil {
-		return 0, err
-	}
-	if err := archive.Run(); err != nil {
-		return 0, fmt.Errorf("git archive %s: %w", mergeBase, err)
-	}
-	if err := tar.Wait(); err != nil {
-		return 0, fmt.Errorf("extract %s: %w", mergeBase, err)
-	}
+	return dir, nil
+}
+
+// runBaseline runs testCmd in dir, an exported merge base, and returns the
+// profile it wrote.
+func (g gate) runBaseline(dir, mergeBase, testCmd string) (string, error) {
 	profile := filepath.Join(dir, "covergate-base.out")
 	g.out.printf("covergate: measuring merge base %.12s\n", mergeBase)
 	cmd := exec.Command("sh", "-c", strings.ReplaceAll(testCmd, "{profile}", profile))
@@ -363,12 +413,67 @@ func (g gate) baseCoverage(mergeBase, module, testCmd string) (float64, error) {
 	if err := cmd.Run(); err != nil {
 		_, _ = g.stderr.Write(out.Bytes())
 		if _, statErr := os.Stat(profile); statErr != nil {
-			return 0, fmt.Errorf("baseline tests: %w", err)
+			return "", fmt.Errorf("baseline tests: %w", err)
 		}
 		// go test still writes the profile when tests fail. Failing tests
 		// can only lower the baseline, so comparing with it stays fair to
 		// this change.
 		g.out.printf("covergate: baseline tests failed (%v); using the coverage they reported\n", err)
+	}
+	return profile, nil
+}
+
+// mergeBaseSuffix names the file beside a -measure-base profile that holds
+// the commit it measured, so the gate can refuse a profile of another one.
+const mergeBaseSuffix = ".mergebase"
+
+// measure is -measure-base: it runs the tests at the merge base and writes
+// their profile to c.measureBase, unless the gate would skip, in which case
+// it writes nothing and -base-profile is not needed either.
+func (g gate) measure(c config) error {
+	pl, err := g.plan(c)
+	if err != nil || pl.skip {
+		return err
+	}
+	dir, err := g.export(pl.mergeBase)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	profile, err := g.runBaseline(dir, pl.mergeBase, c.test)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(profile)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(c.measureBase, b, 0o600); err != nil { //nolint:gosec // G703: the flag names the file to write, as for any command line tool
+		return err
+	}
+	return os.WriteFile(c.measureBase+mergeBaseSuffix, []byte(pl.mergeBase+"\n"), 0o600)
+}
+
+// baseCoverage returns the total coverage at mergeBase: from the profile
+// -measure-base wrote when c.baseProfile is set, else by exporting mergeBase
+// and running c.test in it.
+func (g gate) baseCoverage(mergeBase, module string, c config) (float64, error) {
+	dir, err := g.export(mergeBase)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	profile := c.baseProfile
+	if profile != "" {
+		got, err := os.ReadFile(profile + mergeBaseSuffix)
+		if err != nil {
+			return 0, fmt.Errorf("base profile: %w", err)
+		}
+		if strings.TrimSpace(string(got)) != mergeBase {
+			return 0, fmt.Errorf("base profile %s was measured at %.12s, not at merge base %.12s", profile, strings.TrimSpace(string(got)), mergeBase)
+		}
+	} else if profile, err = g.runBaseline(dir, mergeBase, c.test); err != nil {
+		return 0, err
 	}
 	blocks, err := readProfile(profile, module)
 	if err != nil {
