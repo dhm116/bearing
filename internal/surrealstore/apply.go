@@ -145,6 +145,12 @@ func resolvedKeys(e *modelv1alpha1.JournalEntry) map[memstore.Table][]string {
 			kept.Facts = append(kept.Facts, ft)
 		}
 	}
+	for _, ct := range cs.GetConflicts() {
+		if !names(ct) {
+			kept.Conflicts = append(kept.Conflicts, ct)
+		}
+	}
+	kept.Issues = cs.GetIssues()
 	for _, en := range cs.GetState() {
 		if !slices.ContainsFunc(e.GetMinted(), func(m *modelv1alpha1.Subject) bool { return strings.Contains(en.GetKey(), m.GetSubjectId()) }) {
 			kept.State = append(kept.State, en)
@@ -438,6 +444,8 @@ func predicateOf(head proto.Message) string {
 	case *modelv1alpha1.SupportTimeline:
 		return h.GetPredicate()
 	case *modelv1alpha1.FactTimeline:
+		return h.GetPredicate()
+	case *modelv1alpha1.ConflictTimeline:
 		return h.GetPredicate()
 	}
 	return ""

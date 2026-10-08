@@ -28,11 +28,13 @@ const (
 	TableBindings Table = iota
 	TableSupports
 	TableFacts
+	TableConflicts
+	TableIssues
 	TableState
 )
 
 // Tables lists every table, in the order a ChangeSet writes them.
-var Tables = []Table{TableBindings, TableSupports, TableFacts, TableState}
+var Tables = []Table{TableBindings, TableSupports, TableFacts, TableConflicts, TableIssues, TableState}
 
 func (s *Store) table(t Table) table {
 	switch t {
@@ -42,6 +44,10 @@ func (s *Store) table(t Table) table {
 		return s.supports
 	case TableFacts:
 		return s.facts
+	case TableConflicts:
+		return s.conflict
+	case TableIssues:
+		return s.issues
 	default:
 		return s.state
 	}
@@ -71,6 +77,10 @@ func NewHead(t Table) proto.Message {
 		return &modelv1alpha1.SupportTimeline{}
 	case TableFacts:
 		return &modelv1alpha1.FactTimeline{}
+	case TableConflicts:
+		return &modelv1alpha1.ConflictTimeline{}
+	case TableIssues:
+		return &modelv1alpha1.IssueTimeline{}
 	default:
 		return &modelv1alpha1.StateEntry{}
 	}
@@ -85,6 +95,10 @@ func NewRow(t Table) proto.Message {
 		return &modelv1alpha1.Support{}
 	case TableFacts:
 		return &modelv1alpha1.FactSpan{}
+	case TableConflicts:
+		return &modelv1alpha1.Conflict{}
+	case TableIssues:
+		return &modelv1alpha1.IssueSpan{}
 	default:
 		return &modelv1alpha1.StateEntry{}
 	}
@@ -101,6 +115,10 @@ func SeriesKey(t Table, head proto.Message) (string, error) {
 		return h.GetSource() + "\x00" + key, err
 	case *modelv1alpha1.FactTimeline:
 		return tripleKey(h.GetSubjectId(), h.GetPredicate(), h.GetObject())
+	case *modelv1alpha1.ConflictTimeline:
+		return h.GetSubjectId() + "\x00" + h.GetPredicate(), nil
+	case *modelv1alpha1.IssueTimeline:
+		return h.GetKey(), nil
 	case *modelv1alpha1.StateEntry:
 		return h.GetKey(), nil
 	}
@@ -123,6 +141,12 @@ func ChangeSetKeys(cs *modelv1alpha1.ChangeSet) map[Table][]string {
 		if key, err := SeriesKey(TableFacts, &modelv1alpha1.FactTimeline{SubjectId: ft.GetSubjectId(), Predicate: ft.GetPredicate(), Object: ft.GetObject()}); err == nil {
 			out[TableFacts] = append(out[TableFacts], key)
 		}
+	}
+	for _, ct := range cs.GetConflicts() {
+		out[TableConflicts] = append(out[TableConflicts], ct.GetSubjectId()+"\x00"+ct.GetPredicate())
+	}
+	for _, it := range cs.GetIssues() {
+		out[TableIssues] = append(out[TableIssues], it.GetKey())
 	}
 	for _, e := range cs.GetState() {
 		out[TableState] = append(out[TableState], e.GetKey())

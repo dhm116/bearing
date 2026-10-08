@@ -113,3 +113,48 @@ func TestSyncRecordsMetrics(t *testing.T) {
 		}
 	}
 }
+
+// TestSyncReportsRejectedClaims: rejected claims reach a counter and the
+// sync span, as rejected observations already do.
+func TestSyncReportsRejectedClaims(t *testing.T) {
+	count := func() (n int64) {
+		var rm metricdata.ResourceMetrics
+		if err := metrics.Collect(context.Background(), &rm); err != nil {
+			t.Fatal(err)
+		}
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "bearing.adapter.claims.rejected" {
+					for _, dp := range sum.DataPoints {
+						n += dp.Value
+					}
+				}
+			}
+		}
+		return n
+	}
+	before := count()
+	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
+	sum, err := SyncAll(ctx, connect(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	test.End()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := count() - before; got != int64(sum.RejectedClaims) || got == 0 {
+		t.Fatalf("got %d claims counted, want the %d the sync rejected", got, sum.RejectedClaims)
+	}
+	for _, s := range spans.Ended() {
+		if s.Name() != "bearing.adapter.sync" || s.SpanContext().TraceID() != test.SpanContext().TraceID() {
+			continue
+		}
+		got := map[string]int64{}
+		for _, a := range s.Attributes() {
+			got[string(a.Key)] = a.Value.AsInt64()
+		}
+		if got["bearing.claims.rejected"] != int64(sum.RejectedClaims) || got["bearing.observations.rejected"] != int64(sum.RejectedObservations) {
+			t.Fatalf("got span attributes %v, want %d rejected claims and %d rejected observations", got, sum.RejectedClaims, sum.RejectedObservations)
+		}
+		return
+	}
+	t.Fatal("no bearing.adapter.sync span")
+}

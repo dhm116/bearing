@@ -57,6 +57,8 @@ type Store struct {
 	bindings     table                             // by alias
 	supports     table                             // by source, subject, predicate, object
 	facts        table                             // by subject, predicate, object
+	conflict     table                             // by subject, predicate
+	issues       table                             // by the resolver's key
 	state        table                             // by the resolver's key
 	vectors      map[string]contracts.VectorPoint
 }
@@ -76,7 +78,7 @@ func (s *Store) reset() {
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
 	s.mergedBy, s.survivorOf = map[string][]int{}, map[string][]int{}
 	s.aliasesBy, s.liveBy = map[string]map[string]bool{}, map[string]map[string]bool{}
-	s.bindings, s.supports, s.facts, s.state = table{}, table{}, table{}, table{}
+	s.bindings, s.supports, s.facts, s.conflict, s.issues, s.state = table{}, table{}, table{}, table{}, table{}, table{}
 }
 
 // A table holds series of bitemporal rows. A series is one timeline

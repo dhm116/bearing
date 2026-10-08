@@ -145,6 +145,14 @@ func TestEveryQueryMayFailWithoutHarmingTheStore(t *testing.T) {
 			_, err := s.Changes(ctx, contracts.FactFilter{SubjectID: id}, time.Time{}, clk.Now().Add(time.Hour), contracts.AxisRecord)
 			return err
 		}},
+		{"Conflicts", func(ctx context.Context, s *Store) error {
+			_, err := s.Conflicts(ctx, id, "name", time.Time{}, time.Time{})
+			return err
+		}},
+		{"DataQuality", func(ctx context.Context, s *Store) error {
+			_, err := s.DataQuality(ctx, contracts.IssueFilter{Kinds: []string{"Repository"}}, time.Time{}, time.Time{})
+			return err
+		}},
 		{"Backup", func(ctx context.Context, s *Store) error { return s.Backup(ctx, io.Discard) }},
 		{"Apply staging its rows", func(ctx context.Context, s *Store) error {
 			_, err := s.Apply(ctx, next(inlineRows))

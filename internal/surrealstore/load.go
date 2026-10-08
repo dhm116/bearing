@@ -35,7 +35,10 @@ type scope struct {
 	// BindingsOf loads the binding series that name a subject in the
 	// components of Subjects, which is how a subject's aliases are found.
 	BindingsOf bool
-	// Claims loads support and fact series. With ClaimSubjects, those
+	// RowsFromClaims also loads the subjects that the loaded Claims series
+	// name, with their components, for reads that filter by a subject's kind.
+	RowsFromClaims bool
+	// Claims loads support, fact, conflict and issue series. With ClaimSubjects, those
 	// naming a subject (as subject or object) in the components of
 	// ClaimSubjects; else with Predicate, those with that predicate; else
 	// all.
@@ -198,6 +201,16 @@ func (s *Store) loadOnce(ctx context.Context, sc scope) (*loaded, error) {
 			}
 		}
 	}
+	if sc.RowsFromClaims {
+		for _, t := range sc.Claims {
+			for _, ser := range ld.series[t] {
+				want = append(want, memstore.SubjectsIn(ser.Head)...)
+				for _, v := range ser.Versions {
+					want = append(want, memstore.SubjectsIn(v.Msg)...)
+				}
+			}
+		}
+	}
 	if len(want) > 0 {
 		ids := comp.expand(want)
 		if err := s.loadSubjects(ctx, ld, ids, meta); err != nil {
@@ -287,7 +300,7 @@ func (s *Store) loadSeries(ctx context.Context, ld *loaded, sc scope, comp *merg
 			return nil, fmt.Errorf("decode series: %w", err)
 		}
 		for _, row := range rows {
-			if sc.Predicate != "" && row.Predicate != sc.Predicate && row.Tbl != memstore.TableBindings && row.Tbl != memstore.TableState {
+			if sc.Predicate != "" && row.Predicate != sc.Predicate && row.Tbl != memstore.TableBindings && row.Tbl != memstore.TableState && row.Tbl != memstore.TableIssues {
 				continue
 			}
 			if heads[row.Tbl] == nil {

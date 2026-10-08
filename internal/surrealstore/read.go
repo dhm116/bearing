@@ -134,3 +134,27 @@ func (s *Store) Changes(ctx context.Context, f contracts.FactFilter, t1, t2 time
 	}
 	return m.Changes(ctx, f, t1, t2, axis)
 }
+
+// Conflicts implements contracts.GraphStore.
+func (s *Store) Conflicts(ctx context.Context, subject contracts.SubjectID, predicate string, validAt, recordedAt time.Time) ([]*modelv1alpha1.Conflict, error) {
+	sc := scope{Claims: []memstore.Table{memstore.TableConflicts}, Predicate: predicate}
+	if subject != "" {
+		sc.ClaimSubjects = []string{string(subject)}
+	}
+	m, err := s.reader(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	return m.Conflicts(ctx, subject, predicate, validAt, recordedAt)
+}
+
+// DataQuality implements contracts.GraphStore. Issues are found by type,
+// kind and source, none of which an index here covers, so it loads them all
+// (#81).
+func (s *Store) DataQuality(ctx context.Context, f contracts.IssueFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.DataQualityIssue, error) {
+	m, err := s.reader(ctx, scope{Claims: []memstore.Table{memstore.TableIssues}, RowsFromClaims: len(f.Kinds) > 0})
+	if err != nil {
+		return nil, err
+	}
+	return m.DataQuality(ctx, f, validAt, recordedAt)
+}
