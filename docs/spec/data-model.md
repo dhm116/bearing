@@ -752,7 +752,9 @@ each rule line and each owner, `(Repository, approves_changes, owner)` at
 1000000 with qualifiers `{ "file", "pattern", "line" }`, a snapshot scope
 over `approves_changes`, and the attribute `codeowners_rules` (stored as `github.codeowners_rules`), the
 number of rule lines including those with no owner. Lines naming one owner
-collapse into one fact whose qualifiers list every line.
+collapse into one fact whose qualifiers list every line. A file that exists but
+can't be read in full (binary or truncated) declares no scope, claims
+nothing and leaves `codeowners_rules` unread.
 
 The default configuration's rule `codeowners` reads the file's shape from
 one source's live `approves_changes` supports and `codeowners_rules` for a

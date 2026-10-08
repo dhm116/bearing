@@ -107,7 +107,7 @@ type gqlName struct {
 // gqlBlob is a file. Text is null for a binary or truncated blob, which is
 // not an empty file.
 type gqlBlob struct {
-	// Typename is Blob for a file; a directory has no fields to select.
+	// Typename is Blob for a file, Tree for a directory.
 	Typename    string  `json:"__typename"`
 	Text        *string `json:"text"`
 	IsTruncated bool    `json:"isTruncated"`
@@ -142,8 +142,9 @@ type gqlRepo struct {
 // exists but can't be read in full, found is true and readable is false.
 func (r gqlRepo) codeowners() (path, text string, found, readable bool) {
 	for i, b := range []*gqlBlob{r.GithubCodeowners, r.RootCodeowners, r.DocsCodeowners} {
-		// A directory named CODEOWNERS isn't a file, and GitHub passes over it.
-		if b != nil && b.Typename == "Blob" {
+		// A directory (or submodule) named CODEOWNERS isn't a file, and GitHub
+		// passes over it.
+		if b != nil && b.Typename != "Tree" && b.Typename != "Commit" {
 			if !b.readable() {
 				return codeownersPaths[i], "", true, false
 			}
