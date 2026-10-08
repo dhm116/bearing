@@ -188,16 +188,17 @@ every time and in every backend:
   for a `none` filter; only an explicit `none` span is returned.
 - `Supports` returns timelines ordered by canonical fact ID, then source,
   then the fact ID as written. Each timeline's versions are ordered by
-  `valid_from` (unbounded first), then `valid_to`.
+  `valid_from` (unbounded first), then `valid_to` (unbounded last).
 - A fact's supports in `AsOf` are ordered by source, then `valid_from`.
 - Timelines written under different subjects or objects can canonicalize to
   one fact after a merge. If more than one has a span at the point, the span
   with the highest `confidence_ppm` wins; ties go to the greater `status`
   (enum order), then the greater `status_reason`, then the earlier
-  `valid_from`, then the earlier `valid_to`. Spans equal in all of these are
-  the same answer. The answer's interval is the winning timeline's
-  maximal run of spans with that status; runs from different timelines are
-  not joined.
+  `valid_from` (unbounded first), then the earlier `valid_to` (unbounded
+  last). If the spans are equal in all of these, the timeline whose fact ID
+  as written is smaller wins. The answer's interval is the winning
+  timeline's maximal run of spans with that status; runs from different
+  timelines are not joined.
 - A `FactFilter` whose `Object` is not a valid fact object, and a `Changes`
   call with an unknown axis, are errors, never a filter that matches
   everything.

@@ -173,7 +173,7 @@ func sortByValidity(v []*modelv1alpha1.Support) {
 		if !timeEqual(v[i].GetValidFrom(), v[j].GetValidFrom()) {
 			return timeLess(v[i].GetValidFrom(), v[j].GetValidFrom())
 		}
-		return timeLess(v[i].GetValidTo(), v[j].GetValidTo())
+		return endLess(v[i].GetValidTo(), v[j].GetValidTo())
 	})
 }
 
@@ -212,8 +212,8 @@ func (s *Store) factsAt(v, r, rc time.Time) map[string]factAt {
 
 // better reports whether span a beats b: higher confidence, then greater
 // status, then greater status_reason, then earlier valid_from, then earlier
-// valid_to. Spans equal in all of them tie, and the caller keeps the one
-// whose timeline has the smaller key.
+// valid_to (an unbounded end is the latest). Spans equal in all of them tie,
+// and the caller keeps the one whose timeline has the smaller key.
 func better(a, b *modelv1alpha1.FactSpan) bool {
 	switch {
 	case a.GetConfidencePpm() != b.GetConfidencePpm():
@@ -225,8 +225,13 @@ func better(a, b *modelv1alpha1.FactSpan) bool {
 	case !timeEqual(a.GetValidFrom(), b.GetValidFrom()):
 		return timeLess(a.GetValidFrom(), b.GetValidFrom())
 	default:
-		return timeLess(a.GetValidTo(), b.GetValidTo())
+		return endLess(a.GetValidTo(), b.GetValidTo())
 	}
+}
+
+// endLess orders interval ends, absent (unbounded) last.
+func endLess(a, b *timestamppb.Timestamp) bool {
+	return a != nil && (b == nil || a.AsTime().Before(b.AsTime()))
 }
 
 // supportsAt returns the support versions covering v as recorded at r,

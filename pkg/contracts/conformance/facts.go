@@ -319,19 +319,23 @@ func (g *suite) combine(t *testing.T) {
 	// Which timeline a store visits first depends on its keys, so the
 	// winners alternate between the two subjects over several predicates.
 	cs := &modelv1alpha1.ChangeSet{EventId: "e1"}
-	var reasons, titles []string
+	var reasons, titles, statuses, endings []string
 	for i := range 8 {
 		winner, loser := p, l
 		if i%2 == 1 {
 			winner, loser = l, p
 		}
-		reason, title := fmt.Sprintf("reason%d", i), fmt.Sprintf("title%d", i)
-		reasons, titles = append(reasons, reason), append(titles, title)
+		reason, title, status, ends := fmt.Sprintf("reason%d", i), fmt.Sprintf("title%d", i), fmt.Sprintf("status%d", i), fmt.Sprintf("ends%d", i)
+		reasons, titles, statuses, endings = append(reasons, reason), append(titles, title), append(statuses, status), append(endings, ends)
 		cs.Facts = append(cs.Facts,
 			fact(winner, reason, str("n"), spanWith(asserted, modelv1alpha1.StatusReason_STATUS_REASON_PRECEDENCE, 1_000_000, "2026-09-28T01:30:00Z", "")),
 			fact(loser, reason, str("n"), spanWith(asserted, modelv1alpha1.StatusReason_STATUS_REASON_NONE, 1_000_000, "2026-09-28T01:30:00Z", "")),
 			fact(winner, title, str("t"), span(asserted, 1_000_000, "2026-09-27T00:00:00Z", "")),
-			fact(loser, title, str("t"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")))
+			fact(loser, title, str("t"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")),
+			fact(winner, status, str("s"), span(candidate, 1_000_000, "2026-09-28T01:30:00Z", "")),
+			fact(loser, status, str("s"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")),
+			fact(winner, ends, str("e"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "2026-12-01T00:00:00Z")),
+			fact(loser, ends, str("e"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")))
 	}
 	apply(t, s, cs)
 	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}})
@@ -340,8 +344,8 @@ func (g *suite) combine(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(states) != 16 {
-			t.Fatalf("got %d facts, want 16 on %s", len(states), p)
+		if len(states) != 32 {
+			t.Fatalf("got %d facts, want 32 on %s", len(states), p)
 		}
 		by := map[string]*modelv1alpha1.FactState{}
 		for _, st := range states {
@@ -350,6 +354,16 @@ func (g *suite) combine(t *testing.T) {
 		for _, name := range reasons {
 			if got := by[name].GetStatusReason(); got != modelv1alpha1.StatusReason_STATUS_REASON_PRECEDENCE {
 				t.Fatalf("%s: got reason %v, want the greater one", name, got)
+			}
+		}
+		for _, name := range statuses {
+			if got := by[name].GetStatus(); got != candidate {
+				t.Fatalf("%s: got status %v, want the greater one", name, got)
+			}
+		}
+		for _, name := range endings {
+			if got := show(by[name].GetValidTo()); got != "2026-12-01T00:00:00Z" {
+				t.Fatalf("%s: got valid_to %s, want the earlier one", name, got)
 			}
 		}
 		for _, name := range titles {
@@ -492,6 +506,9 @@ func (g *suite) axes(t *testing.T) {
 	same(t, show(s.Changes(ctx, f, d10, d20, contracts.AxisRecord)), nil)
 	// A zero time is now.
 	same(t, show(s.Changes(ctx, f, d10, time.Time{}, contracts.AxisValid)), began)
+	// Ownership has held since the 15th as known now, even though it was
+	// recorded later than both points.
+	same(t, show(s.Changes(ctx, f, d20, time.Time{}, contracts.AxisValid)), nil)
 	same(t, show(s.Changes(ctx, f, time.Time{}, time.Time{}, contracts.AxisValid)), nil)
 	same(t, show(s.Changes(ctx, f, seeded, time.Time{}, contracts.AxisRecord)), began)
 	if _, err := s.Changes(ctx, f, time.Time{}, d20, contracts.AxisValid); err == nil {
@@ -509,5 +526,34 @@ func (g *suite) axes(t *testing.T) {
 	}
 	if _, err := s.Changes(ctx, bad, d10, d20, contracts.AxisValid); err == nil {
 		t.Error("Changes: got no error for an empty filter object")
+	}
+}
+
+func (g *suite) mergeChanges(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, l := seed(t, s)
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId:  "e1",
+		Supports: []*modelv1alpha1.SupportTimeline{supports("a", r, "owned_by", ref(l), version("a", 950_000, "2026-09-28T01:30:00Z", ""))},
+		Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(l), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
+	})
+	before, _ := s.Head(ctx)
+	// The merge and a second source's support for the same fact, written
+	// about the survivor, land together; the fact's confidence rises.
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId:  "e2",
+		Merges:   []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+		Supports: []*modelv1alpha1.SupportTimeline{supports("b", r, "owned_by", ref(p), version("b", 1_000_000, "2026-09-28T01:30:00Z", ""))},
+		Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", ""))},
+	})
+	after, _ := s.Head(ctx)
+	got, err := s.Changes(ctx, contracts.FactFilter{Predicate: "owned_by"}, before, after, contracts.AxisRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Matched as one fact under the later merges: only b's support is new.
+	if len(got) != 1 || got[0].GetFrom().GetConfidencePpm() != 950_000 || got[0].GetTo().GetConfidencePpm() != 1_000_000 ||
+		!slices.Equal(got[0].GetSupportsChanged(), []string{"b"}) || got[0].GetObject().GetSubjectId() != p {
+		t.Fatalf("got %v, want owned_by %s rising from 950000 to 1000000 with only b's support changed", got, p)
 	}
 }
