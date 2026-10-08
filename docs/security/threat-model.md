@@ -712,7 +712,8 @@ Assets: A1, A3, A4, A5, A6.
   every read load every merge record, with both alias sets, and every
   conflict retry loads them again; they also load the whole history of each
   series they touch. Its other tables are loaded by key, predicate or
-  subject. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
+  subject, except that an unfiltered `Supports`, `AsOf`, `Changes` or
+  `DataQuality` loads every series of its table. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
   operations fail with `ErrTooManyMerges`, an error that names #81, instead
   of stalling. Loading only the merge components of the subjects a ChangeSet
   names is tracked in #81 and measured in the M3 benchmark (#27).
