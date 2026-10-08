@@ -664,21 +664,25 @@ Assets: A1, A3, A4, A5, A6.
   and audit records, and must be stored encrypted. Exports never contain
   secrets (C-SECRET-2).
 - **C-STORE-8** `GraphStore.Restore` works only into an empty store and
-  leaves it empty on any failure. It verifies the backup's integrity
-  trailer (record count and SHA-256 over every byte before it) and refuses
-  an unknown format or version, a missing trailer and data after it
+  leaves it empty on any failure. It verifies the backup's integrity trailer
+  (record count and SHA-256 over every byte before it) and refuses an
+  unknown format or version, a missing trailer and data after it
   (docs/spec/contracts.md, "Backup"). Every frame is at most
   `contracts.MaxChangeSetBytes`. The reference store replays its change
   journal and refuses any apply that decides differently, an entry with no
   record time or one later than the header's `taken_at`, which it doesn't
-  compare with its own clock. These checks are in the store
-  contract today. **Planned**, with the restore entry point, which doesn't
-  exist yet: that entry point caps the backup's total size; it is an admin
-  operation (admin role only, C-API-4) never reachable from API or MCP
-  input without these checks; and each restore is audited per C-AUDIT-1
-  with the actor and the backup's SHA-256. The SHA-256 catches corruption
-  and truncation, not a forger who recomputes it or sets `taken_at`: the audited hash will let
-  an operator compare the restored backup with the one they took.
+  compare with its own clock, so a backup from a host whose clock ran ahead
+  restores with its head and ID timestamps ahead too. These checks are in
+  the store contract today. **Planned**, with the restore entry point, which
+  doesn't exist yet: that entry point caps the backup's total size; it
+  reports the backup's `taken_at` and head against the host's clock and
+  refuses, or asks for an audited confirmation, when they are further ahead
+  than a configured margin; it is an admin operation (admin role only,
+  C-API-4) never reachable from API or MCP input without these checks; and
+  each restore is audited per C-AUDIT-1 with the actor and the backup's
+  SHA-256. The SHA-256 catches corruption and truncation, not a forger who
+  recomputes it or sets `taken_at`: the audited hash will let an operator
+  compare the restored backup with the one they took.
 
 ### B7. Operators and configuration
 

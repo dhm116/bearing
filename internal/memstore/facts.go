@@ -101,8 +101,13 @@ func (s *Store) Supports(_ context.Context, f contracts.SupportFilter, recordedA
 	defer s.mu.RUnlock()
 	_, r := s.times(time.Time{}, recordedAt)
 	want := s.canonical(string(f.SubjectID), r)
-	var out []*modelv1alpha1.SupportTimeline
-	for _, ser := range s.supports {
+	type entry struct {
+		st  *modelv1alpha1.SupportTimeline
+		key string // the timeline's key: source and fact ID as written
+	}
+	var found []entry
+	for _, key := range sortedKeys(s.supports) {
+		ser := s.supports[key]
 		h, _ := ser.head.(*modelv1alpha1.SupportTimeline)
 		st := proto.CloneOf(h)
 		fact := s.canonicalFact(st.GetSubjectId(), st.GetPredicate(), st.GetObject(), r)
@@ -115,15 +120,65 @@ func (s *Store) Supports(_ context.Context, f contracts.SupportFilter, recordedA
 			sup.FactId = fact.GetFactId()
 			st.Versions = append(st.Versions, sup)
 		}
+		sortByValidity(st.Versions)
 		if len(st.Versions) > 0 {
-			out = append(out, st)
+			found = append(found, entry{st, key})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i].GetVersions()[0], out[j].GetVersions()[0]
-		return a.GetFactId()+a.GetSource() < b.GetFactId()+b.GetSource()
+	// By canonical fact ID, source, then the key, which is the source and
+	// the fact ID as written, so timelines that merged into one fact keep a
+	// fixed order.
+	sort.Slice(found, func(i, j int) bool {
+		a, b := found[i].st, found[j].st
+		if x, y := a.GetVersions()[0].GetFactId(), b.GetVersions()[0].GetFactId(); x != y {
+			return x < y
+		}
+		if a.GetSource() != b.GetSource() {
+			return a.GetSource() < b.GetSource()
+		}
+		return found[i].key < found[j].key
 	})
+	var out []*modelv1alpha1.SupportTimeline
+	for _, e := range found {
+		out = append(out, e.st)
+	}
 	return out, nil
+}
+
+// sortedKeys lists a table's series keys in order, so reads that combine
+// series visit them the same way every time.
+func sortedKeys(t table) []string {
+	keys := make([]string, 0, len(t))
+	for k := range t {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// timeLess orders timestamps, absent (unbounded) first.
+func timeLess(a, b *timestamppb.Timestamp) bool {
+	switch {
+	case a == nil || b == nil:
+		return a == nil && b != nil
+	default:
+		return a.AsTime().Before(b.AsTime())
+	}
+}
+
+// sortByValidity orders support versions by valid_from, then valid_to,
+// keeping the order of equal ones.
+func sortByValidity(v []*modelv1alpha1.Support) {
+	sort.SliceStable(v, func(i, j int) bool {
+		if !timeEqual(v[i].GetValidFrom(), v[j].GetValidFrom()) {
+			return timeLess(v[i].GetValidFrom(), v[j].GetValidFrom())
+		}
+		return timeLess(v[i].GetValidTo(), v[j].GetValidTo())
+	})
+}
+
+func timeEqual(a, b *timestamppb.Timestamp) bool {
+	return a == nil && b == nil || a != nil && b != nil && a.AsTime().Equal(b.AsTime())
 }
 
 // factAt is one fact's span at a point, from one timeline.
@@ -135,10 +190,12 @@ type factAt struct {
 
 // factsAt returns every fact with a span at (v, r), canonicalized as
 // recorded at rc, by fact ID. If timelines that canonicalize to one fact
-// both have a span there, the higher confidence wins.
+// both have a span there, better picks one; see docs/spec/contracts.md,
+// "Reads".
 func (s *Store) factsAt(v, r, rc time.Time) map[string]factAt {
 	out := map[string]factAt{}
-	for _, ser := range s.facts {
+	for _, key := range sortedKeys(s.facts) {
+		ser := s.facts[key]
 		rows := ser.at(r)
 		span, _ := covering(rows, v).(*modelv1alpha1.FactSpan)
 		if span == nil {
@@ -153,18 +210,31 @@ func (s *Store) factsAt(v, r, rc time.Time) map[string]factAt {
 	return out
 }
 
+// better reports whether span a beats b: higher confidence, then greater
+// status, then greater status_reason, then earlier valid_from, then earlier
+// valid_to. Spans equal in all of them tie, and the caller keeps the one
+// whose timeline has the smaller key.
 func better(a, b *modelv1alpha1.FactSpan) bool {
-	if a.GetConfidencePpm() != b.GetConfidencePpm() {
+	switch {
+	case a.GetConfidencePpm() != b.GetConfidencePpm():
 		return a.GetConfidencePpm() > b.GetConfidencePpm()
+	case a.GetStatus() != b.GetStatus():
+		return a.GetStatus() > b.GetStatus()
+	case a.GetStatusReason() != b.GetStatusReason():
+		return a.GetStatusReason() > b.GetStatusReason()
+	case !timeEqual(a.GetValidFrom(), b.GetValidFrom()):
+		return timeLess(a.GetValidFrom(), b.GetValidFrom())
+	default:
+		return timeLess(a.GetValidTo(), b.GetValidTo())
 	}
-	return a.GetStatus() > b.GetStatus()
 }
 
 // supportsAt returns the support versions covering v as recorded at r,
 // canonicalized as recorded at rc, by fact ID and sorted by source.
 func (s *Store) supportsAt(v, r, rc time.Time) map[string][]*modelv1alpha1.Support {
 	out := map[string][]*modelv1alpha1.Support{}
-	for _, ser := range s.supports {
+	for _, key := range sortedKeys(s.supports) {
+		ser := s.supports[key]
 		var fact *modelv1alpha1.Fact
 		for _, ver := range ser.live(r) {
 			if !covers(ver.msg, v) {
@@ -180,7 +250,8 @@ func (s *Store) supportsAt(v, r, rc time.Time) map[string][]*modelv1alpha1.Suppo
 		}
 	}
 	for _, sups := range out {
-		sort.Slice(sups, func(i, j int) bool { return sups[i].GetSource() < sups[j].GetSource() })
+		sortByValidity(sups)
+		sort.SliceStable(sups, func(i, j int) bool { return sups[i].GetSource() < sups[j].GetSource() })
 	}
 	return out
 }
@@ -207,8 +278,9 @@ func interval(rows []proto.Message, sp *modelv1alpha1.FactSpan) (from, to *times
 }
 
 // matcher reports whether a canonical fact passes f's subject, key,
-// predicate and object; ok is false when f's key resolves to nothing.
-func (s *Store) matcher(f contracts.FactFilter, v, r time.Time) (match func(*modelv1alpha1.Fact) bool, ok bool) {
+// predicate and object; ok is false when f's key resolves to nothing, and
+// err is set when f's object is not a valid fact object.
+func (s *Store) matcher(f contracts.FactFilter, v, r time.Time) (match func(*modelv1alpha1.Fact) bool, ok bool, err error) {
 	subject := ""
 	if f.SubjectID != "" {
 		subject = s.canonical(string(f.SubjectID), r)
@@ -216,18 +288,21 @@ func (s *Store) matcher(f contracts.FactFilter, v, r time.Time) (match func(*mod
 	if f.Key != "" {
 		sub, err := s.resolve(f.Key, v, r)
 		if err != nil || subject != "" && subject != sub.GetSubjectId() {
-			return nil, false
+			return nil, false, nil
 		}
 		subject = sub.GetSubjectId()
 	}
 	objectID := ""
 	if f.Object != nil {
+		if _, err = model.FactID("-", "-", f.Object); err != nil {
+			return nil, false, fmt.Errorf("filter object: %w", err)
+		}
 		objectID = s.canonicalFact("-", "-", f.Object, r).GetFactId()
 	}
 	return func(fact *modelv1alpha1.Fact) bool {
 		return (subject == "" || fact.GetSubjectId() == subject) && (f.Predicate == "" || fact.GetPredicate() == f.Predicate) &&
 			(objectID == "" || s.canonicalFact("-", "-", fact.GetObject(), r).GetFactId() == objectID)
-	}, true
+	}, true, nil
 }
 
 // AsOf implements contracts.GraphStore.
@@ -235,7 +310,10 @@ func (s *Store) AsOf(_ context.Context, f contracts.FactFilter, validAt, recorde
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	v, r := s.times(validAt, recordedAt)
-	match, ok := s.matcher(f, v, r)
+	match, ok, err := s.matcher(f, v, r)
+	if err != nil {
+		return nil, fmt.Errorf("as of: %w", err)
+	}
 	if !ok {
 		return nil, nil
 	}
@@ -280,16 +358,29 @@ func factLess(a, b factLike) bool {
 func (s *Store) Changes(_ context.Context, f contracts.FactFilter, t1, t2 time.Time, axis contracts.Axis) ([]*modelv1alpha1.FactChange, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if t1.After(t2) {
+	var v1, v2, r1, r2 time.Time
+	switch axis {
+	case contracts.AxisValid:
+		v1, r1 = s.times(t1, time.Time{})
+		v2, r2 = s.times(t2, time.Time{})
+	case contracts.AxisRecord:
+		_, r1 = s.times(time.Time{}, t1)
+		_, r2 = s.times(time.Time{}, t2)
+		v1, v2 = r1, r2
+	default:
+		return nil, fmt.Errorf("changes: unknown axis %d", axis)
+	}
+	first, second := v1, v2
+	if axis == contracts.AxisRecord {
+		first, second = r1, r2
+	}
+	if first.After(second) {
 		return nil, errors.New("changes: t1 is after t2")
 	}
-	v1, r1 := t1, t1
-	v2, r2 := t2, t2
-	if axis == contracts.AxisValid {
-		_, now := s.times(time.Time{}, time.Time{})
-		r1, r2 = now, now
+	match, ok, err := s.matcher(f, v2, r2)
+	if err != nil {
+		return nil, fmt.Errorf("changes: %w", err)
 	}
-	match, ok := s.matcher(f, v2, r2)
 	if !ok {
 		return nil, nil
 	}

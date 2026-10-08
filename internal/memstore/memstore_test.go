@@ -216,6 +216,29 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Two backups of one store are the same bytes, so a hash taken of one can be
+// compared with another's.
+func TestBackupIsDeterministic(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestStore()
+	cs := &modelv1alpha1.ChangeSet{EventId: "e"}
+	for i := range 16 { // enough refs that a map's order would show
+		cs.Mints = append(cs.Mints, &modelv1alpha1.Mint{Ref: fmt.Sprintf("new:%d", i), Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION})
+	}
+	if _, err := s.Apply(ctx, cs); err != nil {
+		t.Fatal(err)
+	}
+	var first, second bytes.Buffer
+	for _, b := range []*bytes.Buffer{&first, &second} {
+		if err := s.Backup(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(first.Bytes(), second.Bytes()) {
+		t.Fatal("two backups of one store differ")
+	}
+}
+
 func TestBackupReportsAWriteFailure(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore()

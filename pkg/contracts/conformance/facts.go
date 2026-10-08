@@ -303,3 +303,211 @@ func (g *suite) changes(t *testing.T) {
 		t.Fatal("got no error for t1 after t2")
 	}
 }
+
+func spanWith(status modelv1alpha1.FactStatus, reason modelv1alpha1.StatusReason, ppm uint32, from, to string) *modelv1alpha1.FactSpan {
+	sp := span(status, ppm, from, to)
+	sp.StatusReason = reason
+	return sp
+}
+
+func (g *suite) combine(t *testing.T) {
+	s, _ := g.store(t)
+	_, p, l := seed(t, s)
+	// Each pair of timelines canonicalizes to one fact after the merge, with
+	// equal confidence and status. The greater status_reason wins; if those
+	// are equal too, the earlier valid_from.
+	// Which timeline a store visits first depends on its keys, so the
+	// winners alternate between the two subjects over several predicates.
+	cs := &modelv1alpha1.ChangeSet{EventId: "e1"}
+	var reasons, titles []string
+	for i := range 8 {
+		winner, loser := p, l
+		if i%2 == 1 {
+			winner, loser = l, p
+		}
+		reason, title := fmt.Sprintf("reason%d", i), fmt.Sprintf("title%d", i)
+		reasons, titles = append(reasons, reason), append(titles, title)
+		cs.Facts = append(cs.Facts,
+			fact(winner, reason, str("n"), spanWith(asserted, modelv1alpha1.StatusReason_STATUS_REASON_PRECEDENCE, 1_000_000, "2026-09-28T01:30:00Z", "")),
+			fact(loser, reason, str("n"), spanWith(asserted, modelv1alpha1.StatusReason_STATUS_REASON_NONE, 1_000_000, "2026-09-28T01:30:00Z", "")),
+			fact(winner, title, str("t"), span(asserted, 1_000_000, "2026-09-27T00:00:00Z", "")),
+			fact(loser, title, str("t"), span(asserted, 1_000_000, "2026-09-28T01:30:00Z", "")))
+	}
+	apply(t, s, cs)
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}})
+	for range 20 { // map order must not show
+		states, err := s.AsOf(ctx, contracts.FactFilter{SubjectID: contracts.SubjectID(p)}, at("2026-09-29T00:00:00Z"), time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(states) != 16 {
+			t.Fatalf("got %d facts, want 16 on %s", len(states), p)
+		}
+		by := map[string]*modelv1alpha1.FactState{}
+		for _, st := range states {
+			by[st.GetPredicate()] = st
+		}
+		for _, name := range reasons {
+			if got := by[name].GetStatusReason(); got != modelv1alpha1.StatusReason_STATUS_REASON_PRECEDENCE {
+				t.Fatalf("%s: got reason %v, want the greater one", name, got)
+			}
+		}
+		for _, name := range titles {
+			if got := show(by[name].GetValidFrom()); got != "2026-09-27T00:00:00Z" {
+				t.Fatalf("%s: got valid_from %s, want the earlier one", name, got)
+			}
+		}
+	}
+}
+
+func (g *suite) supportsOrder(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, l := seed(t, s)
+	earlier := version("a", 1_000_000, "2026-09-28T01:30:00Z", "2026-10-01T00:00:00Z")
+	later := version("a", 1_000_000, "2026-10-01T00:00:00Z", "")
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "e1",
+		Supports: []*modelv1alpha1.SupportTimeline{
+			supports("b", r, "owned_by", ref(l), version("b", 1_000_000, "2026-09-28T01:30:00Z", "")),
+			supports("a", r, "owned_by", ref(p), later, earlier), // written out of order
+			supports("b", r, "owned_by", ref(p), version("b", 1_000_000, "2026-09-28T01:30:00Z", "")),
+			supports("a", r, "name", str("x"), version("a", 1_000_000, "2026-09-28T01:30:00Z", "")),
+		},
+	})
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}})
+	// After the merge three timelines share one fact. They come back by
+	// canonical fact ID, then source, then the fact ID as written.
+	type row struct{ fact, source, written, label string }
+	id := func(obj *modelv1alpha1.FactObject, pred string) string { return must(model.FactID(r, pred, obj)) }
+	owned := id(ref(p), "owned_by")
+	rows := []row{
+		{owned, "b", id(ref(l), "owned_by"), "b " + l},
+		{owned, "a", id(ref(p), "owned_by"), "a " + p},
+		{owned, "b", id(ref(p), "owned_by"), "b " + p},
+		{id(str("x"), "name"), "a", id(str("x"), "name"), "a x"},
+	}
+	slices.SortFunc(rows, func(x, y row) int {
+		return strings.Compare(x.fact+"\x00"+x.source+"\x00"+x.written, y.fact+"\x00"+y.source+"\x00"+y.written)
+	})
+	label := func(sts []*modelv1alpha1.SupportTimeline, err error) []string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, st := range sts {
+			obj := st.GetObject().GetSubjectId()
+			if obj == "" {
+				obj = st.GetObject().GetValue().GetStringValue()
+			}
+			out = append(out, st.GetSource()+" "+obj)
+		}
+		return out
+	}
+	var all []string
+	for _, r := range rows {
+		all = append(all, r.label)
+	}
+	for range 20 { // map order must not show
+		same(t, label(s.Supports(ctx, contracts.SupportFilter{}, time.Time{})), all)
+	}
+	got, _ := s.Supports(ctx, contracts.SupportFilter{Predicate: "owned_by", Source: "a"}, time.Time{})
+	same(t, label(got, nil), []string{"a " + p})
+	if v := got[0].GetVersions(); len(v) != 2 || !v[0].GetValidTo().AsTime().Equal(at("2026-10-01T00:00:00Z")) || v[1].GetValidTo() != nil {
+		t.Fatalf("got versions %v, want them by valid_from", v)
+	}
+	// The filter's subject matches the object side too, through the merge.
+	for _, id := range []string{p, l} {
+		got := label(s.Supports(ctx, contracts.SupportFilter{SubjectID: contracts.SubjectID(id)}, time.Time{}))
+		if len(got) != 3 {
+			t.Fatalf("subject %s: got %v, want the three owned_by timelines", id, got)
+		}
+	}
+}
+
+func (g *suite) mergedObject(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, l := seed(t, s)
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId:  "e1",
+		Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(l), version("github-acme", 950_000, "2026-09-28T01:30:00Z", ""))},
+		Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(l), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
+	})
+	before, _ := s.Head(ctx)
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{p, l}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}})
+	merged, _ := s.Head(ctx)
+	f, v := contracts.FactFilter{Predicate: "owned_by"}, at("2026-09-29T00:00:00Z")
+	line := func(obj string) []string {
+		return []string{r + " owned_by " + obj + " asserted 950000 [2026-09-28T01:30:00Z, -) github-acme"}
+	}
+	same(t, asOf(t, s, f, v, time.Time{}), line(p))
+	same(t, asOf(t, s, f, v, before), line(l))
+	for _, obj := range []string{p, l} { // the filter's object canonicalizes too
+		same(t, asOf(t, s, contracts.FactFilter{Object: ref(obj)}, v, time.Time{}), line(p))
+	}
+	// Merging doesn't change the fact, so the record axis shows no change,
+	// though the fact ID as recorded at `before` differs.
+	changes, err := s.Changes(ctx, f, before, merged, contracts.AxisRecord)
+	if err != nil || len(changes) != 0 {
+		t.Fatalf("got %v, %v, want no change across the merge", changes, err)
+	}
+	// Un-merging gives the fact back to the subject it was written about.
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId:  "e3",
+		Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_l"}, Ref: "new:back"}},
+		Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team_node/T_l", row("new:back", "", ""))},
+	})
+	same(t, asOf(t, s, f, v, time.Time{}), line(l))
+	same(t, asOf(t, s, f, v, merged), line(p))
+}
+
+func (g *suite) axes(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, _ := seed(t, s)
+	seeded, _ := s.Head(ctx)
+	// Written on 28 September about ownership that began on the 15th.
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId:  "e1",
+		Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-15T00:00:00Z", ""))},
+		Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-15T00:00:00Z", ""))},
+	})
+	f := contracts.FactFilter{Predicate: "owned_by"}
+	began := []string{p + " none>asserted 0>950000 [github-acme]"}
+	show := func(cs []*modelv1alpha1.FactChange, err error) []string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, c := range cs {
+			out = append(out, fmt.Sprintf("%s %s>%s %d>%d %v", c.GetObject().GetSubjectId(), model.ShortName(c.GetFrom().GetStatus()),
+				model.ShortName(c.GetTo().GetStatus()), c.GetFrom().GetConfidencePpm(), c.GetTo().GetConfidencePpm(), c.GetSupportsChanged()))
+		}
+		return out
+	}
+	d10, d20 := at("2026-09-10T00:00:00Z"), at("2026-09-20T00:00:00Z")
+	// The valid axis compares valid times as known now, so late data shows;
+	// the record axis compares what was known then, which is nothing.
+	same(t, show(s.Changes(ctx, f, d10, d20, contracts.AxisValid)), began)
+	same(t, show(s.Changes(ctx, f, d10, d20, contracts.AxisRecord)), nil)
+	// A zero time is now.
+	same(t, show(s.Changes(ctx, f, d10, time.Time{}, contracts.AxisValid)), began)
+	same(t, show(s.Changes(ctx, f, time.Time{}, time.Time{}, contracts.AxisValid)), nil)
+	same(t, show(s.Changes(ctx, f, seeded, time.Time{}, contracts.AxisRecord)), began)
+	if _, err := s.Changes(ctx, f, time.Time{}, d20, contracts.AxisValid); err == nil {
+		t.Fatal("got no error for a zero t1 (now) after t2")
+	}
+	if _, err := s.Changes(ctx, f, d10, d20, contracts.Axis(99)); err == nil {
+		t.Fatal("got no error for an unknown axis")
+	}
+	// A valid time no span covers has no row, not a row with status none.
+	same(t, asOf(t, s, contracts.FactFilter{Statuses: []modelv1alpha1.FactStatus{modelv1alpha1.FactStatus_FACT_STATUS_NONE}}, d10, time.Time{}), nil)
+	// A filter object that isn't one is an error, not a filter that matches all.
+	bad := contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}
+	if _, err := s.AsOf(ctx, bad, d20, time.Time{}); err == nil {
+		t.Error("AsOf: got no error for an empty filter object")
+	}
+	if _, err := s.Changes(ctx, bad, d10, d20, contracts.AxisValid); err == nil {
+		t.Error("Changes: got no error for an empty filter object")
+	}
+}

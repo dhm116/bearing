@@ -115,11 +115,12 @@ type GraphStore interface {
 
 	// AsOf returns the facts matching f at validAt as recorded at
 	// recordedAt, with their live supports (docs/spec/data-model.md, "As
-	// of").
+	// of"). An invalid filter object is an error.
 	AsOf(ctx context.Context, f FactFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.FactState, error)
 	// Changes returns the facts matching f whose status or confidence
 	// differs between the two points of axis (docs/spec/data-model.md,
-	// "What changed"). t1 must not be after t2.
+	// "What changed"). A zero t1 or t2 is now. t1 must not be after t2.
+	// An unknown axis or an invalid filter object is an error.
 	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
 	// Backup writes the store's primary state to w as a backup stream
 	// (BackupWriter): a header, a body in a format the store defines, and a

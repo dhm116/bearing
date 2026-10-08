@@ -41,7 +41,7 @@ func (s *Store) Backup(ctx context.Context, w io.Writer) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		b, err := proto.Marshal(e)
+		b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("backup event %s: %w", e.GetChangeSet().GetEventId(), err)
 		}

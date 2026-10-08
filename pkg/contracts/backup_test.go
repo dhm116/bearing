@@ -82,6 +82,8 @@ func TestBackupReaderRefusesBadFraming(t *testing.T) {
 		want   string
 	}{
 		{"empty", nil, "backup header"},
+		// A varint of 16 MiB, the most a record may take, is far over a header's cap.
+		{"a header claiming a huge frame", []byte{0x80, 0x80, 0x80, 0x08}, "backup header"},
 		{"no header", frames(t, record), "does not start with a header"},
 		{"a second header", frames(t, header, header), "is not a record or trailer"},
 		{"a miscounting trailer", miscount, "trailer counts 2 records"},

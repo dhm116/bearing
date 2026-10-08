@@ -124,12 +124,16 @@ and written with `contracts.BackupReader` and `contracts.BackupWriter`:
 3. A trailer: the number of records and a SHA-256 of every byte before it.
 
 `Restore` works only into an empty store. It MUST refuse a format or
-version it doesn't know, a stream without its trailer (one truncated, even at
+version it doesn't know, a header without `taken_at`, a record later than
+`taken_at`, a stream without its trailer (one truncated, even at
 a frame boundary), a bad checksum or record count, and data after the
 trailer, and MUST leave the store empty on any failure. It MUST NOT
 refuse a record for being later than the restoring store's own clock,
 which may be behind the host that wrote the backup; the bound is `taken_at`.
-After a restore,
+A restore therefore leaves the head, the record times and the ID
+timestamps at the backup's values, even if they are ahead of the host's
+clock; the next applies are recorded just after the head, and the store
+does not judge whether `taken_at` is plausible. After a restore,
 every read at every record time up to the head answers as it did in the
 original store, processed events stay processed, and the head and the order
 of subject IDs are kept.
@@ -169,11 +173,34 @@ References are to sections of the [data model](data-model.md).
 
 Every read takes a record time and returns what was recorded at or before
 it; `ResolveKey` and `AsOf` also take a valid time, and `Changes`
-compares two points on the valid or the record axis. A zero time means now. Subject
-IDs in answers are canonical as of the record time, except where a method
-returns rows as written (`Bindings`, `Supports`). The resolver reads the head with
-`Head`, reads at that record time, and sets `base_recorded_at` to it, so
-its reads are a consistent snapshot.
+compares two points on the valid or the record axis. A zero time means now,
+for either point of `Changes` too. Subject IDs in answers are canonical as of
+the record time, except where a method returns rows as written (`Bindings`,
+`Supports`). The resolver reads the head with `Head`, reads at that record
+time, and sets `base_recorded_at` to it, so its reads are a consistent
+snapshot.
+
+Reads of facts are deterministic, so the same state gives the same answer
+every time and in every backend:
+
+- `AsOf` and `Changes` return facts ordered by canonical subject ID,
+  predicate, then fact ID. A valid time that no span covers has no row, even
+  for a `none` filter; only an explicit `none` span is returned.
+- `Supports` returns timelines ordered by canonical fact ID, then source,
+  then the fact ID as written. Each timeline's versions are ordered by
+  `valid_from` (unbounded first), then `valid_to`.
+- A fact's supports in `AsOf` are ordered by source, then `valid_from`.
+- Timelines written under different subjects or objects can canonicalize to
+  one fact after a merge. If more than one has a span at the point, the span
+  with the highest `confidence_ppm` wins; ties go to the greater `status`
+  (enum order), then the greater `status_reason`, then the earlier
+  `valid_from`, then the earlier `valid_to`. Spans equal in all of these are
+  the same answer. The answer's interval is the winning timeline's
+  maximal run of spans with that status; runs from different timelines are
+  not joined.
+- A `FactFilter` whose `Object` is not a valid fact object, and a `Changes`
+  call with an unknown axis, are errors, never a filter that matches
+  everything.
 
 ## Rules that apply to every component
 
