@@ -707,7 +707,12 @@ Assets: A1, A3, A4, A5, A6.
   timelines, all changed. Merge records, which carry both alias sets, are
   refused as soon as together they pass the byte limit, and a record that
   grows past it when recorded is refused too. A limit error quotes at most
-  64 bytes of the input.
+  64 bytes of the input. **Known exception:** the SurrealDB backend reads
+  every merge record on each Apply and read, and loads the whole history of
+  each series it touches, so its work grows with the merge count and series
+  size, not only with the ChangeSet. Its other tables are loaded by key,
+  predicate or subject. The count limits bound the damage per call; the cost
+  is tracked in #81 and measured in the M3 benchmark (#27).
 - **C-STORE-10** `internal/memstore`'s rule engine is trusted production
   code. The SurrealDB backend runs every operation on it (rows are loaded
   into a scratch store and the delta written back), so a flaw in it is a
