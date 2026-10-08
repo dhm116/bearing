@@ -1401,14 +1401,25 @@ for people.
 
 ## Still to build
 
-Parts of this model that nothing implements yet:
+Rules in this model that the resolver and the adapter code do not implement
+yet:
 
 - The Protobuf adapter service (`Describe`, `Sync`, `Handle`), with the
-  declarations as fields of `DescribeResponse`, `complete_sync` on the last
-  `Sync` page, and the Unix-socket transport for local-process adapters
-  (issue #35). Until then the stdio scaffold carries the same data and the
-  adapter protocol stays at version 0.2. SAML identities (`links`) wait for
-  the people matching that needs them.
+  declarations as fields of `DescribeResponse`, and the Unix-socket
+  transport for local-process adapters (issue #35). Until then the stdio
+  scaffold sends observations without declarations and the adapter protocol
+  stays at version 0.2. SAML identities (`links`) wait for the people
+  matching that needs them.
+- Scored matching (names, emails, member overlap) with the default match
+  weights, the `link` weight and the `Team` merge threshold; `same_as`
+  facts, manual overrides and operations, precedence and authority
+  overrides; non-authoritative links and the evidence state that ending a
+  link needs.
+- Ending an `id_conflict` issue when the clashing aliases change, the
+  `ConflictOpened` and `ConflictResolved` events and their audit records, and
+  sync-completeness deletions.
+- Compaction and the `Retention` tiers, including bounding the state the
+  resolver keeps for every write (issue #77).
 - The durable event log, with its new event types (manual operations,
   `ValidTimeBoundaryReached`, derived deletions, compaction, and a
   declaration change when a source's adapter is upgraded), replacing the

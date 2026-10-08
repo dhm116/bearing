@@ -91,7 +91,7 @@ features:
     milestone: 3
   - name: Gaps and mix-ups flagged
     area: Answers you can check
-    summary: Bearing points out what looks wrong in your tools' data, such as a team no tool has described or two accounts claiming the same identity, so you can fix it at the source.
+    summary: Bearing notices what looks wrong in your tools' data, such as a team no tool has described or two accounts claiming the same identity, and records it so it can be fixed at the source.
     milestone: 3
   - name: Search in plain words
     area: Answers you can check
