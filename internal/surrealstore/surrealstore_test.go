@@ -147,6 +147,7 @@ func TestDialConnectErrorOmitsPathAndQuery(t *testing.T) {
 		{"ws://[::1/s3cr3t", ""},
 		{"://s3cr3t", ""},
 		{"ws://host\x7f/s3cr3t", ""},
+		{"ws://127.0.0.1:1#s3cr3t", ""},
 	} {
 		t.Run(tc.url, func(t *testing.T) {
 			s, err := Dial(ctx, ServerOptions{URL: tc.url, Namespace: "n", Database: "d"})
