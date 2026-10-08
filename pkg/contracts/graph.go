@@ -90,9 +90,9 @@ type GraphStore interface {
 	// checks. A failed Apply writes nothing and returns a zero result.
 	Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (ApplyResult, error)
 	// Head returns the latest apply's recorded_at, or zero for an empty store.
-	// A zero cs.base_recorded_at means the store is empty; a zero time passed
-	// to a read means now, not "before everything", so an empty store answers
-	// a read at the zero time as it would at any other time: with nothing.
+	// An absent cs.base_recorded_at means the store is empty. A zero time
+	// passed to a read means now, not "before everything", so an empty store
+	// answers it as it would any other: with nothing.
 	Head(ctx context.Context) (time.Time, error)
 
 	// Subject returns a subject as recorded at recordedAt, with its status

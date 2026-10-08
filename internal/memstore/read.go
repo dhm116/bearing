@@ -34,13 +34,36 @@ func mergeLive(m *modelv1alpha1.MergeRecord, r time.Time) bool {
 	return !m.GetRecordedAt().AsTime().After(r) && (m.GetUnmergedAt() == nil || m.GetUnmergedAt().AsTime().After(r))
 }
 
+// addMerge appends a merge record and indexes it; it returns the undo.
+func (s *Store) addMerge(rec *modelv1alpha1.MergeRecord) func() {
+	i := len(s.merges)
+	s.merges = append(s.merges, rec)
+	s.mergedBy[rec.GetMergedId()] = append(s.mergedBy[rec.GetMergedId()], i)
+	s.survivorOf[rec.GetSurvivorId()] = append(s.survivorOf[rec.GetSurvivorId()], i)
+	return func() {
+		s.merges = s.merges[:i]
+		s.mergedBy[rec.GetMergedId()] = s.mergedBy[rec.GetMergedId()][:len(s.mergedBy[rec.GetMergedId()])-1]
+		s.survivorOf[rec.GetSurvivorId()] = s.survivorOf[rec.GetSurvivorId()][:len(s.survivorOf[rec.GetSurvivorId()])-1]
+	}
+}
+
+// indexOfMerge returns the index of rec in merges.
+func (s *Store) indexOfMerge(rec *modelv1alpha1.MergeRecord) int {
+	for _, i := range s.mergedBy[rec.GetMergedId()] {
+		if s.merges[i] == rec {
+			return i
+		}
+	}
+	return -1
+}
+
 // canonical follows id through the merges recorded at r to an active
 // subject.
 func (s *Store) canonical(id string, r time.Time) string {
 	for moved := true; moved; {
 		moved = false
-		for _, m := range s.merges {
-			if m.GetMergedId() == id && mergeLive(m, r) {
+		for _, i := range s.mergedBy[id] {
+			if m := s.merges[i]; mergeLive(m, r) {
 				id, moved = m.GetSurvivorId(), true
 				break
 			}
@@ -72,8 +95,8 @@ func (s *Store) subjectAt(id string, r time.Time) (*modelv1alpha1.Subject, error
 		return nil, fmt.Errorf("subject %s: %w", id, contracts.ErrNotFound)
 	}
 	sub = proto.CloneOf(sub)
-	for _, m := range s.merges {
-		if m.GetMergedId() == id && mergeLive(m, r) {
+	for _, i := range s.mergedBy[id] {
+		if m := s.merges[i]; mergeLive(m, r) {
 			sub.Status, sub.MergedInto = modelv1alpha1.SubjectStatus_SUBJECT_STATUS_MERGED, m.GetSurvivorId()
 		}
 	}

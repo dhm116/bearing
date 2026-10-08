@@ -44,6 +44,8 @@ type Store struct {
 	events       map[string]int                    // event ID to journal index
 	subjects     map[string]*modelv1alpha1.Subject // as minted
 	merges       []*modelv1alpha1.MergeRecord      // in record order
+	mergedBy     map[string][]int                  // indexes into merges, by merged subject
+	survivorOf   map[string][]int                  // indexes into merges, by survivor
 	bindings     table                             // by alias
 	supports     table                             // by source, subject, predicate, object
 	facts        table                             // by subject, predicate, object
@@ -64,6 +66,7 @@ func New() *Store {
 func (s *Store) reset() {
 	s.head, s.lastID, s.journal, s.merges = time.Time{}, "", nil, nil
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
+	s.mergedBy, s.survivorOf = map[string][]int{}, map[string][]int{}
 	s.bindings, s.supports, s.facts, s.state = table{}, table{}, table{}, table{}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -415,6 +416,12 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 		},
 		"an outcome it doesn't get": func(j []*modelv1alpha1.JournalEntry) []*modelv1alpha1.JournalEntry {
 			j[2].Minted[0].Kind = "Person"
+			return j
+		},
+		"a record over a count limit": func(j []*modelv1alpha1.JournalEntry) []*modelv1alpha1.JournalEntry {
+			for i := range contracts.MaxChangeSetItems + 1 {
+				j[2].ChangeSet.State = append(j[2].ChangeSet.State, &modelv1alpha1.StateEntry{Key: strconv.Itoa(i)})
+			}
 			return j
 		},
 		"a record over the size limit": func(j []*modelv1alpha1.JournalEntry) []*modelv1alpha1.JournalEntry {

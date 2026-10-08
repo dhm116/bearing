@@ -585,30 +585,61 @@ func (g *suite) limits(t *testing.T) {
 		}
 		return
 	}
+	// refuse is a case that is only refused: n+1 valid items, so the limit
+	// is the only thing wrong, without writing n valid ones.
+	refuse := func(item func(i int) *modelv1alpha1.ChangeSet) func(n int) *modelv1alpha1.ChangeSet {
+		return func(n int) *modelv1alpha1.ChangeSet {
+			cs := &modelv1alpha1.ChangeSet{}
+			for i := range n {
+				proto.Merge(cs, item(i))
+			}
+			return cs
+		}
+	}
 	for _, c := range []struct {
-		name string
-		n    int
-		make func(n int) *modelv1alpha1.ChangeSet
+		name       string
+		n          int
+		make       func(n int) *modelv1alpha1.ChangeSet
+		refuseOnly bool
 	}{
+		{"mints", contracts.MaxChangeSetItems, refuse(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Mints: []*modelv1alpha1.Mint{mint(fmt.Sprintf("new:%d", i), "Team")}}
+		}), true},
+		{"binding timelines", contracts.MaxChangeSetItems, refuse(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind(fmt.Sprintf("github:repo/acme/r%d", i), row(r, "", ""))}}
+		}), true},
+		{"support timelines", contracts.MaxChangeSetItems, refuse(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "name", str(fmt.Sprint(i)), version("github-acme", 1_000_000, "", ""))}}
+		}), true},
+		{"fact timelines", contracts.MaxChangeSetItems, refuse(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "name", str(fmt.Sprint(i)), span(asserted, 1_000_000, "", ""))}}
+		}), true},
+		{"merges", contracts.MaxChangeSetMerges, refuse(func(i int) *modelv1alpha1.ChangeSet {
+			a, b := fmt.Sprintf("new:a%d", i), fmt.Sprintf("new:b%d", i)
+			return &modelv1alpha1.ChangeSet{
+				Mints:  []*modelv1alpha1.Mint{mint(a, "Team"), mint(b, "Team")},
+				Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+			}
+		}), false},
 		{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
 			return &modelv1alpha1.ChangeSet{State: state(n)}
-		}},
+		}, false},
 		{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
 			bs, _, _ := rows(n)
 			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
-		}},
+		}, false},
 		{"support versions", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
 			_, vs, _ := rows(n)
 			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "approves_changes", ref(p), vs...)}}
-		}},
+		}, false},
 		{"fact spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
 			_, _, ss := rows(n)
 			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "approves_changes", ref(p), ss...)}}
-		}},
+		}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			over := c.make(c.n + 1)
-			over.EventId = "over"
+			over.EventId = "over/" + c.name
 			head := must(s.Head(ctx))
 			if res, err := tryApply(s, over); err == nil {
 				t.Fatalf("got %+v, want an error for %d %s, over the limit of %d", res, c.n+1, c.name, c.n)
@@ -616,9 +647,14 @@ func (g *suite) limits(t *testing.T) {
 			if got := must(s.Head(ctx)); !got.Equal(head) {
 				t.Fatalf("a refused ChangeSet moved the head from %v to %v", head, got)
 			}
+			if c.refuseOnly {
+				return
+			}
 			full := c.make(c.n)
-			full.EventId = "at"
-			apply(t, s, full)
+			full.EventId = "at/" + c.name
+			if res := apply(t, s, full); res.Duplicate {
+				t.Fatalf("a ChangeSet at the limit was taken for a repeat of event %s", full.EventId)
+			}
 		})
 	}
 }

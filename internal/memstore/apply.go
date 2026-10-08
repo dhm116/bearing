@@ -169,13 +169,12 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 		if err != nil {
 			return res, err
 		}
-		s.merges = append(s.merges, rec)
-		undo = append(undo, func() { s.merges = s.merges[:len(s.merges)-1] })
+		undo = append(undo, s.addMerge(rec))
 		entry.Merges = append(entry.Merges, proto.CloneOf(rec))
 	}
 	for _, u := range cs.GetUnmerges() {
 		if old := revived[u]; old != nil {
-			i := slices.Index(s.merges, old)
+			i := s.indexOfMerge(old)
 			next := proto.CloneOf(old)
 			next.UnmergedAt, next.UnmergeEventId = cs.RecordedAt, cs.GetEventId()
 			s.merges[i] = next
@@ -269,8 +268,8 @@ func (s *Store) unmergeTarget(u *modelv1alpha1.Unmerge, r time.Time, claimed map
 			return "", nil, fmt.Errorf("unmerge %s: alias %s is not one of its aliases", a.GetSubjectId(), k)
 		}
 	}
-	for _, rec := range s.merges {
-		if rec.GetSurvivorId() == a.GetSubjectId() && mergeLive(rec, r) && slices.Equal(rec.GetMergedAliases(), d) {
+	for _, i := range s.survivorOf[a.GetSubjectId()] {
+		if rec := s.merges[i]; mergeLive(rec, r) && slices.Equal(rec.GetMergedAliases(), d) {
 			if rec.GetRule() == modelv1alpha1.MergeRule_MERGE_RULE_PLACEHOLDER {
 				return "", nil, fmt.Errorf("unmerge %s: a placeholder merge can't be un-merged", a.GetSubjectId())
 			}

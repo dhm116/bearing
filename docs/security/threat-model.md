@@ -642,6 +642,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
+| T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 
 - **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
   store URL that contains a password is rejected at start.
@@ -702,6 +703,13 @@ Assets: A5, A2, A6, the container and host.
 | T-OPS-6 | E | A compromised Bearing process escalates on the host | C-OPS-4 |
 | T-OPS-7 | E | An admin points a Source's secret reference at Bearing's own credentials or a host file and sends it to an allowed host | C-SECRET-1 |
 
+- **C-STORE-9** `GraphStore.Apply` refuses a ChangeSet over `MaxChangeSetBytes`
+  (by `proto.Size`) or over a count limit (`MaxChangeSetItems`,
+  `MaxChangeSetMerges`, `MaxTimelineRows`; `contracts.CheckChangeSetLimits`,
+  docs/spec/contracts.md) before it looks at any item, takes any write or
+  does any work proportional to the input. A record that grows past the byte
+  limit when recorded is refused too. The error names the limit and quotes at
+  most 64 bytes of the input.
 - **C-OPS-1** Config apply validates types, validation rules (C-GEN-3), adapter
   settings and grants (ADR 10). `bearing diff` shows grant changes
   separately from other changes.
