@@ -20,6 +20,8 @@ const (
 	attrKind    = attribute.Key("bearing.entity.kind")
 	attrPages   = attribute.Key("bearing.sync.pages")
 	attrCount   = attribute.Key("bearing.observations.count")
+	attrRejObs  = attribute.Key("bearing.observations.rejected")
+	attrRejClm  = attribute.Key("bearing.claims.rejected")
 )
 
 // Metric instruments. See docs/telemetry.md for the catalog.
@@ -38,6 +40,8 @@ var (
 		"Valid observations the core accepted from adapters, by entity kind.", "{observation}")
 	observationsInvalid = mustCounter("bearing.adapter.observations.invalid",
 		"Observations the core rejected because they failed schema validation.", "{observation}")
+	claimsRejected = mustCounter("bearing.adapter.claims.rejected",
+		"Claims the core removed from accepted observations because they failed validation.", "{claim}")
 )
 
 func mustHistogram(name, desc, unit string) metric.Float64Histogram {
