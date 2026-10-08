@@ -141,6 +141,37 @@ func TestValidObservationsDecodeAndRoundTrip(t *testing.T) {
 	}
 }
 
+// An empty linked_ids with linked_ids_complete is "read, and there are none":
+// the flag survives a round trip through ProtoJSON, which drops the empty list.
+func TestLinkedIDsCompleteSurvivesWithAnEmptyList(t *testing.T) {
+	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/8-person-links-cleared.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := EncodeJSON(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := DecodeObservation(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := again.GetData().GetEntity(); len(e.GetLinkedIds()) != 0 || !e.GetLinkedIdsComplete() {
+		t.Fatalf("got linked_ids %v, complete %v, want none and complete", e.GetLinkedIds(), e.GetLinkedIdsComplete())
+	}
+}
+
+// Unflagged, a list only adds evidence.
+func TestLinkedIDsAreAddOnlyByDefault(t *testing.T) {
+	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/5-person-linked-ids.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := o.GetData().GetEntity(); len(e.GetLinkedIds()) == 0 || e.GetLinkedIdsComplete() {
+		t.Fatalf("got linked_ids %v, complete %v, want some and not complete", e.GetLinkedIds(), e.GetLinkedIdsComplete())
+	}
+}
+
 // invalidFixtures names the one rejection code each invalid fixture must
 // produce. REJECTION_CODE_UNSPECIFIED means it must fail to decode.
 var invalidFixtures = map[string]modelv1alpha1.RejectionCode{

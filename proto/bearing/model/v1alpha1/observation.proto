@@ -35,13 +35,22 @@ message Entity {
   // More keys for the entity, in the source's own or issued namespaces.
   repeated string aliases = 3;
   // Keys in linked namespaces that the source records for the entity.
-  // Identity evidence, never aliases. When present, complete for the source.
+  // Identity evidence, never aliases. Complete for the source only if
+  // linked_ids_complete is set.
   repeated string linked_ids = 4;
   // Attribute claims: a value, a list (the complete set) or null (none).
   // Omitting an attribute means "not read".
   map<string, google.protobuf.Value> attributes = 5;
   // The entity no longer exists in the source.
   bool deleted = 6;
+  // linked_ids is this source's complete set of links for the entity at
+  // the observation's time: evidence from this source for any link not
+  // listed ends then, and an empty list ends all of it. Unset, linked_ids
+  // only adds evidence and ends none. Set it only when the source read the
+  // entity's full set of links, never after a failed or partial read. The
+  // core ignores it if it drops any listed link, and a deleted entity ends
+  // its links whatever it says.
+  bool linked_ids_complete = 7;
 }
 
 // Relation is one relation claim about the observed entity.
