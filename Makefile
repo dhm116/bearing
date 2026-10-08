@@ -41,7 +41,7 @@ else
 $(error unknown SHARD "$(SHARD)": want rest, limits-a or limits-b)
 endif
 COVER_OUT ?= cover.out
-COVER_TEST := go test -count=1 -timeout 20m -coverpkg=./... $(COVER_FILTER) -coverprofile
+COVER_TEST := go test -count=1 -timeout 15m -coverpkg=./... $(COVER_FILTER) -coverprofile
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
 # skipping it.
 COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)
