@@ -40,7 +40,31 @@ var GraphQLQueries = map[string]string{
     teams(first: $first, after: $after) {
       totalCount
       pageInfo { hasNextPage endCursor }
-      nodes { id databaseId slug name description url parentTeam { id slug } }
+      nodes {
+        id databaseId slug name description url parentTeam { id slug }
+        childTeams(first: 100, immediateOnly: true) { totalCount nodes { id slug } }
+      }
+    }
+  }
+}`,
+	"Repository": `query Repository($id: ID!) {
+  node(id: $id) {
+    ... on Repository {
+      id databaseId name nameWithOwner url description isArchived createdAt updatedAt pushedAt
+      defaultBranchRef { name }
+      primaryLanguage { name }
+      repositoryTopics(first: 100) { nodes { topic { name } } }
+      githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { ... on Blob { text } }
+      rootCodeowners: object(expression: "HEAD:CODEOWNERS") { ... on Blob { text } }
+      docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { ... on Blob { text } }
+    }
+  }
+}`,
+	"Team": `query Team($id: ID!) {
+  node(id: $id) {
+    ... on Team {
+      id databaseId slug name description url parentTeam { id slug }
+      childTeams(first: 100, immediateOnly: true) { totalCount nodes { id slug } }
     }
   }
 }`,
@@ -114,6 +138,10 @@ func (g *GitHub) graphQL(w http.ResponseWriter, r *http.Request) {
 		data, err = g.gqlTeams(v, nextIDs(r))
 	case "TeamMembers":
 		data, err = g.gqlTeamMembers(v, req.Query, nextIDs(r))
+	case "Repository":
+		data = map[string]any{"node": g.gqlNode(v.str("id"), nextIDs(r), true)}
+	case "Team":
+		data = map[string]any{"node": g.gqlNode(v.str("id"), nextIDs(r), false)}
 	default:
 		err = &gqlError{Message: fmt.Sprintf("fakes: unsupported operation %q; see fakes.GraphQLQueries", op)}
 	}
@@ -241,28 +269,75 @@ func (g *GitHub) gqlRepositories(v vars, next bool) (any, error) {
 	}
 	nodes := []map[string]any{}
 	for _, r := range page {
-		topics := []map[string]any{}
-		for _, t := range r.Topics {
-			topics = append(topics, map[string]any{"topic": map[string]any{"name": t}})
-		}
-		n := map[string]any{
-			"id": repoNodeID(r, next), "databaseId": r.DatabaseID, "name": r.Name, "nameWithOwner": r.FullName(),
-			"url": "https://github.com/" + r.FullName(), "description": nullable(r.Description),
-			"isArchived": r.Archived, "createdAt": ghTime(r.CreatedAt), "updatedAt": ghTime(r.UpdatedAt),
-			"pushedAt": ghTime(r.PushedAt), "defaultBranchRef": named(r.DefaultBranch),
-			"primaryLanguage": named(r.Language), "repositoryTopics": map[string]any{"nodes": topics},
-		}
-		for _, a := range codeownersAliases {
-			n[a[0]] = nil
-			if text, ok := r.Files[a[1]]; ok {
-				n[a[0]] = map[string]any{"text": text}
-			}
-		}
-		nodes = append(nodes, n)
+		nodes = append(nodes, repoNode(r, next))
 	}
 	return map[string]any{"organization": map[string]any{"repositories": map[string]any{
 		"totalCount": len(repos), "pageInfo": info, "nodes": nodes,
 	}}}, nil
+}
+
+// repoNode renders a repository as the Repositories and Repository
+// queries return it.
+func repoNode(r Repo, next bool) map[string]any {
+	topics := []map[string]any{}
+	for _, t := range r.Topics {
+		topics = append(topics, map[string]any{"topic": map[string]any{"name": t}})
+	}
+	n := map[string]any{
+		"id": repoNodeID(r, next), "databaseId": r.DatabaseID, "name": r.Name, "nameWithOwner": r.FullName(),
+		"url": "https://github.com/" + r.FullName(), "description": nullable(r.Description),
+		"isArchived": r.Archived, "createdAt": ghTime(r.CreatedAt), "updatedAt": ghTime(r.UpdatedAt),
+		"pushedAt": ghTime(r.PushedAt), "defaultBranchRef": named(r.DefaultBranch),
+		"primaryLanguage": named(r.Language), "repositoryTopics": map[string]any{"nodes": topics},
+	}
+	for _, a := range codeownersAliases {
+		n[a[0]] = nil
+		if text, ok := r.Files[a[1]]; ok {
+			n[a[0]] = map[string]any{"text": text}
+		}
+	}
+	return n
+}
+
+// teamNode renders a live team as the Teams and Team queries return it,
+// with its parent and direct child teams. The caller holds o.mu.
+func (o *Org) teamNode(t Team, next bool) map[string]any {
+	var parent any
+	if p := o.teamByID(t.Parent); p != nil && p.GitHub != nil && !p.GitHub.Deleted {
+		parent = map[string]any{"id": teamNodeID(*p.GitHub, next), "slug": p.GitHub.Slug}
+	}
+	children := []map[string]any{}
+	for _, c := range o.githubTeams() {
+		if c.Parent == t.ID {
+			children = append(children, map[string]any{"id": teamNodeID(*c.GitHub, next), "slug": c.GitHub.Slug})
+		}
+	}
+	return map[string]any{
+		"id": teamNodeID(*t.GitHub, next), "databaseId": t.GitHub.DatabaseID, "slug": t.GitHub.Slug,
+		"name": t.GitHub.Name, "description": nullable(t.Description),
+		"url": "https://github.com/orgs/" + OrgLogin + "/teams/" + t.GitHub.Slug, "parentTeam": parent,
+		"childTeams": map[string]any{"totalCount": len(children), "nodes": children},
+	}
+}
+
+// gqlNode answers node(id:) for the Repository (repo true) and Team
+// queries: the repository or live team whose node ID, in either format,
+// is id, or nil.
+func (g *GitHub) gqlNode(id string, next, repo bool) any {
+	if repo {
+		for _, r := range g.org.sortedRepos() {
+			if id == repoNodeID(r, true) || id == repoNodeID(r, false) {
+				return repoNode(r, next)
+			}
+		}
+		return nil
+	}
+	for _, t := range g.org.githubTeams() {
+		if id == teamNodeID(*t.GitHub, true) || id == teamNodeID(*t.GitHub, false) {
+			return g.org.teamNode(t, next)
+		}
+	}
+	return nil
 }
 
 func (g *GitHub) gqlTeams(v vars, next bool) (any, error) {
@@ -276,15 +351,7 @@ func (g *GitHub) gqlTeams(v vars, next bool) (any, error) {
 	}
 	nodes := []map[string]any{}
 	for _, t := range page {
-		var parent any
-		if p := g.org.teamByID(t.Parent); p != nil && p.GitHub != nil && !p.GitHub.Deleted {
-			parent = map[string]any{"id": teamNodeID(*p.GitHub, next), "slug": p.GitHub.Slug}
-		}
-		nodes = append(nodes, map[string]any{
-			"id": teamNodeID(*t.GitHub, next), "databaseId": t.GitHub.DatabaseID, "slug": t.GitHub.Slug,
-			"name": t.GitHub.Name, "description": nullable(t.Description),
-			"url": "https://github.com/orgs/" + OrgLogin + "/teams/" + t.GitHub.Slug, "parentTeam": parent,
-		})
+		nodes = append(nodes, g.org.teamNode(t, next))
 	}
 	return map[string]any{"organization": map[string]any{"teams": map[string]any{
 		"totalCount": len(teams), "pageInfo": info, "nodes": nodes,
