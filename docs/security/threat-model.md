@@ -649,8 +649,9 @@ Assets: A1, A3, A4, A5, A6.
 - **C-STORE-2** Bearing connects as a database-scoped user, never root or a
   namespace user. `surrealstore.Provision` creates that user (EDITOR on one
   database) and a store URL with `?auth=database` signs in as it; CI runs
-  the SurrealDB suites that way. Until the compose deployment provisions the
-  user, `auth=root` stays the default for development.
+  the SurrealDB suites that way. The database-scoped user is the supported
+  setup; `auth=root` is the development default and is not supported for a
+  deployment. The default flips in the change that adds compose provisioning.
 - **C-STORE-3** The compose deployment generates a random SurrealDB password
   on first start into a secrets file (mode 0600), passes it as a Docker
   secret, and does not publish the SurrealDB port. The store secret is
@@ -689,6 +690,10 @@ Assets: A1, A3, A4, A5, A6.
   SHA-256. The SHA-256 catches corruption and truncation, not a forger who
   recomputes it or sets `taken_at`: the audited hash will let an operator
   compare the restored backup with the one they took.
+- **C-STORE-9** `internal/memstore`'s rule engine is trusted production
+  code. The SurrealDB backend runs every operation on it (rows are loaded
+  into a scratch store and the delta written back), so a flaw in it is a
+  flaw in every backend built on it, and changes to it are reviewed as store changes.
 
 ### B7. Operators and configuration
 

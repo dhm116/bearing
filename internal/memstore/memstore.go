@@ -1,7 +1,11 @@
 // Package memstore is an in-memory GraphStore and VectorIndex, the
-// reference implementation of both contracts. It is for tests and local
-// trials only: it has no size limits beyond the contract's per-ChangeSet
-// limit, keeps everything in memory and loses it on exit.
+// reference implementation of both contracts, and the engine that applies
+// the data model's rules. It is production code: the SurrealDB backend
+// loads rows into a scratch Store and runs its operations here, so the rules
+// exist once (workingset.go is the API for that). As a backend in its own
+// right (mem://) it is for tests and local trials only: it has no size
+// limits beyond the contract's per-ChangeSet limit, keeps everything in
+// memory and loses it on exit.
 package memstore
 
 import (
