@@ -1143,8 +1143,8 @@ const (
 	// A required field is missing or not well formed (an unparsable key, a
 	// missing entity). The spec's list has no code for structural errors.
 	RejectionCode_REJECTION_CODE_MALFORMED RejectionCode = 15
-	// A ChangeSet over the store's count limits even after the resolver
-	// compacted what it could (contracts.CheckChangeSetLimits).
+	// A ChangeSet over the store's count limits or MaxChangeSetBytes
+	// (contracts.CheckChangeSetLimits).
 	RejectionCode_REJECTION_CODE_TOO_LARGE RejectionCode = 16
 )
 

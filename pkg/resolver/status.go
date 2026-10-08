@@ -183,13 +183,15 @@ func (r predicateRules) needsObserved() bool {
 	return r.relation && r.conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE
 }
 
+// perFact is what the live supports say about one fact at one valid time.
+type perFact struct {
+	groups map[string]uint32 // group -> maximum confidence
+	auth   map[string]bool   // group -> has an authoritative live support
+}
+
 // at computes every fact's status at one valid time; none for a fact with no
 // live support. It also returns the disagreement at that time, if any.
 func (r predicateRules) at(v int64, facts []candidateFact, observed func(string) []interval) ([]span, *conflictSpan) {
-	type perFact struct {
-		groups map[string]uint32 // group -> maximum confidence
-		auth   map[string]bool   // group -> has an authoritative live support
-	}
 	state := make([]perFact, len(facts))
 	out := make([]span, len(facts))
 	for i, f := range facts {
@@ -278,6 +280,23 @@ func (r predicateRules) at(v int64, facts []candidateFact, observed func(string)
 		auth := slices.ContainsFunc(agreeing[g], func(i int) bool { return state[i].auth[g] })
 		cf.positions = append(cf.positions, position{group: g, authoritative: auth, facts: agreeing[g]})
 	}
+	if len(cf.positions) == 0 {
+		// Each object passes on the combined confidence of several systems,
+		// none of which meets the threshold alone: a position is then what a
+		// system supports of the conflicted objects at any confidence, so a
+		// standing conflict always has one (the store refuses one without).
+		for _, g := range groupsOf(state, conflicted) {
+			var held []int
+			auth := false
+			for _, i := range conflicted {
+				if _, ok := state[i].groups[g]; ok {
+					held = append(held, i)
+					auth = auth || state[i].auth[g]
+				}
+			}
+			cf.positions = append(cf.positions, position{group: g, authoritative: auth, facts: held})
+		}
+	}
 	if decided {
 		cf.resolution = modelv1alpha1.ConflictResolution_CONFLICT_RESOLUTION_AUTHORITY
 	}
@@ -321,4 +340,15 @@ func setConflict(passing []int, agreeing map[string][]int) []int {
 		out = append(out, i)
 	}
 	return out
+}
+
+// groupsOf returns, sorted, the groups that support any of the facts.
+func groupsOf(state []perFact, facts []int) []string {
+	seen := map[string]bool{}
+	for _, i := range facts {
+		for g := range state[i].groups {
+			seen[g] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }

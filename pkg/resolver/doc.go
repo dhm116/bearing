@@ -62,12 +62,20 @@
 // the merge; it is not retracted when the pair later merges by co-reported
 // ids, since the system then holds two ids for one subject.
 //
+// The unobserved_object issue's placeholder test is the mint rule, which never
+// changes: a placeholder that is later observed and deleted lists every
+// relation to it, not only those with a conflict policy, and a relation
+// backdated before an object's first exists is listed or not depending on
+// which arrived first (identity decisions may depend on apply order).
+//
 // A ChangeSet over a store limit (contracts.CheckChangeSetLimits, or
-// contracts.MaxChangeSetBytes) is not an error, which the host would retry for
+// contracts.MaxChangeSetBytes, measured before the store substitutes refs in
+// keys) is not an error, which the host would retry for
 // ever: the event is recorded as processed with an empty ChangeSet and a
 // too_large rejection that names the limit and the count.
 //
-// Not yet, and tracked as follow-ups: manual overrides, precedence and same_as facts; scored matching (names,
+// Not yet, and tracked as follow-ups: the ConflictOpened and ConflictResolved
+// events and their audit records; manual overrides, precedence and same_as facts; scored matching (names,
 // emails, member overlap); non-authoritative links and the evidence state
 // that ending a link needs; authority overrides; manual operations;
 // sync-completeness deletions; compaction; and bounding the state that grows

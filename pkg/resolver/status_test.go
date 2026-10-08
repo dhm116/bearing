@@ -166,3 +166,27 @@ func TestStatusesFindConflictsAndLetAuthorityDecide(t *testing.T) {
 		})
 	}
 }
+
+// A conflict always has a position, even when each object passes only on the
+// combined confidence of systems that are below the threshold alone: the
+// store refuses a conflict without one, and the event would be retried for
+// ever.
+func TestStandingConflictOfWeakSystemsHasPositions(t *testing.T) {
+	weak := func(group string) support { return sup(group, negInf, posInf, 700_000) }
+	facts := []candidateFact{
+		{object: "main", supports: []support{weak("github"), weak("catalog")}},
+		{object: "master", supports: []support{weak("gitlab"), weak("backstage")}},
+	}
+	spans, conflicts := statusesAndConflicts(rules(oneC, false), facts, nil)
+	if got, want := showSpans(spans), "0:[-,+)=CONFLICTED/CONFLICT/910000 1:[-,+)=CONFLICTED/CONFLICT/910000"; got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	if len(conflicts) != 1 || len(conflicts[0].positions) != 4 {
+		t.Fatalf("got conflicts %+v, want one with a position per system", conflicts)
+	}
+	for _, p := range conflicts[0].positions {
+		if len(p.facts) != 1 {
+			t.Errorf("position %+v, want the one object that system supports", p)
+		}
+	}
+}

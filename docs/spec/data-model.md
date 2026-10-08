@@ -906,6 +906,11 @@ For `(subject, predicate)` at `(v, r)`, let `A` be the objects passing steps
 | `one` | `A` has more than one object | all of `A` |
 | `set` | two systems have non-empty, different `S_g` | objects in `A` not in every non-empty `S_g` |
 
+A conflict records a position for each system: the conflicted objects in its
+`S_g`. When each object passes only on the combined confidence of systems
+that are below the threshold alone, no `S_g` holds it, and a position is the
+conflicted objects the system supports at any confidence.
+
 Objects every system agrees on stay asserted. Resolution, first match:
 
 1. **Manual override** (step 2, an `OverrideSet` event).
@@ -1133,7 +1138,7 @@ their `source` and `evidence`:
 | `issue` | Listed when |
 | --- | --- |
 | `unobserved_object` | An object referenced by live relation supports that has no live `exists` support: for relations with a conflict policy (it fails step 5), or a placeholder referenced by any relation (typically a misspelled team in CODEOWNERS, including path-only files). Placeholders minted only by `linked_ids` are not listed. |
-| `id_conflict` | A `same_as`, or an authoritative link, that the [merge guard](#merge) excludes (step 4c). The issue names the pair and the clashing `id` aliases and covers all valid time. |
+| `id_conflict` | A pair the [merge guard](#merge) kept apart when a `same_as` or an authoritative link asked for their merge (step 4c). The issue names the pair and the clashing `id` aliases and covers all valid time. It starts when the guard trips; ending it when the aliases change is not implemented yet. |
 
 A placeholder never counts as an owner: it fails step 5 of
 [Status](#status) for predicates with a conflict policy. Relations with
@@ -1165,7 +1170,7 @@ applies.
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset) |
 | `malformed` | observation, manual event or declaration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
-| `too_large` | observation | The ChangeSet the observation needs is over the store's count limits ([contracts](contracts.md#graphstore)) even after versions were compacted, for example more than 50,000 supports. The event applies as processed and changes nothing; the reason names the limit and the counts |
+| `too_large` | observation | The ChangeSet the observation needs is over the store's count or byte limits ([contracts](contracts.md#graphstore)), for example more than 50,000 supports. The event applies as processed and changes nothing; the reason names the limit and the counts |
 
 ## Wire mapping
 

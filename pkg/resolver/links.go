@@ -38,7 +38,7 @@ func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
 		targets[i].subject = u.g.mustCanon(ctx, targets[i].subject)
 	}
 	for _, t := range targets {
-		var inClash []keyRef
+		clash := false
 		for _, o := range targets {
 			if o.subject == t.subject {
 				continue
@@ -47,29 +47,19 @@ func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
 			if err != nil {
 				return err
 			}
-			if len(clashing) > 0 {
-				inClash = append(inClash, clashing...)
-				u.flag(t.subject, o.subject, clashing, t.key)
-			}
+			clash = clash || len(clashing) > 0
+			u.flag(clashing, t.key)
 		}
 		chosen := u.g.mustCanon(ctx, u.chosen)
-		if chosen == u.g.mustCanon(ctx, t.subject) {
+		if clash || chosen == u.g.mustCanon(ctx, t.subject) {
 			continue
 		}
 		clashing, err := u.clashingIDs(ctx, chosen, t.subject)
 		if err != nil {
 			return err
 		}
+		u.flag(clashing, t.key)
 		if len(clashing) > 0 {
-			u.flag(chosen, t.subject, clashing, t.key)
-		}
-		if len(clashing) > 0 {
-			continue
-		}
-		if len(inClash) > 0 {
-			// The entity has links to subjects the guard keeps apart; none of
-			// them merges and each pair with the entity is flagged.
-			u.flag(chosen, t.subject, inClash, t.key)
 			continue
 		}
 		u.merge(chosen, t.subject, modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE)
@@ -78,13 +68,13 @@ func (u *run) mergeOnLinks(ctx context.Context, targets []linkTarget) error {
 	return nil
 }
 
-// flag records a pair the guard keeps apart, for the id_conflict issue.
-func (u *run) flag(a, b string, clashing []keyRef, link keyRef) {
-	c := idConflict{a: a, b: b, support: u.linkEvidence(link)}
-	for _, k := range clashing {
-		c.aliases = append(c.aliases, k.key)
+// flag records the id aliases the guard kept apart, for id_conflict issues,
+// with the link that asked for the merge.
+func (u *run) flag(clashing []idClash, link keyRef) {
+	for _, c := range clashing {
+		c.support = u.linkEvidence(link)
+		u.idConflicts = append(u.idConflicts, c)
 	}
-	u.idConflicts = append(u.idConflicts, c)
 }
 
 // linkEvidence is the support of the identity evidence an authoritative link
@@ -102,9 +92,17 @@ func (u *run) linkEvidence(k keyRef) *modelv1alpha1.Support {
 	}
 }
 
-// clashingIDs returns the `id` aliases that make the merge guard keep two
-// subjects apart: those of one key type in one namespace that differ.
-func (u *run) clashingIDs(ctx context.Context, a, b string) ([]keyRef, error) {
+// idClash is two id aliases of one key type in one namespace, held by two
+// subjects the guard therefore keeps apart.
+type idClash struct {
+	x, y    keyRef
+	a, b    string // the subjects holding x and y
+	support *modelv1alpha1.Support
+}
+
+// clashingIDs returns the id aliases that make the merge guard keep two
+// subjects apart.
+func (u *run) clashingIDs(ctx context.Context, a, b string) ([]idClash, error) {
 	ha, err := u.heldIDs(ctx, a)
 	if err != nil {
 		return nil, err
@@ -113,11 +111,11 @@ func (u *run) clashingIDs(ctx context.Context, a, b string) ([]keyRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []keyRef
+	var out []idClash
 	for _, x := range ha {
 		for _, y := range hb {
 			if x.groupKey() == y.groupKey() && x.key != y.key {
-				out = append(out, x, y)
+				out = append(out, idClash{x: x, y: y, a: a, b: b})
 			}
 		}
 	}

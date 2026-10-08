@@ -20,14 +20,6 @@ const (
 	idConflictPrefix = "id_conflict/"
 )
 
-// idConflict is a pair of subjects the merge guard keeps apart, with the
-// evidence that asked for the merge.
-type idConflict struct {
-	a, b    string
-	aliases []model.Key
-	support *modelv1alpha1.Support
-}
-
 // issues writes the data-quality issue timelines the ChangeSet changes:
 // objects of relations that nothing observes, and pairs the guard excludes
 // (docs/spec/data-model.md, "Data quality").
@@ -68,32 +60,30 @@ func (r *factRun) issues(ctx context.Context) error {
 	return nil
 }
 
-// idConflicts returns the timelines of the pairs the guard excluded in this
-// apply. An id_conflict covers all valid time: it is about which subjects the
-// system keeps apart, not when, and a later merge of the pair (by the ids
-// being co-reported) leaves the system holding two ids for one subject,
-// which is still worth listing.
+// idConflicts returns the timelines of the id aliases the guard kept apart in
+// this apply, one per pair of aliases. An id_conflict covers all valid time:
+// it is about which ids the system keeps apart, not when. It is keyed by the
+// two aliases, which merges of the subjects holding them do not change, and is
+// not retracted when those subjects later merge by co-reported ids, since the
+// system then holds two ids for one subject.
 func (r *factRun) idConflicts(ctx context.Context) []*modelv1alpha1.IssueTimeline {
 	var out []*modelv1alpha1.IssueTimeline
 	for _, c := range r.u.idConflicts {
 		a, b := r.g.mustCanon(ctx, c.a), r.g.mustCanon(ctx, c.b)
-		if a == b {
-			continue
+		x, y := c.x.key, c.y.key
+		if y < x {
+			x, y = y, x
+			a, b = b, a
 		}
 		if r.before(b, a) {
 			a, b = b, a
 		}
 		issue := &modelv1alpha1.DataQualityIssue{
 			Issue: modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT, SubjectIds: []string{a, b},
-			Supports: []*modelv1alpha1.Support{proto.CloneOf(c.support)},
+			Aliases: []string{string(x), string(y)}, Supports: []*modelv1alpha1.Support{proto.CloneOf(c.support)},
 		}
-		for _, k := range c.aliases {
-			issue.Aliases = append(issue.Aliases, string(k))
-		}
-		slices.Sort(issue.Aliases)
-		issue.Aliases = slices.Compact(issue.Aliases)
 		out = append(out, &modelv1alpha1.IssueTimeline{
-			Key: idConflictPrefix + a + "/" + b, Spans: []*modelv1alpha1.IssueSpan{{Issue: issue}},
+			Key: idConflictPrefix + escape(string(x)) + "/" + escape(string(y)), Spans: []*modelv1alpha1.IssueSpan{{Issue: issue}},
 		})
 	}
 	return out
@@ -267,7 +257,7 @@ func (r *factRun) aliasesOf(ctx context.Context, o string) ([]string, error) {
 	for _, bt := range r.cs.Bindings {
 		rebound[bt.GetAlias()] = true
 		for _, b := range bt.GetBindings() {
-			if b.GetSubjectId() == o {
+			if b.GetSubjectId() != "" && r.g.mustCanon(ctx, b.GetSubjectId()) == o {
 				out = append(out, bt.GetAlias())
 				break
 			}

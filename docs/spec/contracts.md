@@ -87,8 +87,8 @@ subject the same `ChangeSet` creates; the store substitutes the minted ID.
 A timeline item replaces its series' current timeline: rows equal to a
 current row keep their `recorded_at`, other current rows are retracted at
 this apply's record time, new rows are recorded at it, and an empty
-timeline retracts the series. An alias or state key appears at most once
-in a `ChangeSet`. A support's `last_confirmed_at` is the exception to
+timeline retracts the series. An alias, state key or issue key appears at most
+once in a `ChangeSet`, judged after refs are substituted. A support's `last_confirmed_at` is the exception to
 versioning: a confirmation updates it in place, without a new version, so
 it is not bitemporal. Items apply in this order: mints, un-merge targets,
 bindings, merges, un-merges, supports, facts, conflicts, issues, state.
@@ -220,7 +220,7 @@ References are to sections of the [data model](data-model.md).
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
 | Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
 | Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Configuration apply, which reads the bindings and rejects the change. The store doesn't know key types. |
-| Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying. |
+| Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying (`too_large`). Compacting and splitting are not implemented yet: the resolver merges adjacent equal spans and rejects anything still over a limit. |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
 | Merge: same kind, both active | Store checks; resolver decides |
 | Merge triggers, policies, the guard, evidence re-evaluation | Resolver |

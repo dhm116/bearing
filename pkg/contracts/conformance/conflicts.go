@@ -266,7 +266,7 @@ func (g *suite) badIssueFilter(t *testing.T) {
 // issueKeys: an issue timeline's key follows the state-key rule, so the
 // resolver can key an issue by a subject it mints in the same ChangeSet.
 func (g *suite) issueKeys(t *testing.T) {
-	s, _ := g.store(t)
+	s, clk := g.store(t)
 	first := apply(t, s, &modelv1alpha1.ChangeSet{
 		EventId: "e1",
 		Mints:   []*modelv1alpha1.Mint{mint("new:a", "Team")},
@@ -275,6 +275,14 @@ func (g *suite) issueKeys(t *testing.T) {
 	a := string(first.Subjects["new:a"])
 	got, err := s.DataQuality(ctx, contracts.IssueFilter{}, time.Time{}, time.Time{})
 	ensure(t, err == nil && len(got) == 1 && len(got[0].GetSubjectIds()) == 1 && got[0].GetSubjectIds()[0] == a, "got %v, %v, want the issue naming %s", got, err, a)
+	// A backup restores the issue under its substituted key.
+	var buf bytes.Buffer
+	ensure(t, s.Backup(ctx, &buf) == nil, "backup failed")
+	dst, dclk := g.store(t)
+	dclk.Set(clk.Now())
+	ensure(t, dst.Restore(ctx, &buf) == nil, "restore failed")
+	got, err = dst.DataQuality(ctx, contracts.IssueFilter{}, time.Time{}, time.Time{})
+	ensure(t, err == nil && len(got) == 1 && got[0].GetSubjectIds()[0] == a, "got %v, %v after a restore, want the same issue", got, err)
 	// Writing the substituted key later replaces the timeline the ref made.
 	apply(t, s, &modelv1alpha1.ChangeSet{
 		EventId: "e2", BaseRecordedAt: timestamppb.New(first.RecordedAt),
@@ -307,4 +315,31 @@ func (g *suite) issueKeys(t *testing.T) {
 			t.Errorf("%s: got head %s after the refused apply, want %s", name, got, head)
 		}
 	}
+}
+
+// issueKeysCollideAfterUnmerge: an un-merge's ref in an issue key becomes the
+// target, which may be an existing subject; a key that then equals another
+// key of the ChangeSet is a repeat, though the two differ as written.
+func (g *suite) issueKeysCollideAfterUnmerge(t *testing.T) {
+	s, _ := g.store(t)
+	res := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "seed",
+		Mints:   []*modelv1alpha1.Mint{mint("new:a", "Team"), mint("new:b", "Team")},
+		Bindings: []*modelv1alpha1.BindingTimeline{
+			bind("github:team_node/A", row("new:a", "", "")), bind("github:team_node/B", row("new:b", "", "")),
+		},
+	})
+	a, b := string(res.Subjects["new:a"]), string(res.Subjects["new:b"])
+	merged := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "merge", BaseRecordedAt: timestamppb.New(res.RecordedAt),
+		Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+	})
+	_, err := tryApply(s, &modelv1alpha1.ChangeSet{
+		EventId: "unmerge", BaseRecordedAt: timestamppb.New(merged.RecordedAt),
+		Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: a, Aliases: []string{"github:team_node/B"}, Ref: "new:u"}},
+		Issues:   []*modelv1alpha1.IssueTimeline{issueOf("unobserved_object/new:u", unobserved, a), issueOf("unobserved_object/"+b, unobserved, a)},
+	})
+	ensure(t, err != nil, "applied two issue keys that are one after substitution")
+	head, _ := s.Head(ctx)
+	ensure(t, head.Equal(merged.RecordedAt), "got head %s after the refused apply, want %s", head, merged.RecordedAt)
 }

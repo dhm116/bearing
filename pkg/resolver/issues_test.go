@@ -99,21 +99,54 @@ func TestGuardedPairIsListedAsAnIDConflict(t *testing.T) {
 	}
 }
 
-// One observation whose links clash flags each target with the entity and
-// the targets with each other, and merges none of them.
-func TestClashingLinksAreListedAsIDConflicts(t *testing.T) {
+// One observation whose links clash merges none of them and lists the two
+// ids that clash, whichever order the links come in.
+func TestClashingLinksAreListedAsOneIDConflict(t *testing.T) {
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U2")))
 	e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U2", "github:user_node/U1")))
 	got := issuesAt(t, e, ts("2026-10-03T00:00:00Z"))
-	if len(got) != 3 {
-		t.Fatalf("got issues %q, want the three pairs", got)
+	want := "ID_CONFLICT subjects=[github:user_node/U1(Person) github:user_node/U2(Person)] aliases=[github:user_node/U1 github:user_node/U2] sources=[core/identity/link/authentik-acme]"
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("got issues %q, want %q", got, want)
 	}
-	for _, g := range got {
-		if !strings.HasPrefix(g, "ID_CONFLICT") {
-			t.Errorf("got %q, want an id_conflict", g)
-		}
+}
+
+// The issue is keyed by the clashing ids, so merging a subject that holds one
+// of them and observing the link again doesn't list the pair twice.
+func TestIDConflictSurvivesAMergeOfItsSubjects(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
+	e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U1")))
+	link := linked("2026-10-04T00:00:00Z", "authentik:user/u2", "github:user_node/U1")
+	e.apply(event("authentik-acme", link))
+	// u2 joins a SAML identity another person already holds.
+	e.apply(event("authentik-acme", obsAt("2026-10-05T00:00:00Z", "Person", "authentik-saml:name_id/jdoe")))
+	e.apply(event("authentik-acme", linked("2026-10-06T00:00:00Z", "authentik:user/u2", "authentik-saml:name_id/jdoe")))
+	again := link
+	e.apply(Event{ID: "resync", Source: "authentik-acme", Observation: again})
+	if got := issuesAt(t, e, ts("2026-10-07T00:00:00Z")); len(got) != 1 {
+		t.Fatalf("got issues %q, want the one pair once", got)
+	}
+}
+
+// Merging two placeholders into the team both were named for keeps each
+// alias on the one issue, and the merged-away subject's issue is gone.
+func TestMergedPlaceholdersKeepTheirAliasesOnOneIssue(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/s1")))
+	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")))
+	if got := issuesAt(t, e, ts("2026-10-03T00:00:00Z")); len(got) != 2 {
+		t.Fatalf("got issues %q, want one per placeholder", got)
+	}
+	e.apply(event("github-acme", obsAt("2026-10-20T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
+	got := issuesAt(t, e, ts("2026-10-03T00:00:00Z"))
+	if len(got) != 1 || !strings.Contains(got[0], "aliases=[github:team/acme/s1 github:team_node/T1]") {
+		t.Fatalf("got issues %q, want one issue naming both aliases", got)
+	}
+	if after := issuesAt(t, e, ts("2026-10-21T00:00:00Z")); len(after) != 0 {
+		t.Fatalf("got issues %q after the team was observed", after)
 	}
 }
 
