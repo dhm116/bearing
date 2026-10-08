@@ -215,6 +215,9 @@ func (g gate) check(c config) (bool, error) {
 		}
 		profiles = append(profiles, p)
 	}
+	if len(profiles) == 0 {
+		return false, errors.New("no coverage profile given")
+	}
 	head, err := readProfiles(profiles, module)
 	if err != nil {
 		return false, err
@@ -613,33 +616,55 @@ func splitList(s string) []string {
 // covered if any profile covers it. File names are made relative to the
 // module root.
 func readProfiles(paths []string, module string) ([]block, error) {
-	var all []byte
-	for i, path := range paths {
-		b, err := os.ReadFile(path)
+	m := newProfile()
+	for _, path := range paths {
+		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
-		if i > 0 {
-			// Only the first profile's mode line is kept.
-			if _, rest, ok := bytes.Cut(b, []byte("\n")); ok && bytes.HasPrefix(b, []byte("mode:")) {
-				b = rest
-			}
+		err = m.add(f, module)
+		_ = f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		if len(b) > 0 && b[len(b)-1] != '\n' {
-			b = append(b, '\n')
-		}
-		all = append(all, b...)
 	}
-	return parseProfile(bytes.NewReader(all), module)
+	return m.blocks(), nil
 }
 
+// parseProfile reads one coverage profile, merging the duplicate blocks that
+// -coverpkg produces.
 func parseProfile(r io.Reader, module string) ([]block, error) {
-	type key struct {
-		file string
-		pos  string
+	m := newProfile()
+	if err := m.add(r, module); err != nil {
+		return nil, err
 	}
-	merged := map[key]*block{}
-	var order []key
+	return m.blocks(), nil
+}
+
+// profile accumulates blocks from coverage profiles; a block that appears
+// more than once is covered if any copy is.
+type profile struct {
+	merged map[profileKey]*block
+	order  []profileKey
+}
+
+type profileKey struct {
+	file string
+	pos  string
+}
+
+func newProfile() *profile { return &profile{merged: map[profileKey]*block{}} }
+
+func (p *profile) blocks() []block {
+	blocks := make([]block, 0, len(p.order))
+	for _, k := range p.order {
+		blocks = append(blocks, *p.merged[k])
+	}
+	return blocks
+}
+
+// add reads one profile into p.
+func (p *profile) add(r io.Reader, module string) error {
 	sc := bufio.NewScanner(r)
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
@@ -650,36 +675,29 @@ func parseProfile(r io.Reader, module string) ([]block, error) {
 		colon := strings.LastIndex(line, ":")
 		fields := strings.Fields(line[colon+1:])
 		if colon < 0 || len(fields) != 3 {
-			return nil, fmt.Errorf("profile line %d: malformed %q", n, line)
+			return fmt.Errorf("profile line %d: malformed %q", n, line)
 		}
 		var b block
 		var c1, c2 int
 		if _, err := fmt.Sscanf(fields[0], "%d.%d,%d.%d", &b.startLine, &c1, &b.endLine, &c2); err != nil {
-			return nil, fmt.Errorf("profile line %d: %w", n, err)
+			return fmt.Errorf("profile line %d: %w", n, err)
 		}
 		stmts, err1 := strconv.Atoi(fields[1])
 		count, err2 := strconv.Atoi(fields[2])
 		if err := errors.Join(err1, err2); err != nil {
-			return nil, fmt.Errorf("profile line %d: %w", n, err)
+			return fmt.Errorf("profile line %d: %w", n, err)
 		}
 		b.stmts, b.covered = stmts, count > 0
 		b.file = strings.TrimPrefix(strings.TrimPrefix(line[:colon], module), "/")
-		k := key{b.file, fields[0]}
-		if m, ok := merged[k]; ok {
+		k := profileKey{b.file, fields[0]}
+		if m, ok := p.merged[k]; ok {
 			m.covered = m.covered || b.covered
 			continue
 		}
-		merged[k] = &b
-		order = append(order, k)
+		p.merged[k] = &b
+		p.order = append(p.order, k)
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	blocks := make([]block, 0, len(order))
-	for _, k := range order {
-		blocks = append(blocks, *merged[k])
-	}
-	return blocks, nil
+	return sc.Err()
 }
 
 // filterBlocks drops blocks of files that do not count toward coverage.

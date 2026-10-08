@@ -414,6 +414,34 @@ func TestRunRejectsMeasuringAndReadingABaseline(t *testing.T) {
 	}
 }
 
+// The CI step that measures the baseline runs the binary, not check.
+func TestRunMeasuresTheBaseline(t *testing.T) {
+	dir := newRepo(t)
+	addFeature(t, dir)
+	t.Chdir(dir)
+	out := filepath.Join(t.TempDir(), "base.out")
+	var report, errOut bytes.Buffer
+	got := run([]string{"-base", "main", "-measure-base", out, "-test", baseFixture(t, basePct50)}, &report, &errOut, func(string) string { return "" })
+	if got != 0 {
+		t.Fatalf("run = %d, stderr %q\n%s", got, &errOut, &report)
+	}
+	if b, err := os.ReadFile(out); err != nil || string(b) != basePct50 {
+		t.Fatalf("got %q, %v, want the baseline profile", b, err)
+	}
+}
+
+func TestCheckRefusesAnEmptyProfileList(t *testing.T) {
+	dir := newRepo(t)
+	addFeature(t, dir)
+	for _, profile := range []string{"", ",", " , "} {
+		g, _ := newGate(dir, false)
+		ok, err := g.check(config{profile: profile, base: "main", min: 70, test: baseFixture(t, basePct50)})
+		if ok || err == nil || !strings.Contains(err.Error(), "no coverage profile") {
+			t.Errorf("profile %q: ok = %v, err = %v; want an error, not a pass", profile, ok, err)
+		}
+	}
+}
+
 // CI shards the tests, so each profile covers part of the code; the gate
 // merges them, and a block counts as covered if any shard covers it.
 func TestCheckMergesProfilesOfShardedRuns(t *testing.T) {

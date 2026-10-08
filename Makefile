@@ -21,6 +21,8 @@ COVER_MIN ?= 80
 # core for a minute each; those cases are split in two shards and run
 # alone, and the rest shard runs everything else. A rename of the case or
 # its subtests only moves tests to the rest shard (slower, never skipped).
+# TestGraphConformance is the name only internal/surrealstore gives its run
+# of the suite; keep it that way or the filters below match nothing.
 # Empty SHARD runs everything, as `make check` does.
 COVER_HEAVY := ^TestGraphConformance/^Apply_refuses_more_items_than_the_count_limits
 COVER_LIMITS_A := fact_timelines|conflict_timelines|state_entries|mints

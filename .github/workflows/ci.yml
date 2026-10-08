@@ -79,6 +79,7 @@ jobs:
         with:
           name: cover-head-${{ matrix.shard }}
           path: cover-${{ matrix.shard }}.out
+          if-no-files-found: error
           retention-days: 1
           # "Re-run all jobs" uploads into the same run again.
           overwrite: true
@@ -179,4 +180,8 @@ jobs:
           heads=$(join cover/*.out)
           bases=$(join baseline/*.out)
           echo "head profiles: $heads; baseline profiles: ${bases:-none}"
+          # A missing shard would only lower the merged coverage, never fail.
+          nh=$(ls cover/*.out | wc -l)
+          nb=$(ls baseline/*.out 2>/dev/null | wc -l)
+          [ "$nh" -eq 3 ] && { [ "$nb" -eq 0 ] || [ "$nb" -eq 3 ]; }
           make covergate-report COVER_OUT="$heads" BASE_PROFILE="$bases"
