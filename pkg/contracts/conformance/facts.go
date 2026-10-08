@@ -633,6 +633,26 @@ func (g *suite) limits(t *testing.T) {
 		{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
 			return &modelv1alpha1.ChangeSet{State: state(n)}
 		}},
+		{"conflict timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{conflictOn(r, fmt.Sprintf("p%d", i), "2026-10-02T10:00:00Z", position("github"))}}
+		})},
+		{"issue timelines", contracts.MaxChangeSetItems, repeat(func(i int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{issueOf(fmt.Sprintf("k%d", i), unobserved, r)}}
+		})},
+		{"conflict rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			ct := &modelv1alpha1.ConflictTimeline{SubjectId: r, Predicate: "owned_by"}
+			for i := range n {
+				ct.Conflicts = append(ct.Conflicts, &modelv1alpha1.Conflict{SubjectId: r, Predicate: "owned_by", ValidFrom: hour(i), ValidTo: hour(i + 1), Positions: []*modelv1alpha1.ConflictPosition{position("github")}})
+			}
+			return &modelv1alpha1.ChangeSet{Conflicts: []*modelv1alpha1.ConflictTimeline{ct}}
+		}},
+		{"issue spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			it := &modelv1alpha1.IssueTimeline{Key: "long"}
+			for i := range n {
+				it.Spans = append(it.Spans, &modelv1alpha1.IssueSpan{ValidFrom: hour(i), ValidTo: hour(i + 1), Issue: &modelv1alpha1.DataQualityIssue{Issue: modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT, SubjectIds: []string{r}}})
+			}
+			return &modelv1alpha1.ChangeSet{Issues: []*modelv1alpha1.IssueTimeline{it}}
+		}},
 		{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
 			bs, _, _ := rows(n)
 			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
@@ -677,6 +697,14 @@ func (g *suite) limits(t *testing.T) {
 				ok = len(res.Merges) == c.n
 			case "state entries":
 				ok = len(must(s.State(ctx, []string{"k0", fmt.Sprintf("k%d", c.n-1)}, time.Time{}))) == 2
+			case "conflict timelines":
+				ok = len(must(s.Conflicts(ctx, contracts.SubjectID(r), "", at("2026-10-03T00:00:00Z"), time.Time{}))) == c.n
+			case "issue timelines":
+				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Types: []modelv1alpha1.IssueType{unobserved}}, time.Time{}, time.Time{}))) == c.n
+			case "conflict rows":
+				ok = len(must(s.Conflicts(ctx, contracts.SubjectID(r), "owned_by", hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
+			case "issue spans":
+				ok = len(must(s.DataQuality(ctx, contracts.IssueFilter{Types: []modelv1alpha1.IssueType{modelv1alpha1.IssueType_ISSUE_TYPE_ID_CONFLICT}}, hour(c.n-1).AsTime().Add(time.Minute), time.Time{}))) == 1
 			case "binding rows":
 				ok = len(must(s.Bindings(ctx, []model.Key{"github:repo/acme/long"}, nil, time.Time{}))) == c.n
 			case "support versions":

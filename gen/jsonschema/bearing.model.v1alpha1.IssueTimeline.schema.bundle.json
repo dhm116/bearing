@@ -1,0 +1,338 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.DataQualityIssue.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DataQualityIssue is one data_quality result.",
+      "patternProperties": {
+        "^(subjectIds)$": {
+          "description": "The subjects involved.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "properties": {
+        "aliases": {
+          "description": "The aliases involved.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "pattern": "^ISSUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "ISSUE_TYPE_UNOBSERVED_OBJECT",
+                "ISSUE_TYPE_ID_CONFLICT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The issue type.",
+          "title": "Issue Type"
+        },
+        "subject_ids": {
+          "description": "The subjects involved.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "supports": {
+          "description": "The supports involved, with their source and evidence.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.Support.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Data Quality Issue",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Evidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Evidence says where a person can check an observation's claims.",
+      "properties": {
+        "url": {
+          "default": "",
+          "description": "A link to the claims in the source.",
+          "type": "string"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.IssueSpan.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "IssueSpan is a data-quality issue over one valid-time interval.",
+      "patternProperties": {
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "issue": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.DataQualityIssue.schema.json",
+          "description": "The issue. Its supports are kept as written: the store sets no record\n fields in them, and reads canonicalize its subject_ids."
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "title": "Issue Span",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.IssueTimeline.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "IssueTimeline is the complete timeline of one data-quality issue.",
+      "properties": {
+        "key": {
+          "default": "",
+          "description": "The resolver's key for the issue, e.g. its type and subjects.",
+          "type": "string"
+        },
+        "spans": {
+          "description": "Spans that don't overlap in valid time.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.IssueSpan.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Issue Timeline",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Support.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Support is one support version: one source's state for a fact over one\n maximal valid-time interval, as recorded over one record-time interval.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "^(factId)$": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "^(lastConfirmedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "^(observationId)$": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "^(observedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "^(retractedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "^(validFrom)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "^(validTo)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        }
+      },
+      "properties": {
+        "adapter": {
+          "default": "",
+          "description": "Adapter name and version, e.g. \"github@0.2.0\". Empty for derived supports.",
+          "type": "string"
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "description": "Always present in outputs; 0 is explicit."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event that wrote it.",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Evidence.schema.json",
+          "description": "Where a person can check it."
+        },
+        "fact_id": {
+          "default": "",
+          "description": "The fact supported.",
+          "type": "string"
+        },
+        "last_confirmed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Informational: the latest confirming claim's observed_at."
+        },
+        "observation_id": {
+          "default": "",
+          "description": "The observation that wrote it.",
+          "type": "string"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The claim's observed_at."
+        },
+        "qualifiers": {
+          "description": "De-duplicated qualifier objects, sorted by JCS bytes.",
+          "items": {
+            "$ref": "#/$defs/google.protobuf.Struct.schema.json"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^SUPPORT_REASON_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "SUPPORT_REASON_ASSERT",
+                "SUPPORT_REASON_END",
+                "SUPPORT_REASON_SNAPSHOT",
+                "SUPPORT_REASON_DELETED",
+                "SUPPORT_REASON_WITHDRAWN",
+                "SUPPORT_REASON_MERGE",
+                "SUPPORT_REASON_UNMERGE",
+                "SUPPORT_REASON_DERIVED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Why it was written.",
+          "title": "Support Reason"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When Bearing recorded it."
+        },
+        "retracted_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When an apply replaced it; absent while current."
+        },
+        "source": {
+          "default": "",
+          "description": "The configured source, \"manual\" or a \"core/...\" source.",
+          "type": "string"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Start of valid time; absent means unbounded."
+        },
+        "valid_to": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "End of valid time; absent means unbounded."
+        },
+        "via": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Via.schema.json",
+          "description": "The aliases the claim was resolved through."
+        }
+      },
+      "title": "Support",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Via.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Via is the aliases a claim's ends were resolved through.",
+      "properties": {
+        "object": {
+          "default": "",
+          "description": "The reference key for the other end.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The aliases the observation's entity carried.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Via",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.IssueTimeline.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.IssueTimeline.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
