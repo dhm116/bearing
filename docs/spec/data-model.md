@@ -537,7 +537,8 @@ Example (CloudEvents envelope fields `specversion`, `type`,
 | `time` | `observed_at` of every claim; see below. |
 | `entity.key` | Primary key; SHOULD be `id` class when the source has one. |
 | `entity.aliases` | More keys for the entity, only in the source's `namespace` or its `issues` namespaces. |
-| `entity.linked_ids` | Keys in the source's `links` namespaces that the source records for the entity, of key types in the kind's declared `links`. Identity evidence, never an alias. When present, the list is complete for this source. |
+| `entity.linked_ids` | Keys in the source's `links` namespaces that the source records for the entity, of key types in the kind's declared `links`. Identity evidence, never an alias. By itself the list only adds evidence; see `linked_ids_complete`. |
+| `entity.linked_ids_complete` | `true` when `linked_ids` is this source's complete set of links for the entity at `time`: evidence from this source for any link not listed ends at `time`, and an empty list ends all of it, so "read, and there are none" can be said. Default `false`: `linked_ids` adds evidence and ends none. Adapters set it whenever they read the entity's full set of links. |
 | `entity.attributes` | Attribute claims. A value, an array (the complete set) or `null` (none). |
 | `entity.deleted` | The entity no longer exists in the source. |
 | `relations[]` | `type`; exactly one of `to` (entity is subject) or `from` (entity is object); `attributes` (qualifiers, not part of the fact); `absent`; optional `valid_from`, `valid_to`, `confidence_ppm`. |
@@ -591,13 +592,13 @@ Each observation becomes claims about the resolved subject `E` at
 | Input | Claims | Implicit scope |
 | --- | --- | --- |
 | any entity | `(E, exists, true)` | |
-| `entity.deleted` | none | `(source, E, out and in, *)`; releases `E`'s names in the source's namespaces at `t`; ends its `linked_ids` |
+| `entity.deleted` | none | `(source, E, out and in, *)`; releases `E`'s names in the source's namespaces at `t`; ends its `linked_ids`, whatever `linked_ids_complete` says |
 | attribute `k: v` | `(E, k, v)` | `(source, E, out, [k])` if `k` is `one` |
 | attribute `k: [v…]` | one per element | `(source, E, out, [k])` |
 | attribute `k: null` | none | `(source, E, out, [k])` |
 | relation `to: T` / `from: F` | `(E, type, T)` / `(F, type, E)`, ended if `absent` | `(source, E, out, [type])` if `type` is `one` and `to` |
 | `attribute_claims[]` | `(E, predicate, value)`, ended if `absent` | as for attributes |
-| `linked_ids` | evidence for `(E, same_as, target)` ([Identity across systems](#identity-across-systems)) | the source's linked-id evidence for `E` |
+| `linked_ids` | evidence for `(E, same_as, target)` ([Identity across systems](#identity-across-systems)) | the source's linked-id evidence for `E`, only if `linked_ids_complete` is `true` |
 
 Otherwise the absence of a fact is **not** an ending: adapters see
 different slices at different times.

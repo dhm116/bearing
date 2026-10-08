@@ -119,15 +119,22 @@ type Entity struct {
 	// More keys for the entity, in the source's own or issued namespaces.
 	Aliases []string `protobuf:"bytes,3,rep,name=aliases,proto3" json:"aliases,omitempty"`
 	// Keys in linked namespaces that the source records for the entity.
-	// Identity evidence, never aliases. When present, complete for the source.
+	// Identity evidence, never aliases. Complete for the source only if
+	// linked_ids_complete is set.
 	LinkedIds []string `protobuf:"bytes,4,rep,name=linked_ids,json=linkedIds,proto3" json:"linked_ids,omitempty"`
 	// Attribute claims: a value, a list (the complete set) or null (none).
 	// Omitting an attribute means "not read".
 	Attributes map[string]*structpb.Value `protobuf:"bytes,5,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// The entity no longer exists in the source.
-	Deleted       bool `protobuf:"varint,6,opt,name=deleted,proto3" json:"deleted,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Deleted bool `protobuf:"varint,6,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	// linked_ids is this source's complete set of links for the entity at
+	// the observation's time: evidence from this source for any link not
+	// listed ends then, and an empty list ends all of it. Unset, linked_ids
+	// only adds evidence and ends none. Set it whenever the source read the
+	// entity's full set of links.
+	LinkedIdsComplete bool `protobuf:"varint,7,opt,name=linked_ids_complete,json=linkedIdsComplete,proto3" json:"linked_ids_complete,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Entity) Reset() {
@@ -198,6 +205,13 @@ func (x *Entity) GetAttributes() map[string]*structpb.Value {
 func (x *Entity) GetDeleted() bool {
 	if x != nil {
 		return x.Deleted
+	}
+	return false
+}
+
+func (x *Entity) GetLinkedIdsComplete() bool {
+	if x != nil {
+		return x.LinkedIdsComplete
 	}
 	return false
 }
@@ -594,7 +608,7 @@ const file_bearing_model_v1alpha1_observation_proto_rawDesc = "" +
 	"\trelations\x18\x02 \x03(\v2 .bearing.model.v1alpha1.RelationR\trelations\x12Q\n" +
 	"\x10attribute_claims\x18\x03 \x03(\v2&.bearing.model.v1alpha1.AttributeClaimR\x0fattributeClaims\x12C\n" +
 	"\tsnapshots\x18\x04 \x03(\v2%.bearing.model.v1alpha1.SnapshotScopeR\tsnapshots\x12<\n" +
-	"\bevidence\x18\x05 \x01(\v2 .bearing.model.v1alpha1.EvidenceR\bevidence\"\xa8\x02\n" +
+	"\bevidence\x18\x05 \x01(\v2 .bearing.model.v1alpha1.EvidenceR\bevidence\"\xd8\x02\n" +
 	"\x06Entity\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x18\n" +
@@ -604,7 +618,8 @@ const file_bearing_model_v1alpha1_observation_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\x05 \x03(\v2..bearing.model.v1alpha1.Entity.AttributesEntryR\n" +
 	"attributes\x12\x18\n" +
-	"\adeleted\x18\x06 \x01(\bR\adeleted\x1aU\n" +
+	"\adeleted\x18\x06 \x01(\bR\adeleted\x12.\n" +
+	"\x13linked_ids_complete\x18\a \x01(\bR\x11linkedIdsComplete\x1aU\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
 	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\"\xbf\x03\n" +

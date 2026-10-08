@@ -6,11 +6,16 @@
       "description": "Entity is what the observation says about the observed entity itself.",
       "patternProperties": {
         "^(linkedIds)$": {
-          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. When present, complete for the source.",
+          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. Complete for the source only if\n linked_ids_complete is set.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "^(linkedIdsComplete)$": {
+          "default": false,
+          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it whenever the source read the\n entity's full set of links.",
+          "type": "boolean"
         }
       },
       "properties": {
@@ -47,11 +52,16 @@
           "type": "string"
         },
         "linked_ids": {
-          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. When present, complete for the source.",
+          "description": "Keys in linked namespaces that the source records for the entity.\n Identity evidence, never aliases. Complete for the source only if\n linked_ids_complete is set.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "linked_ids_complete": {
+          "default": false,
+          "description": "linked_ids is this source's complete set of links for the entity at\n the observation's time: evidence from this source for any link not\n listed ends then, and an empty list ends all of it. Unset, linked_ids\n only adds evidence and ends none. Set it whenever the source read the\n entity's full set of links.",
+          "type": "boolean"
         }
       },
       "title": "Entity",

@@ -65,6 +65,9 @@ func recordFeed(t *testing.T, d *Directory, at time.Time) []*eventv1alpha1.Obser
 		}
 		// The OAuth connection is the authoritative link: the next-format
 		// node ID derives from the numeric ID it records.
+		// The fake reads the whole OAuth connection list, so the link list
+		// is complete, even if empty.
+		e.LinkedIdsComplete = true
 		if id, ok := githubID[u.PK]; ok {
 			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", nextNodeID("U", id))))
 		}
