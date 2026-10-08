@@ -65,6 +65,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if n := proto.Size(in); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes, over the %d-byte limit", in.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
+	if err := contracts.CheckChangeSetLimits(in); err != nil {
+		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
+	}
 	if i, ok := s.events[in.GetEventId()]; ok {
 		if want != nil {
 			return res, fmt.Errorf("event %s: applied twice", in.GetEventId())

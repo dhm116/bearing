@@ -95,7 +95,16 @@ A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support is
 about 2 MiB, and the conformance suite keeps it under a quarter of the
 limit) is refused, as is one that grows past it when recorded, so
-every backup a store writes can be restored. A failed `Apply` writes
+every backup a store writes can be restored. So is one over a count limit,
+which `contracts.CheckChangeSetLimits` checks so every backend refuses the
+same `ChangeSet`s: at most `MaxChangeSetItems` (50,000) entries in each of
+its lists (mints, bindings, merges, un-merges, supports, facts, state), and at
+most `MaxTimelineRows` (1,000) rows in one binding, support or fact timeline,
+subject IDs in one merge, and aliases in one un-merge. The byte limit alone
+doesn't bound the work, because replacing a timeline and looking up a merge
+are not linear. Raising a limit is compatible; lowering one can make an old
+backup unrestorable, because `Restore` applies every record under the limits
+in force. A failed `Apply` writes
 nothing and returns a zero result. A repeated event ID returns the original
 apply's result with `Duplicate` set, so a redelivery after a crash can
 still re-point vectors.
@@ -158,6 +167,9 @@ References are to sections of the [data model](data-model.md).
 | Bindings: what each binding write maps, `per_subject`, back-extension, tentative bindings, redirects | Resolver, which writes the resulting timeline |
 | Resolution: looking up an alias at a valid and record time, following merges | Store (`ResolveKey`, `Bindings`) |
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
+| Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
+| Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Resolver. The store doesn't know key types and doesn't check it. |
+| Count limits on a `ChangeSet` (`MaxChangeSetItems`, `MaxTimelineRows`) | Store, through `contracts.CheckChangeSetLimits`; the resolver splits a larger write across events |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
 | Merge: same kind, both active | Store checks; resolver decides |
 | Merge triggers, policies, the guard, evidence re-evaluation | Resolver |

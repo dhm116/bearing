@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -555,5 +556,69 @@ func (g *suite) mergeChanges(t *testing.T) {
 	if len(got) != 1 || got[0].GetFrom().GetConfidencePpm() != 950_000 || got[0].GetTo().GetConfidencePpm() != 1_000_000 ||
 		!slices.Equal(got[0].GetSupportsChanged(), []string{"b"}) || got[0].GetObject().GetSubjectId() != p {
 		t.Fatalf("got %v, want owned_by %s rising from 950000 to 1000000 with only b's support changed", got, p)
+	}
+}
+
+// limits proves each count limit from both sides: a ChangeSet exactly at it
+// applies, and one more is refused without a write.
+func (g *suite) limits(t *testing.T) {
+	s, _ := g.store(t)
+	r, p, _ := seed(t, s)
+	hour := func(i int) *timestamppb.Timestamp {
+		return timestamppb.New(at("2026-01-01T00:00:00Z").Add(time.Duration(i) * time.Hour))
+	}
+	rows := func(n int) (bs []*modelv1alpha1.Binding, vs []*modelv1alpha1.Support, ss []*modelv1alpha1.FactSpan) {
+		for i := range n {
+			bs = append(bs, &modelv1alpha1.Binding{SubjectId: r, ValidFrom: hour(i), ValidTo: hour(i + 1)})
+			v := version("github-acme", 1_000_000, "2026-01-01T00:00:00Z", "")
+			v.ValidFrom, v.ValidTo, v.ObservedAt = hour(i), hour(i+1), hour(i)
+			vs = append(vs, v)
+			sp := span(asserted, 1_000_000, "", "")
+			sp.ValidFrom, sp.ValidTo = hour(i), hour(i+1)
+			ss = append(ss, sp)
+		}
+		return
+	}
+	state := func(n int) (out []*modelv1alpha1.StateEntry) {
+		for i := range n {
+			out = append(out, &modelv1alpha1.StateEntry{Key: fmt.Sprintf("k%d", i)})
+		}
+		return
+	}
+	for _, c := range []struct {
+		name string
+		n    int
+		make func(n int) *modelv1alpha1.ChangeSet
+	}{
+		{"state entries", contracts.MaxChangeSetItems, func(n int) *modelv1alpha1.ChangeSet {
+			return &modelv1alpha1.ChangeSet{State: state(n)}
+		}},
+		{"binding rows", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			bs, _, _ := rows(n)
+			return &modelv1alpha1.ChangeSet{Bindings: []*modelv1alpha1.BindingTimeline{bind("github:repo/acme/long", bs...)}}
+		}},
+		{"support versions", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			_, vs, _ := rows(n)
+			return &modelv1alpha1.ChangeSet{Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "approves_changes", ref(p), vs...)}}
+		}},
+		{"fact spans", contracts.MaxTimelineRows, func(n int) *modelv1alpha1.ChangeSet {
+			_, _, ss := rows(n)
+			return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{fact(r, "approves_changes", ref(p), ss...)}}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			over := c.make(c.n + 1)
+			over.EventId = "over"
+			head := must(s.Head(ctx))
+			if res, err := tryApply(s, over); err == nil {
+				t.Fatalf("got %+v, want an error for %d %s, over the limit of %d", res, c.n+1, c.name, c.n)
+			}
+			if got := must(s.Head(ctx)); !got.Equal(head) {
+				t.Fatalf("a refused ChangeSet moved the head from %v to %v", head, got)
+			}
+			full := c.make(c.n)
+			full.EventId = "at"
+			apply(t, s, full)
+		})
 	}
 }
