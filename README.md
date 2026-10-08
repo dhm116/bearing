@@ -38,6 +38,7 @@ keeps the adapters that fetch it small.
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
 | [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
 | [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, claims, supports and status |
+| [`pkg/query`](pkg/query) | Answers questions from a graph store: get, owner, related and changes, each with its sources, events, confidence and observed times |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
@@ -48,7 +49,7 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
-| [`cmd/bearing`](cmd/bearing) | Developer CLI for running and checking adapters |
+| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, and reads the store with `get`, `owner`, `related` and `changes` |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |

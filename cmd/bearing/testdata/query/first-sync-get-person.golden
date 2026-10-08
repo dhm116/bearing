@@ -1,0 +1,34 @@
+$ bearing get github:user/jdoe
+
+Jane Doe [Person 01a0e5a2-15c2-7000-8000-000000000002]
+as of now, as known now
+status active, minted 2026-09-28T01:30:00.002Z by event github-acme/sync-1/3
+
+keys
+  github:user/jdoe
+  github:user_node/U_kgDOA1b2cw
+
+facts
+  exists true: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/10 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/jdoe
+  login jdoe: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/10 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/jdoe
+  member_of Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/9 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/orgs/acme/teams/payments
+  name Jane Doe: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/10 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/jdoe
+  verified_email jdoe@acme.example: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/10 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/jdoe
+
+merges
+  Jane Doe [Person 01a0e5a2-15c8-7000-8000-000000000000] into Jane Doe [Person 01a0e5a2-15c2-7000-8000-000000000002] by placeholder at 100%, event github-acme/sync-1/10

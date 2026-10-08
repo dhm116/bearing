@@ -1,0 +1,21 @@
+$ bearing related github:team/acme/engineering --predicate member_of
+
+relations of Engineering [Team 01a0e5a2-15c7-7000-8000-000000000000]
+as of now, as known now
+
+from this subject
+  none
+
+to this subject
+  Payments [Team 01a0e5a2-15c1-7000-8000-000000000001] member_of Engineering [Team 01a0e5a2-15c7-7000-8000-000000000000]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/8 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.008Z
+      evidence https://github.com/orgs/acme/teams/engineering
+  Platform [Team 01a0e5a2-15c2-7000-8000-000000000001] member_of Engineering [Team 01a0e5a2-15c7-7000-8000-000000000000]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/8 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.011Z
+      evidence https://github.com/orgs/acme/teams/engineering
+  SRE [Team 01a0e5a2-15c3-7000-8000-000000000001] member_of Engineering [Team 01a0e5a2-15c7-7000-8000-000000000000]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/8 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.014Z
+      evidence https://github.com/orgs/acme/teams/engineering

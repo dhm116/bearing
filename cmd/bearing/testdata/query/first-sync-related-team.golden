@@ -1,0 +1,25 @@
+$ bearing related github:team/acme/payments
+
+relations of Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
+as of now, as known now
+
+from this subject
+  member_of Engineering [Team 01a0e5a2-15c7-7000-8000-000000000000]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/8 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.008Z
+      evidence https://github.com/orgs/acme/teams/engineering
+
+to this subject
+  payments-api [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+      qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
+  Jane Doe [Person 01a0e5a2-15c2-7000-8000-000000000002] member_of Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/9 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.009Z
+      evidence https://github.com/orgs/acme/teams/payments
+  Raj Patel [Person 01a0e5a2-15c8-7000-8000-000000000001] member_of Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/9 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.008Z
+      evidence https://github.com/orgs/acme/teams/payments

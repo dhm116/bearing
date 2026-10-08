@@ -1,0 +1,27 @@
+$ bearing get github:team/acme/legacy-ops --as-of 2026-10-04T00:00:00Z
+
+Legacy Ops [Team 01a0e5a2-15c0-7000-8000-000000000001]
+as of 2026-10-04T00:00:00Z, as known now
+status active, minted 2026-09-28T01:30:00Z by event github-acme/sync-1/1
+
+keys
+  github:team/acme/legacy-ops valid until 2026-10-05T15:00:00Z
+  github:team_node/T_kwDOBNeKh84AG56d
+
+facts
+  description Operations, before the platform team: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/6 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z, recorded 2026-10-05T15:00:00Z
+      evidence https://github.com/orgs/acme/teams/legacy-ops
+  exists true: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/6 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z, recorded 2026-10-05T15:00:00Z
+      evidence https://github.com/orgs/acme/teams/legacy-ops
+  name Legacy Ops: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/6 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z, recorded 2026-10-05T15:00:00Z
+      evidence https://github.com/orgs/acme/teams/legacy-ops
+  slug legacy-ops: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/6 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z, recorded 2026-10-05T15:00:00Z
+      evidence https://github.com/orgs/acme/teams/legacy-ops

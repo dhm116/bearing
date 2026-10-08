@@ -1,0 +1,60 @@
+$ bearing get github:repo/acme/payments-api --as-of 2026-09-30T00:00:00Z
+
+payments-api [Repository 01a0e5a2-15c1-7000-8000-000000000000]
+as of 2026-09-30T00:00:00Z, as known now
+status active, minted 2026-09-28T01:30:00.001Z by event github-acme/sync-1/2
+
+keys
+  github:repo/acme/payments-api valid until 2026-10-01T12:00:00Z
+  github:repo_node/R_kgDOH1a2bw
+
+facts
+  approves_changes Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+      qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
+  archived false: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  default_branch main: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  description Payment processing API: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  exists true: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  full_name acme/payments-api: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z, recorded 2026-10-01T12:00:00Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  github.codeowners_rules 1: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  language Go: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  name payments-api: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z, recorded 2026-10-01T12:00:00Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  topics tier-1: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  topics payments: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+  url https://github.com/acme/payments-api: asserted 100% valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-01T12:00:00Z, recorded 2026-10-01T12:00:00Z
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS

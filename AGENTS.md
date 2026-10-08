@@ -66,6 +66,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/adapter` | Adapter protocol: `Adapter` interface, `ServeStdio` for adapter authors, client for the core. |
 | `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventBus`, `Judge`, …). |
 | `pkg/contracts/conformance` | Test suites every backend must pass. |
+| `pkg/query` | The CLI's query layer: `get`, `owner`, `related` and `changes` over a `GraphStore`, each answer with its sources, events, confidence and observed times. `cmd/bearing` reads the graph only through it. Not a stable API yet; M3's server will answer the same questions. |
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
 | `pkg/store` | Opens graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, `surrealkv://`, …). |
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
