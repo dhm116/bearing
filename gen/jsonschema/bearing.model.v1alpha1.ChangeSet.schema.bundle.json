@@ -572,7 +572,7 @@
       "properties": {
         "key": {
           "default": "",
-          "description": "The resolver's key. Any segment between \"/\" that is a ref (\"new:\u003clabel\u003e\")\n is replaced by the subject the ref names, so a key can name a subject\n the same ChangeSet creates.",
+          "description": "The resolver's key. A segment between \"/\" that is exactly a ref declared\n in this ChangeSet (\"new:\u003clabel\u003e\", a mint's or an un-merge's) is replaced\n by the subject the ref names, so a key can name a subject the same\n ChangeSet creates; any other segment starting with \"new:\" fails the apply.\n See docs/spec/contracts.md, \"State keys\".",
           "type": "string"
         },
         "value": {

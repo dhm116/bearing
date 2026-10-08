@@ -23,8 +23,8 @@ func NewOrderingKey(observedAt time.Time, observationID, eventID, contentHash st
 // CompareOrderingKeys compares two ordering keys left to right
 // (docs/spec/data-model.md, "Ordering and idempotency"): observed_at at
 // microsecond precision, then observation_id, event_id and content_hash by
-// their UTF-8 bytes. It returns -1, 0 or +1. A nil key or one without
-// observed_at sorts before every other.
+// their UTF-8 bytes. It returns -1, 0 or +1. A key without observed_at
+// sorts before any key that has one.
 func CompareOrderingKeys(a, b *resolverv1alpha1.OrderingKey) int {
 	if c := compareMicros(a.GetObservedAt(), b.GetObservedAt()); c != 0 {
 		return c

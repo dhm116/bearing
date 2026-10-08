@@ -23,13 +23,12 @@ option go_package = "bearing.example/gen/go/bearing/resolver/v1alpha1;resolverv1
 message OrderingKey {
   // The write's observed_at.
   google.protobuf.Timestamp observed_at = 1;
-  // The observation that made the write; for derived and manual writes, the
-  // event ID.
+  // The observation that made the write; for a manual event, the event ID.
   string observation_id = 2;
   // The event that carried it, which includes the source.
   string event_id = 3;
-  // Lowercase hex SHA-256 of the JCS form of the observation's data; empty
-  // for writes the core makes itself.
+  // Lowercase hex SHA-256 of the JCS form of the observation's data; for a
+  // manual event, of the payload.
   string content_hash = 4;
 }
 
@@ -41,7 +40,10 @@ message BindingWrite {
   // Where the write starts in valid time, extending to infinity. Absent
   // means all valid time (id aliases) or, with tentative, no start.
   google.protobuf.Timestamp valid_from = 2;
-  // The subject as written, or empty for a release without a redirect.
+  // The subject as written, or empty for a release without a redirect. The
+  // store does not look inside a state value, so it can't replace a ref here:
+  // an entry for a subject its ChangeSet creates names the subject in its
+  // key (docs/spec/contracts.md, "State keys") and leaves this empty.
   string subject_id = 3;
   // The name is released from valid_from on; subject_id, if set, is where
   // it redirects.
@@ -72,7 +74,8 @@ message SupportSegment {
   // write applied later can't override it.
   bool live = 4;
   // Ended segments: ASSERT for a claim's own valid_to, END for an absent
-  // claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted.
+  // claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted,
+  // WITHDRAWN for a withdrawn claim.
   bearing.model.v1alpha1.SupportReason reason = 5;
   // Live segments: the version's content, without its interval, fact_id and
   // record times.

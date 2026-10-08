@@ -39,13 +39,12 @@ type OrderingKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The write's observed_at.
 	ObservedAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	// The observation that made the write; for derived and manual writes, the
-	// event ID.
+	// The observation that made the write; for a manual event, the event ID.
 	ObservationId string `protobuf:"bytes,2,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
 	// The event that carried it, which includes the source.
 	EventId string `protobuf:"bytes,3,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
-	// Lowercase hex SHA-256 of the JCS form of the observation's data; empty
-	// for writes the core makes itself.
+	// Lowercase hex SHA-256 of the JCS form of the observation's data; for a
+	// manual event, of the payload.
 	ContentHash   string `protobuf:"bytes,4,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -118,7 +117,10 @@ type BindingWrite struct {
 	// Where the write starts in valid time, extending to infinity. Absent
 	// means all valid time (id aliases) or, with tentative, no start.
 	ValidFrom *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`
-	// The subject as written, or empty for a release without a redirect.
+	// The subject as written, or empty for a release without a redirect. The
+	// store does not look inside a state value, so it can't replace a ref here:
+	// an entry for a subject its ChangeSet creates names the subject in its
+	// key (docs/spec/contracts.md, "State keys") and leaves this empty.
 	SubjectId string `protobuf:"bytes,3,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
 	// The name is released from valid_from on; subject_id, if set, is where
 	// it redirects.
@@ -257,7 +259,8 @@ type SupportSegment struct {
 	// write applied later can't override it.
 	Live bool `protobuf:"varint,4,opt,name=live,proto3" json:"live,omitempty"`
 	// Ended segments: ASSERT for a claim's own valid_to, END for an absent
-	// claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted.
+	// claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted,
+	// WITHDRAWN for a withdrawn claim.
 	Reason v1alpha1.SupportReason `protobuf:"varint,5,opt,name=reason,proto3,enum=bearing.model.v1alpha1.SupportReason" json:"reason,omitempty"`
 	// Live segments: the version's content, without its interval, fact_id and
 	// record times.

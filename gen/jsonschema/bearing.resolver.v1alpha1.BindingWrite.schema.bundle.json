@@ -7,7 +7,7 @@
       "patternProperties": {
         "^(subjectId)$": {
           "default": "",
-          "description": "The subject as written, or empty for a release without a redirect.",
+          "description": "The subject as written, or empty for a release without a redirect. The\n store does not look inside a state value, so it can't replace a ref here:\n an entry for a subject its ChangeSet creates names the subject in its\n key (docs/spec/contracts.md, \"State keys\") and leaves this empty.",
           "type": "string"
         },
         "^(validFrom)$": {
@@ -27,7 +27,7 @@
         },
         "subject_id": {
           "default": "",
-          "description": "The subject as written, or empty for a release without a redirect.",
+          "description": "The subject as written, or empty for a release without a redirect. The\n store does not look inside a state value, so it can't replace a ref here:\n an entry for a subject its ChangeSet creates names the subject in its\n key (docs/spec/contracts.md, \"State keys\") and leaves this empty.",
           "type": "string"
         },
         "tentative": {
@@ -50,7 +50,7 @@
       "patternProperties": {
         "^(contentHash)$": {
           "default": "",
-          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; for a\n manual event, of the payload.",
           "type": "string"
         },
         "^(eventId)$": {
@@ -60,7 +60,7 @@
         },
         "^(observationId)$": {
           "default": "",
-          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "description": "The observation that made the write; for a manual event, the event ID.",
           "type": "string"
         },
         "^(observedAt)$": {
@@ -71,7 +71,7 @@
       "properties": {
         "content_hash": {
           "default": "",
-          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; for a\n manual event, of the payload.",
           "type": "string"
         },
         "event_id": {
@@ -81,7 +81,7 @@
         },
         "observation_id": {
           "default": "",
-          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "description": "The observation that made the write; for a manual event, the event ID.",
           "type": "string"
         },
         "observed_at": {

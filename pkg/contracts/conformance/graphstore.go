@@ -268,16 +268,17 @@ func (g *suite) idempotent(t *testing.T) {
 // stateKeys: a ref standing alone between "/" in a state key becomes the
 // minted ID, so the resolver can key its entries by subjects it creates.
 func (g *suite) stateKeys(t *testing.T) {
-	s, _ := g.store(t)
+	s, clk := g.store(t)
 	val, _ := anypb.New(wrapperspb.Int64(7))
-	res := apply(t, s, &modelv1alpha1.ChangeSet{
+	first := &modelv1alpha1.ChangeSet{
 		EventId: "e1",
 		Mints:   []*modelv1alpha1.Mint{mint("new:a", "Team"), mint("new:b", "Person")},
 		State: []*modelv1alpha1.StateEntry{
 			{Key: "sup/src/new:a/member_of/new:b", Value: val},
 			{Key: "scope/src/new:b", Value: val},
 		},
-	})
+	}
+	res := apply(t, s, proto.CloneOf(first))
 	a, b := string(res.Subjects["new:a"]), string(res.Subjects["new:b"])
 	keys := []string{"sup/src/" + a + "/member_of/" + b, "scope/src/" + b}
 	st, err := s.State(ctx, append(keys, "scope/src/new:b"), time.Time{})
@@ -289,6 +290,17 @@ func (g *suite) stateKeys(t *testing.T) {
 			t.Errorf("no entry under %q", k)
 		}
 	}
+	// A redelivery returns the original result and writes nothing, and a
+	// backup restores the entries under their substituted keys.
+	again, err := s.Apply(ctx, proto.CloneOf(first))
+	ensure(t, err == nil && again.Duplicate && again.Subjects["new:a"] == res.Subjects["new:a"], "got %+v, %v, want a Duplicate with the original subjects", again, err)
+	var buf bytes.Buffer
+	ensure(t, s.Backup(ctx, &buf) == nil, "backup failed")
+	dst, dclk := g.store(t)
+	dclk.Set(clk.Now())
+	ensure(t, dst.Restore(ctx, &buf) == nil, "restore failed")
+	st, err = dst.State(ctx, append(keys, "scope/src/new:b"), time.Time{})
+	ensure(t, err == nil && len(st) == 2 && st[keys[0]] != nil && st[keys[1]] != nil, "got %v, %v after a restore, want the two entries under their substituted keys and none under the ref", st, err)
 	// A ref the ChangeSet declares is replaced wherever a whole segment is it.
 	twice := apply(t, s, &modelv1alpha1.ChangeSet{
 		EventId: "e2", BaseRecordedAt: timestamppb.New(res.RecordedAt),
@@ -317,7 +329,53 @@ func (g *suite) stateKeys(t *testing.T) {
 			if head, _ := s.Head(ctx); !head.Equal(twice.RecordedAt) {
 				t.Fatalf("got head %s after the refused apply, want %s", head, twice.RecordedAt)
 			}
+			st, _ := s.State(ctx, []string{key}, time.Time{})
+			ensure(t, len(st) == 0, "got %v under %q after the refused apply, want nothing", st, key)
 		})
+	}
+	t.Run("un-merge ref", func(t *testing.T) {
+		g.unmergeStateKey(t)
+	})
+}
+
+// unmergeStateKey: an un-merge's ref in a state key resolves to the target,
+// which when it reverses a merge is an existing subject, so the write
+// replaces that subject's entry.
+func (g *suite) unmergeStateKey(t *testing.T) {
+	s, _ := g.store(t)
+	old, _ := anypb.New(wrapperspb.Int64(1))
+	val, _ := anypb.New(wrapperspb.Int64(2))
+	res := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "seed",
+		Mints:   []*modelv1alpha1.Mint{mint("new:a", "Team"), mint("new:b", "Team")},
+		Bindings: []*modelv1alpha1.BindingTimeline{
+			bind("github:team_node/A", row("new:a", "", "")), bind("github:team_node/B", row("new:b", "", "")),
+		},
+		State: []*modelv1alpha1.StateEntry{{Key: "scope/new:b", Value: old}},
+	})
+	a, b := string(res.Subjects["new:a"]), string(res.Subjects["new:b"])
+	head := apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "merge", BaseRecordedAt: timestamppb.New(res.RecordedAt),
+		Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}},
+	})
+	// The survivor of a merge is the lower ID, and a was minted first.
+	got := must(s.Merges(ctx, contracts.SubjectID(a), time.Time{}))
+	ensure(t, len(got) == 1 && got[0].GetSurvivorId() == a, "got merge records %v, want %s to survive", got, a)
+	survivor, merged, alias := a, b, "github:team_node/B"
+	apply(t, s, &modelv1alpha1.ChangeSet{
+		EventId: "unmerge", BaseRecordedAt: timestamppb.New(head.RecordedAt),
+		Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: survivor, Aliases: []string{alias}, Ref: "new:u"}},
+		State:    []*modelv1alpha1.StateEntry{{Key: "scope/new:u", Value: val}},
+	})
+	st, err := s.State(ctx, []string{"scope/" + merged, "scope/new:u"}, time.Time{})
+	ensure(t, err == nil && len(st) == 1 && proto.Equal(st["scope/"+merged], val), "got %v, %v, want one entry under scope/%s holding the new value", st, err, merged)
+}
+
+// ensure fails the test with the message unless ok.
+func ensure(t *testing.T, ok bool, format string, args ...any) {
+	t.Helper()
+	if !ok {
+		t.Fatalf(format, args...)
 	}
 }
 

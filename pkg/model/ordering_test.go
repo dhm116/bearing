@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 )
 
@@ -25,7 +27,8 @@ func TestCompareOrderingKeysGoesLeftToRight(t *testing.T) {
 		{"event_id", key(at, "obs-b", "src/ev-a", "hash-z"), base, -1},
 		{"content_hash", key(at, "obs-b", "src/ev-b", "hash-c"), base, 1},
 		{"nanoseconds are below the precision", key(at.Add(999*time.Nanosecond), "obs-b", "src/ev-b", "hash-b"), base, 0},
-		{"UTF-8 bytes, not code points", key(at, "\U0001F600", "", ""), key(at, "￿", "", ""), 1},
+		{"UTF-8 bytes, not UTF-16 units", key(at, "\U0001F600", "", ""), key(at, "￿", "", ""), 1},
+		{"nanoseconds on a hand-built key are below the precision", &resolverv1alpha1.OrderingKey{ObservedAt: timestamppb.New(at.Add(999 * time.Nanosecond)), ObservationId: "obs-b", EventId: "src/ev-b", ContentHash: "hash-b"}, base, 0},
 		{"nil sorts first", nil, base, -1},
 		{"nil against nil", nil, nil, 0},
 		{"no observed_at sorts first", &resolverv1alpha1.OrderingKey{EventId: "z"}, base, -1},

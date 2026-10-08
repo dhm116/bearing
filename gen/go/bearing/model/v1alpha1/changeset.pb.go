@@ -807,9 +807,11 @@ func (x *FactTimeline) GetSpans() []*FactSpan {
 // with the graph, and versioned by record time like everything else.
 type StateEntry struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The resolver's key. Any segment between "/" that is a ref ("new:<label>")
-	// is replaced by the subject the ref names, so a key can name a subject
-	// the same ChangeSet creates.
+	// The resolver's key. A segment between "/" that is exactly a ref declared
+	// in this ChangeSet ("new:<label>", a mint's or an un-merge's) is replaced
+	// by the subject the ref names, so a key can name a subject the same
+	// ChangeSet creates; any other segment starting with "new:" fails the apply.
+	// See docs/spec/contracts.md, "State keys".
 	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	// The value; absent deletes the entry.
 	Value         *anypb.Any `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`

@@ -2,8 +2,8 @@
 // predicate registry, keys, the observation envelope, ProtoJSON encoding,
 // validation at the edges, and fact_id and content_hash.
 //
-// The message types themselves are generated from proto/bearing/model and
-// proto/bearing/event (v1alpha1) into gen/go; protobuf is their only source
+// The message types themselves are generated from proto/bearing/model,
+// proto/bearing/event and proto/bearing/resolver (v1alpha1) into gen/go; protobuf is their only source
 // of truth (docs/adr/0006-protobuf-contracts.md). docs/spec/data-model.md
 // gives the rules this package checks.
 package model

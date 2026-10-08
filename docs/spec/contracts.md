@@ -143,16 +143,23 @@ from wall-clock time.
 
 A state entry's key is opaque to the store, with one exception: the store
 splits it at `/` and replaces every segment that is exactly a ref declared
-in the `ChangeSet` (a mint's or an un-merge's) by the ID minted, as written.
-A segment that starts with `new:` and isn't a declared ref makes the
-`ChangeSet` invalid, as an unknown ref in a `subject_id` field does, and
-nothing is written. So the resolver can key what it remembers about a
-subject by the subject's ID in the event that creates it. The resolver MUST
-percent-encode `/` and `:` in any source-supplied text it puts in a key, so
-only a subject segment can be a ref.
+in the `ChangeSet` (a mint's or an un-merge's) by the subject ID the ref
+resolves to, as written: the minted ID, or for an un-merge the target, which
+may be an existing subject whose entry the write then replaces. The store
+does not canonicalize a subject in a key through merges. A segment that
+starts with `new:` and isn't a declared ref makes the `ChangeSet` invalid,
+as an unknown ref in a `subject_id` field does, and nothing is written. So
+the resolver can key what it remembers about a subject by the subject's ID
+in the event that creates it. A ref used in a key MUST NOT contain `/`. The
+resolver MUST percent-encode `%`, `/` and `:` (as `%25`, `%2F` and `%3A`) in
+any source-supplied text it puts in a key, so that only a subject segment
+can be a ref and two different texts never share a key.
 
 A state value is any `google.protobuf.Any`; the store keeps it as given and
-never looks inside. The resolver's are the messages in
+never looks inside, so it can't replace a ref there. A value therefore never
+names a subject the `ChangeSet` creates: the subject goes in the key. Because
+an ID is longer than a ref, substituting keys can grow a `ChangeSet` past
+`MaxChangeSetBytes`, which refuses it. The resolver's are the messages in
 [`resolver/v1alpha1/state.proto`](../../proto/bearing/resolver/v1alpha1/state.proto),
 which are not part of the data model. A backup replays state entries
 verbatim, so those messages are part of the backup format: until the MVP

@@ -213,7 +213,7 @@
       "patternProperties": {
         "^(contentHash)$": {
           "default": "",
-          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; for a\n manual event, of the payload.",
           "type": "string"
         },
         "^(eventId)$": {
@@ -223,7 +223,7 @@
         },
         "^(observationId)$": {
           "default": "",
-          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "description": "The observation that made the write; for a manual event, the event ID.",
           "type": "string"
         },
         "^(observedAt)$": {
@@ -234,7 +234,7 @@
       "properties": {
         "content_hash": {
           "default": "",
-          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; empty\n for writes the core makes itself.",
+          "description": "Lowercase hex SHA-256 of the JCS form of the observation's data; for a\n manual event, of the payload.",
           "type": "string"
         },
         "event_id": {
@@ -244,7 +244,7 @@
         },
         "observation_id": {
           "default": "",
-          "description": "The observation that made the write; for derived and manual writes, the\n event ID.",
+          "description": "The observation that made the write; for a manual event, the event ID.",
           "type": "string"
         },
         "observed_at": {
@@ -305,7 +305,7 @@
             }
           ],
           "default": 0,
-          "description": "Ended segments: ASSERT for a claim's own valid_to, END for an absent\n claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted.",
+          "description": "Ended segments: ASSERT for a claim's own valid_to, END for an absent\n claim, SNAPSHOT for a scope's watermark, DELETED for entity.deleted,\n WITHDRAWN for a withdrawn claim.",
           "title": "Support Reason"
         },
         "support": {
