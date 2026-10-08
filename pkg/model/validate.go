@@ -711,8 +711,8 @@ func isFrom(r *modelv1alpha1.Relation) bool {
 	return ok
 }
 
-// attributeName checks an attribute's name against the registry and returns
-// the registered predicate, if any.
+// attributeName checks an attribute's name and returns its predicate if the
+// registry or the source's declarations have it.
 func (c *checker) attributeName(path string, entity Kind, name string) (Predicate, bool) {
 	reg, ok := c.shape(name)
 	switch {

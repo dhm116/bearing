@@ -194,3 +194,25 @@ func TestRelationListedTwiceJoinsItsQualifiers(t *testing.T) {
 		t.Fatalf("got qualifiers %v, want %v", got, want)
 	}
 }
+
+// A team's observation can list its members, the incoming side of
+// member_of; a later list without a member ends that membership.
+func TestIncomingSnapshotEndsMembersItNoLongerLists(t *testing.T) {
+	e := newEnv(t)
+	team := func(at string) *eventv1alpha1.Observation {
+		return withScope(obsAt(at, "Team", "github:team_node/T1"), true, "member_of")
+	}
+	e.apply(event("github-acme", withMember(team("2026-10-01T00:00:00Z"), "github:user/jdoe", "", "")))
+	member := "github:user/jdoe(Person) member_of -> github:team_node/T1(Team) ASSERTED"
+	if got := factsAt(t, e, ts("2026-10-02T00:00:00Z")); !strings.Contains(got, member) {
+		t.Fatalf("want %q in\n%s", member, got)
+	}
+	e.apply(event("github-acme", team("2026-10-03T00:00:00Z")))
+	if got := factsAt(t, e, ts("2026-10-04T00:00:00Z")); strings.Contains(got, "member_of") {
+		t.Fatalf("the membership survived a list without it:\n%s", got)
+	}
+	// It was a member until the list was made.
+	if got := factsAt(t, e, ts("2026-10-02T00:00:00Z")); !strings.Contains(got, member) {
+		t.Fatalf("want the membership kept for the time before the list in\n%s", got)
+	}
+}

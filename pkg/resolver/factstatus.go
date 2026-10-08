@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -70,7 +71,7 @@ func (r *factRun) statuses(ctx context.Context) error {
 // object this ChangeSet changes: a relation that can conflict is only a
 // candidate while its object is observed (step 5).
 func (r *factRun) expandExists(ctx context.Context, dirty map[string][2]string) error {
-	for _, t := range slices.SortedFunc(maps.Values(r.touched), func(a, b affected) int { return compareStrings(a.f.id()+a.source, b.f.id()+b.source) }) {
+	for _, t := range slices.SortedFunc(maps.Values(r.touched), func(a, b affected) int { return cmp.Compare(a.f.id()+a.source, b.f.id()+b.source) }) {
 		if t.f.pred != model.PredicateExists || isRef(t.f.subject) {
 			continue
 		}
@@ -100,16 +101,6 @@ func (r *factRun) expandExists(ctx context.Context, dirty map[string][2]string) 
 		}
 	}
 	return nil
-}
-
-func compareStrings(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 // observedBefore returns the valid times a subject has a live exists support

@@ -105,26 +105,23 @@ func (u *run) claims(ctx context.Context) (*claimSet, error) {
 		return cs, nil
 	}
 	byID := map[string]*claim{}
-	add := func(c *claim) error {
+	add := func(c *claim) {
 		if prev, ok := byID[c.fact.id()]; ok {
 			// A fact claimed twice is one claim (the observation passed
 			// validation, so the two agree on times and confidence); the
 			// qualifiers join.
 			prev.qualifiers = mergeQualifiers(prev.qualifiers, c.qualifiers)
-			return nil
+			return
 		}
 		byID[c.fact.id()] = c
 		cs.claims = append(cs.claims, c)
-		return nil
 	}
 
 	exists, err := newFact(e, model.PredicateExists, &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType_VALUE_TYPE_BOOL, Value: structpb.NewBoolValue(true)})
 	if err != nil {
 		return nil, err
 	}
-	if err := add(&claim{fact: exists, from: at, to: posInf, conf: model.MaxConfidence}); err != nil {
-		return nil, err
-	}
+	add(&claim{fact: exists, from: at, to: posInf, conf: model.MaxConfidence})
 
 	for _, rc := range p.relations {
 		rel := rc.rel
@@ -141,10 +138,8 @@ func (u *run) claims(ctx context.Context) (*claimSet, error) {
 		if q := rel.GetAttributes(); len(q) > 0 {
 			c.qualifiers = []*structpb.Struct{{Fields: q}}
 		}
-		if err := add(c); err != nil {
-			return nil, err
-		}
-		if !rc.in && rel.GetType() != "" {
+		add(c)
+		if !rc.in {
 			if pred, _ := model.LookupPredicate(rel.GetType()); pred.Cardinality == modelv1alpha1.Cardinality_CARDINALITY_ONE {
 				cs.scopes = append(cs.scopes, scope{pred: rel.GetType(), at: at, reason: modelv1alpha1.SupportReason_SUPPORT_REASON_SNAPSHOT, backdate: true})
 			}
@@ -174,9 +169,7 @@ func (u *run) claims(ctx context.Context) (*claimSet, error) {
 			} else {
 				c = claimTimes(c, at, nil, nil, nil, false)
 			}
-			if err := add(c); err != nil {
-				return nil, err
-			}
+			add(c)
 		}
 	}
 
@@ -332,7 +325,7 @@ func mergeQualifiers(a, b []*structpb.Struct) []*structpb.Struct {
 		q     *structpb.Struct
 	}
 	var all []keyed
-	for _, q := range append(slices.Clone(a), b...) {
+	for _, q := range slices.Concat(a, b) {
 		bs, err := model.JCS(structpb.NewStructValue(q))
 		if err != nil { // validated as finite UTF-8 text
 			bs = []byte(q.String())

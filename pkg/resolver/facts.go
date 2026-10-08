@@ -22,7 +22,7 @@ import (
 //	sup/<source>/<subject>/<predicate>/<object>  SupportSegments: a source's writes about one fact
 //	wm/<source>/<subject>/<out|in>/<predicate>   ScopeWatermarks: the endings of a scope
 //
-// The object is the subject ID of a relation, or "=" and the hash of an
+// The object is the subject ID of a relation, or "=" and the fact ID of an
 // attribute's value. Source-supplied text is percent-encoded.
 const (
 	supPrefix = "sup/"
@@ -174,7 +174,7 @@ func (r *factRun) readMarks(ctx context.Context, key string, hasRef bool) (*wmEn
 	return e, nil
 }
 
-// addWatermark adds w to a scope's watermarks unless another already ends
+// add adds w to a scope's watermarks unless another already ends
 // everything it would: one that starts no later and has a key no less.
 func (e *wmEntry) add(w watermark) {
 	for _, o := range e.list {

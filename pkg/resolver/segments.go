@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"time"
@@ -260,10 +261,10 @@ func seriesOf(m *resolverv1alpha1.SupportSegments) (series, error) {
 			key: ps.GetKey(), live: ps.GetLive(), reason: ps.GetReason(), sup: ps.GetSupport(),
 		}
 		if e.from >= e.to || e.key == nil || e.live != (e.sup != nil) {
-			return nil, ErrCorrupt
+			return nil, fmt.Errorf("%w: a segment is empty, has no key, or is live without a support", ErrCorrupt)
 		}
 		if n := len(out); n > 0 && out[n-1].to > e.from {
-			return nil, ErrCorrupt
+			return nil, fmt.Errorf("%w: segments overlap", ErrCorrupt)
 		}
 		out = append(out, e)
 	}

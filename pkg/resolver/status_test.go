@@ -38,16 +38,19 @@ func TestNoisyORRoundsHalfToEven(t *testing.T) {
 	// rounds to 2, so C = 999998. P = 5 * 500000; 2.5 rounds to 2, so C =
 	// 999998.
 	for _, tc := range []struct {
+		name   string
 		groups []uint32
 		want   uint32
 	}{
-		{[]uint32{999_999, 500_000}, 1_000_000},
-		{[]uint32{999_997, 500_000}, 999_998},
-		{[]uint32{999_995, 500_000}, 999_998},
+		{"0.5 rounds down to 0", []uint32{999_999, 500_000}, 1_000_000},
+		{"1.5 rounds up to 2", []uint32{999_997, 500_000}, 999_998},
+		{"2.5 rounds down to 2", []uint32{999_995, 500_000}, 999_998},
 	} {
-		if got := noisyOR(tc.groups); got != tc.want {
-			t.Errorf("noisyOR(%v) = %d, want %d", tc.groups, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := noisyOR(tc.groups); got != tc.want {
+				t.Fatalf("noisyOR(%v) = %d, want %d", tc.groups, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -319,3 +319,167 @@ func TestConfidenceCountsEachSystemOnceAndTheThresholdIsConfigurable(t *testing.
 		})
 	}
 }
+
+// The snapshots a merged subject's observations made keep ending what they
+// didn't list after the merge, whichever of the two subjects survives.
+func TestMergeMovesSnapshotWatermarks(t *testing.T) {
+	const (
+		user = "authentik:user/u1"
+		saml = "authentik-saml:name_id/jdoe"
+	)
+	// The subject minted first survives, so each case has the snapshot made
+	// under the survivor or under the subject merged into it.
+	for _, tc := range []struct {
+		name          string
+		snapshotFirst bool
+	}{
+		{"the snapshot was made under the survivor", true},
+		{"the snapshot was made under the merged subject", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			// The user ID's observation lists the person's complete email set.
+			snapshot := withAttr(obsAt("2026-10-01T01:00:00Z", "Person", user), "email", []any{"a@acme.example"})
+			bare := obsAt("2026-10-01T02:00:00Z", "Person", saml)
+			if !tc.snapshotFirst {
+				snapshot, bare = obsAt("2026-10-01T02:00:00Z", "Person", user), withAttr(obsAt("2026-10-01T01:00:00Z", "Person", saml), "email", []any{"a@acme.example"})
+			}
+			e.apply(event("authentik-acme", snapshot))
+			e.apply(event("authentik-acme", bare))
+			got := e.apply(event("authentik-acme", obsAt("2026-10-02T00:00:00Z", "Person", user, saml)))
+			if len(got.Merges) != 1 {
+				t.Fatalf("got merges %v, want one", got.Merges)
+			}
+			// A claim observed before the snapshot arrives late: the snapshot
+			// didn't list it, so it ends when the snapshot was made.
+			e.apply(event("authentik-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Person", user), "email", []any{"old@acme.example"})))
+			email := func(addr string) string {
+				return fmt.Sprintf(`email -> {"type":"VALUE_TYPE_STRING","value":"%s"}`, addr)
+			}
+			before, after := factsAt(t, e, ts("2026-10-01T00:30:00Z")), factsAt(t, e, ts("2026-10-03T00:00:00Z"))
+			if !strings.Contains(before, email("old@acme.example")) {
+				t.Errorf("want the late claim before the snapshot in\n%s", before)
+			}
+			if !strings.Contains(after, email("a@acme.example")) || strings.Contains(after, email("old@acme.example")) {
+				t.Errorf("want the snapshot's email and not the late claim after it in\n%s", after)
+			}
+		})
+	}
+}
+
+// catalogDeclaration is a second system that reports repositories under its
+// own IDs and joins GitHub's by repository name. authoritative says whether
+// it is an authority for the default branch.
+func catalogDeclaration(t testing.TB, authoritative bool) *modelv1alpha1.AdapterDeclaration {
+	t.Helper()
+	d := &modelv1alpha1.AdapterDeclaration{}
+	text := fmt.Sprintf(`{
+  "name": "catalog",
+  "issuer_type": "catalog",
+  "kinds": [{
+    "kind": "Repository",
+    "keys": [
+      { "key_type": "repo_id", "class": "KEY_CLASS_ID" },
+      { "issuer_type": "github", "key_type": "repo", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "redirects": true, "case": "KEY_CASE_INSENSITIVE" }
+    ],
+    "fields": [{ "predicate": "default_branch", "authority": { "authoritative": %t } }]
+  }]
+}`, authoritative)
+	if err := model.DecodeJSON([]byte(text), d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Where systems disagree on a single-valued predicate the one that is
+// declared its authority decides; if both or neither are, it stays a
+// conflict (docs/spec/data-model.md, "Conflicts").
+func TestAuthorityDeclaredByAdaptersDecidesConflicts(t *testing.T) {
+	const (
+		main   = `catalog:repo_id/C1(Repository) default_branch -> {"type":"VALUE_TYPE_STRING","value":"main"} %s 1000000 [github-acme:1000000]`
+		master = `catalog:repo_id/C1(Repository) default_branch -> {"type":"VALUE_TYPE_STRING","value":"master"} %s 1000000 [catalog-acme:1000000]`
+	)
+	for _, tc := range []struct {
+		name                 string
+		catalogAuthoritative bool
+		wantMain, wantMaster string
+	}{
+		{"only GitHub is an authority", false, "ASSERTED/AUTHORITY", "CANDIDATE/AUTHORITY"},
+		{"both are", true, "CONFLICTED/CONFLICT", "CONFLICTED/CONFLICT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, tc.catalogAuthoritative))
+			cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
+			e := newEnvWith(t, cfg)
+			e.apply(event("github-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "default_branch", "main")))
+			e.apply(event("catalog-acme", withAttr(obsAt("2026-10-01T01:00:00Z", "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "default_branch", "master")))
+			got := factsAt(t, e, ts("2026-10-02T00:00:00Z"))
+			for _, want := range []string{fmt.Sprintf(main, tc.wantMain), fmt.Sprintf(master, tc.wantMaster)} {
+				if !strings.Contains(got, want) {
+					t.Errorf("want %q in\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// Systems that copy each other count once toward confidence; independent
+// ones add up.
+func TestConfidenceGroupsCountCopyingSystemsOnce(t *testing.T) {
+	branch := func(at string, ppm uint32) *eventv1alpha1.Observation {
+		o := withClaim(obsAt(at, "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "default_branch", "main", "", false)
+		o.Data.AttributeClaims[0].ConfidencePpm = &ppm
+		return o
+	}
+	gh := func(at string, ppm uint32) *eventv1alpha1.Observation {
+		o := withClaim(obsAt(at, "Repository", "github:repo_node/R1", "github:repo/acme/a"), "default_branch", "main", "", false)
+		o.Data.AttributeClaims[0].ConfidencePpm = &ppm
+		return o
+	}
+	for _, tc := range []struct {
+		name   string
+		groups [][]string
+		want   string
+	}{
+		{"independent systems", nil, "ASSERTED/NONE 940000"},
+		{"a group", [][]string{{"github", "catalog"}}, "CANDIDATE/BELOW_THRESHOLD 800000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, false))
+			cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
+			cfg.ConfidenceGroups = tc.groups
+			e := newEnvWith(t, cfg)
+			e.apply(event("github-acme", gh("2026-10-01T00:00:00Z", 800_000)))
+			e.apply(event("catalog-acme", branch("2026-10-01T01:00:00Z", 700_000)))
+			got := factsAt(t, e, ts("2026-10-02T00:00:00Z"))
+			if want := `default_branch -> {"type":"VALUE_TYPE_STRING","value":"main"} ` + tc.want; !strings.Contains(got, want) {
+				t.Fatalf("want %q in\n%s", want, got)
+			}
+		})
+	}
+}
+
+// The adapter an event names is recorded on the supports it makes; without
+// one, the source's adapter is.
+func TestSupportsRecordTheEventsAdapter(t *testing.T) {
+	for _, tc := range []struct{ name, adapter, want string }{
+		{"the source's adapter by default", "", "github"},
+		{"the event's adapter when it names one", "github@v2", "github@v2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			ev := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"))
+			ev.Adapter = tc.adapter
+			e.apply(ev)
+			facts, err := e.store.AsOf(context.Background(), contracts.FactFilter{Predicate: model.PredicateExists}, ts("2026-10-02T00:00:00Z"), time.Time{})
+			if err != nil || len(facts) != 1 {
+				t.Fatalf("got %v, %v, want the exists fact", facts, err)
+			}
+			if got := facts[0].GetSupports()[0].GetAdapter(); got != tc.want {
+				t.Errorf("got support adapter %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
