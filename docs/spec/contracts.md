@@ -77,7 +77,7 @@ is one event's writes:
 | `supports` | Support timelines: one source's versions of its support for one fact, with subject and object as written. |
 | `facts` | Fact status timelines: status, reason and confidence per valid-time span. Valid times no span covers have status `none`. |
 | `conflicts` | Conflict timelines, one per (subject, predicate). |
-| `issues` | Data-quality issue timelines, each under a key the resolver chooses. |
+| `issues` | Data-quality issue timelines, each under a key the resolver chooses. A key may name a subject the `ChangeSet` creates, by the [State keys](#state-keys) rule. |
 | `merges` | Applied in order, each seeing the merges before it. Each needs a rule. |
 | `unmerges` | Each un-merge's target is resolved against the state before the `ChangeSet`, not after the un-merges listed before it, and two un-merges may not claim the same merge record or subject. An un-merge has a ref (`new:<label>`, required, unique among the `ChangeSet`'s mints and un-merges) for the subject its aliases move to. |
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
@@ -143,16 +143,17 @@ from wall-clock time.
 
 #### State keys
 
-A state entry's key is opaque to the store, with one exception: the store
-splits it at `/` and replaces every segment that is exactly a ref declared
+A state entry's key, and the key of an issue timeline, is opaque to the
+store, with one exception: the store splits it at `/` and replaces every segment that is exactly a ref declared
 in the `ChangeSet` (a mint's or an un-merge's) by the subject ID the ref
 resolves to, as written: the minted ID, or for an un-merge the target, which
 may be an existing subject whose entry the write then replaces. The store
 does not canonicalize a subject in a key through merges. A segment that
 starts with `new:` and isn't a declared ref makes the `ChangeSet` invalid,
-as an unknown ref in a `subject_id` field does, and nothing is written. So
-the resolver can key what it remembers about a subject by the subject's ID
-in the event that creates it. A ref used in a key MUST NOT contain `/`. The
+as an unknown ref in a `subject_id` field does, and nothing is written. Two
+keys that become one after substitution are refused as a repeat. So the
+resolver can key what it remembers, or an issue it reports, about a subject
+by the subject's ID in the event that creates it. A ref used in a key MUST NOT contain `/`. The
 resolver MUST percent-encode `%`, `/` and `:` (as `%25`, `%2F` and `%3A`) in
 any source-supplied text it puts in a key, so that only a subject segment
 can be a ref and two different texts never share a key.

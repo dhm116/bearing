@@ -114,7 +114,7 @@
       "properties": {
         "key": {
           "default": "",
-          "description": "The resolver's key for the issue, e.g. its type and subjects.",
+          "description": "The resolver's key for the issue, e.g. its type and subjects. The store\n substitutes refs in it as in a state entry's key (docs/spec/contracts.md,\n \"State keys\").",
           "type": "string"
         },
         "spans": {

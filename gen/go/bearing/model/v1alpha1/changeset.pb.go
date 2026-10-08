@@ -955,7 +955,9 @@ func (x *IssueSpan) GetValidTo() *timestamppb.Timestamp {
 // IssueTimeline is the complete timeline of one data-quality issue.
 type IssueTimeline struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The resolver's key for the issue, e.g. its type and subjects.
+	// The resolver's key for the issue, e.g. its type and subjects. The store
+	// substitutes refs in it as in a state entry's key (docs/spec/contracts.md,
+	// "State keys").
 	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	// Spans that don't overlap in valid time.
 	Spans         []*IssueSpan `protobuf:"bytes,2,rep,name=spans,proto3" json:"spans,omitempty"`

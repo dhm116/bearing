@@ -147,7 +147,7 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if err := s.resolveRefs(cs.ProtoReflect(), entry.GetSubjects()); err != nil {
 		return res, err
 	}
-	if err := resolveStateKeys(cs.GetState(), entry.GetSubjects()); err != nil {
+	if err := resolveKeys(cs, entry.GetSubjects()); err != nil {
 		return res, err
 	}
 	aliases := map[string]bool{}
@@ -371,23 +371,36 @@ func (s *Store) resolveRefs(m protoreflect.Message, refs map[string]string) erro
 	return err
 }
 
-// resolveStateKeys replaces every "/"-separated segment of a state key that
-// is a ref with its subject, so the resolver can key its entries by subjects
-// the same ChangeSet mints.
-func resolveStateKeys(entries []*modelv1alpha1.StateEntry, refs map[string]string) error {
-	for _, e := range entries {
-		segs := strings.Split(e.GetKey(), "/")
-		for i, seg := range segs {
-			if !strings.HasPrefix(seg, refPrefix) {
-				continue
-			}
-			id, ok := refs[seg]
-			if !ok {
-				return fmt.Errorf("state entry %s: ref %s names no mint or unmerge", e.GetKey(), seg)
-			}
-			segs[i] = id
+// resolveKey replaces every "/"-separated segment of a state entry's or an
+// issue timeline's key that is a ref with its subject, so the resolver can key
+// what it remembers or reports by subjects the same ChangeSet mints.
+func resolveKey(what, key string, refs map[string]string) (string, error) {
+	segs := strings.Split(key, "/")
+	for i, seg := range segs {
+		if !strings.HasPrefix(seg, refPrefix) {
+			continue
 		}
-		e.Key = strings.Join(segs, "/")
+		id, ok := refs[seg]
+		if !ok {
+			return "", fmt.Errorf("%s %s: ref %s names no mint or unmerge", what, key, seg)
+		}
+		segs[i] = id
+	}
+	return strings.Join(segs, "/"), nil
+}
+
+// resolveKeys resolves the keys of a ChangeSet's state entries and issue
+// timelines in place.
+func resolveKeys(cs *modelv1alpha1.ChangeSet, refs map[string]string) (err error) {
+	for _, e := range cs.GetState() {
+		if e.Key, err = resolveKey("state entry", e.GetKey(), refs); err != nil {
+			return err
+		}
+	}
+	for _, it := range cs.GetIssues() {
+		if it.Key, err = resolveKey("issue timeline", it.GetKey(), refs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
