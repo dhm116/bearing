@@ -1,0 +1,24 @@
+$ bearing related github:team/acme/platform --predicate approves_changes
+
+relations of Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]
+as of now, as known now
+
+from this subject
+  none
+
+to this subject
+  payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]: asserted 100% valid from 2026-10-02T08:30:00Z
+    github-acme: 100%, observed 2026-10-02T08:30:00Z, event github-acme/delivery-0002/1 adapter github
+      valid from 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
+      evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
+      qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
+  web [Repository 01a0e5a2-15c2-7000-8000-000000000000] approves_changes Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/3 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.002Z
+      evidence https://github.com/acme/web/blob/main/CODEOWNERS
+      qualifier {"file":"CODEOWNERS","line":1,"pattern":"*"}
+  handbook [Repository 01a0e5a2-15c3-7000-8000-000000000000] approves_changes Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]: asserted 100% valid from 2026-09-28T01:30:00Z
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/4 adapter github
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.003Z
+      evidence https://github.com/acme/handbook/blob/main/docs/CODEOWNERS
+      qualifier {"file":"docs/CODEOWNERS","line":1,"pattern":"/guides/"}

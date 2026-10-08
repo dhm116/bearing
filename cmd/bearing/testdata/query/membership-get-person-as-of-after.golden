@@ -1,0 +1,23 @@
+$ bearing get authentik:username/lfischer --as-of 2026-11-02T00:00:00Z
+
+Lena Fischer [Person 01a0fb32-b704-7000-8000-000000000000]
+as of 2026-11-02T00:00:00Z, as known now
+status active, minted 2026-10-02T06:00:00.004Z by event authentik-acme/feed-1/5
+
+keys
+  authentik:user/9e8d7c6b-5a49-4382-b716-05f4e3d2c1b0
+  authentik:username/lfischer
+
+facts
+  email lfischer@acme.example: asserted 100% valid from 2026-10-02T06:00:00Z
+    authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/5 adapter authentik
+      valid from 2026-10-02T06:00:00Z, recorded 2026-10-02T06:00:00.004Z
+      evidence https://auth.acme.example/if/admin/#/identity/users/46
+  exists true: asserted 100% valid from 2026-10-02T06:00:00Z
+    authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/5 adapter authentik
+      valid from 2026-10-02T06:00:00Z, recorded 2026-10-02T06:00:00.004Z
+      evidence https://auth.acme.example/if/admin/#/identity/users/46
+  name Lena Fischer: asserted 100% valid from 2026-10-02T06:00:00Z
+    authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/5 adapter authentik
+      valid from 2026-10-02T06:00:00Z, recorded 2026-10-02T06:00:00.004Z
+      evidence https://auth.acme.example/if/admin/#/identity/users/46

@@ -1,0 +1,17 @@
+$ bearing related authentik:group_name/engineering --predicate member_of --as-of 2026-11-02T00:00:00Z
+
+relations of engineering [Team 01a0fb32-b705-7000-8000-000000000000]
+as of 2026-11-02T00:00:00Z, as known now
+
+from this subject
+  none
+
+to this subject
+  payments [Team 01a0fb32-b705-7000-8000-000000000001] member_of engineering [Team 01a0fb32-b705-7000-8000-000000000000]: asserted 100% valid from 2026-10-02T06:00:00Z
+    authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/6 adapter authentik
+      valid from 2026-10-02T06:00:00Z, recorded 2026-10-02T06:00:00.005Z
+      evidence https://auth.acme.example/if/admin/#/identity/groups/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13
+  platform [Team 01a0fb32-b705-7000-8000-000000000002] member_of engineering [Team 01a0fb32-b705-7000-8000-000000000000]: asserted 100% valid from 2026-10-02T06:00:00Z
+    authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/6 adapter authentik
+      valid from 2026-10-02T06:00:00Z, recorded 2026-10-02T06:00:00.005Z
+      evidence https://auth.acme.example/if/admin/#/identity/groups/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13

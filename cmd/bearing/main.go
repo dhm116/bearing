@@ -1,8 +1,19 @@
-// Command bearing is the Bearing developer CLI. For now it helps adapter
-// authors run and check adapters:
+// Command bearing is the Bearing developer CLI. It helps adapter authors run
+// and check adapters:
 //
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
+//
+// and reads the graph store directly to answer questions about what Bearing
+// knows, with the source, event, confidence and observed time of each fact:
+//
+//	bearing get <subject>
+//	bearing owner <repo>
+//	bearing related <subject>
+//	bearing changes --since <time> [<subject>]
+//
+// Each takes --store (or $BEARING_STORE) and --as-of; run one with -h for its
+// flags. A subject is a subject ID or a key such as github:repo/acme/payments.
 package main
 
 import (
@@ -15,7 +26,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
@@ -27,6 +37,10 @@ import (
 const usage = `usage:
   bearing adapter describe -- <adapter command> [args]
   bearing adapter sync [--config cfg.json] [--max-pages N] -- <adapter command> [args]
+  bearing get <subject> [--store URL] [--as-of T] [--recorded-at T] [--json]
+  bearing owner <repo> [--store URL] [--as-of T] [--recorded-at T] [--json]
+  bearing related <subject> [--predicate P] [--store URL] [--as-of T] [--recorded-at T] [--json]
+  bearing changes --since T [<subject>] [--axis valid|record] [--store URL] [--as-of T] [--json]
 `
 
 // version is the CLI version, set at build time with -ldflags.
@@ -54,14 +68,7 @@ func mainCode() int {
 	}
 
 	// One span per invocation, named after the subcommand, e.g. "bearing adapter sync".
-	name := "bearing"
-	for _, a := range os.Args[1:] {
-		if strings.HasPrefix(a, "-") || len(strings.Fields(name)) == 3 {
-			break
-		}
-		name += " " + a
-	}
-	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, name)
+	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, spanName(os.Args[1:]))
 	defer span.End()
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
@@ -75,10 +82,29 @@ func mainCode() int {
 
 var errUsage = errors.New("see usage above")
 
+// spanName names the span of an invocation: the command and, for adapter,
+// its subcommand. Arguments such as a subject never go in it.
+func spanName(args []string) string {
+	switch {
+	case len(args) >= 2 && args[0] == "adapter":
+		return "bearing adapter " + args[1]
+	case len(args) >= 1 && isQueryCommand(args[0]):
+		return "bearing " + args[0]
+	}
+	return "bearing"
+}
+
 func run(ctx context.Context, args []string, stdout io.Writer) error {
+	return runWith(ctx, defaultQueryEnv(), args, stdout)
+}
+
+func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
 		return errUsage
+	}
+	if isQueryCommand(args[0]) {
+		return queryCmd(ctx, env, args[0], args[1:], stdout)
 	}
 	switch args[0] {
 	case "adapter":

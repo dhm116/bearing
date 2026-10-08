@@ -1,0 +1,31 @@
+$ bearing changes github:team/acme/reliability --since 2026-10-03T00:00:00Z
+
+changes of Reliability [Team 01a0e5a2-15c3-7000-8000-000000000001] from 2026-10-03T00:00:00Z to now, valid axis
+
+Reliability [Team 01a0e5a2-15c3-7000-8000-000000000001] name SRE
+  asserted 100% to none 0%
+  before
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/15 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-03T10:00:00Z, recorded 2026-10-03T10:00:00Z
+      evidence https://github.com/orgs/acme/teams/sre
+
+Reliability [Team 01a0e5a2-15c3-7000-8000-000000000001] name Reliability
+  none 0% to asserted 100%
+  after
+    github-acme: 100%, observed 2026-10-03T10:00:00Z, event github-acme/delivery-0003/1 adapter github
+      valid from 2026-10-03T10:00:00Z, recorded 2026-10-03T10:00:00Z
+      evidence https://github.com/orgs/acme/teams/reliability
+
+Reliability [Team 01a0e5a2-15c3-7000-8000-000000000001] slug reliability
+  none 0% to asserted 100%
+  after
+    github-acme: 100%, observed 2026-10-03T10:00:00Z, event github-acme/delivery-0003/1 adapter github
+      valid from 2026-10-03T10:00:00Z, recorded 2026-10-03T10:00:00Z
+      evidence https://github.com/orgs/acme/teams/reliability
+
+Reliability [Team 01a0e5a2-15c3-7000-8000-000000000001] slug sre
+  asserted 100% to none 0%
+  before
+    github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/15 adapter github
+      valid 2026-09-28T01:30:00Z until 2026-10-03T10:00:00Z, recorded 2026-10-03T10:00:00Z
+      evidence https://github.com/orgs/acme/teams/sre
