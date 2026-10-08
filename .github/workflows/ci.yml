@@ -11,14 +11,17 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       # internal/surrealstore and pkg/store run their SurrealDB suites against
-      # the container started below. The credentials only guard a throwaway
-      # in-memory database on the runner.
+      # the container started below. The root credentials only guard a
+      # throwaway in-memory database on the runner, and the suites use them
+      # to provision a database-scoped user per test database and then run
+      # as that user (C-STORE-2).
       BEARING_TEST_SURREALDB: ws://127.0.0.1:8000
       BEARING_TEST_SURREALDB_USER: root
       BEARING_TEST_SURREALDB_PASS: root
+      BEARING_TEST_SURREALDB_SCOPED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,12 +38,15 @@ jobs:
             tools/go.sum
 
       # A step rather than a `services:` container because services can't
-      # pass arguments to the image, and SurrealDB needs `start`.
+      # pass arguments to the image, and SurrealDB needs `start`. Network
+      # access from queries, scripting and guest access are off, as the
+      # threat model requires of a deployment (C-STORE-4).
       - name: Start SurrealDB
         run: |
           docker run --detach --name surrealdb --publish 127.0.0.1:8000:8000 \
             surrealdb/surrealdb:v3.3.0@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20 \
-            start --bind 0.0.0.0:8000 --user "$BEARING_TEST_SURREALDB_USER" --pass "$BEARING_TEST_SURREALDB_PASS" memory
+            start --bind 0.0.0.0:8000 --user "$BEARING_TEST_SURREALDB_USER" --pass "$BEARING_TEST_SURREALDB_PASS" \
+            --deny-net --deny-scripting --deny-guests memory
           for i in $(seq 30); do
             curl --silent --fail http://127.0.0.1:8000/health && exit 0
             sleep 1

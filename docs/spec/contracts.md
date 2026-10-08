@@ -7,7 +7,7 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (PR #78; in-memory until it merges) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (`mem://` for tests) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
@@ -40,9 +40,9 @@ In a vector index, a point's kind is its `kind` payload field, which
 `VectorQuery.Kinds` filters on. When subjects merge, the core calls
 `Repoint` to move the merged subject's points to the survivor.
 
-Until PR #78 merges, the SurrealDB backend serves only `VectorIndex`: opening
-a SurrealDB URL as the graph fails with "not implemented until issue #44".
-Use `mem://` for the graph meanwhile.
+The SurrealDB backend serves both `GraphStore` and `VectorIndex`: a
+SurrealDB store URL opens as either. It keeps the graph as rows and runs each
+operation on the reference store's rules (see `internal/surrealstore`).
 
 Beyond Go interfaces, components that run as separate services expose the
 same operations over a network protocol (gRPC or HTTP+JSON), so a backend can
@@ -336,4 +336,4 @@ every time and in every backend:
 [`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
 and `VectorIndex` and shows the pattern.
 [`internal/surrealstore`](../../internal/surrealstore) passes the
-`VectorIndex` suite; its `GraphStore` lands in PR #78.
+`VectorIndex` and `GraphStore` suites.

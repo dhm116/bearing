@@ -1,7 +1,16 @@
-// Package surrealstore backs VectorIndex, and from issue #44 GraphStore,
-// with one SurrealDB database. Vectors live in an HNSW index. The v0.3
-// GraphStore (docs/spec/contracts.md) is not implemented here yet:
-// pkg/store refuses to open a SurrealDB graph with ErrGraphNotImplemented.
+// Package surrealstore backs GraphStore and VectorIndex with one SurrealDB
+// database. Vectors live in an HNSW index. The graph is stored as rows (see
+// migrate.go) that every operation reads and writes through whole
+// transactions: Apply is one SurrealQL transaction that checks the head and
+// the processed-event mark and then writes, so a failed apply writes nothing
+// and concurrent applies cannot both land on one head.
+//
+// The rules of the data model (checks, canonicalization through merges,
+// ordering) are not written a second time here. Each operation loads the
+// rows it needs into a scratch memstore.Store, the reference
+// implementation, runs the operation there and writes back what changed, so
+// SurrealDB can differ from the reference only in how it stores rows. The
+// conformance suite checks that it does not.
 //
 // The store talks to SurrealDB through a Querier, so the same code runs
 // against a SurrealDB server (pure Go, see Dial) or an embedded engine
@@ -10,12 +19,17 @@ package surrealstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"bearing.example/internal/memstore"
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/model"
 )
 
 // Querier runs SurrealQL. It returns one value per statement and fails if
@@ -25,33 +39,41 @@ type Querier interface {
 	Close(ctx context.Context) error
 }
 
-// ErrGraphNotImplemented is returned for a SurrealDB GraphStore until the
-// v0.3 contract lands here.
-var ErrGraphNotImplemented = errors.New("the SurrealDB GraphStore is not implemented until issue #44; use mem:// for the graph")
-
-// Store implements contracts.VectorIndex.
+// Store implements contracts.GraphStore and contracts.VectorIndex.
 type Store struct {
+	// Now is the store's clock and IDs its subject ID source. Set them
+	// before first use; New fills real defaults.
+	Now func() time.Time
+	IDs memstore.IDSource
+	// NewID names an apply attempt; New fills a random one.
+	NewID func() string
+
+	// maxMerges caps the merge table an operation loads; New sets
+	// DefaultMaxMerges and tests lower it.
+	maxMerges int
+
 	q Querier
+
+	// afterStage, set by tests, runs between a large apply's staging and its
+	// commit.
+	afterStage func()
 
 	mu  sync.Mutex
 	dim int // vector dimension, fixed by the first Upsert
 }
 
-var _ contracts.VectorIndex = (*Store)(nil)
-
-// schema is idempotent and runs every time a store opens.
-const schema = `
-DEFINE TABLE IF NOT EXISTS vector SCHEMALESS;
-DEFINE INDEX IF NOT EXISTS vector_subject ON vector FIELDS subject;
-`
+var (
+	_ contracts.VectorIndex = (*Store)(nil)
+	_ contracts.GraphStore  = (*Store)(nil)
+)
 
 // New prepares the schema and returns a store that uses q. The store owns q
 // and closes it on Close.
 func New(ctx context.Context, q Querier) (*Store, error) {
-	if _, err := q.Query(ctx, schema, nil); err != nil {
-		return nil, fmt.Errorf("surrealstore: define schema: %w", err)
+	if err := migrate(ctx, q); err != nil {
+		return nil, fmt.Errorf("surrealstore: migrate: %w", err)
 	}
-	s := &Store{q: q}
+	s := &Store{q: q, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), NewID: randomToken, maxMerges: DefaultMaxMerges}
 	// Reuse the vector dimension from an earlier run, if there is one.
 	res, err := q.Query(ctx, `SELECT VALUE array::len(vector) FROM vector LIMIT 1`, nil)
 	if err != nil {
@@ -200,3 +222,12 @@ func nonNil(m map[string]any) map[string]any {
 // ErrEmbeddedUnavailable is returned by OpenEmbedded in binaries built
 // without the surrealembed tag.
 var ErrEmbeddedUnavailable = errors.New("this build has no embedded SurrealDB; rebuild with -tags surrealembed (needs CGO and libsurrealdb_c) or connect to a SurrealDB server")
+
+// randomToken returns 128 random bits as hex.
+func randomToken() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("surrealstore: read random bits: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}

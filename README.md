@@ -44,7 +44,7 @@ keeps the adapters that fetch it small.
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
 | [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
-| [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation |
+| [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation; also the rule engine the SurrealDB backend runs on |
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |

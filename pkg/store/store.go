@@ -12,9 +12,10 @@
 //	surrealkv:///var/lib/bearing           Embedded SurrealDB on disk (surrealembed builds)
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
 //
-// SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main).
-// Until issue #44 a SurrealDB URL serves only vectors: opening it as the
-// graph fails with surrealstore.ErrGraphNotImplemented.
+// SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main)
+// and ?auth=database, which signs in as a database-scoped user of that
+// namespace and database instead of a root user (C-STORE-2). The namespace,
+// database and user must exist; surrealstore.Provision creates them.
 // The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
 // carries one, so it never ends up in config files, process lists or logs.
 package store
@@ -85,10 +86,6 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Vectors == "" {
 		c.Vectors = c.Graph
 	}
-	// Refused before dialling: a SurrealDB graph can't serve until #44.
-	if u, err := parseURL(c.Graph); err == nil && (strings.HasPrefix(u.Scheme, "surrealdb+") || u.Scheme == "surrealkv") {
-		return nil, fmt.Errorf("store: %w", surrealstore.ErrGraphNotImplemented)
-	}
 	s := &Store{}
 	g, err := open(ctx, c.Graph, c.Getenv)
 	if err != nil {
@@ -125,8 +122,16 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	if v := u.Query().Get("db"); v != "" {
 		db = v
 	}
+	scoped := false
+	switch u.Query().Get("auth") {
+	case "", "root":
+	case "database":
+		scoped = true
+	default:
+		return backend{}, fmt.Errorf("store: %s URL has an unknown auth value; use auth=root or auth=database", safeName(u))
+	}
 	surreal := func(st *surrealstore.Store) backend {
-		return backend{name: "surrealdb", vector: st, close: st.Close}
+		return backend{name: "surrealdb", graph: st, vector: st, close: st.Close}
 	}
 
 	switch scheme := u.Scheme; {
@@ -135,6 +140,9 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		return backend{name: "memory", graph: m, vector: m, close: func(context.Context) error { return nil }}, nil
 
 	case scheme == "surrealdb+mem", scheme == "surrealkv":
+		if scoped {
+			return backend{}, fmt.Errorf("store: %s URL: auth=database applies to a server, not an embedded engine", u.Scheme)
+		}
 		endpoint := "mem://"
 		if scheme == "surrealkv" {
 			endpoint = "surrealkv://" + u.Host + u.Path
@@ -149,7 +157,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		if u.Host == "" {
 			return backend{}, fmt.Errorf("store: %s URL names no server host", u.Scheme)
 		}
-		o := surrealstore.ServerOptions{Namespace: ns, Database: db}
+		o := surrealstore.ServerOptions{Namespace: ns, Database: db, Scoped: scoped}
 		if u.User != nil {
 			o.Username = u.User.Username()
 			o.Password = getenv(PasswordEnv)

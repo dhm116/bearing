@@ -71,7 +71,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/store` | Opens graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, `surrealkv://`, …). |
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
 | `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
-| `internal/memstore` | In-memory reference backend for both contracts. |
+| `internal/memstore` | In-memory reference backend for both contracts, and the rule engine other backends run their operations on (`surrealstore` loads rows into a scratch `memstore.Store`). Production code. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |

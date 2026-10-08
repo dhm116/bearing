@@ -14,7 +14,7 @@ PROTO_TOOLS := $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_JSONSCHEMA)
 # GitHub pull request that is the PR's base branch.
 COVER_BASE ?= origin/$(or $(GITHUB_BASE_REF),main)
 COVER_MIN ?= 80
-COVER_TEST := go test -count=1 -coverpkg=./... -coverprofile
+COVER_TEST := go test -count=1 -timeout 20m -coverpkg=./... -coverprofile
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
 # skipping it.
 COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)

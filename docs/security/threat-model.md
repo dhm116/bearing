@@ -648,16 +648,26 @@ Assets: A1, A3, A4, A5, A6.
   store URL that contains a password is rejected at start. Store errors
   name a server only by scheme and host, never its path or query.
 - **C-STORE-2** Bearing connects as a database-scoped user, never root or a
-  namespace user.
+  namespace user. `surrealstore.Provision` creates that user (EDITOR on one
+  database) and a store URL with `?auth=database` signs in as it; CI runs
+  the SurrealDB suites that way. The database-scoped user is the supported
+  setup; `auth=root` is the development default and is not supported for a
+  deployment. The default flips in the change that adds compose provisioning.
 - **C-STORE-3** The compose deployment generates a random SurrealDB password
   on first start into a secrets file (mode 0600), passes it as a Docker
   secret, and does not publish the SurrealDB port. The store secret is
   mounted outside the Source secrets directory.
 - **C-STORE-4** SurrealDB runs with network access from functions and
-  embedded scripting denied, and with guest access off.
+  embedded scripting denied, and with guest access off (`--deny-net
+  --deny-scripting --deny-guests`). The CI server runs that way, and a test
+  checks that a scoped user cannot reach another database.
 - **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
   driver forces inlining (the embedded driver's arrays of objects, ADR 5),
-  one escaping function does it, covered by fuzz tests.
+  one escaping function does it, covered by fuzz tests. Namespace, database
+  and user names cannot be parameters in `DEFINE`, so they must match
+  `^[A-Za-z0-9_.-]{1,64}$` before they are quoted into a statement (escaping
+  alone is not enough); a name that does not match is refused without being
+  repeated in the error.
 - **C-STORE-6** Store connections use TLS (`wss`, `https`). Plaintext to a
   non-loopback host requires `insecure_store_plaintext`. Compose sets it for
   its internal network, with no published port, so `bearing status` shows
@@ -697,7 +707,20 @@ Assets: A1, A3, A4, A5, A6.
   timelines, all changed. Merge records, which carry both alias sets, are
   refused as soon as together they pass the byte limit, and a record that
   grows past it when recorded is refused too. A limit error quotes at most
-  64 bytes of the input.
+  64 bytes of the input. **Known exception:** the "MUST" above is met by
+  the reference store and not yet by the SurrealDB backend. Its Apply and
+  every read load every merge record, with both alias sets, and every
+  conflict retry loads them again; they also load the whole history of each
+  series they touch. Its other tables are loaded by key, predicate or
+  subject, except that an unfiltered `Supports`, `AsOf`, `Changes` or
+  `DataQuality` loads every series of its table. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
+  operations fail with `ErrTooManyMerges`, an error that names #81, instead
+  of stalling. Loading only the merge components of the subjects a ChangeSet
+  names is tracked in #81 and measured in the M3 benchmark (#27).
+- **C-STORE-10** `internal/memstore`'s rule engine is trusted production
+  code. The SurrealDB backend runs every operation on it (rows are loaded
+  into a scratch store and the delta written back), so a flaw in it is a
+  flaw in every backend built on it, and changes to it are reviewed as store changes.
 
 ### B7. Operators and configuration
 

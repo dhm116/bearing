@@ -3,14 +3,13 @@ package store
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
-	"sync/atomic"
 	"testing"
+	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/surrealstore"
@@ -33,23 +32,6 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1}, Limit: 1})
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("got %v, %v", hits, err)
-	}
-}
-
-// Until #44 a SurrealDB graph is refused before anything is dialled or
-// opened.
-func TestOpenRefusesASurrealGraphWithoutConnecting(t *testing.T) {
-	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
-	defer srv.Close()
-	host := strings.TrimPrefix(srv.URL, "http://")
-	for _, graph := range []string{"surrealdb+ws://" + host, "surrealdb+http://" + host, "surrealkv:///nowhere", "surrealdb+mem://"} {
-		if _, err := Open(context.Background(), Config{Graph: graph}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
-			t.Errorf("%s: got %v, want ErrGraphNotImplemented", graph, err)
-		}
-	}
-	if n := hits.Load(); n != 0 {
-		t.Fatalf("got %d requests to the server, want none", n)
 	}
 }
 
@@ -158,8 +140,7 @@ func TestOpenRejectsMalformedServerURLs(t *testing.T) {
 		{"another unknown scheme", "qdrant://root@db/hunter2?key=hunter2", "unsupported URL scheme"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// As the vector index: a SurrealDB graph is refused before its
-			// URL is looked at (TestOpenRefusesASurrealGraphWithoutConnecting).
+			// As the vector index, so the graph URL is not what fails.
 			cfg := Config{Graph: "mem://", Vectors: tc.url, Getenv: func(string) string { return "" }}
 			s, err := Open(context.Background(), cfg)
 			if err == nil {
@@ -171,6 +152,27 @@ func TestOpenRejectsMalformedServerURLs(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "hunter2") {
 				t.Errorf("error %q repeats a secret from the URL", err)
+			}
+		})
+	}
+}
+
+func TestOpenRejectsUnknownAuthLevels(t *testing.T) {
+	_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: "surrealdb+ws://localhost:8000?auth=hunter2"})
+	if err == nil || !strings.Contains(err.Error(), "unknown auth value") || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("got %v, want an error about the auth value that does not repeat it", err)
+	}
+}
+
+func TestOpenRefusesDatabaseAuthWithoutAUserOrOnAnEmbeddedEngine(t *testing.T) {
+	for name, url := range map[string]string{
+		"no user":  "surrealdb+ws://127.0.0.1:1?auth=database",
+		"embedded": "surrealdb+mem://?auth=database",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Open(context.Background(), Config{Graph: "mem://", Vectors: url})
+			if err == nil || errors.Is(err, surrealstore.ErrEmbeddedUnavailable) {
+				t.Fatalf("got %v, want a refusal of auth=database", err)
 			}
 		})
 	}
@@ -194,22 +196,47 @@ func TestOpenSurrealServer(t *testing.T) {
 	if addr == "" {
 		t.Skip("set BEARING_TEST_SURREALDB")
 	}
-	u, err := url.Parse("surrealdb+" + addr + "?ns=bearing_test&db=store_open")
+	user, pass := os.Getenv("BEARING_TEST_SURREALDB_USER"), os.Getenv("BEARING_TEST_SURREALDB_PASS")
+	query := "?ns=bearing_test&db=store_open"
+	if os.Getenv("BEARING_TEST_SURREALDB_SCOPED") != "" {
+		// Run as a database-scoped user, as a deployment does (C-STORE-2);
+		// the root credentials only provision it.
+		scoped := fmt.Sprintf("scoped%d", time.Now().UnixNano())
+		err := surrealstore.Provision(context.Background(), surrealstore.ProvisionOptions{
+			URL: addr, Namespace: "bearing_test", Database: scoped,
+			AdminUsername: user, AdminPassword: pass, Username: "bearing", Password: scoped,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		user, pass, query = "bearing", scoped, "?auth=database&ns=bearing_test&db="+scoped
+	}
+	u, err := url.Parse("surrealdb+" + addr + query)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user := os.Getenv("BEARING_TEST_SURREALDB_USER"); user != "" {
+	if user != "" {
 		u.User = url.User(user)
 	}
 	getenv := func(k string) string {
 		if k == PasswordEnv {
-			return os.Getenv("BEARING_TEST_SURREALDB_PASS")
+			return pass
 		}
 		return ""
 	}
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv}); !errors.Is(err, surrealstore.ErrGraphNotImplemented) {
-		t.Fatalf("got %v, want ErrGraphNotImplemented until #44", err)
+	g, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, g)
+	// The SurrealDB graph applies a ChangeSet and reports its head.
+	res, err := g.Graph.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "store-open", Mints: []*modelv1alpha1.Mint{{Ref: "new:t", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head, err := g.Graph.Head(ctx); err != nil || !head.Equal(res.RecordedAt) {
+		t.Fatalf("got head %v, %v, want %v", head, err, res.RecordedAt)
 	}
 	s, err := Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})
 	if err != nil {
