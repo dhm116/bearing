@@ -1,0 +1,11 @@
+$ bearing owner acme/ops-scripts --as-of 2026-10-04T00:00:00Z
+
+owners of ops-scripts [Repository 01a0e5a2-15c0-7000-8000-000000000000]
+as of 2026-10-04T00:00:00Z, as known now
+
+Legacy Ops [Team 01a0e5a2-15c0-7000-8000-000000000001]
+  asserted 95% valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z
+  core/derive/codeowners/github-acme: 95%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/1
+    valid 2026-09-28T01:30:00Z until 2026-10-05T15:00:00Z, recorded 2026-10-05T15:00:00Z
+    evidence https://github.com/acme/ops-scripts/blob/main/.github/CODEOWNERS
+    qualifier {"file":".github/CODEOWNERS","line":1,"pattern":"*"}

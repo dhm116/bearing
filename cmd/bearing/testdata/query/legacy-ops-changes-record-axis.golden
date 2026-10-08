@@ -10,6 +10,14 @@ ops-scripts [Repository 01a0e5a2-15c0-7000-8000-000000000000] approves_changes g
       evidence https://github.com/acme/ops-scripts/blob/main/.github/CODEOWNERS
       qualifier {"file":".github/CODEOWNERS","line":1,"pattern":"*"}
 
+ops-scripts [Repository 01a0e5a2-15c0-7000-8000-000000000000] owned_by github:team/acme/legacy-ops [Team 01a0e5a2-15c0-7000-8000-000000000001]
+  asserted 95% to none 0%
+  before
+    core/derive/codeowners/github-acme: 95%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/1
+      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00Z
+      evidence https://github.com/acme/ops-scripts/blob/main/.github/CODEOWNERS
+      qualifier {"file":".github/CODEOWNERS","line":1,"pattern":"*"}
+
 github:team/acme/legacy-ops [Team 01a0e5a2-15c0-7000-8000-000000000001] description Operations, before the platform team
   asserted 100% to none 0%
   before

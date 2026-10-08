@@ -25,8 +25,11 @@ import (
 const (
 	githubSource    = "github-acme"
 	directorySource = "authentik-acme"
-	testToken       = "test-token"
-	testSecret      = "test-secret"
+	// codeownersSource is what the resolver names the owned_by it derives from
+	// githubSource's CODEOWNERS.
+	codeownersSource = "core/derive/codeowners/" + githubSource
+	testToken        = "test-token"
+	testSecret       = "test-secret"
 )
 
 // world is the fictional org read into an in-memory store the way the core
