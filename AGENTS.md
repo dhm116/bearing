@@ -106,10 +106,12 @@ new ADR.
    against their source. WASM adapters never hold credentials; the host
    injects them. The host verifies webhook signatures before a delivery is
    logged, with one verifier per signature scheme that the adapter's
-   manifest declares, and WASM adapters never see webhook secrets. Ingest
-   stays off until that verifier exists; until then the adapter's own
-   verification is the check (ADR 9 A15). Adapters never
-   resolve identities across systems. That is the core's job.
+   manifest will declare (field tracked in
+   [#58](https://github.com/dhm116/bearing/issues/58)), and WASM adapters
+   never see webhook secrets. Ingest stays off until that verifier exists;
+   until then the adapter's own verification is the check (ADR 9 A15).
+   Adapters never resolve identities across systems. That is the core's
+   job.
 3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
    included) rather than competing with them. Keep adapters small and
    focused on useful data types.

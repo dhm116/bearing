@@ -27,16 +27,18 @@ the MVP plan already rely on.
 - **Bearing never mints, issues, refreshes or stores credentials.** There
   are no local users, passwords or API keys (C-IDP-4). It validates what an
   identity provider issued and nothing more.
-- **Remote access is OIDC.** The TCP API listener is off by default and refuse to start unless an OIDC issuer is configured; there is
-  no setting for unauthenticated access, apart from the health endpoints,
-  which return no data (C-API-2). Bearing verifies bearer
-  access tokens against the issuer's JWKS (C-IDP-1, C-IDP-2). People sign
-  in at the identity provider, and agents and automation use its client
-  credentials flow.
+- **Remote access is OIDC.** The TCP API listener is off by default and
+  refuses to start unless an OIDC issuer is configured; there is no
+  setting for unauthenticated access, apart from the health endpoints,
+  which return no data (C-API-2). MCP over HTTP likewise requires OIDC
+  (C-MCP-3). Bearing verifies bearer access tokens against the issuer's
+  JWKS (C-IDP-1, C-IDP-2). People sign in at the identity provider, and
+  agents and automation use its client credentials flow.
 - **Local access is a Unix socket** in a private directory, readable only by
   the service user. The server accepts only the service user's UID and root,
-  and an accepted local caller is an administrator recorded as `local:<uid>` (C-API-1). The
-  socket keeps working when the identity provider is down.
+  and an accepted local caller is an administrator recorded as
+  `local:<uid>` (C-API-1). The socket keeps working when the identity
+  provider is down.
 - **Roles come from the identity provider.** Only the configured groups
   claim, or the client ID for a client-credentials token, maps to a role
   (C-IDP-3). The roles are `read`, `ingest` (for named Sources) and `admin`;

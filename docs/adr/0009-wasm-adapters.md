@@ -187,9 +187,10 @@ still unproven. Control IDs refer to the
   must be verified under the fake wall clock (an A12 case) before the
   profile is final. Any import outside the profile fails the load. If
   Extism is used, its own HTTP, config, var and path host functions are
-  disabled (`allowed_hosts` and `allowed_paths` empty), so a guest reaches the network, configuration and files only
-  through `bearing_call` and its grant (C-ADAPTER-1), and Bearing refuses
-  to start with `EXTISM_ENABLE_WASI_OUTPUT` set.
+  disabled (`allowed_hosts` and `allowed_paths` empty), so a guest reaches
+  the network, configuration and files only through `bearing_call` and its
+  grant (C-ADAPTER-1), and Bearing refuses to start with
+  `EXTISM_ENABLE_WASI_OUTPUT` set.
 - **A9. Limits.** Every guest call runs under a deadline with wazero's
   `CloseOnContextDone` and a memory cap of 64–128 MiB per instance, counted
   across all of its memories (Extism instances have two), plus size caps on
