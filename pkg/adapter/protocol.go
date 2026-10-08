@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -59,6 +60,10 @@ type SyncResult struct {
 	Observations Observations `json:"observations"`
 	NextCursor   string       `json:"next_cursor,omitempty"`
 	Done         bool         `json:"done"`
+	// CompleteSync is set only on the last page (Done): the sync visited
+	// every entity of these kinds the source can see
+	// (docs/spec/data-model.md, "Sync completeness").
+	CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync,omitempty"`
 	// Undecodable describes each observation the client received but could
 	// not decode (an unknown field, a bad enum name), cut to model.MaxQuoted
 	// bytes. UnmarshalJSON sets it; adapters never do.
@@ -71,14 +76,15 @@ type SyncResult struct {
 // decoding used by Handle).
 func (r *SyncResult) UnmarshalJSON(b []byte) error {
 	var wire struct {
-		Observations []json.RawMessage `json:"observations"`
-		NextCursor   string            `json:"next_cursor"`
-		Done         bool              `json:"done"`
+		Observations []json.RawMessage           `json:"observations"`
+		NextCursor   string                      `json:"next_cursor"`
+		Done         bool                        `json:"done"`
+		CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync"`
 	}
 	if err := json.Unmarshal(b, &wire); err != nil {
 		return err
 	}
-	out := SyncResult{NextCursor: wire.NextCursor, Done: wire.Done, Observations: make(Observations, 0, len(wire.Observations))}
+	out := SyncResult{NextCursor: wire.NextCursor, Done: wire.Done, CompleteSync: wire.CompleteSync, Observations: make(Observations, 0, len(wire.Observations))}
 	for i, raw := range wire.Observations {
 		o := &eventv1alpha1.Observation{}
 		if err := model.DecodeJSON(raw, o); err != nil {

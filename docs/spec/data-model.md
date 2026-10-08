@@ -776,9 +776,11 @@ The GitHub adapter reports only the effective CODEOWNERS file (the first
 found of `.github/`, the root and `docs/`, as GitHub looks them up): for
 each rule line and each owner, `(Repository, approves_changes, owner)` at
 1000000 with qualifiers `{ "file", "pattern", "line" }`, a snapshot scope
-over `approves_changes`, and the attribute `github.codeowners_rules`, the
+over `approves_changes`, and the attribute `codeowners_rules` (stored as `github.codeowners_rules`), the
 number of rule lines including those with no owner. Lines naming one owner
-collapse into one fact whose qualifiers list every line.
+collapse into one fact whose qualifiers list every line. A file that exists but
+can't be read in full (binary or truncated) declares no scope, claims
+nothing and leaves `codeowners_rules` unread.
 
 The default configuration's rule `codeowners` reads the file's shape from
 one source's live `approves_changes` supports and `codeowners_rules` for a
@@ -1401,12 +1403,17 @@ artifacts are replaced, not migrated:
   example observations that follow this spec.
 - The default configuration: match weights per kind and method, the `link`
   weight, the `Team` merge threshold, the `codeowners` rule's ppm per shape.
-- `adapters/github`: node IDs as keys with the `X-Github-Next-Global-ID: 1`
-  header, names as aliases, `full_name`; the effective CODEOWNERS file as
-  `approves_changes` with line qualifiers, `codeowners_rules` and snapshot
-  scopes; the reference declaration; send `null`/`[]` for empty
-  attributes; `complete_sync` only after it moves to cursor (GraphQL)
-  paging; `observed_at` per the rules above.
+- `adapters/github`: the reference declaration, sent in `Describe` once the
+  adapter service exists (issue #35). The rest is done: node IDs as keys
+  with the `X-Github-Next-Global-ID: 1` header, names as aliases,
+  `full_name`; the effective CODEOWNERS file as `approves_changes` with line
+  qualifiers, `codeowners_rules` and snapshot scopes; `null` and `[]` for
+  empty attributes; GraphQL cursor paging with `complete_sync`; direct team
+  members only, listed on the team's own observation together with its
+  direct child teams (`member_of` from the child), under one `in` scope;
+  `observed_at` per the rules above. A CODEOWNERS file GitHub returns
+  without its text (binary or truncated) declares no scope. SAML identities (`links`) wait for the people matching that
+  needs them.
 - `pkg/adapter`: the declaration shape in `Describe`, `complete_sync` on
   the last page, the source `namespace`, `issues` and `links` fields; bump
   `adapter.ProtocolVersion`. Reconcile with ADR 9 and PR #26, which retire

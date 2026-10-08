@@ -309,6 +309,30 @@ func TestClientHandleValidatesAndTruncates(t *testing.T) {
 	}
 }
 
+// completer reports complete_sync on its last page.
+type completer struct{ pager }
+
+func (c completer) Sync(ctx context.Context, sp SyncParams) (SyncResult, error) {
+	res, err := c.pager.Sync(ctx, sp)
+	if res.Done {
+		res.CompleteSync = &modelv1alpha1.CompleteSync{Kinds: []string{string(model.KindTeam)}}
+	}
+	return res, err
+}
+
+func TestSyncResultCarriesCompleteSyncOnTheLastPage(t *testing.T) {
+	c := connect(t, completer{pager{n: 2}})
+	cfg := json.RawMessage(`{"prefix":"p"}`)
+	first, err := c.Sync(context.Background(), SyncParams{Config: cfg})
+	if err != nil || first.Done || first.CompleteSync != nil {
+		t.Fatalf("first page: %+v, %v; want not done and no complete_sync", first, err)
+	}
+	last, err := c.Sync(context.Background(), SyncParams{Config: cfg, Cursor: first.NextCursor})
+	if err != nil || !last.Done || last.CompleteSync.GetKinds()[0] != string(model.KindTeam) {
+		t.Fatalf("last page: %+v, %v; want done with complete_sync [Team]", last, err)
+	}
+}
+
 // TestSyncAllSkipsUndecodableObservationsOnTheWire sends a page over the real
 // client with an unknown field on the middle observation: the page and the
 // sync survive, and the summary counts it.

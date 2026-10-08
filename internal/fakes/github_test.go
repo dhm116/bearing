@@ -485,6 +485,34 @@ func TestGitHubGraphQLTeamMembers(t *testing.T) {
 	}
 }
 
+func TestGitHubGraphQLNodeLookups(t *testing.T) {
+	g, o, c := newGitHub(t)
+	repo, _ := o.Repo("payments-api")
+	eng, _ := o.Team("engineering")
+	for _, id := range []string{repo.NodeID(), legacyNodeID("Repository", repo.DatabaseID)} {
+		node := obj(field(gql(t, g, GraphQLQueries["Repository"], map[string]any{"id": id}), "data", "node"))
+		if node["id"] != repo.NodeID() || field(node, "githubCodeowners", "text") != "# Payments service\n* @acme/payments\n" {
+			t.Fatalf("Repository %s = %v", id, node)
+		}
+	}
+	node := obj(field(gql(t, g, GraphQLQueries["Team"], map[string]any{"id": eng.GitHub.NodeID()}), "data", "node"))
+	var children []string
+	for _, ch := range arr(field(node, "childTeams", "nodes")) {
+		children = append(children, str(obj(ch)["slug"]))
+	}
+	if want := []string{"payments", "platform", "sre"}; node["slug"] != "engineering" || !slices.Equal(children, want) {
+		t.Fatalf("Team engineering = %v, children %v, want %v", node, children, want)
+	}
+	c.Set(TeamDeletedAt)
+	legacy, _ := o.Team("legacy-ops")
+	if err := o.DeleteTeam("legacy-ops"); err != nil {
+		t.Fatal(err)
+	}
+	if res := gql(t, g, GraphQLQueries["Team"], map[string]any{"id": legacy.GitHub.NodeID()}); field(res, "data", "node") != nil {
+		t.Fatalf("deleted team: got %v, want a null node", res)
+	}
+}
+
 // str, obj and arr read decoded JSON; a value of another type reads as
 // empty, which the assertions then catch.
 func str(v any) string {
