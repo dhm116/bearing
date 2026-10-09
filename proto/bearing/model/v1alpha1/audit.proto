@@ -1,0 +1,184 @@
+// The audit log's records (ADR 8; docs/spec/data-model.md, "Audit"): the
+// content a writer produces (AuditEntry), the record the log makes of it
+// (AuditRecord) and the checkpoints written outside the store. They live in
+// the model package, beside the ChangeSet that carries entries. Records are
+// not events on the event log; they are written to the AuditLog contract.
+
+syntax = "proto3";
+
+package bearing.model.v1alpha1;
+
+import "bearing/model/v1alpha1/enums.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
+
+// AuditAction is what an audit record says happened. New actions are added
+// as the things that change state grow (ADR 8 names policy decisions and
+// executor actions for later).
+enum AuditAction {
+  // Not set. Rejected in every audit entry.
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  // A subject was minted (rule: the mint rule).
+  AUDIT_ACTION_MINT = 1;
+  // An alias binding was written.
+  AUDIT_ACTION_BINDING_WRITTEN = 2;
+  // An alias binding was released.
+  AUDIT_ACTION_BINDING_RELEASED = 3;
+  // Two subjects were merged (rule: the merge rule).
+  AUDIT_ACTION_MERGE = 4;
+  // Aliases were split off a subject.
+  AUDIT_ACTION_UNMERGE = 5;
+  // A distinct_from was asserted between two subjects.
+  AUDIT_ACTION_DISTINCT_FROM_SET = 6;
+  // A distinct_from was withdrawn.
+  AUDIT_ACTION_DISTINCT_FROM_CLEARED = 7;
+  // One source's claims on a fact were withdrawn by a person.
+  AUDIT_ACTION_CLAIM_WITHDRAWN = 8;
+  // A fact's status changed because of an apply (rule: the status reason).
+  AUDIT_ACTION_FACT_STATUS_CHANGED = 9;
+  // A conflict started standing.
+  AUDIT_ACTION_CONFLICT_OPENED = 10;
+  // A standing conflict closed (rule: the resolution).
+  AUDIT_ACTION_CONFLICT_CLOSED = 11;
+  // A manual override was recorded.
+  AUDIT_ACTION_OVERRIDE_SET = 12;
+  // A manual override was ended.
+  AUDIT_ACTION_OVERRIDE_CLEARED = 13;
+  // An override was flagged because a non-manual support changed.
+  AUDIT_ACTION_OVERRIDE_STALE = 14;
+  // A period's history was replaced by a summary.
+  AUDIT_ACTION_COMPACTION = 15;
+  // A write into a compacted period was dropped; the summary is unchanged.
+  AUDIT_ACTION_COMPACTED_WRITE_DROPPED = 16;
+  // Part of an event was rejected (rejection_code).
+  AUDIT_ACTION_REJECTION = 17;
+  // Configuration resources were created, changed or deleted.
+  AUDIT_ACTION_CONFIG_APPLIED = 18;
+  // A source's declarations changed with its adapter.
+  AUDIT_ACTION_DECLARATION_CHANGED = 19;
+}
+
+// AuditActorKind says what kind of thing acted.
+enum AuditActorKind {
+  // Not set. Rejected in every audit actor.
+  AUDIT_ACTOR_KIND_UNSPECIFIED = 0;
+  // A person.
+  AUDIT_ACTOR_KIND_PERSON = 1;
+  // An agent acting for a person.
+  AUDIT_ACTOR_KIND_AGENT = 2;
+  // A Bearing component, such as the resolver or the scheduler.
+  AUDIT_ACTOR_KIND_SYSTEM = 3;
+}
+
+// AuditTargetKind says what an audit target's id names.
+enum AuditTargetKind {
+  // Not set. Rejected in every audit target.
+  AUDIT_TARGET_KIND_UNSPECIFIED = 0;
+  // A subject: its subject_id. In a ChangeSet's entry the id may be a ref
+  // ("new:<label>") for a subject the same ChangeSet mints; the store
+  // replaces it, and the subject must exist.
+  AUDIT_TARGET_KIND_SUBJECT = 1;
+  // An alias: its key, <namespace>:<key_type>/<external_id>.
+  AUDIT_TARGET_KIND_ALIAS = 2;
+  // A fact: its fact_id.
+  AUDIT_TARGET_KIND_FACT = 3;
+  // A (subject, predicate): "<subject_id>/<predicate>". Conflicts,
+  // overrides and compaction summaries target one.
+  AUDIT_TARGET_KIND_SUBJECT_PREDICATE = 4;
+  // A configured source: its name.
+  AUDIT_TARGET_KIND_SOURCE = 5;
+  // A configuration resource: "<kind>/<name>".
+  AUDIT_TARGET_KIND_RESOURCE = 6;
+  // The event itself, for a rejection of the whole event.
+  AUDIT_TARGET_KIND_EVENT = 7;
+}
+
+// AuditActor is who or what made a change.
+message AuditActor {
+  // What acted.
+  AuditActorKind kind = 1;
+  // A stable ID, never a token or a secret (threat model C-AUDIT-6): for an
+  // event's actor, its Actor.subject unchanged; for a component,
+  // "system:<name>" such as "system:resolver" or "system:scheduler".
+  string id = 2;
+}
+
+// AuditTarget is the thing a change was made to.
+message AuditTarget {
+  // What the id names.
+  AuditTargetKind kind = 1;
+  // The id, in the form the kind states.
+  string id = 2;
+}
+
+// AuditEntry is what happened, without the log's own fields (sequence, time,
+// event, trace, hash chain). The resolver and the other writers produce
+// entries; the AuditLog wraps each in an AuditRecord in the transaction that
+// applies the change. Entries never contain secret values or tokens.
+message AuditEntry {
+  // What happened. Required.
+  AuditAction action = 1;
+  // Who or what did it. Required.
+  AuditActor actor = 2;
+  // What it was done to. Required.
+  AuditTarget target = 3;
+  // The rule that decided it, in short form: the mint rule, merge rule,
+  // status reason or conflict resolution, a derivation rule, a compaction
+  // tier. Empty when none applies.
+  string rule = 4;
+  // The confidence behind the decision, when one was scored.
+  uint32 confidence_ppm = 5;
+  // Set for AUDIT_ACTION_REJECTION.
+  RejectionCode rejection_code = 6;
+  // Why: a person's reason, or a rejection's message.
+  string reason = 7;
+  // What the target was before, as a model message (a Binding, a
+  // FactTimeline, a MergeRecord, ...); absent when it did not exist.
+  google.protobuf.Any before = 8;
+  // What it is after; absent when it no longer exists.
+  google.protobuf.Any after = 9;
+}
+
+// AuditRecord is one entry of the audit log's hash chain.
+message AuditRecord {
+  // The record's position in the log, increasing by one from record to
+  // record. A gap is tampering, except where a retention cut removed the
+  // oldest records and wrote a checkpoint there.
+  uint64 seq = 1;
+  // The record time of the apply that wrote it.
+  google.protobuf.Timestamp recorded_at = 2;
+  // The event whose apply wrote it. Links the log, the graph and the
+  // change journal.
+  string event_id = 3;
+  // This entry's position among the event's entries, from 1. With event_id
+  // it is a natural key, so a record is never written twice.
+  uint32 ordinal = 4;
+  // The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.
+  // The audit log never depends on telemetry.
+  string trace_id = 5;
+  // What happened. Required.
+  AuditEntry entry = 6;
+  // The previous record's hash; empty for the first record.
+  bytes prev_hash = 7;
+  // SHA-256 of prev_hash and this record without its hash. The AuditLog
+  // contract fixes the exact bytes that are hashed.
+  bytes hash = 8;
+}
+
+// AuditCheckpoint is a point of the chain written outside the store, so a
+// rewritten or cut-off chain no longer matches it (threat model C-AUDIT-3).
+message AuditCheckpoint {
+  // The sequence number of the last record covered.
+  uint64 seq = 1;
+  // That record's hash.
+  bytes head_hash = 2;
+  // When the checkpoint was written.
+  google.protobuf.Timestamp time = 3;
+  // The signing key's ID, when a key is configured.
+  string key_id = 4;
+  // The signature over seq, head_hash and time, when a key is configured. The
+  // algorithm and key trust model are fixed with the AuditLog contract (#60).
+  bytes signature = 5;
+}

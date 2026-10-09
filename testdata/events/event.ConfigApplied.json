@@ -1,0 +1,27 @@
+{
+  "actor": { "subject": "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" },
+  "reason": "Move payments-api ownership to the catalog first",
+  "changes": [
+    {
+      "type": "CONFIG_CHANGE_TYPE_SET",
+      "resource_kind": "Assertion",
+      "resource_name": "default",
+      "resource": {
+        "assertion": {
+          "api_version": "bearing/v1alpha1",
+          "kind": "Assertion",
+          "metadata": { "name": "default" },
+          "spec": {
+            "threshold_ppm": 900000,
+            "precedence": [ { "predicate": "owned_by", "systems": [ "catalog", "github" ] } ]
+          }
+        }
+      }
+    },
+    {
+      "type": "CONFIG_CHANGE_TYPE_DELETE",
+      "resource_kind": "Source",
+      "resource_name": "github-legacy"
+    }
+  ]
+}

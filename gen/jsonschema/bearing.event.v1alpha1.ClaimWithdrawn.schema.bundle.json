@@ -3,7 +3,7 @@
     "bearing.event.v1alpha1.Actor.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "description": "Actor is who asked for an event: a person, an agent acting for one, or a\n Bearing component. A component's subject is \"system:\u003cname\u003e\", for example\n \"system:scheduler\" or \"system:loader\"; the audit log records that as a\n system actor.",
       "properties": {
         "agent": {
           "default": false,
@@ -12,7 +12,7 @@
         },
         "subject": {
           "default": "",
-          "description": "OIDC subject or agent token ID.",
+          "description": "The stable ID the authenticator gives a person or agent (OIDC subject\n or agent token ID), or \"system:\u003cname\u003e\".",
           "type": "string"
         }
       },

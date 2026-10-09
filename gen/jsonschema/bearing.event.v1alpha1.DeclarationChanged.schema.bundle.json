@@ -1,0 +1,417 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.DeclarationChanged.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DeclarationChanged says a source's adapter was upgraded and now declares\n something else (docs/spec/data-model.md, \"Declarations\"). The new\n declaration takes effect from the event's record time. Applying it checks\n the declaration against the key types already bound and is rejected\n (invalid_operation) if it changes a bound key type's kind, class or case.",
+      "patternProperties": {
+        "^(adapterVersion)$": {
+          "default": "",
+          "description": "The adapter's version now, from its Describe result.",
+          "type": "string"
+        },
+        "^(moduleDigest)$": {
+          "default": "",
+          "description": "The module's digest now, \"sha256:\u003chex\u003e\", when the adapter is pinned by\n digest.",
+          "type": "string"
+        },
+        "^(previousAdapterVersion)$": {
+          "default": "",
+          "description": "The adapter's version before, from its Describe result; empty for a\n source's first declaration.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "adapter_version": {
+          "default": "",
+          "description": "The adapter's version now, from its Describe result.",
+          "type": "string"
+        },
+        "declaration": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AdapterDeclaration.schema.json",
+          "description": "The new declaration. Required."
+        },
+        "module_digest": {
+          "default": "",
+          "description": "The module's digest now, \"sha256:\u003chex\u003e\", when the adapter is pinned by\n digest.",
+          "type": "string"
+        },
+        "previous_adapter_version": {
+          "default": "",
+          "description": "The adapter's version before, from its Describe result; empty for a\n source's first declaration.",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "description": "The configured source whose adapter changed.",
+          "type": "string"
+        }
+      },
+      "title": "Declaration Changed",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AdapterDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AdapterDeclaration is everything one adapter declares.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The kind of identifier issuer the adapter reads; the default namespace\n of a source using it.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The kind of identifier issuer the adapter reads; the default namespace\n of a source using it.",
+          "type": "string"
+        },
+        "kinds": {
+          "description": "Every kind the adapter emits.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.KindDeclaration.schema.json"
+          },
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "description": "The adapter's name, e.g. \"github\".",
+          "type": "string"
+        }
+      },
+      "title": "Adapter Declaration",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Authority.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Authority is a source's claim to be the source of record. It is a message\n so levels can be added later without breaking declarations or overrides.",
+      "properties": {
+        "authoritative": {
+          "default": false,
+          "description": "True when the source is the source of record. Default false.",
+          "type": "boolean"
+        }
+      },
+      "title": "Authority",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.FieldDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "FieldDeclaration declares one predicate an adapter claims for a kind.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+          "description": "Default not authoritative."
+        },
+        "cardinality": {
+          "anyOf": [
+            {
+              "pattern": "^CARDINALITY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CARDINALITY_ONE",
+                "CARDINALITY_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Unregistered attributes only: the cardinality.",
+          "title": "Cardinality"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "pattern": "^DIRECTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DIRECTION_OUT",
+                "DIRECTION_IN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "DIRECTION_IN for relations given with \"from\". Default out.",
+          "title": "Direction"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "pattern": "^MATCH_METHOD_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MATCH_METHOD_EXACT",
+                "MATCH_METHOD_EMAIL",
+                "MATCH_METHOD_NAME",
+                "MATCH_METHOD_MEMBERS"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Set when the field is identity evidence.",
+          "title": "Match Method"
+        },
+        "predicate": {
+          "default": "",
+          "description": "A registered predicate, or an unregistered attribute name.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Unregistered attributes only: the value type.",
+          "title": "Value Type"
+        }
+      },
+      "title": "Field Declaration",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.KeyTypeDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KeyTypeDeclaration declares one key type.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "Default: the adapter's own issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "The name in keys: lowercase letters, digits, \"-\" and \"_\".",
+          "type": "string"
+        },
+        "^(perSubject)$": {
+          "anyOf": [
+            {
+              "pattern": "^PER_SUBJECT_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "PER_SUBJECT_ONE",
+                "PER_SUBJECT_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Names only: how many names of this type a subject holds.",
+          "title": "Per Subject"
+        }
+      },
+      "properties": {
+        "case": {
+          "anyOf": [
+            {
+              "pattern": "^KEY_CASE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "KEY_CASE_SENSITIVE",
+                "KEY_CASE_INSENSITIVE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "How external IDs are compared. Default sensitive.",
+          "title": "Key Case"
+        },
+        "class": {
+          "anyOf": [
+            {
+              "pattern": "^KEY_CLASS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "KEY_CLASS_ID",
+                "KEY_CLASS_NAME"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Whether the key is a permanent id or a renamable name. Required.",
+          "title": "Key Class"
+        },
+        "issuer_type": {
+          "default": "",
+          "description": "Default: the adapter's own issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "The name in keys: lowercase letters, digits, \"-\" and \"_\".",
+          "type": "string"
+        },
+        "per_subject": {
+          "anyOf": [
+            {
+              "pattern": "^PER_SUBJECT_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "PER_SUBJECT_ONE",
+                "PER_SUBJECT_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Names only: how many names of this type a subject holds.",
+          "title": "Per Subject"
+        },
+        "redirects": {
+          "default": false,
+          "description": "Names only: a released name still resolves to its last subject.",
+          "type": "boolean"
+        }
+      },
+      "title": "Key Type Declaration",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.KindDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KindDeclaration declares one registered kind an adapter emits.",
+      "properties": {
+        "fields": {
+          "description": "Every predicate claimed with this kind as the observed entity.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.FieldDeclaration.schema.json"
+          },
+          "type": "array"
+        },
+        "keys": {
+          "description": "The kind's key types.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.KeyTypeDeclaration.schema.json"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "",
+          "description": "A registered subject kind, e.g. \"Repository\".",
+          "type": "string"
+        },
+        "links": {
+          "description": "Key types of other systems this system records for the entity.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.LinkDeclaration.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Kind Declaration",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.LinkDeclaration.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkDeclaration declares a key type of another system that this system\n records for the entity (linked_ids).",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+          "description": "Default not authoritative."
+        },
+        "issuer_type": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "title": "Link Declaration",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.DeclarationChanged.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.DeclarationChanged.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

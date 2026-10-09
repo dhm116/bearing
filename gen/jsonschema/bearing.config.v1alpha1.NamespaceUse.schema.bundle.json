@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.NamespaceUse.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "NamespaceUse is a namespace a source issues or links, with its issuer type\n (docs/spec/data-model.md, \"Keys and namespaces\").",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The kind of issuer, for example \"saml\".",
+          "type": "string"
+        },
+        "^(keyClasses)$": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "enum": [
+                  "KEY_CLASS_UNSPECIFIED",
+                  "KEY_CLASS_ID",
+                  "KEY_CLASS_NAME"
+                ],
+                "type": "string"
+              },
+              {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            ],
+            "title": "Key Class"
+          },
+          "description": "Issued namespaces only: overrides of a key type's class, by key type.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The kind of issuer, for example \"saml\".",
+          "type": "string"
+        },
+        "key_classes": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "enum": [
+                  "KEY_CLASS_UNSPECIFIED",
+                  "KEY_CLASS_ID",
+                  "KEY_CLASS_NAME"
+                ],
+                "type": "string"
+              },
+              {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            ],
+            "title": "Key Class"
+          },
+          "description": "Issued namespaces only: overrides of a key type's class, by key type.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "namespace": {
+          "default": "",
+          "description": "The namespace, for example \"authentik-saml\".",
+          "type": "string"
+        }
+      },
+      "title": "Namespace Use",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.NamespaceUse.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.NamespaceUse.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

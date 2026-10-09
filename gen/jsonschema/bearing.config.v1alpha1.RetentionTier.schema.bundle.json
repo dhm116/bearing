@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.RetentionTier.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionTier keeps one level of detail for a span.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.",
+          "title": "Compaction Detail"
+        },
+        "for": {
+          "default": "",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
+          "type": "string"
+        }
+      },
+      "title": "Retention Tier",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.RetentionTier.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.RetentionTier.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

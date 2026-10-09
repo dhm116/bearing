@@ -1,0 +1,14 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "Adapter",
+  "metadata": { "name": "github" },
+  "spec": {
+    "module_digest": "sha256:3b1d5c0e9f7a24d86e1c0b5a7f93d2e4a6c8b0d1f2e3a4b5c6d7e8f9a0b1c2d3",
+    "capabilities": [
+      { "name": "http", "scope": [ "api.github.com" ] },
+      { "name": "kv" },
+      { "name": "log" }
+    ],
+    "secrets": [ "token" ]
+  }
+}

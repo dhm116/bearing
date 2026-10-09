@@ -23,6 +23,11 @@ of who changed what.
     GitHub adapter for the `acme` org.
   - `Schedule`, `Policy` and `Retention` resources follow the same pattern
     as they are needed.
+    *Amended 2026-10-09: `proto/bearing/config/v1alpha1` defines `Adapter`,
+    `Source`, `Retention` and the resolver's settings as `MatchWeights`,
+    `MergePolicies`, `DerivationRules` and `Assertion`; `Schedule` is a field
+    of `Source`. A change arrives as a `ConfigApplied` event. See the data
+    model's Configuration section.*
 - **Adapters type their own settings.** Each adapter's `Describe` returns
   its settings as a Protobuf message descriptor. `Source.spec.settings` is
   checked against it, plus protovalidate rules, when it is applied, so bad

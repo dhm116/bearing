@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.KindMergePolicy.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KindMergePolicy is one kind's policy for when same_as is asserted and its\n subjects merge (docs/spec/data-model.md, \"Merge policy\").",
+      "patternProperties": {
+        "^(thresholdPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "The subject kind. Required.",
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_POLICY_AUTHORITATIVE",
+                "MERGE_POLICY_SCORE",
+                "MERGE_POLICY_MANUAL"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The policy. Required.",
+          "title": "Merge Policy"
+        },
+        "threshold_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "title": "Kind Merge Policy",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MergePolicies.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergePolicies are the merge policy of each subject kind.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"MergePolicies\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MergePoliciesSpec.schema.json",
+          "description": "The policies."
+        }
+      },
+      "title": "Merge Policies",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MergePoliciesSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergePoliciesSpec is a MergePolicies' content.",
+      "properties": {
+        "policies": {
+          "description": "The policies.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.KindMergePolicy.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Merge Policies Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.MergePolicies.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.MergePolicies.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

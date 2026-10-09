@@ -1,0 +1,1135 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.Adapter.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Adapter is an adapter module pinned by digest, with the capabilities it\n declares.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Adapter\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The adapter's name, which sources refer to."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.AdapterSpec.schema.json",
+          "description": "The adapter."
+        }
+      },
+      "title": "Adapter",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.AdapterSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AdapterSpec is an Adapter's content.",
+      "patternProperties": {
+        "^(moduleDigest)$": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "capabilities": {
+          "description": "The capabilities the module declares it needs.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.CapabilityGrant.schema.json"
+          },
+          "type": "array"
+        },
+        "module_digest": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        },
+        "secrets": {
+          "description": "The names of the secrets it needs; a source supplies each by reference.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "settings": {
+          "$ref": "#/$defs/google.protobuf.Struct.schema.json",
+          "description": "Default settings, overridden per source. Checked against the settings\n the adapter's Describe declares."
+        }
+      },
+      "title": "Adapter Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Assertion.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Assertion is how supports become an asserted fact: the confidence\n threshold, systems that copy each other, and per-predicate precedence.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Assertion\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.AssertionSpec.schema.json",
+          "description": "The settings."
+        }
+      },
+      "title": "Assertion",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.AssertionSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AssertionSpec is an Assertion's content.",
+      "patternProperties": {
+        "^(confidenceGroups)$": {
+          "description": "Groups of source systems that copy each other, so their confidence counts\n once (docs/spec/data-model.md, \"Confidence\").",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.ConfidenceGroup.schema.json"
+          },
+          "type": "array"
+        },
+        "^(thresholdPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
+        }
+      },
+      "properties": {
+        "confidence_groups": {
+          "description": "Groups of source systems that copy each other, so their confidence counts\n once (docs/spec/data-model.md, \"Confidence\").",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.ConfidenceGroup.schema.json"
+          },
+          "type": "array"
+        },
+        "precedence": {
+          "description": "Per-predicate precedence among source systems.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.PredicatePrecedence.schema.json"
+          },
+          "type": "array"
+        },
+        "threshold_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
+        }
+      },
+      "title": "Assertion Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.AuthorityOverride.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuthorityOverride sets the authority of exactly one field, link or\n derived source. In ProtoJSON it reads as the data model's examples:\n { \"kind\": ..., \"predicate\": ..., \"authority\": ... }.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+          "description": "The authority to use. Required."
+        },
+        "derived": {
+          "description": "A derivation rule: the authority of core/derive/\u003crule\u003e/\u003cthis source\u003e.",
+          "type": "string"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "pattern": "^DIRECTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DIRECTION_OUT",
+                "DIRECTION_IN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "A field target only: DIRECTION_IN for relations given with \"from\".",
+          "title": "Direction"
+        },
+        "kind": {
+          "default": "",
+          "description": "The kind of a field or link target; empty for a derived target.",
+          "type": "string"
+        },
+        "link": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkRef.schema.json",
+          "description": "A declared link: with kind."
+        },
+        "predicate": {
+          "description": "A declared field: with kind and direction.",
+          "type": "string"
+        }
+      },
+      "title": "Authority Override",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.CapabilityGrant.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CapabilityGrant is one capability an adapter may call, with its scope\n (ADR 9), for example http limited to hosts.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "What it may reach: hosts for http, empty for the rest.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Capability Grant",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.CodeownersRule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CodeownersRule sets the confidence of the owned_by claims derived from a\n CODEOWNERS file (docs/spec/data-model.md, \"CODEOWNERS\").",
+      "patternProperties": {
+        "^(mixedPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Any other file with a \"*\" line, in parts per million."
+        },
+        "^(soleTeamPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "One rule line, pattern \"*\", naming one team, in parts per million."
+        }
+      },
+      "properties": {
+        "mixed_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Any other file with a \"*\" line, in parts per million."
+        },
+        "sole_team_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "One rule line, pattern \"*\", naming one team, in parts per million."
+        }
+      },
+      "title": "Codeowners Rule",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.ConfidenceGroup.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ConfidenceGroup is source systems that count as one in the noisy-OR.",
+      "properties": {
+        "systems": {
+          "description": "The source systems, by namespace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Confidence Group",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.DerivationRules.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DerivationRules are the parameters of the core's derivation rules.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"DerivationRules\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.DerivationRulesSpec.schema.json",
+          "description": "The rules."
+        }
+      },
+      "title": "Derivation Rules",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.DerivationRulesSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DerivationRulesSpec is a DerivationRules' content. The rules are the\n core's; this sets their parameters, and a rule not listed uses its\n defaults.",
+      "properties": {
+        "codeowners": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.CodeownersRule.schema.json",
+          "description": "The codeowners rule."
+        }
+      },
+      "title": "Derivation Rules Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.KindMergePolicy.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KindMergePolicy is one kind's policy for when same_as is asserted and its\n subjects merge (docs/spec/data-model.md, \"Merge policy\").",
+      "patternProperties": {
+        "^(thresholdPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "The subject kind. Required.",
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_POLICY_AUTHORITATIVE",
+                "MERGE_POLICY_SCORE",
+                "MERGE_POLICY_MANUAL"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The policy. Required.",
+          "title": "Merge Policy"
+        },
+        "threshold_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "title": "Kind Merge Policy",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.LinkEvidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkEvidence marks a MatchWeight as the weight of non-authoritative links.",
+      "properties": {},
+      "title": "Link Evidence",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.LinkRef.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkRef names a declared link by the other system's key type.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "title": "Link Ref",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MatchWeight.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeight is the weight of one kind of evidence for one subject kind\n (docs/spec/data-model.md, \"Matching\").",
+      "patternProperties": {
+        "^(weightPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The weight, in parts per million, 1 to 1000000."
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "The subject kind. Required.",
+          "type": "string"
+        },
+        "link": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkEvidence.schema.json",
+          "description": "A non-authoritative link; link is not a declarable match method."
+        },
+        "method": {
+          "anyOf": [
+            {
+              "enum": [
+                "MATCH_METHOD_UNSPECIFIED",
+                "MATCH_METHOD_EXACT",
+                "MATCH_METHOD_EMAIL",
+                "MATCH_METHOD_NAME",
+                "MATCH_METHOD_MEMBERS"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "description": "A matching method.",
+          "title": "Match Method"
+        },
+        "predicate": {
+          "default": "",
+          "description": "See source.",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "description": "With predicate: this weight is an override for that source's field.\n Both empty: the default for the kind and method. One without the other\n is invalid.",
+          "type": "string"
+        },
+        "weight_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The weight, in parts per million, 1 to 1000000."
+        }
+      },
+      "title": "Match Weight",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MatchWeights.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeights are the weights of identity evidence.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"MatchWeights\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeightsSpec.schema.json",
+          "description": "The weights."
+        }
+      },
+      "title": "Match Weights",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MatchWeightsSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeightsSpec is a MatchWeights' content.",
+      "properties": {
+        "weights": {
+          "description": "The weights.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeight.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Match Weights Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MergePolicies.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergePolicies are the merge policy of each subject kind.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"MergePolicies\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MergePoliciesSpec.schema.json",
+          "description": "The policies."
+        }
+      },
+      "title": "Merge Policies",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MergePoliciesSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergePoliciesSpec is a MergePolicies' content.",
+      "properties": {
+        "policies": {
+          "description": "The policies.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.KindMergePolicy.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Merge Policies Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.NamespaceUse.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "NamespaceUse is a namespace a source issues or links, with its issuer type\n (docs/spec/data-model.md, \"Keys and namespaces\").",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The kind of issuer, for example \"saml\".",
+          "type": "string"
+        },
+        "^(keyClasses)$": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "enum": [
+                  "KEY_CLASS_UNSPECIFIED",
+                  "KEY_CLASS_ID",
+                  "KEY_CLASS_NAME"
+                ],
+                "type": "string"
+              },
+              {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            ],
+            "title": "Key Class"
+          },
+          "description": "Issued namespaces only: overrides of a key type's class, by key type.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The kind of issuer, for example \"saml\".",
+          "type": "string"
+        },
+        "key_classes": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "enum": [
+                  "KEY_CLASS_UNSPECIFIED",
+                  "KEY_CLASS_ID",
+                  "KEY_CLASS_NAME"
+                ],
+                "type": "string"
+              },
+              {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            ],
+            "title": "Key Class"
+          },
+          "description": "Issued namespaces only: overrides of a key type's class, by key type.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "namespace": {
+          "default": "",
+          "description": "The namespace, for example \"authentik-saml\".",
+          "type": "string"
+        }
+      },
+      "title": "Namespace Use",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.PredicatePrecedence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "PredicatePrecedence is the ordered list of source systems that decides a\n predicate's conflicts (docs/spec/data-model.md, \"Conflicts\").",
+      "properties": {
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "systems": {
+          "description": "The source systems, first wins.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Predicate Precedence",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Resource.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Resource holds one resource of any kind, for events and bulk apply.",
+      "patternProperties": {
+        "^(derivationRules)$": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.DerivationRules.schema.json",
+          "description": "kind DerivationRules."
+        },
+        "^(matchWeights)$": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeights.schema.json",
+          "description": "kind MatchWeights."
+        },
+        "^(mergePolicies)$": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MergePolicies.schema.json",
+          "description": "kind MergePolicies."
+        }
+      },
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Adapter.schema.json",
+          "description": "kind Adapter."
+        },
+        "assertion": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Assertion.schema.json",
+          "description": "kind Assertion."
+        },
+        "derivation_rules": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.DerivationRules.schema.json",
+          "description": "kind DerivationRules."
+        },
+        "match_weights": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeights.schema.json",
+          "description": "kind MatchWeights."
+        },
+        "merge_policies": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MergePolicies.schema.json",
+          "description": "kind MergePolicies."
+        },
+        "retention": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Retention.schema.json",
+          "description": "kind Retention."
+        },
+        "source": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Source.schema.json",
+          "description": "kind Source."
+        }
+      },
+      "title": "Resource",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Retention.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Retention is the compaction tiers per predicate or kind.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Retention\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.RetentionSpec.schema.json",
+          "description": "The tiers."
+        }
+      },
+      "title": "Retention",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionRule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionRule is the tiers of one predicate or one subject kind\n (docs/spec/data-model.md, \"Retention and compaction\").",
+      "properties": {
+        "kind": {
+          "description": "Every predicate of subjects of one kind.",
+          "type": "string"
+        },
+        "predicate": {
+          "description": "One predicate.",
+          "type": "string"
+        },
+        "tiers": {
+          "description": "From finest to coarsest, each keeping its level of detail for a span of\n valid time counted back from the compaction event's observed_at. The\n last tier has no span.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.RetentionTier.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Retention Rule",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionSpec is a Retention's content.",
+      "properties": {
+        "rules": {
+          "description": "The rules. A predicate's rule overrides its subject kind's.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.RetentionRule.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Retention Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionTier.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionTier keeps one level of detail for a span.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.",
+          "title": "Compaction Detail"
+        },
+        "for": {
+          "default": "",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
+          "type": "string"
+        }
+      },
+      "title": "Retention Tier",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Source.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Source is one configured instance of an adapter, the unit of provenance.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Source\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The source's name, for example \"github-acme\". It may not be \"manual\"\n or start with \"core/\"."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.SourceSpec.schema.json",
+          "description": "The source."
+        }
+      },
+      "title": "Source",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.SourceSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "SourceSpec is a Source's content.",
+      "properties": {
+        "adapter": {
+          "default": "",
+          "description": "The Adapter it runs, by name. Required.",
+          "type": "string"
+        },
+        "authority": {
+          "description": "Overrides of declared authority, one per target.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.AuthorityOverride.schema.json"
+          },
+          "type": "array"
+        },
+        "capabilities": {
+          "description": "Narrows the adapter's capabilities; never widens them.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.CapabilityGrant.schema.json"
+          },
+          "type": "array"
+        },
+        "issues": {
+          "description": "Other namespaces it is the issuer for.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.NamespaceUse.schema.json"
+          },
+          "type": "array"
+        },
+        "links": {
+          "description": "Namespaces it reports linked_ids in.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.NamespaceUse.schema.json"
+          },
+          "type": "array"
+        },
+        "namespace": {
+          "default": "",
+          "description": "The namespace it reads. Default: the adapter's issuer type.",
+          "type": "string"
+        },
+        "schedule": {
+          "default": "",
+          "description": "Time between scheduled syncs, an ISO 8601 duration such as \"PT1H\".\n Empty: webhooks and manual syncs only.",
+          "type": "string"
+        },
+        "secrets": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Secret references by the adapter's secret name: \"env:NAME\",\n \"file:/path\", \"vault:path#key\", \"aws-sm:arn\". Never values.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "settings": {
+          "$ref": "#/$defs/google.protobuf.Struct.schema.json",
+          "description": "Its settings, checked against the adapter's declared settings."
+        }
+      },
+      "title": "Source Spec",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.ConfigChange.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ConfigChange is one resource set or deleted.",
+      "patternProperties": {
+        "^(resourceKind)$": {
+          "default": "",
+          "description": "The resource's kind, e.g. \"Source\".",
+          "type": "string"
+        },
+        "^(resourceName)$": {
+          "default": "",
+          "description": "The resource's name.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Resource.schema.json",
+          "description": "The whole resource as it is after the change; absent for a delete."
+        },
+        "resource_kind": {
+          "default": "",
+          "description": "The resource's kind, e.g. \"Source\".",
+          "type": "string"
+        },
+        "resource_name": {
+          "default": "",
+          "description": "The resource's name.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^CONFIG_CHANGE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CONFIG_CHANGE_TYPE_SET",
+                "CONFIG_CHANGE_TYPE_DELETE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the change does.",
+          "title": "Config Change Type"
+        }
+      },
+      "title": "Config Change",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Authority.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Authority is a source's claim to be the source of record. It is a message\n so levels can be added later without breaking declarations or overrides.",
+      "properties": {
+        "authoritative": {
+          "default": false,
+          "description": "True when the source is the source of record. Default false.",
+          "type": "boolean"
+        }
+      },
+      "title": "Authority",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.ConfigChange.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.ConfigChange.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

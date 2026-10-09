@@ -1,0 +1,38 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.LinkRef.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkRef names a declared link by the other system's key type.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "title": "Link Ref",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.LinkRef.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.LinkRef.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

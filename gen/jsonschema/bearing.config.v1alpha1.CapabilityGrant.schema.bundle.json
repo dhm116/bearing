@@ -1,0 +1,28 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.CapabilityGrant.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CapabilityGrant is one capability an adapter may call, with its scope\n (ADR 9), for example http limited to hosts.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "What it may reach: hosts for http, empty for the rest.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Capability Grant",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.CapabilityGrant.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.CapabilityGrant.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

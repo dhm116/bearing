@@ -1,0 +1,49 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event: a person, an agent acting for one, or a\n Bearing component. A component's subject is \"system:\u003cname\u003e\", for example\n \"system:scheduler\" or \"system:loader\"; the audit log records that as a\n system actor.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "The stable ID the authenticator gives a person or agent (OIDC subject\n or agent token ID), or \"system:\u003cname\u003e\".",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.CompactionRequested.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CompactionRequested replaces the history of old periods with summaries\n where the Retention resources say to (docs/spec/data-model.md, \"Retention\n and compaction\"). Its observed_at is the instant tiers count back from,\n and the summaries' compacted_at. The scheduler appends it, or a person\n does.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who asked: the scheduler, the CLI or the API."
+        },
+        "kind": {
+          "default": "",
+          "description": "Compact only subjects of this kind; empty for every kind.",
+          "type": "string"
+        },
+        "predicate": {
+          "default": "",
+          "description": "Compact only this predicate; empty for every predicate a Retention rule\n covers.",
+          "type": "string"
+        }
+      },
+      "title": "Compaction Requested",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.CompactionRequested.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.CompactionRequested.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

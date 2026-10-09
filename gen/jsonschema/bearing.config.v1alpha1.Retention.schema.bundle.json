@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Retention.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Retention is the compaction tiers per predicate or kind.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Retention\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.RetentionSpec.schema.json",
+          "description": "The tiers."
+        }
+      },
+      "title": "Retention",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionRule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionRule is the tiers of one predicate or one subject kind\n (docs/spec/data-model.md, \"Retention and compaction\").",
+      "properties": {
+        "kind": {
+          "description": "Every predicate of subjects of one kind.",
+          "type": "string"
+        },
+        "predicate": {
+          "description": "One predicate.",
+          "type": "string"
+        },
+        "tiers": {
+          "description": "From finest to coarsest, each keeping its level of detail for a span of\n valid time counted back from the compaction event's observed_at. The\n last tier has no span.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.RetentionTier.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Retention Rule",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionSpec is a Retention's content.",
+      "properties": {
+        "rules": {
+          "description": "The rules. A predicate's rule overrides its subject kind's.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.RetentionRule.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Retention Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionTier.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionTier keeps one level of detail for a span.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.",
+          "title": "Compaction Detail"
+        },
+        "for": {
+          "default": "",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
+          "type": "string"
+        }
+      },
+      "title": "Retention Tier",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.Retention.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.Retention.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

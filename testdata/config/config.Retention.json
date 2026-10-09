@@ -1,0 +1,21 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "Retention",
+  "metadata": { "name": "default" },
+  "spec": {
+    "rules": [
+      {
+        "predicate": "owned_by",
+        "tiers": [
+          { "detail": "COMPACTION_DETAIL_FULL", "for": "P18M" },
+          { "detail": "COMPACTION_DETAIL_QUARTER", "for": "P5Y" },
+          { "detail": "COMPACTION_DETAIL_YEAR" }
+        ]
+      },
+      {
+        "kind": "Person",
+        "tiers": [ { "detail": "COMPACTION_DETAIL_FULL" } ]
+      }
+    ]
+  }
+}
