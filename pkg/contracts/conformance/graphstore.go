@@ -1057,6 +1057,14 @@ func (g *suite) backup(t *testing.T) {
 	}
 }
 
+// failIf fails the test with the message if bad.
+func failIf(t *testing.T, bad bool, format string, args ...any) {
+	t.Helper()
+	if bad {
+		t.Fatalf(format, args...)
+	}
+}
+
 func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)

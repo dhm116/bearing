@@ -1189,7 +1189,8 @@ proto field names, so JSON field names match the examples here.
   snapshot direction, cardinality, conflict policy, value type, support
   `reason`, fact status, `status_reason`, conflict `resolution` (`override`,
   `precedence`, `authority`, `evidence_changed`), compaction detail, issue
-  types and rejection codes. On the wire and in configuration they are ProtoJSON
+  types, rejection codes, audit actions and kinds, and merge review
+  statuses. On the wire and in configuration they are ProtoJSON
   enum names (`FACT_STATUS_ASSERTED`). This document, and `fact_id`, use
   the **short form**: the enum value name without its `<ENUM_NAME>_`
   prefix, lowercased (`asserted`). The CLI MAY print short forms in output

@@ -39,21 +39,15 @@ func (g *suite) auditEntries(t *testing.T) {
 	minted := string(res.Subjects["new:x"])
 	want := proto.CloneOf(&modelv1alpha1.ChangeSet{Audit: entries}).GetAudit()
 	want[0].Target.Id = minted
-	if len(res.Audit) != len(want) {
-		t.Fatalf("got %d audit entries, want %d", len(res.Audit), len(want))
-	}
+	failIf(t, len(res.Audit) != len(want), "got %d audit entries, want %d", len(res.Audit), len(want))
 	for i := range want {
-		if !proto.Equal(res.Audit[i], want[i]) {
-			t.Fatalf("audit entry %d: got %v, want %v (the ref replaced by %s)", i, res.Audit[i], want[i], minted)
-		}
+		failIf(t, !proto.Equal(res.Audit[i], want[i]), "audit entry %d: got %v, want %v (the ref replaced by %s)", i, res.Audit[i], want[i], minted)
 	}
-	if again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1"}); !again.Duplicate || len(again.Audit) != len(want) || !proto.Equal(again.Audit[0], want[0]) {
-		t.Fatalf("got %+v, want e1's audit entries reported again", again)
-	}
+	again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1"})
+	failIf(t, !again.Duplicate || len(again.Audit) != len(want) || !proto.Equal(again.Audit[0], want[0]), "got %+v, want e1's audit entries reported again", again)
 	// An event that audits nothing is as valid as one that audits a lot.
-	if res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2"}); len(res.Audit) != 0 {
-		t.Fatalf("got %v, want no audit entries", res.Audit)
-	}
+	res = apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2"})
+	failIf(t, len(res.Audit) != 0, "got %v, want no audit entries", res.Audit)
 	head, _ := s.Head(ctx)
 	mintEntry := func(mod func(*modelv1alpha1.AuditEntry)) []*modelv1alpha1.AuditEntry {
 		e := &modelv1alpha1.AuditEntry{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(subject, r)}
@@ -81,13 +75,11 @@ func (g *suite) auditEntries(t *testing.T) {
 		"invalid UTF-8":   mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Reason = "\xff" }),
 	} {
 		// A mint beside the bad entry must not stay either.
-		if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Mints: []*modelv1alpha1.Mint{mint("new:y", "Team")}, Audit: bad}); err == nil {
-			t.Errorf("%s: got no error, want one", name)
-		}
+		_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Mints: []*modelv1alpha1.Mint{mint("new:y", "Team")}, Audit: bad})
+		failIf(t, err == nil, "%s: got no error, want one", name)
 	}
-	if now, _ := s.Head(ctx); !now.Equal(head) {
-		t.Fatalf("got head %s, want %s: a refused audit entry wrote", now, head)
-	}
+	now, _ := s.Head(ctx)
+	failIf(t, !now.Equal(head), "got head %s, want %s: a refused audit entry wrote", now, head)
 }
 
 func (g *suite) mergeReviews(t *testing.T) {
@@ -104,9 +96,7 @@ func (g *suite) mergeReviews(t *testing.T) {
 	// reviews returns the reviews of the merge of l into p as recorded at at.
 	reviews := func(at time.Time) []*modelv1alpha1.MergeReview {
 		recs, err := s.Merges(ctx, contracts.SubjectID(p), at)
-		if err != nil {
-			t.Fatal(err)
-		}
+		failIf(t, err != nil, "%v", err)
 		for _, rec := range recs {
 			if rec.GetMergedId() == l {
 				return rec.GetReviews()
@@ -122,32 +112,24 @@ func (g *suite) mergeReviews(t *testing.T) {
 	})
 	first := res.RecordedAt
 	got := reviews(time.Time{})
-	if len(got) != 1 || got[0].GetSurvivorScorePpm() != 950_000 || got[0].GetMergedScorePpm() != 910_000 || got[0].GetStatus() != holds ||
-		got[0].GetEventId() != "e2" || !got[0].GetRecordedAt().AsTime().Equal(first) {
-		t.Fatalf("got %v, want the review e2 wrote", got)
-	}
+	failIf(t, len(got) != 1 || got[0].GetSurvivorScorePpm() != 950_000 || got[0].GetMergedScorePpm() != 910_000 || got[0].GetStatus() != holds || got[0].GetEventId() != "e2" || !got[0].GetRecordedAt().AsTime().Equal(first), "got %v, want the review e2 wrote", got)
 	// The same findings again change nothing, so a resolver that re-evaluates
 	// on every apply does not grow the record.
 	clk.Set(clk.Now().Add(time.Hour))
 	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e3", MergeReviews: write(l, "e2", review(950_000, 910_000, holds))})
-	if got := reviews(time.Time{}); len(got) != 1 {
-		t.Fatalf("got %d reviews, want 1 after the same findings were written again", len(got))
-	}
+	got = reviews(time.Time{})
+	failIf(t, len(got) != 1, "got %d reviews, want 1 after the same findings were written again", len(got))
 	// New findings add a review, and earlier record times keep seeing the old.
 	clk.Set(clk.Now().Add(time.Hour))
 	second := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e4", MergeReviews: write(l, "e2", review(950_000, 300_000, needs))}).RecordedAt
-	if got := reviews(time.Time{}); len(got) != 2 || got[1].GetStatus() != needs || got[1].GetMergedScorePpm() != 300_000 || got[1].GetEventId() != "e4" || !got[1].GetRecordedAt().AsTime().Equal(second) {
-		t.Fatalf("got %v, want the review history ending in e4's", got)
-	}
-	if got := reviews(first); len(got) != 1 || got[0].GetStatus() != holds {
-		t.Fatalf("got %v, want only e2's review as recorded at %s", got, first)
-	}
-	if got := reviews(first.Add(-time.Microsecond)); len(got) != 0 {
-		t.Fatalf("got %v, want no reviews before the merge", got)
-	}
-	if recs, _ := s.Merges(ctx, contracts.SubjectID(p), before); len(recs) != 0 {
-		t.Fatalf("got %v, want no record before the merge", recs)
-	}
+	got = reviews(time.Time{})
+	failIf(t, len(got) != 2 || got[1].GetStatus() != needs || got[1].GetMergedScorePpm() != 300_000 || got[1].GetEventId() != "e4" || !got[1].GetRecordedAt().AsTime().Equal(second), "got %v, want the review history ending in e4's", got)
+	got = reviews(first)
+	failIf(t, len(got) != 1 || got[0].GetStatus() != holds, "got %v, want only e2's review as recorded at %s", got, first)
+	got = reviews(first.Add(-time.Microsecond))
+	failIf(t, len(got) != 0, "got %v, want no reviews before the merge", got)
+	recs, _ := s.Merges(ctx, contracts.SubjectID(p), before)
+	failIf(t, len(recs) != 0, "got %v, want no record before the merge", recs)
 	// A subject that merges in the same event can be named by its ref.
 	clk.Set(clk.Now().Add(time.Hour))
 	res = apply(t, s, &modelv1alpha1.ChangeSet{
@@ -155,10 +137,8 @@ func (g *suite) mergeReviews(t *testing.T) {
 		Merges:       []*modelv1alpha1.Merge{{SubjectIds: []string{p, "new:t"}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_AUTHORITATIVE}},
 		MergeReviews: write("new:t", "e5", review(0, 0, holds)),
 	})
-	recs, _ := s.Merges(ctx, res.Subjects["new:t"], time.Time{})
-	if len(recs) != 1 || len(recs[0].GetReviews()) != 1 {
-		t.Fatalf("got %v, want the merge of %s with its review", recs, res.Subjects["new:t"])
-	}
+	recs, _ = s.Merges(ctx, res.Subjects["new:t"], time.Time{})
+	failIf(t, len(recs) != 1 || len(recs[0].GetReviews()) != 1, "got %v, want the merge of %s with its review", recs, res.Subjects["new:t"])
 	head, _ := s.Head(ctx)
 	for name, rws := range map[string][]*modelv1alpha1.MergeReviewWrite{
 		"no review":                write(l, "e2", nil),
@@ -172,16 +152,13 @@ func (g *suite) mergeReviews(t *testing.T) {
 		"unknown ref":              write("new:nope", "e2", review(1, 1, holds)),
 		"two reviews of one merge": append(write(l, "e2", review(2, 2, needs)), write(l, "e2", review(3, 3, needs))...),
 	} {
-		if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, MergeReviews: rws}); err == nil {
-			t.Errorf("%s: got no error, want one", name)
-		}
+		_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, MergeReviews: rws})
+		failIf(t, err == nil, "%s: got no error, want one", name)
 	}
-	if now, _ := s.Head(ctx); !now.Equal(head) {
-		t.Fatalf("got head %s, want %s: a refused review wrote", now, head)
-	}
-	if got := reviews(time.Time{}); len(got) != 2 {
-		t.Fatalf("got %d reviews, want the 2 written before", len(got))
-	}
+	now, _ := s.Head(ctx)
+	failIf(t, !now.Equal(head), "got head %s, want %s: a refused review wrote", now, head)
+	got = reviews(time.Time{})
+	failIf(t, len(got) != 2, "got %d reviews, want the 2 written before", len(got))
 }
 
 func (g *suite) unmergeRecords(t *testing.T) {
@@ -191,14 +168,11 @@ func (g *suite) unmergeRecords(t *testing.T) {
 	merged, _ := s.Head(ctx)
 	unmerges := func(id string, at time.Time) []*modelv1alpha1.UnmergeRecord {
 		recs, err := s.Unmerges(ctx, contracts.SubjectID(id), at)
-		if err != nil {
-			t.Fatal(err)
-		}
+		failIf(t, err != nil, "%v", err)
 		return recs
 	}
-	if recs := unmerges(p, time.Time{}); len(recs) != 0 {
-		t.Fatalf("got %v, want no un-merge records yet", recs)
-	}
+	recs := unmerges(p, time.Time{})
+	failIf(t, len(recs) != 0, "got %v, want no un-merge records yet", recs)
 	// A reactivation.
 	clk.Set(clk.Now().Add(time.Hour))
 	revive := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e2", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_l"}, Ref: "new:back"}}})
@@ -206,13 +180,11 @@ func (g *suite) unmergeRecords(t *testing.T) {
 		SubjectId: p, TargetId: l, Aliases: []string{"github:team_node/T_l"}, EventId: "e2", RecordedAt: timestamppb.New(revive.RecordedAt), MergeEventId: "e1",
 	}
 	for _, id := range []string{p, l} {
-		if recs := unmerges(id, time.Time{}); len(recs) != 1 || !proto.Equal(recs[0], want) {
-			t.Fatalf("un-merges of %s: got %v, want %v", id, recs, want)
-		}
+		recs := unmerges(id, time.Time{})
+		failIf(t, len(recs) != 1 || !proto.Equal(recs[0], want), "un-merges of %s: got %v, want %v", id, recs, want)
 	}
-	if recs := unmerges(p, merged); len(recs) != 0 {
-		t.Fatalf("got %v, want none as recorded before the un-merge", recs)
-	}
+	recs = unmerges(p, merged)
+	failIf(t, len(recs) != 0, "got %v, want none as recorded before the un-merge", recs)
 	// A split, which leaves no other trace of where its subject came from.
 	clk.Set(clk.Now().Add(time.Hour))
 	apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e3", Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/payments", row(p, "", ""))}})
@@ -226,22 +198,17 @@ func (g *suite) unmergeRecords(t *testing.T) {
 	wantSplit := &modelv1alpha1.UnmergeRecord{
 		SubjectId: p, TargetId: id, Split: true, Aliases: []string{"github:team/acme/payments"}, EventId: "e4", RecordedAt: timestamppb.New(split.RecordedAt),
 	}
-	if recs := unmerges(id, time.Time{}); len(recs) != 1 || !proto.Equal(recs[0], wantSplit) {
-		t.Fatalf("un-merges of the split subject: got %v, want %v", recs, wantSplit)
-	}
-	if recs := unmerges(p, time.Time{}); len(recs) != 2 || !proto.Equal(recs[0], want) || !proto.Equal(recs[1], wantSplit) {
-		t.Fatalf("un-merges of %s: got %v, want the reactivation and then the split", p, recs)
-	}
-	if recs := unmerges(p, revive.RecordedAt); len(recs) != 1 || !proto.Equal(recs[0], want) {
-		t.Fatalf("got %v, want only the reactivation as recorded at %s", recs, revive.RecordedAt)
-	}
+	recs = unmerges(id, time.Time{})
+	failIf(t, len(recs) != 1 || !proto.Equal(recs[0], wantSplit), "un-merges of the split subject: got %v, want %v", recs, wantSplit)
+	recs = unmerges(p, time.Time{})
+	failIf(t, len(recs) != 2 || !proto.Equal(recs[0], want) || !proto.Equal(recs[1], wantSplit), "un-merges of %s: got %v, want the reactivation and then the split", p, recs)
+	recs = unmerges(p, revive.RecordedAt)
+	failIf(t, len(recs) != 1 || !proto.Equal(recs[0], want), "got %v, want only the reactivation as recorded at %s", recs, revive.RecordedAt)
 	// A refused un-merge leaves no record.
-	if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}}); err == nil {
-		t.Fatal("un-merged all of a subject's aliases")
-	}
-	if recs := unmerges(p, time.Time{}); len(recs) != 2 {
-		t.Fatalf("got %v, want the 2 records written before", recs)
-	}
+	_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: p, Aliases: []string{"github:team_node/T_p"}, Ref: "new:x"}}})
+	failIf(t, err == nil, "%v", "un-merged all of a subject's aliases")
+	recs = unmerges(p, time.Time{})
+	failIf(t, len(recs) != 2, "got %v, want the 2 records written before", recs)
 }
 
 // chainUnmerge is the decision recorded on issue 54: an un-merge through a
@@ -264,9 +231,7 @@ func (g *suite) chainUnmerge(t *testing.T) {
 	status := func(t *testing.T, s contracts.GraphStore, id string) *modelv1alpha1.Subject {
 		t.Helper()
 		sub, err := s.Subject(ctx, contracts.SubjectID(id), time.Time{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		failIf(t, err != nil, "%v", err)
 		return sub
 	}
 	t.Run("naming B's aliases on Z mints a split and leaves B merged", func(t *testing.T) {
@@ -277,31 +242,25 @@ func (g *suite) chainUnmerge(t *testing.T) {
 			Bindings: []*modelv1alpha1.BindingTimeline{bind("github:user_node/b", row("new:split", "", ""))},
 		})
 		split := string(res.Subjects["new:split"])
-		if sub := status(t, s, split); sub.GetMintedBy().GetRule() != modelv1alpha1.MintRule_MINT_RULE_SPLIT || sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE {
-			t.Fatalf("got %v, want an active subject minted by split", sub)
-		}
-		if sub := status(t, s, b); sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_MERGED {
-			t.Fatalf("got %v, want B still merged", sub)
-		}
-		if recs, _ := s.Unmerges(ctx, contracts.SubjectID(z), time.Time{}); len(recs) != 1 || !recs[0].GetSplit() || recs[0].GetTargetId() != split {
-			t.Fatalf("got %v, want one split record", recs)
-		}
+		sub := status(t, s, split)
+		failIf(t, sub.GetMintedBy().GetRule() != modelv1alpha1.MintRule_MINT_RULE_SPLIT || sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE, "got %v, want an active subject minted by split", sub)
+		sub = status(t, s, b)
+		failIf(t, sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_MERGED, "got %v, want B still merged", sub)
+		recs, _ := s.Unmerges(ctx, contracts.SubjectID(z), time.Time{})
+		failIf(t, len(recs) != 1 || !recs[0].GetSplit() || recs[0].GetTargetId() != split, "got %v, want one split record", recs)
 	})
 	t.Run("two steps restore B exactly", func(t *testing.T) {
 		s, z, a, b := chain(t)
 		// A leaves Z with the aliases it held when it merged, B's included.
 		apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e4", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: z, Aliases: []string{"directory:user/a", "github:user_node/b"}, Ref: "new:a"}}})
-		if sub := status(t, s, a); sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE {
-			t.Fatalf("got %v, want A active again", sub)
-		}
+		sub := status(t, s, a)
+		failIf(t, sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE, "got %v, want A active again", sub)
 		apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e5", Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: a, Aliases: []string{"github:user_node/b"}, Ref: "new:b"}}})
-		if sub := status(t, s, b); sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE {
-			t.Fatalf("got %v, want B active again", sub)
-		}
+		sub = status(t, s, b)
+		failIf(t, sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE, "got %v, want B active again", sub)
 		for _, id := range []string{z, a, b} {
-			if sub := status(t, s, id); sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE {
-				t.Fatalf("got %v, want %s active", sub, id)
-			}
+			sub := status(t, s, id)
+			failIf(t, sub.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE, "got %v, want %s active", sub, id)
 		}
 	})
 }

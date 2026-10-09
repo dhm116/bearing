@@ -338,7 +338,8 @@ it (`Merges` also leaves out the reviews and the un-merge recorded after it); `R
 time, and `Changes` compares two points on the valid or the record axis. A
 zero time means now, for either point of `Changes` too. Subject IDs in
 answers are canonical as of the record time, except where a method returns rows as written (`Bindings`,
-`Supports`). The resolver reads the head with `Head`, reads at that record
+`Supports`, and `Merges` and `Unmerges`, whose records name the subjects
+they involve). The resolver reads the head with `Head`, reads at that record
 time, and sets `base_recorded_at` to it, so its reads are a consistent
 snapshot.
 
