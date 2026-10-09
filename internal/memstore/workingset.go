@@ -155,7 +155,8 @@ func ChangeSetKeys(cs *modelv1alpha1.ChangeSet) map[Table][]string {
 }
 
 // SubjectsIn returns the subject IDs a message names in any subject_id,
-// subject_ids, survivor_id, merged_id or merged_into field, refs
+// subject_ids, survivor_id, merged_id or merged_into field, or as the id of
+// an audit target of kind subject, refs
 // ("new:…") left out, sorted and without repeats.
 func SubjectsIn(m proto.Message) []string {
 	var out []string
@@ -169,6 +170,9 @@ func collect(m protoreflect.Message, out *[]string) {
 		if v != "" && !strings.HasPrefix(v, refPrefix) {
 			*out = append(*out, v)
 		}
+	}
+	if t, ok := m.Interface().(*modelv1alpha1.AuditTarget); ok && t.GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT {
+		add(t.GetId())
 	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
@@ -215,6 +219,13 @@ func (s *Store) LoadMerge(m *modelv1alpha1.MergeRecord) {
 	s.addMerge(proto.CloneOf(m))
 }
 
+// LoadUnmerge appends an un-merge record; call it in record order.
+func (s *Store) LoadUnmerge(u *modelv1alpha1.UnmergeRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addUnmerge(proto.CloneOf(u))
+}
+
 // LoadSeries adds or replaces a series.
 func (s *Store) LoadSeries(t Table, key string, ser Series) {
 	s.mu.Lock()
@@ -256,6 +267,14 @@ func (s *Store) MergeRecords() []*modelv1alpha1.MergeRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.merges)
+}
+
+// UnmergeRecords returns every un-merge record the store holds, in record
+// order.
+func (s *Store) UnmergeRecords() []*modelv1alpha1.UnmergeRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.unmerges)
 }
 
 // Position returns the head and the last minted subject ID.

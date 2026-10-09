@@ -81,6 +81,15 @@ func (s *Store) Merges(ctx context.Context, id contracts.SubjectID, recordedAt t
 	return m.Merges(ctx, id, recordedAt)
 }
 
+// Unmerges implements contracts.GraphStore.
+func (s *Store) Unmerges(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) ([]*modelv1alpha1.UnmergeRecord, error) {
+	m, err := s.reader(ctx, scope{})
+	if err != nil {
+		return nil, err
+	}
+	return m.Unmerges(ctx, id, recordedAt)
+}
+
 // State implements contracts.GraphStore.
 func (s *Store) State(ctx context.Context, keys []string, recordedAt time.Time) (map[string]*anypb.Any, error) {
 	m, err := s.reader(ctx, scope{Keys: map[memstore.Table][]string{memstore.TableState: keys}})

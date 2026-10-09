@@ -320,3 +320,63 @@ func TestObjectString(t *testing.T) {
 		})
 	}
 }
+
+// Get lists a merge with its latest review and the un-merges of a subject,
+// splits included, and what was recorded before them stays out.
+func TestGetListsReviewsAndUnmerges(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	apply := func(cs *modelv1alpha1.ChangeSet) contracts.ApplyResult {
+		t.Helper()
+		if head, _ := r.store.Head(ctx); !head.IsZero() {
+			cs.BaseRecordedAt = timestamppb.New(head)
+		}
+		r.clock.Advance(time.Hour)
+		res, err := r.store.Apply(ctx, cs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	team := func(ref string) *modelv1alpha1.Mint {
+		return &modelv1alpha1.Mint{Ref: ref, Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}
+	}
+	bind := func(alias, subject string) *modelv1alpha1.BindingTimeline {
+		return &modelv1alpha1.BindingTimeline{Alias: alias, Bindings: []*modelv1alpha1.Binding{{Alias: alias, SubjectId: subject}}}
+	}
+	res := apply(&modelv1alpha1.ChangeSet{
+		EventId: "e1", Mints: []*modelv1alpha1.Mint{team("new:a"), team("new:b")},
+		Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team_node/A", "new:a"), bind("github:team_node/B", "new:b"), bind("github:team/acme/x", "new:a")},
+	})
+	a, b := string(res.Subjects["new:a"]), string(res.Subjects["new:b"])
+	apply(&modelv1alpha1.ChangeSet{EventId: "e2", Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{a, b}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_SCORE, ConfidencePpm: 900_000}}})
+	beforeReview := r.clock.Now()
+	apply(&modelv1alpha1.ChangeSet{EventId: "e3", MergeReviews: []*modelv1alpha1.MergeReviewWrite{{SubjectId: b, MergeEventId: "e2", Review: &modelv1alpha1.MergeReview{
+		SurvivorScorePpm: 900_000, MergedScorePpm: 400_000, Status: modelv1alpha1.MergeReviewStatus_MERGE_REVIEW_STATUS_NEEDS_REVIEW,
+	}}}})
+	e, err := r.q.Get(ctx, a, query.Point{})
+	if err != nil || len(e.Merges) != 1 {
+		t.Fatalf("get: %v, %d merges, want 1", err, len(e.Merges))
+	}
+	if rv := e.Merges[0].Review; rv == nil || rv.Status != "needs_review" || rv.SurvivorScorePPM != 900_000 || rv.MergedScorePPM != 400_000 || rv.EventID != "e3" {
+		t.Errorf("review = %+v, want needs_review with scores 900000 and 400000 from e3", rv)
+	}
+	if e, err := r.q.Get(ctx, a, query.Point{Recorded: beforeReview}); err != nil || e.Merges[0].Review != nil {
+		t.Errorf("as recorded before the review: %+v, %v, want no review", e.Merges, err)
+	}
+	apply(&modelv1alpha1.ChangeSet{
+		EventId:  "e4",
+		Unmerges: []*modelv1alpha1.Unmerge{{SubjectId: a, Aliases: []string{"github:team/acme/x"}, Ref: "new:x"}},
+		Bindings: []*modelv1alpha1.BindingTimeline{bind("github:team/acme/x", "new:x")},
+	})
+	e, err = r.q.Get(ctx, a, query.Point{})
+	if err != nil || len(e.Unmerges) != 1 {
+		t.Fatalf("get: %v, %d un-merges, want 1", err, len(e.Unmerges))
+	}
+	if u := e.Unmerges[0]; !u.Split || u.Subject.ID != a || u.Target.ID == a || u.Target.ID == b || len(u.Aliases) != 1 || u.Aliases[0] != "github:team/acme/x" || u.EventID != "e4" {
+		t.Errorf("un-merge = %+v, want a split of github:team/acme/x off %s by e4", u, a)
+	}
+	if e, err := r.q.Get(ctx, a, query.Point{Recorded: beforeReview}); err != nil || len(e.Unmerges) != 0 {
+		t.Errorf("as recorded before the un-merge: %+v, %v, want none", e.Unmerges, err)
+	}
+}

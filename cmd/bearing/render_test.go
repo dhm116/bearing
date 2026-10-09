@@ -92,8 +92,15 @@ func TestRenderEntityShowsConflictsAndMerges(t *testing.T) {
 			Positions: []query.Position{{SourceSystem: "catalog", Objects: []query.Object{{Value: "x"}}}},
 		}},
 		Merges: []query.Merge{
-			{Survivor: renderPayments, Merged: renderSRE, Rule: "same-email", ConfidencePPM: 990000, EventID: "ev-2", RecordedAt: renderAt},
+			{
+				Survivor: renderPayments, Merged: renderSRE, Rule: "same-email", ConfidencePPM: 990000, EventID: "ev-2", RecordedAt: renderAt,
+				Review: &query.Review{Status: "needs_review", SurvivorScorePPM: 990000, MergedScorePPM: 400000, EventID: "ev-5", RecordedAt: renderAt},
+			},
 			{Survivor: renderPayments, Merged: renderPlatform, Rule: "same-name", ConfidencePPM: 900000, EventID: "ev-3", RecordedAt: renderAt, UnmergedAt: &ended},
+		},
+		Unmerges: []query.Unmerge{
+			{Subject: renderPayments, Target: renderPlatform, Aliases: []string{"github:team_node/P"}, EventID: "ev-4", RecordedAt: ended},
+			{Subject: renderPayments, Target: renderSRE, Split: true, Aliases: []string{"github:team/acme/sre", "github:team_node/S"}, EventID: "ev-6", RecordedAt: ended},
 		},
 	}
 	var b bytes.Buffer
@@ -104,9 +111,31 @@ func TestRenderEntityShowsConflictsAndMerges(t *testing.T) {
 		"facts\n  none", "conflicts\n  owned_by", "catalog: x", "merges",
 		"sre [Team s3] into payments [Repository s1] by same-email at 99%, event ev-2\n",
 		"platform [Team s2] into payments [Repository s1] by same-name at 90%, event ev-3, un-merged 2026-10-01T13:00:00Z",
+		"    review needs_review (survivor side 99%, merged side 40%), event ev-5\n",
+		"hint: to undo a merge", "un-merge the later merge first",
+		"un-merges\n  github:team_node/P left payments [Repository s1] back to platform [Team s2] at 2026-10-01T13:00:00Z, event ev-4\n",
+		"github:team/acme/sre, github:team_node/S left payments [Repository s1] to a new subject, sre [Team s3] at 2026-10-01T13:00:00Z, event ev-6",
 	} {
 		if !strings.Contains(b.String(), w) {
 			t.Errorf("output lacks %q:\n%s", w, b.String())
 		}
+	}
+}
+
+func TestRenderEntityHintsOnlyAtMergesThatCanBeUndone(t *testing.T) {
+	ended := renderAt.Add(time.Hour)
+	for name, merges := range map[string][]query.Merge{
+		"a placeholder merge": {{Survivor: renderPayments, Merged: renderSRE, Rule: "placeholder", EventID: "ev-2", RecordedAt: renderAt}},
+		"an un-merged merge":  {{Survivor: renderPayments, Merged: renderSRE, Rule: "manual", EventID: "ev-2", RecordedAt: renderAt, UnmergedAt: &ended}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var b bytes.Buffer
+			if err := renderEntity(&b, &query.Entity{Subject: renderPayments, Merges: merges}); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(b.String(), "hint:") {
+				t.Errorf("output has a hint about undoing a merge that can't be undone:\n%s", b.String())
+			}
+		})
 	}
 }

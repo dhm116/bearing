@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/pkg/model"
 )
 
 // The count limits of a ChangeSet, beside MaxChangeSetBytes. The byte limit
@@ -18,7 +19,8 @@ import (
 // bounded by MaxChangeSetBytes alone.
 const (
 	// MaxChangeSetItems is the most entries in each of a ChangeSet's lists:
-	// mints, bindings, supports, facts, conflicts, issues and state.
+	// mints, bindings, supports, facts, conflicts, issues, state, audit
+	// entries and merge reviews.
 	//
 	// In the reference store the work is linear in the items: 50,000
 	// single-row binding timelines apply in under a second.
@@ -36,6 +38,12 @@ const (
 	// timeline whose every row changes. The reference store matches rows
 	// by content: 400 full timelines, all changed, take about a second.
 	MaxTimelineRows = 256
+	// MaxAuditIDBytes bounds the actor ID, the target ID and the rule of an
+	// audit entry, and MaxAuditReasonBytes its reason. Audit entries are
+	// kept for good and carry text from manual events and sources, so the
+	// bound has to be settled before the first is stored.
+	MaxAuditIDBytes     = model.MaxActorBytes
+	MaxAuditReasonBytes = model.MaxReasonBytes
 )
 
 // CheckChangeSetLimits reports the first count limit cs is over. Every
@@ -52,6 +60,8 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 		{"conflicts", len(cs.GetConflicts())},
 		{"issues", len(cs.GetIssues())},
 		{"state", len(cs.GetState())},
+		{"audit entries", len(cs.GetAudit())},
+		{"merge reviews", len(cs.GetMergeReviews())},
 	} {
 		if l.n > MaxChangeSetItems {
 			return fmt.Errorf("%d %s, over the limit of %d", l.n, l.name, MaxChangeSetItems)
@@ -62,6 +72,22 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 	}
 	if n := len(cs.GetUnmerges()); n > MaxChangeSetMerges {
 		return fmt.Errorf("%d unmerges, over the limit of %d", n, MaxChangeSetMerges)
+	}
+	for i, e := range cs.GetAudit() {
+		for _, f := range []struct {
+			name string
+			n    int
+			max  int
+		}{
+			{"actor id", len(e.GetActor().GetId()), MaxAuditIDBytes},
+			{"target id", len(e.GetTarget().GetId()), MaxAuditIDBytes},
+			{"rule", len(e.GetRule()), MaxAuditIDBytes},
+			{"reason", len(e.GetReason()), MaxAuditReasonBytes},
+		} {
+			if f.n > f.max {
+				return fmt.Errorf("audit entry %d: %s is %d bytes, over the limit of %d", i, f.name, f.n, f.max)
+			}
+		}
 	}
 	over := func(name, of string, n int) error {
 		if n > MaxTimelineRows {

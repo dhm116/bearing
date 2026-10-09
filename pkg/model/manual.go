@@ -80,12 +80,28 @@ func ValidateManualEvent(m proto.Message) error {
 	return c.err()
 }
 
+// The most bytes of the free text a manual operation carries, which the
+// audit log keeps for good (contracts.CheckChangeSetLimits holds audit
+// entries to the same bounds).
+const (
+	// MaxActorBytes bounds an actor's ID.
+	MaxActorBytes = 1024
+	// MaxReasonBytes bounds a reason.
+	MaxReasonBytes = 4096
+)
+
 func (c *checker) who(a *eventv1alpha1.Actor, reason string) {
-	if a.GetSubject() == "" {
+	switch {
+	case a.GetSubject() == "":
 		c.add(codeMalformed, "actor.subject", "is required")
+	case len(a.GetSubject()) > MaxActorBytes:
+		c.add(codeMalformed, "actor.subject", "is %d bytes, over the limit of %d", len(a.GetSubject()), MaxActorBytes)
 	}
-	if reason == "" {
+	switch {
+	case reason == "":
 		c.add(codeMalformed, "reason", "is required")
+	case len(reason) > MaxReasonBytes:
+		c.add(codeMalformed, "reason", "is %d bytes, over the limit of %d", len(reason), MaxReasonBytes)
 	}
 }
 

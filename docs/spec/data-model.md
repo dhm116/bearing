@@ -417,7 +417,9 @@ At record time `r`:
    check uses the same rule as merge triggers. If the evidence now
    contradicts the merge (a link names a different id), the core opens a
    conflict on `(subject, same_as)` for review. The per-side score of a
-   `score` merge is reported on the merge record for review. Evidence that
+   `score` merge is reported on the merge record for review, with a status
+   (`holds`, or `needs_review` when the evidence contradicts the merge); each
+   re-evaluation is kept, and the latest is current. Evidence that
    ends because a subject was deleted or lost its live `exists` is not a
    reason for review. The core never un-merges by itself.
 5. Reads as recorded before `r` still show two subjects.
@@ -441,6 +443,9 @@ can't be un-merged: it is correct by construction. At record time `r`:
    listed in the audit record for review.
 4. A `distinct_from` between the two is set on `(-∞, ∞)` (source
    `manual`), which blocks them from merging again by score or evidence.
+5. An un-merge record names both subjects, the aliases that moved and the
+   event, whether `B` was reactivated or a subject was minted, so a split
+   leaves a trace of where its subject came from.
 
 A `DistinctFromSet` for two subjects already merged is rejected
 (`already_merged`); un-merge instead.
@@ -1326,8 +1331,9 @@ proto field names, so JSON field names match the examples here.
   snapshot direction, cardinality, conflict policy, value type, support
   `reason`, fact status, `status_reason`, conflict `resolution` (`override`,
   `precedence`, `authority`, `evidence_changed`), compaction detail, issue
-  types, rejection codes, audit actions, actor kinds and target kinds, and
-  configuration change types. On the wire and in configuration they are ProtoJSON
+  types, rejection codes, audit actions, actor kinds and target kinds,
+  merge review statuses, and configuration change types. On the wire and in
+  configuration they are ProtoJSON
   enum names (`FACT_STATUS_ASSERTED`). This document, and `fact_id`, use
   the **short form**: the enum value name without its `<ENUM_NAME>_`
   prefix, lowercased (`asserted`). The CLI MAY print short forms in output

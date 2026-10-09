@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 )
 
@@ -59,6 +60,42 @@ func (q *Querier) merges(ctx context.Context, l *labeler, id contracts.SubjectID
 		out = append(out, Merge{
 			Survivor: survivor, Merged: merged, Rule: enumName("MERGE_RULE_", m.GetRule().String()), ConfidencePPM: m.GetConfidencePpm(),
 			EventID: m.GetEventId(), RecordedAt: m.GetRecordedAt().AsTime(), UnmergedAt: optTime(m.GetUnmergedAt()),
+			Review: latestReview(m.GetReviews()),
+		})
+	}
+	return out, nil
+}
+
+// latestReview returns the last of a merge's reviews, or nil.
+func latestReview(reviews []*modelv1alpha1.MergeReview) *Review {
+	if len(reviews) == 0 {
+		return nil
+	}
+	rv := reviews[len(reviews)-1]
+	return &Review{
+		Status: enumName("MERGE_REVIEW_STATUS_", rv.GetStatus().String()), SurvivorScorePPM: rv.GetSurvivorScorePpm(), MergedScorePPM: rv.GetMergedScorePpm(),
+		EventID: rv.GetEventId(), RecordedAt: rv.GetRecordedAt().AsTime(),
+	}
+}
+
+// unmerges lists the un-merges involving the subject, oldest first.
+func (q *Querier) unmerges(ctx context.Context, l *labeler, id contracts.SubjectID) ([]Unmerge, error) {
+	in, err := q.Graph.Unmerges(ctx, id, l.p.Recorded)
+	if err != nil {
+		return nil, fmt.Errorf("un-merges of %s: %w", id, err)
+	}
+	var out []Unmerge
+	for _, u := range in {
+		subject, err := l.ref(ctx, u.GetSubjectId())
+		if err != nil {
+			return nil, err
+		}
+		target, err := l.ref(ctx, u.GetTargetId())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Unmerge{
+			Subject: subject, Target: target, Split: u.GetSplit(), Aliases: u.GetAliases(), EventID: u.GetEventId(), RecordedAt: u.GetRecordedAt().AsTime(),
 		})
 	}
 	return out, nil

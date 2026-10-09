@@ -53,21 +53,25 @@ type loaded struct {
 	scratch *memstore.Store
 	head    time.Time
 	lastID  string
-	// merges and journal count the merge records and journal entries.
-	merges, journal int64
-	// mergeRecords are the stored merge records in order, and series what
-	// each loaded series held, for working out what an operation changed.
-	mergeRecords []*modelv1alpha1.MergeRecord
-	series       map[memstore.Table]map[string]memstore.Series
+	// merges, unmerges and journal count the merge records, un-merge
+	// records and journal entries.
+	merges, unmerges, journal int64
+	// mergeRecords and unmergeRecords are the stored records in order, and
+	// series what each loaded series held, for working out what an operation
+	// changed.
+	mergeRecords   []*modelv1alpha1.MergeRecord
+	unmergeRecords []*modelv1alpha1.UnmergeRecord
+	series         map[memstore.Table]map[string]memstore.Series
 	// subjects are the subject IDs loaded.
 	subjects map[string]bool
 }
 
 type metaRow struct {
-	Head    int64  `json:"head"`
-	LastID  string `json:"last_id"`
-	Merges  int64  `json:"merges"`
-	Journal int64  `json:"journal"`
+	Head     int64  `json:"head"`
+	LastID   string `json:"last_id"`
+	Merges   int64  `json:"merges"`
+	Unmerges int64  `json:"unmerges"`
+	Journal  int64  `json:"journal"`
 }
 
 type dataRow struct {
@@ -108,7 +112,7 @@ func microsOf(t time.Time) int64 {
 // readTx runs read-only statements as one transaction, so they see one
 // snapshot, after a first statement that returns the head.
 func (s *Store) readTx(ctx context.Context, statements string, vars map[string]any) (head metaRow, results []any, err error) {
-	res, err := s.q.Query(ctx, "BEGIN TRANSACTION;\nSELECT head, last_id, merges, journal FROM ONLY meta:graph;\n"+statements+"\nCOMMIT TRANSACTION;", vars)
+	res, err := s.q.Query(ctx, "BEGIN TRANSACTION;\nSELECT head, last_id, merges, unmerges, journal FROM ONLY meta:graph;\n"+statements+"\nCOMMIT TRANSACTION;", vars)
 	if err != nil {
 		return head, nil, err
 	}
@@ -151,19 +155,23 @@ const DefaultMaxMerges = 20000
 
 func (s *Store) loadOnce(ctx context.Context, sc scope) (*loaded, error) {
 	// Merge records first: they say which subjects belong together.
-	meta, res, err := s.readTx(ctx, `SELECT seq, data FROM merge ORDER BY seq LIMIT $merge_limit;`, map[string]any{"merge_limit": s.maxMerges + 1})
+	meta, res, err := s.readTx(ctx, `SELECT seq, data FROM merge ORDER BY seq LIMIT $merge_limit;
+SELECT seq, data FROM unmerge ORDER BY seq LIMIT $merge_limit;`, map[string]any{"merge_limit": s.maxMerges + 1})
 	if err != nil {
 		return nil, fmt.Errorf("load merges: %w", err)
 	}
-	if meta.Merges > int64(s.maxMerges) {
-		return nil, fmt.Errorf("%w: the store holds %d merge records and this backend loads them all on every operation, up to %d (https://github.com/dhm116/bearing/issues/81)", ErrTooManyMerges, meta.Merges, s.maxMerges)
+	if n := meta.Merges + meta.Unmerges; n > int64(s.maxMerges) {
+		return nil, fmt.Errorf("%w: the store holds %d merge and un-merge records and this backend loads them all on every operation, up to %d (https://github.com/dhm116/bearing/issues/81)", ErrTooManyMerges, n, s.maxMerges)
 	}
-	var mrows []dataRow
+	var mrows, urows []dataRow
 	if err := decode(res[0], &mrows); err != nil {
 		return nil, fmt.Errorf("decode merges: %w", err)
 	}
+	if err := decode(res[1], &urows); err != nil {
+		return nil, fmt.Errorf("decode unmerges: %w", err)
+	}
 	ld := &loaded{
-		scratch: memstore.New(), head: microTime(meta.Head), lastID: meta.LastID, merges: meta.Merges, journal: meta.Journal,
+		scratch: memstore.New(), head: microTime(meta.Head), lastID: meta.LastID, merges: meta.Merges, unmerges: meta.Unmerges, journal: meta.Journal,
 		series: map[memstore.Table]map[string]memstore.Series{}, subjects: map[string]bool{},
 	}
 	for _, r := range mrows {
@@ -176,9 +184,22 @@ func (s *Store) loadOnce(ctx context.Context, sc scope) (*loaded, error) {
 	if int64(len(ld.mergeRecords)) != meta.Merges {
 		return nil, fmt.Errorf("the store holds %d merge records and counts %d", len(ld.mergeRecords), meta.Merges)
 	}
+	for _, r := range urows {
+		u := &modelv1alpha1.UnmergeRecord{}
+		if err := proto.Unmarshal(r.Data, u); err != nil {
+			return nil, fmt.Errorf("unmerge %d: %w", r.Seq, err)
+		}
+		ld.unmergeRecords = append(ld.unmergeRecords, u)
+	}
+	if int64(len(ld.unmergeRecords)) != meta.Unmerges {
+		return nil, fmt.Errorf("the store holds %d un-merge records and counts %d", len(ld.unmergeRecords), meta.Unmerges)
+	}
 	ld.scratch.LoadPosition(ld.head, ld.lastID)
 	for _, m := range ld.mergeRecords {
 		ld.scratch.LoadMerge(m)
+	}
+	for _, u := range ld.unmergeRecords {
+		ld.scratch.LoadUnmerge(u)
 	}
 	comp := components(ld.mergeRecords)
 
