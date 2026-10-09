@@ -20,7 +20,7 @@ at version 0.1 and are expected to change, but change them deliberately (see
 
 ## Commands
 
-Go 1.27.1 or later; the `go` command downloads the toolchain if needed.
+Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 
 | Command | What it does |
 | --- | --- |

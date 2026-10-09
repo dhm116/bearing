@@ -56,7 +56,7 @@ keeps the adapters that fetch it small.
 
 ## Try it
 
-Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
+Requires Go 1.27.2 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build

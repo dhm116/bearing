@@ -1,6 +1,6 @@
 module bearing.example
 
-go 1.27.1
+go 1.27.2
 
 require (
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
