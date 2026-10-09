@@ -1,5 +1,5 @@
 {
-  "actor": { "subject": "https://login.example.com|7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" },
+  "actor": { "subject": "7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74" },
   "reason": "Move payments-api ownership to the catalog first",
   "changes": [
     {

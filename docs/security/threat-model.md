@@ -120,10 +120,11 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 ### Audit log
 
-- **C-AUDIT-1** Every fact change, config change, role decision on an admin
-  operation and confirmation by a person is written to the audit log in the
-  same transaction as the change (ADR 8). No change commits without its
-  record.
+- **C-AUDIT-1** Every fact status change, config change, role decision on an
+  admin operation and confirmation by a person is written to the audit log
+  in the same transaction as the change (ADR 8). No change commits without
+  its record. Individual support writes are in the change journal, which is
+  not hash-chained.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
 - **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,

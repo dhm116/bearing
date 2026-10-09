@@ -1,80 +1,5 @@
 {
   "$defs": {
-    "bearing.event.v1alpha1.AuditRecord.schema.json": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "description": "AuditRecord is one entry of the audit log's hash chain.",
-      "patternProperties": {
-        "^(eventId)$": {
-          "default": "",
-          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
-          "type": "string"
-        },
-        "^(prevHash)$": {
-          "default": null,
-          "description": "The previous record's hash; empty for seq 1.",
-          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
-          "type": "string"
-        },
-        "^(recordedAt)$": {
-          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
-          "description": "The record time of the apply that wrote it."
-        },
-        "^(traceId)$": {
-          "default": "",
-          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
-          "type": "string"
-        }
-      },
-      "properties": {
-        "entry": {
-          "$ref": "#/$defs/bearing.model.v1alpha1.AuditEntry.schema.json",
-          "description": "What happened. Required."
-        },
-        "event_id": {
-          "default": "",
-          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
-          "type": "string"
-        },
-        "hash": {
-          "default": null,
-          "description": "SHA-256 of prev_hash and this record without its hash. The AuditLog\n contract fixes the exact bytes that are hashed.",
-          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
-          "type": "string"
-        },
-        "prev_hash": {
-          "default": null,
-          "description": "The previous record's hash; empty for seq 1.",
-          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
-          "type": "string"
-        },
-        "recorded_at": {
-          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
-          "description": "The record time of the apply that wrote it."
-        },
-        "seq": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "pattern": "^[0-9]+$",
-              "type": "string"
-            }
-          ],
-          "default": 0,
-          "description": "The record's position in the log: 1 for the first, then every next\n integer. A gap is tampering."
-        },
-        "trace_id": {
-          "default": "",
-          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
-          "type": "string"
-        }
-      },
-      "title": "Audit Record",
-      "type": "object"
-    },
     "bearing.model.v1alpha1.AuditActor.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -82,7 +7,7 @@
       "properties": {
         "id": {
           "default": "",
-          "description": "A stable ID, never a token or a secret: iss and sub for a person, the\n client ID for an agent, \"local:\u003cuid\u003e\" for the local socket, the\n component name (\"core/resolver\", \"scheduler\") for the system (threat\n model C-AUDIT-6).",
+          "description": "A stable ID, never a token or a secret (threat model C-AUDIT-6): for an\n event's actor, its Actor.subject unchanged; for a component,\n \"system:\u003cname\u003e\" such as \"system:resolver\" or \"system:scheduler\".",
           "type": "string"
         },
         "kind": {
@@ -294,6 +219,96 @@
       "title": "Audit Entry",
       "type": "object"
     },
+    "bearing.model.v1alpha1.AuditRecord.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditRecord is one entry of the audit log's hash chain.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
+          "type": "string"
+        },
+        "^(prevHash)$": {
+          "default": null,
+          "description": "The previous record's hash; empty for the first record.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The record time of the apply that wrote it."
+        },
+        "^(traceId)$": {
+          "default": "",
+          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditEntry.schema.json",
+          "description": "What happened. Required."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
+          "type": "string"
+        },
+        "hash": {
+          "default": null,
+          "description": "SHA-256 of prev_hash and this record without its hash. The AuditLog\n contract fixes the exact bytes that are hashed.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "ordinal": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "This entry's position among the event's entries, from 1. With event_id\n it is a natural key, so a record is never written twice."
+        },
+        "prev_hash": {
+          "default": null,
+          "description": "The previous record's hash; empty for the first record.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The record time of the apply that wrote it."
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The record's position in the log, increasing by one from record to\n record. A gap is tampering, except where a retention cut removed the\n oldest records and wrote a checkpoint there."
+        },
+        "trace_id": {
+          "default": "",
+          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
+          "type": "string"
+        }
+      },
+      "title": "Audit Record",
+      "type": "object"
+    },
     "bearing.model.v1alpha1.AuditTarget.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -353,7 +368,7 @@
       "type": "string"
     }
   },
-  "$id": "bearing.event.v1alpha1.AuditRecord.schema.bundle.json",
-  "$ref": "#/$defs/bearing.event.v1alpha1.AuditRecord.schema.json",
+  "$id": "bearing.model.v1alpha1.AuditRecord.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AuditRecord.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

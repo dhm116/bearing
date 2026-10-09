@@ -62,7 +62,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `gen/go`, `gen/jsonschema` | Generated from `proto/` by `make generate` (`buf.gen.yaml`) and committed; never edit by hand. CI checks they are current. |
 | `testdata/observations/` | Example observations in ProtoJSON: `valid/` must validate, each file in `invalid/` must fail for the one reason `pkg/model`'s test table names. |
 | `testdata/declarations/` | The spec's reference adapter declarations; tests validate them. |
-| `testdata/events/`, `testdata/config/` | Example events, audit records and configuration resources in ProtoJSON, named `<package>.<Message>.json`; a test checks each decodes strictly and re-encodes unchanged. |
+| `testdata/events/`, `testdata/audit/`, `testdata/config/` | Example events, audit records and configuration resources in ProtoJSON, named `<package>.<Message>.json`; a test checks each decodes strictly and re-encodes unchanged. |
 | `pkg/model` | Helpers around the generated types: the kind and predicate registry, keys, ProtoJSON encoding, validation at the edges (`ValidateObservation`, `ValidateDeclaration`, `ValidateManualEvent`), `FactID` and `ContentHash`. |
 | `pkg/adapter` | Adapter protocol: `Adapter` interface, `ServeStdio` for adapter authors, client for the core. |
 | `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventBus`, `Judge`, …). |

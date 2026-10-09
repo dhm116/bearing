@@ -461,10 +461,14 @@ func (x *ObservationsEmitted) GetCompleteSync() *v1alpha1.CompleteSync {
 	return nil
 }
 
-// Actor is who asked for an event: a person or an agent acting for one.
+// Actor is who asked for an event: a person, an agent acting for one, or a
+// Bearing component. A component's subject is "system:<name>", for example
+// "system:scheduler" or "system:loader"; the audit log records that as a
+// system actor.
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// OIDC subject or agent token ID.
+	// The stable ID the authenticator gives a person or agent (OIDC subject
+	// or agent token ID), or "system:<name>".
 	Subject string `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	// True for an agent.
 	Agent         bool `protobuf:"varint,2,opt,name=agent,proto3" json:"agent,omitempty"`
@@ -1512,10 +1516,10 @@ func (x *DeclarationChanged) GetDeclaration() *v1alpha1.AdapterDeclaration {
 }
 
 // ConfigApplied is one atomic change to the configuration (ADR 10). Applying
-// it versions every resource it names at the event's record time. After a
-// change to merge policies, thresholds or match weights, the resolver
-// re-evaluates every pair with a live same_as support
-// (docs/spec/data-model.md, "Merge").
+// it versions every resource it changes at the event's record time, skips
+// changes that leave a resource as it is, and re-evaluates what the changed
+// resources affect (docs/spec/data-model.md, "Configuration"). Its
+// observed_at is the ingest time.
 type ConfigApplied struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Who applied it: a person, or the loader at start-up.

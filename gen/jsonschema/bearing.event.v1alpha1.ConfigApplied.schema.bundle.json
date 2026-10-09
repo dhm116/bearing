@@ -132,7 +132,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "properties": {
@@ -163,7 +163,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "title": "Assertion Spec",
@@ -229,7 +229,7 @@
       "properties": {
         "name": {
           "default": "",
-          "description": "The capability: http, log, trace, metrics, config, kv or clock.",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
           "type": "string"
         },
         "scope": {
@@ -447,6 +447,14 @@
       "title": "Kind Merge Policy",
       "type": "object"
     },
+    "bearing.config.v1alpha1.LinkEvidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkEvidence marks a MatchWeight as the weight of non-authoritative links.",
+      "properties": {},
+      "title": "Link Evidence",
+      "type": "object"
+    },
     "bearing.config.v1alpha1.LinkRef.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -506,8 +514,8 @@
           "type": "string"
         },
         "link": {
-          "description": "A non-authoritative link; link is not a declarable match method.",
-          "type": "boolean"
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkEvidence.schema.json",
+          "description": "A non-authoritative link; link is not a declarable match method."
         },
         "method": {
           "anyOf": [
@@ -936,7 +944,7 @@
         },
         "for": {
           "default": "",
-          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\". Empty on\n the last tier: from there back, forever.",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
           "type": "string"
         }
       },
@@ -1046,7 +1054,7 @@
     "bearing.event.v1alpha1.Actor.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "Actor is who asked for an event: a person or an agent acting for one.",
+      "description": "Actor is who asked for an event: a person, an agent acting for one, or a\n Bearing component. A component's subject is \"system:\u003cname\u003e\", for example\n \"system:scheduler\" or \"system:loader\"; the audit log records that as a\n system actor.",
       "properties": {
         "agent": {
           "default": false,
@@ -1055,7 +1063,7 @@
         },
         "subject": {
           "default": "",
-          "description": "OIDC subject or agent token ID.",
+          "description": "The stable ID the authenticator gives a person or agent (OIDC subject\n or agent token ID), or \"system:\u003cname\u003e\".",
           "type": "string"
         }
       },
@@ -1065,7 +1073,7 @@
     "bearing.event.v1alpha1.ConfigApplied.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "ConfigApplied is one atomic change to the configuration (ADR 10). Applying\n it versions every resource it names at the event's record time. After a\n change to merge policies, thresholds or match weights, the resolver\n re-evaluates every pair with a live same_as support\n (docs/spec/data-model.md, \"Merge\").",
+      "description": "ConfigApplied is one atomic change to the configuration (ADR 10). Applying\n it versions every resource it changes at the event's record time, skips\n changes that leave a resource as it is, and re-evaluates what the changed\n resources affect (docs/spec/data-model.md, \"Configuration\"). Its\n observed_at is the ingest time.",
       "properties": {
         "actor": {
           "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",

@@ -262,7 +262,9 @@ func (*Resource_Assertion) isResource_Resource() {}
 // (ADR 9), for example http limited to hosts.
 type CapabilityGrant struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The capability: http, log, trace, metrics, config, kv or clock.
+	// The capability: http, log, trace, metrics, config, kv or clock. The list
+	// is ADR 9's and grows with Bearing, so it is not an enum; a name the core
+	// does not know is rejected.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// What it may reach: hosts for http, empty for the rest.
 	Scope         []string `protobuf:"bytes,2,rep,name=scope,proto3" json:"scope,omitempty"`
@@ -1132,8 +1134,9 @@ type RetentionTier struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.
 	Detail v1alpha1.CompactionDetail `protobuf:"varint,1,opt,name=detail,proto3,enum=bearing.model.v1alpha1.CompactionDetail" json:"detail,omitempty"`
-	// How far back it applies, an ISO 8601 duration such as "P18M". Empty on
-	// the last tier: from there back, forever.
+	// How far back it applies, an ISO 8601 duration such as "P18M", counted
+	// back in UTC calendar months and years from the compaction event's
+	// observed_at. Empty on the last tier: from there back, forever.
 	For           string `protobuf:"bytes,2,opt,name=for,proto3" json:"for,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1380,13 +1383,13 @@ func (x *MatchWeight) GetMethod() v1alpha1.MatchMethod {
 	return v1alpha1.MatchMethod(0)
 }
 
-func (x *MatchWeight) GetLink() bool {
+func (x *MatchWeight) GetLink() *LinkEvidence {
 	if x != nil {
 		if x, ok := x.Evidence.(*MatchWeight_Link); ok {
 			return x.Link
 		}
 	}
-	return false
+	return nil
 }
 
 func (x *MatchWeight) GetWeightPpm() uint32 {
@@ -1421,12 +1424,49 @@ type MatchWeight_Method struct {
 
 type MatchWeight_Link struct {
 	// A non-authoritative link; link is not a declarable match method.
-	Link bool `protobuf:"varint,3,opt,name=link,proto3,oneof"`
+	Link *LinkEvidence `protobuf:"bytes,3,opt,name=link,proto3,oneof"`
 }
 
 func (*MatchWeight_Method) isMatchWeight_Evidence() {}
 
 func (*MatchWeight_Link) isMatchWeight_Evidence() {}
+
+// LinkEvidence marks a MatchWeight as the weight of non-authoritative links.
+type LinkEvidence struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkEvidence) Reset() {
+	*x = LinkEvidence{}
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkEvidence) ProtoMessage() {}
+
+func (x *LinkEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkEvidence.ProtoReflect.Descriptor instead.
+func (*LinkEvidence) Descriptor() ([]byte, []int) {
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{17}
+}
 
 // MergePolicies are the merge policy of each subject kind.
 type MergePolicies struct {
@@ -1445,7 +1485,7 @@ type MergePolicies struct {
 
 func (x *MergePolicies) Reset() {
 	*x = MergePolicies{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[17]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1457,7 +1497,7 @@ func (x *MergePolicies) String() string {
 func (*MergePolicies) ProtoMessage() {}
 
 func (x *MergePolicies) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[17]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1470,7 +1510,7 @@ func (x *MergePolicies) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergePolicies.ProtoReflect.Descriptor instead.
 func (*MergePolicies) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{17}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MergePolicies) GetApiVersion() string {
@@ -1512,7 +1552,7 @@ type MergePoliciesSpec struct {
 
 func (x *MergePoliciesSpec) Reset() {
 	*x = MergePoliciesSpec{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[18]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1524,7 +1564,7 @@ func (x *MergePoliciesSpec) String() string {
 func (*MergePoliciesSpec) ProtoMessage() {}
 
 func (x *MergePoliciesSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[18]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1537,7 +1577,7 @@ func (x *MergePoliciesSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergePoliciesSpec.ProtoReflect.Descriptor instead.
 func (*MergePoliciesSpec) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{18}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *MergePoliciesSpec) GetPolicies() []*KindMergePolicy {
@@ -1564,7 +1604,7 @@ type KindMergePolicy struct {
 
 func (x *KindMergePolicy) Reset() {
 	*x = KindMergePolicy{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[19]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1576,7 +1616,7 @@ func (x *KindMergePolicy) String() string {
 func (*KindMergePolicy) ProtoMessage() {}
 
 func (x *KindMergePolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[19]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1589,7 +1629,7 @@ func (x *KindMergePolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KindMergePolicy.ProtoReflect.Descriptor instead.
 func (*KindMergePolicy) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{19}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *KindMergePolicy) GetKind() string {
@@ -1630,7 +1670,7 @@ type DerivationRules struct {
 
 func (x *DerivationRules) Reset() {
 	*x = DerivationRules{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[20]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1642,7 +1682,7 @@ func (x *DerivationRules) String() string {
 func (*DerivationRules) ProtoMessage() {}
 
 func (x *DerivationRules) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[20]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1655,7 +1695,7 @@ func (x *DerivationRules) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DerivationRules.ProtoReflect.Descriptor instead.
 func (*DerivationRules) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{20}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DerivationRules) GetApiVersion() string {
@@ -1699,7 +1739,7 @@ type DerivationRulesSpec struct {
 
 func (x *DerivationRulesSpec) Reset() {
 	*x = DerivationRulesSpec{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[21]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1711,7 +1751,7 @@ func (x *DerivationRulesSpec) String() string {
 func (*DerivationRulesSpec) ProtoMessage() {}
 
 func (x *DerivationRulesSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[21]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1724,7 +1764,7 @@ func (x *DerivationRulesSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DerivationRulesSpec.ProtoReflect.Descriptor instead.
 func (*DerivationRulesSpec) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{21}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DerivationRulesSpec) GetCodeowners() *CodeownersRule {
@@ -1748,7 +1788,7 @@ type CodeownersRule struct {
 
 func (x *CodeownersRule) Reset() {
 	*x = CodeownersRule{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[22]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1760,7 +1800,7 @@ func (x *CodeownersRule) String() string {
 func (*CodeownersRule) ProtoMessage() {}
 
 func (x *CodeownersRule) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[22]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1773,7 +1813,7 @@ func (x *CodeownersRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CodeownersRule.ProtoReflect.Descriptor instead.
 func (*CodeownersRule) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{22}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CodeownersRule) GetSoleTeamPpm() uint32 {
@@ -1808,7 +1848,7 @@ type Assertion struct {
 
 func (x *Assertion) Reset() {
 	*x = Assertion{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[23]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1820,7 +1860,7 @@ func (x *Assertion) String() string {
 func (*Assertion) ProtoMessage() {}
 
 func (x *Assertion) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[23]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1833,7 +1873,7 @@ func (x *Assertion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Assertion.ProtoReflect.Descriptor instead.
 func (*Assertion) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{23}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Assertion) GetApiVersion() string {
@@ -1867,7 +1907,9 @@ func (x *Assertion) GetSpec() *AssertionSpec {
 // AssertionSpec is an Assertion's content.
 type AssertionSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The confidence at which a fact is asserted, in parts per million.
+	// The confidence at which a fact is asserted, in parts per million: the
+	// threshold of every predicate (900000 when this is 0). A merge policy's
+	// threshold_ppm takes its place for same_as.
 	ThresholdPpm uint32 `protobuf:"varint,1,opt,name=threshold_ppm,json=thresholdPpm,proto3" json:"threshold_ppm,omitempty"`
 	// Groups of source systems that copy each other, so their confidence counts
 	// once (docs/spec/data-model.md, "Confidence").
@@ -1880,7 +1922,7 @@ type AssertionSpec struct {
 
 func (x *AssertionSpec) Reset() {
 	*x = AssertionSpec{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[24]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1892,7 +1934,7 @@ func (x *AssertionSpec) String() string {
 func (*AssertionSpec) ProtoMessage() {}
 
 func (x *AssertionSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[24]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1905,7 +1947,7 @@ func (x *AssertionSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssertionSpec.ProtoReflect.Descriptor instead.
 func (*AssertionSpec) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{24}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AssertionSpec) GetThresholdPpm() uint32 {
@@ -1940,7 +1982,7 @@ type ConfidenceGroup struct {
 
 func (x *ConfidenceGroup) Reset() {
 	*x = ConfidenceGroup{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[25]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1952,7 +1994,7 @@ func (x *ConfidenceGroup) String() string {
 func (*ConfidenceGroup) ProtoMessage() {}
 
 func (x *ConfidenceGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[25]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1965,7 +2007,7 @@ func (x *ConfidenceGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfidenceGroup.ProtoReflect.Descriptor instead.
 func (*ConfidenceGroup) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{25}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ConfidenceGroup) GetSystems() []string {
@@ -1989,7 +2031,7 @@ type PredicatePrecedence struct {
 
 func (x *PredicatePrecedence) Reset() {
 	*x = PredicatePrecedence{}
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[26]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2001,7 +2043,7 @@ func (x *PredicatePrecedence) String() string {
 func (*PredicatePrecedence) ProtoMessage() {}
 
 func (x *PredicatePrecedence) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[26]
+	mi := &file_bearing_config_v1alpha1_resources_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2014,7 +2056,7 @@ func (x *PredicatePrecedence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredicatePrecedence.ProtoReflect.Descriptor instead.
 func (*PredicatePrecedence) Descriptor() ([]byte, []int) {
-	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{26}
+	return file_bearing_config_v1alpha1_resources_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *PredicatePrecedence) GetPredicate() string {
@@ -2130,17 +2172,18 @@ const file_bearing_config_v1alpha1_resources_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2!.bearing.config.v1alpha1.MetadataR\bmetadata\x12=\n" +
 	"\x04spec\x18\x04 \x01(\v2).bearing.config.v1alpha1.MatchWeightsSpecR\x04spec\"R\n" +
 	"\x10MatchWeightsSpec\x12>\n" +
-	"\aweights\x18\x01 \x03(\v2$.bearing.config.v1alpha1.MatchWeightR\aweights\"\xd7\x01\n" +
+	"\aweights\x18\x01 \x03(\v2$.bearing.config.v1alpha1.MatchWeightR\aweights\"\xfe\x01\n" +
 	"\vMatchWeight\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12=\n" +
-	"\x06method\x18\x02 \x01(\x0e2#.bearing.model.v1alpha1.MatchMethodH\x00R\x06method\x12\x14\n" +
-	"\x04link\x18\x03 \x01(\bH\x00R\x04link\x12\x1d\n" +
+	"\x06method\x18\x02 \x01(\x0e2#.bearing.model.v1alpha1.MatchMethodH\x00R\x06method\x12;\n" +
+	"\x04link\x18\x03 \x01(\v2%.bearing.config.v1alpha1.LinkEvidenceH\x00R\x04link\x12\x1d\n" +
 	"\n" +
 	"weight_ppm\x18\x04 \x01(\rR\tweightPpm\x12\x16\n" +
 	"\x06source\x18\x05 \x01(\tR\x06source\x12\x1c\n" +
 	"\tpredicate\x18\x06 \x01(\tR\tpredicateB\n" +
 	"\n" +
-	"\bevidence\"\xc3\x01\n" +
+	"\bevidence\"\x0e\n" +
+	"\fLinkEvidence\"\xc3\x01\n" +
 	"\rMergePolicies\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -2196,7 +2239,7 @@ func file_bearing_config_v1alpha1_resources_proto_rawDescGZIP() []byte {
 	return file_bearing_config_v1alpha1_resources_proto_rawDescData
 }
 
-var file_bearing_config_v1alpha1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_bearing_config_v1alpha1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_bearing_config_v1alpha1_resources_proto_goTypes = []any{
 	(*Metadata)(nil),               // 0: bearing.config.v1alpha1.Metadata
 	(*Resource)(nil),               // 1: bearing.config.v1alpha1.Resource
@@ -2215,78 +2258,80 @@ var file_bearing_config_v1alpha1_resources_proto_goTypes = []any{
 	(*MatchWeights)(nil),           // 14: bearing.config.v1alpha1.MatchWeights
 	(*MatchWeightsSpec)(nil),       // 15: bearing.config.v1alpha1.MatchWeightsSpec
 	(*MatchWeight)(nil),            // 16: bearing.config.v1alpha1.MatchWeight
-	(*MergePolicies)(nil),          // 17: bearing.config.v1alpha1.MergePolicies
-	(*MergePoliciesSpec)(nil),      // 18: bearing.config.v1alpha1.MergePoliciesSpec
-	(*KindMergePolicy)(nil),        // 19: bearing.config.v1alpha1.KindMergePolicy
-	(*DerivationRules)(nil),        // 20: bearing.config.v1alpha1.DerivationRules
-	(*DerivationRulesSpec)(nil),    // 21: bearing.config.v1alpha1.DerivationRulesSpec
-	(*CodeownersRule)(nil),         // 22: bearing.config.v1alpha1.CodeownersRule
-	(*Assertion)(nil),              // 23: bearing.config.v1alpha1.Assertion
-	(*AssertionSpec)(nil),          // 24: bearing.config.v1alpha1.AssertionSpec
-	(*ConfidenceGroup)(nil),        // 25: bearing.config.v1alpha1.ConfidenceGroup
-	(*PredicatePrecedence)(nil),    // 26: bearing.config.v1alpha1.PredicatePrecedence
-	nil,                            // 27: bearing.config.v1alpha1.Metadata.LabelsEntry
-	nil,                            // 28: bearing.config.v1alpha1.SourceSpec.SecretsEntry
-	nil,                            // 29: bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry
-	(*structpb.Struct)(nil),        // 30: google.protobuf.Struct
-	(v1alpha1.Direction)(0),        // 31: bearing.model.v1alpha1.Direction
-	(*v1alpha1.Authority)(nil),     // 32: bearing.model.v1alpha1.Authority
-	(v1alpha1.CompactionDetail)(0), // 33: bearing.model.v1alpha1.CompactionDetail
-	(v1alpha1.MatchMethod)(0),      // 34: bearing.model.v1alpha1.MatchMethod
-	(v1alpha1.MergePolicy)(0),      // 35: bearing.model.v1alpha1.MergePolicy
-	(v1alpha1.KeyClass)(0),         // 36: bearing.model.v1alpha1.KeyClass
+	(*LinkEvidence)(nil),           // 17: bearing.config.v1alpha1.LinkEvidence
+	(*MergePolicies)(nil),          // 18: bearing.config.v1alpha1.MergePolicies
+	(*MergePoliciesSpec)(nil),      // 19: bearing.config.v1alpha1.MergePoliciesSpec
+	(*KindMergePolicy)(nil),        // 20: bearing.config.v1alpha1.KindMergePolicy
+	(*DerivationRules)(nil),        // 21: bearing.config.v1alpha1.DerivationRules
+	(*DerivationRulesSpec)(nil),    // 22: bearing.config.v1alpha1.DerivationRulesSpec
+	(*CodeownersRule)(nil),         // 23: bearing.config.v1alpha1.CodeownersRule
+	(*Assertion)(nil),              // 24: bearing.config.v1alpha1.Assertion
+	(*AssertionSpec)(nil),          // 25: bearing.config.v1alpha1.AssertionSpec
+	(*ConfidenceGroup)(nil),        // 26: bearing.config.v1alpha1.ConfidenceGroup
+	(*PredicatePrecedence)(nil),    // 27: bearing.config.v1alpha1.PredicatePrecedence
+	nil,                            // 28: bearing.config.v1alpha1.Metadata.LabelsEntry
+	nil,                            // 29: bearing.config.v1alpha1.SourceSpec.SecretsEntry
+	nil,                            // 30: bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry
+	(*structpb.Struct)(nil),        // 31: google.protobuf.Struct
+	(v1alpha1.Direction)(0),        // 32: bearing.model.v1alpha1.Direction
+	(*v1alpha1.Authority)(nil),     // 33: bearing.model.v1alpha1.Authority
+	(v1alpha1.CompactionDetail)(0), // 34: bearing.model.v1alpha1.CompactionDetail
+	(v1alpha1.MatchMethod)(0),      // 35: bearing.model.v1alpha1.MatchMethod
+	(v1alpha1.MergePolicy)(0),      // 36: bearing.model.v1alpha1.MergePolicy
+	(v1alpha1.KeyClass)(0),         // 37: bearing.model.v1alpha1.KeyClass
 }
 var file_bearing_config_v1alpha1_resources_proto_depIdxs = []int32{
-	27, // 0: bearing.config.v1alpha1.Metadata.labels:type_name -> bearing.config.v1alpha1.Metadata.LabelsEntry
+	28, // 0: bearing.config.v1alpha1.Metadata.labels:type_name -> bearing.config.v1alpha1.Metadata.LabelsEntry
 	3,  // 1: bearing.config.v1alpha1.Resource.adapter:type_name -> bearing.config.v1alpha1.Adapter
 	5,  // 2: bearing.config.v1alpha1.Resource.source:type_name -> bearing.config.v1alpha1.Source
 	10, // 3: bearing.config.v1alpha1.Resource.retention:type_name -> bearing.config.v1alpha1.Retention
 	14, // 4: bearing.config.v1alpha1.Resource.match_weights:type_name -> bearing.config.v1alpha1.MatchWeights
-	17, // 5: bearing.config.v1alpha1.Resource.merge_policies:type_name -> bearing.config.v1alpha1.MergePolicies
-	20, // 6: bearing.config.v1alpha1.Resource.derivation_rules:type_name -> bearing.config.v1alpha1.DerivationRules
-	23, // 7: bearing.config.v1alpha1.Resource.assertion:type_name -> bearing.config.v1alpha1.Assertion
+	18, // 5: bearing.config.v1alpha1.Resource.merge_policies:type_name -> bearing.config.v1alpha1.MergePolicies
+	21, // 6: bearing.config.v1alpha1.Resource.derivation_rules:type_name -> bearing.config.v1alpha1.DerivationRules
+	24, // 7: bearing.config.v1alpha1.Resource.assertion:type_name -> bearing.config.v1alpha1.Assertion
 	0,  // 8: bearing.config.v1alpha1.Adapter.metadata:type_name -> bearing.config.v1alpha1.Metadata
 	4,  // 9: bearing.config.v1alpha1.Adapter.spec:type_name -> bearing.config.v1alpha1.AdapterSpec
 	2,  // 10: bearing.config.v1alpha1.AdapterSpec.capabilities:type_name -> bearing.config.v1alpha1.CapabilityGrant
-	30, // 11: bearing.config.v1alpha1.AdapterSpec.settings:type_name -> google.protobuf.Struct
+	31, // 11: bearing.config.v1alpha1.AdapterSpec.settings:type_name -> google.protobuf.Struct
 	0,  // 12: bearing.config.v1alpha1.Source.metadata:type_name -> bearing.config.v1alpha1.Metadata
 	6,  // 13: bearing.config.v1alpha1.Source.spec:type_name -> bearing.config.v1alpha1.SourceSpec
 	7,  // 14: bearing.config.v1alpha1.SourceSpec.issues:type_name -> bearing.config.v1alpha1.NamespaceUse
 	7,  // 15: bearing.config.v1alpha1.SourceSpec.links:type_name -> bearing.config.v1alpha1.NamespaceUse
 	9,  // 16: bearing.config.v1alpha1.SourceSpec.authority:type_name -> bearing.config.v1alpha1.AuthorityOverride
-	30, // 17: bearing.config.v1alpha1.SourceSpec.settings:type_name -> google.protobuf.Struct
-	28, // 18: bearing.config.v1alpha1.SourceSpec.secrets:type_name -> bearing.config.v1alpha1.SourceSpec.SecretsEntry
+	31, // 17: bearing.config.v1alpha1.SourceSpec.settings:type_name -> google.protobuf.Struct
+	29, // 18: bearing.config.v1alpha1.SourceSpec.secrets:type_name -> bearing.config.v1alpha1.SourceSpec.SecretsEntry
 	2,  // 19: bearing.config.v1alpha1.SourceSpec.capabilities:type_name -> bearing.config.v1alpha1.CapabilityGrant
-	29, // 20: bearing.config.v1alpha1.NamespaceUse.key_classes:type_name -> bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry
+	30, // 20: bearing.config.v1alpha1.NamespaceUse.key_classes:type_name -> bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry
 	8,  // 21: bearing.config.v1alpha1.AuthorityOverride.link:type_name -> bearing.config.v1alpha1.LinkRef
-	31, // 22: bearing.config.v1alpha1.AuthorityOverride.direction:type_name -> bearing.model.v1alpha1.Direction
-	32, // 23: bearing.config.v1alpha1.AuthorityOverride.authority:type_name -> bearing.model.v1alpha1.Authority
+	32, // 22: bearing.config.v1alpha1.AuthorityOverride.direction:type_name -> bearing.model.v1alpha1.Direction
+	33, // 23: bearing.config.v1alpha1.AuthorityOverride.authority:type_name -> bearing.model.v1alpha1.Authority
 	0,  // 24: bearing.config.v1alpha1.Retention.metadata:type_name -> bearing.config.v1alpha1.Metadata
 	11, // 25: bearing.config.v1alpha1.Retention.spec:type_name -> bearing.config.v1alpha1.RetentionSpec
 	12, // 26: bearing.config.v1alpha1.RetentionSpec.rules:type_name -> bearing.config.v1alpha1.RetentionRule
 	13, // 27: bearing.config.v1alpha1.RetentionRule.tiers:type_name -> bearing.config.v1alpha1.RetentionTier
-	33, // 28: bearing.config.v1alpha1.RetentionTier.detail:type_name -> bearing.model.v1alpha1.CompactionDetail
+	34, // 28: bearing.config.v1alpha1.RetentionTier.detail:type_name -> bearing.model.v1alpha1.CompactionDetail
 	0,  // 29: bearing.config.v1alpha1.MatchWeights.metadata:type_name -> bearing.config.v1alpha1.Metadata
 	15, // 30: bearing.config.v1alpha1.MatchWeights.spec:type_name -> bearing.config.v1alpha1.MatchWeightsSpec
 	16, // 31: bearing.config.v1alpha1.MatchWeightsSpec.weights:type_name -> bearing.config.v1alpha1.MatchWeight
-	34, // 32: bearing.config.v1alpha1.MatchWeight.method:type_name -> bearing.model.v1alpha1.MatchMethod
-	0,  // 33: bearing.config.v1alpha1.MergePolicies.metadata:type_name -> bearing.config.v1alpha1.Metadata
-	18, // 34: bearing.config.v1alpha1.MergePolicies.spec:type_name -> bearing.config.v1alpha1.MergePoliciesSpec
-	19, // 35: bearing.config.v1alpha1.MergePoliciesSpec.policies:type_name -> bearing.config.v1alpha1.KindMergePolicy
-	35, // 36: bearing.config.v1alpha1.KindMergePolicy.policy:type_name -> bearing.model.v1alpha1.MergePolicy
-	0,  // 37: bearing.config.v1alpha1.DerivationRules.metadata:type_name -> bearing.config.v1alpha1.Metadata
-	21, // 38: bearing.config.v1alpha1.DerivationRules.spec:type_name -> bearing.config.v1alpha1.DerivationRulesSpec
-	22, // 39: bearing.config.v1alpha1.DerivationRulesSpec.codeowners:type_name -> bearing.config.v1alpha1.CodeownersRule
-	0,  // 40: bearing.config.v1alpha1.Assertion.metadata:type_name -> bearing.config.v1alpha1.Metadata
-	24, // 41: bearing.config.v1alpha1.Assertion.spec:type_name -> bearing.config.v1alpha1.AssertionSpec
-	25, // 42: bearing.config.v1alpha1.AssertionSpec.confidence_groups:type_name -> bearing.config.v1alpha1.ConfidenceGroup
-	26, // 43: bearing.config.v1alpha1.AssertionSpec.precedence:type_name -> bearing.config.v1alpha1.PredicatePrecedence
-	36, // 44: bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry.value:type_name -> bearing.model.v1alpha1.KeyClass
-	45, // [45:45] is the sub-list for method output_type
-	45, // [45:45] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	35, // 32: bearing.config.v1alpha1.MatchWeight.method:type_name -> bearing.model.v1alpha1.MatchMethod
+	17, // 33: bearing.config.v1alpha1.MatchWeight.link:type_name -> bearing.config.v1alpha1.LinkEvidence
+	0,  // 34: bearing.config.v1alpha1.MergePolicies.metadata:type_name -> bearing.config.v1alpha1.Metadata
+	19, // 35: bearing.config.v1alpha1.MergePolicies.spec:type_name -> bearing.config.v1alpha1.MergePoliciesSpec
+	20, // 36: bearing.config.v1alpha1.MergePoliciesSpec.policies:type_name -> bearing.config.v1alpha1.KindMergePolicy
+	36, // 37: bearing.config.v1alpha1.KindMergePolicy.policy:type_name -> bearing.model.v1alpha1.MergePolicy
+	0,  // 38: bearing.config.v1alpha1.DerivationRules.metadata:type_name -> bearing.config.v1alpha1.Metadata
+	22, // 39: bearing.config.v1alpha1.DerivationRules.spec:type_name -> bearing.config.v1alpha1.DerivationRulesSpec
+	23, // 40: bearing.config.v1alpha1.DerivationRulesSpec.codeowners:type_name -> bearing.config.v1alpha1.CodeownersRule
+	0,  // 41: bearing.config.v1alpha1.Assertion.metadata:type_name -> bearing.config.v1alpha1.Metadata
+	25, // 42: bearing.config.v1alpha1.Assertion.spec:type_name -> bearing.config.v1alpha1.AssertionSpec
+	26, // 43: bearing.config.v1alpha1.AssertionSpec.confidence_groups:type_name -> bearing.config.v1alpha1.ConfidenceGroup
+	27, // 44: bearing.config.v1alpha1.AssertionSpec.precedence:type_name -> bearing.config.v1alpha1.PredicatePrecedence
+	37, // 45: bearing.config.v1alpha1.NamespaceUse.KeyClassesEntry.value:type_name -> bearing.model.v1alpha1.KeyClass
+	46, // [46:46] is the sub-list for method output_type
+	46, // [46:46] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_bearing_config_v1alpha1_resources_proto_init() }
@@ -2322,7 +2367,7 @@ func file_bearing_config_v1alpha1_resources_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_config_v1alpha1_resources_proto_rawDesc), len(file_bearing_config_v1alpha1_resources_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

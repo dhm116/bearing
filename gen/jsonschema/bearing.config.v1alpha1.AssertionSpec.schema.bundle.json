@@ -25,7 +25,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "properties": {
@@ -56,7 +56,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "title": "Assertion Spec",

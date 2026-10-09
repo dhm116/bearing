@@ -2,10 +2,11 @@
   "seq": "42",
   "recorded_at": "2026-10-09T22:30:00.000001Z",
   "event_id": "0192b1c4-7e10-7a3c-9d2e-6f1a2b3c4d5e",
+  "ordinal": 1,
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "entry": {
     "action": "AUDIT_ACTION_MERGE",
-    "actor": { "kind": "AUDIT_ACTOR_KIND_SYSTEM", "id": "core/resolver" },
+    "actor": { "kind": "AUDIT_ACTOR_KIND_SYSTEM", "id": "system:resolver" },
     "target": { "kind": "AUDIT_TARGET_KIND_SUBJECT", "id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e" },
     "rule": "authoritative",
     "confidence_ppm": 1000000,

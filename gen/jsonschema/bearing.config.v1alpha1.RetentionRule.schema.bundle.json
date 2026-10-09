@@ -55,7 +55,7 @@
         },
         "for": {
           "default": "",
-          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\". Empty on\n the last tier: from there back, forever.",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
           "type": "string"
         }
       },

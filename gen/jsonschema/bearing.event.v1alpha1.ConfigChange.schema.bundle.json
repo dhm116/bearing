@@ -132,7 +132,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "properties": {
@@ -163,7 +163,7 @@
             }
           ],
           "default": 0,
-          "description": "The confidence at which a fact is asserted, in parts per million."
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
         }
       },
       "title": "Assertion Spec",
@@ -229,7 +229,7 @@
       "properties": {
         "name": {
           "default": "",
-          "description": "The capability: http, log, trace, metrics, config, kv or clock.",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
           "type": "string"
         },
         "scope": {
@@ -447,6 +447,14 @@
       "title": "Kind Merge Policy",
       "type": "object"
     },
+    "bearing.config.v1alpha1.LinkEvidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkEvidence marks a MatchWeight as the weight of non-authoritative links.",
+      "properties": {},
+      "title": "Link Evidence",
+      "type": "object"
+    },
     "bearing.config.v1alpha1.LinkRef.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -506,8 +514,8 @@
           "type": "string"
         },
         "link": {
-          "description": "A non-authoritative link; link is not a declarable match method.",
-          "type": "boolean"
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkEvidence.schema.json",
+          "description": "A non-authoritative link; link is not a declarable match method."
         },
         "method": {
           "anyOf": [
@@ -936,7 +944,7 @@
         },
         "for": {
           "default": "",
-          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\". Empty on\n the last tier: from there back, forever.",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\", counted\n back in UTC calendar months and years from the compaction event's\n observed_at. Empty on the last tier: from there back, forever.",
           "type": "string"
         }
       },

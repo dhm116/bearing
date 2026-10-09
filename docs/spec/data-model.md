@@ -68,6 +68,10 @@ Bearing's state has two parts:
   summaries and the effects of manual events are primary state, backed up
   with the graph. Manual events MUST be retained as long as their effects
   are live ([ADR 11](../adr/0011-identity-store-is-primary-state.md)).
+- The **configuration** and **declaration versions** in force at every
+  record time `r` the store can answer for ([Configuration](#configuration),
+  [Declarations](#declarations)). They are primary state, backed up with the
+  graph, and are not rebuilt from the log, whose window is shorter.
 
 Guarantees:
 
@@ -196,8 +200,14 @@ Adapters declare key types per kind ([Declarations](#declarations)):
   as recorded earlier still use the old one. It is checked as configuration
   apply checks a declaration: a change to a bound key type's kind, class or
   case, or a declaration that contradicts another one, is rejected
-  (`invalid_operation`) and the source keeps the declaration it had. The
-  event and every rejection are audited.
+  (`invalid_operation`) and the source keeps the declaration it had. A
+  declaration equal to the one in force writes nothing. The event's
+  `observed_at` is the ingest time. Its record time changes authority and
+  matching for the source, so it re-evaluates what
+  [Configuration](#configuration) lists for authority and declaration
+  changes. The change and every rejection are audited. The core appends it
+  before it accepts observations from the new version, since those are
+  checked against the declaration in force.
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted.
   Webhook payloads may carry legacy-format `node_id`s, and no header
@@ -1081,8 +1091,9 @@ compaction event's `observed_at`:
 - Only periods entirely past a tier's boundary are compacted. Live
   supports are never compacted. Compaction runs as a `CompactionRequested`
   event, appended by the scheduler or a person, optionally limited to one
-  predicate or one kind. Its `observed_at` is the instant tiers count back
-  from and the summaries' `compacted_at`. Each period it summarizes is
+  predicate or one kind. Its `observed_at` is the ingest time (a caller
+  cannot set it): the instant tiers count back from, in UTC calendar months
+  and years, and the summaries' `compacted_at`. Each period it summarizes is
   audited (`compaction`).
 - A summary is Bearing's knowledge at `compacted_at`: reads as recorded
   earlier also answer from it. It stores canonical subject IDs as of
@@ -1172,16 +1183,22 @@ and every rejection; also for each applied configuration change and
 declaration change. A rejection rejects its scope; the rest of the event
 applies.
 
-A record is an `AuditRecord` (`event/v1alpha1/audit.proto`): the log's `seq`,
-the apply's `recorded_at`, the `event_id`, the `trace_id` when there was
-one, the hash-chain fields of [ADR 8](../adr/0008-audit-log.md), and an
-`AuditEntry` (`model/v1alpha1/audit.proto`) that the writer produces:
+A record is an `AuditRecord` (`model/v1alpha1/audit.proto`): the log's `seq`,
+the apply's `recorded_at`, the `event_id` and the entry's `ordinal` within
+it, the `trace_id` when there was one, the hash-chain fields of
+[ADR 8](../adr/0008-audit-log.md), and an `AuditEntry` that the writer
+produces:
 `action`, `actor`, `target`, the `rule` that decided it (short form),
 `confidence_ppm` when scored, `rejection_code`, `reason`, and `before` and
 `after`, the model message that shows the target's state (absent when it did
-not exist, or no longer does). The actor is a person, an agent, or the
-component that acted (`core/resolver`, `scheduler`), named by a stable ID,
-never a token. An entry never holds a secret value.
+not exist, or no longer does). The actor is derived from the
+event's `actor`: `agent` makes an agent, a `subject` starting `system:` (the
+scheduler and the start-up loader append their events as `system:scheduler`
+and `system:loader`) a system component, any other a person; the ID is the
+`subject`, never a token. A component that acts with no event actor is
+`system:<name>`, for example `system:resolver`. An entry never holds a secret
+value; resources hold references, and a setting that is a secret is a
+reference in the resource.
 
 | `action` | `target` | `rule` | `before` / `after` |
 | --- | --- | --- | --- |
@@ -1197,8 +1214,8 @@ never a token. An entry never holds a secret value.
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
 | `compacted_write_dropped` | the `(subject, predicate)` | | `reason` names the period |
 | `rejection` | the event; `reason` names the scope | | `rejection_code` and `reason` |
-| `config_applied` | the resource (`<kind>/<name>`) | | the `Resource` |
-| `declaration_changed` | the source | | the `AdapterDeclaration` |
+| `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
+| `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |
 
 | Code | Scope | Raised by |
 | --- | --- | --- |
@@ -1214,8 +1231,8 @@ never a token. An entry never holds a secret value.
 | `invalid_interval` | claim | [Claims](#claims) |
 | `already_merged` | manual event | `DistinctFromSet` ([Un-merge](#un-merge)) |
 | `invalid_operation` | manual event, declaration change or configuration apply | An operation its rules don't allow (un-merging a `placeholder` merge, an alias set that isn't a non-empty proper subset; a declaration or key-class override that changes a bound key type; a configured namespace used with two issuer types) |
-| `malformed` | observation, manual event, declaration or configuration | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
-| `too_large` | observation | The ChangeSet the observation needs is over the store's count or byte limits ([contracts](contracts.md#graphstore)), for example more than 50,000 supports. The event applies as processed and changes nothing; the reason names the limit and the counts |
+| `malformed` | observation, manual event, declaration, declaration change or configuration apply | A required field missing or not well formed (unparsable key, missing entity/time/direction, wrong CloudEvents specversion/type, `*` mixed with other predicates); an unknown field, including a CloudEvents extension attribute other than `bearingsource`; a value nested more than 32 deep or a list or object of more than 10,000 entries; invalid UTF-8; an adapter sending `exists` or `bearingsource` |
+| `too_large` | observation or configuration apply | The ChangeSet the event needs is over the store's count or byte limits ([contracts](contracts.md#graphstore)), for example more than 50,000 supports. The event applies as processed and changes nothing; the reason names the limit and the counts |
 
 ## Configuration
 
@@ -1229,7 +1246,7 @@ document read the configuration in force at record time `r`.
 | --- | --- | --- |
 | `Adapter` | The module's digest, the capabilities and secret names it declares, default settings | The adapter host |
 | `Source` | Its adapter, `namespace`, `issues`, `links`, `authority` overrides, settings, secret references, `schedule`, narrowed capabilities | [Keys and namespaces](#keys-and-namespaces) |
-| `Assertion` | The confidence `threshold_ppm`, `confidence_groups`, per-predicate `precedence` | [Confidence](#confidence), [Status](#status), [Conflicts](#conflicts) |
+| `Assertion` | The `threshold_ppm` of every predicate (900000 when 0), `confidence_groups`, per-predicate `precedence` | [Confidence](#confidence), [Status](#status), [Conflicts](#conflicts) |
 | `MatchWeights` | Weights in ppm per kind and method or `link`, with per-source, per-predicate overrides | [Matching](#matching) |
 | `MergePolicies` | The merge policy per kind, with `threshold_ppm` for `score` | [Merge policy](#merge-policy) |
 | `DerivationRules` | The parameters of the core's rules; `codeowners` sets `sole_team_ppm` and `mixed_ppm` | [Derived claims](#derived-claims) |
@@ -1241,17 +1258,46 @@ document read the configuration in force at record time `r`.
   Spans (`schedule`, a tier's `for`) are ISO 8601 durations. In ProtoJSON an
   `authority` override that makes a target non-authoritative is written
   `"authority": {}`, because a default value is left out.
+- **One configuration.** `Assertion`, `MatchWeights`, `MergePolicies` and
+  `DerivationRules` are singletons: at most one resource of each kind
+  exists, under any name. Several `Retention` resources may exist if no two
+  cover the same predicate or kind. `Adapter` and `Source` resources are
+  named and unique by name. Within a resource, two entries with one key (a
+  kind, a kind and method, a predicate, a scope) are an error. See
+  `testdata/config/` for one example of each kind.
 - **Applying.** A `ConfigApplied` event carries the actor, the reason and a
-  list of changes, each setting a whole resource or deleting one. Applying
-  it checks every resource against its type and against the rules this
+  list of changes, each setting a whole resource or deleting one. A
+  `SET` carries the resource and a `DELETE` does not; `resource_kind` and
+  `resource_name` MUST equal the resource's kind and `metadata.name`, and a
+  resource appears once per event. The event is checked against the
+  configuration it would produce, so a `Source` and its `Adapter` can be set
+  together: each resource against its type, and against the rules this
   document says configuration apply enforces (a Source's settings against
   its adapter's declared settings, namespaces and key types
   ([Keys and namespaces](#keys-and-namespaces), [Key types](#key-types)),
-  tier order). A violation rejects the whole event (`malformed` or
-  `invalid_operation`) and changes nothing. Otherwise each resource is
-  versioned at the event's record time and audited (`config_applied`), and a
-  change to merge policies, `threshold_ppm` or match weights re-evaluates
-  merge triggers ([Merge](#merge)).
+  tier order, a reference where a secret is). A structural fault (a missing
+  field, a mismatch, a duplicate, an unknown capability, an unspecified change type) is
+  `malformed`; a rule violation is `invalid_operation`. Either rejects the
+  whole event and changes nothing.
+- **No-ops.** A `SET` equal to the resource in force, and a `DELETE` of one
+  that doesn't exist, write nothing, audit nothing and re-evaluate nothing.
+  An event whose changes are all no-ops only gets its processed mark, so the
+  start-up loader may append its files on every start.
+- **Effects.** Each changed resource is versioned at the event's record
+  time and audited (`config_applied`), and the apply re-evaluates, as of that
+  record time, what reads the kinds that changed (`observed_at` of the event
+  is the ingest time):
+
+  | Changed | Re-evaluated |
+  | --- | --- |
+  | `Assertion`, a `Source`'s `authority` | statuses, conflicts and their events of the facts affected |
+  | `DerivationRules` | derived claims, then what reads them |
+  | `MergePolicies`, `MatchWeights`, authority, a declaration's `match` | merge triggers for every pair with a live `same_as` support ([Merge](#merge)) |
+  | `Retention`, `Adapter`, `Source` settings and schedule | nothing now; read when next used |
+
+  A large graph may need more than one transaction for this. That is for the
+  resolver to bound and resume, and until it does so a configuration change
+  that would exceed the ChangeSet limits is rejected (`too_large`).
 
 ## Wire mapping
 
@@ -1298,8 +1344,8 @@ proto field names, so JSON field names match the examples here.
 
 ### Event types
 
-Every message in `proto/bearing/event/v1alpha1` that is an input to apply, by
-who appends it. Each travels as the data of a CloudEvent
+Every message in `proto/bearing/event/v1alpha1` that is an event, by who
+appends it. Each travels as the data of a CloudEvent
 ([ADR 7](../adr/0007-durable-event-log.md)); the CloudEvents `type` and
 envelope of events other than observations are fixed with the `EventLog`
 contract (issue #137). Audit records and checkpoints are not events; they

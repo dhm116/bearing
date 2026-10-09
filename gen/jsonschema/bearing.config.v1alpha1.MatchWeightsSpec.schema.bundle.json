@@ -1,5 +1,13 @@
 {
   "$defs": {
+    "bearing.config.v1alpha1.LinkEvidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkEvidence marks a MatchWeight as the weight of non-authoritative links.",
+      "properties": {},
+      "title": "Link Evidence",
+      "type": "object"
+    },
     "bearing.config.v1alpha1.MatchWeight.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -28,8 +36,8 @@
           "type": "string"
         },
         "link": {
-          "description": "A non-authoritative link; link is not a declarable match method.",
-          "type": "boolean"
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkEvidence.schema.json",
+          "description": "A non-authoritative link; link is not a declarable match method."
         },
         "method": {
           "anyOf": [

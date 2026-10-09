@@ -1,7 +1,8 @@
-// The content of one audit record (ADR 8; docs/spec/data-model.md, "Audit").
-// It lives in the model package, beside the ChangeSet that carries it, so the
-// log's envelope (bearing.event.v1alpha1.AuditRecord) can wrap it without an
-// import cycle.
+// The audit log's records (ADR 8; docs/spec/data-model.md, "Audit"): the
+// content a writer produces (AuditEntry), the record the log makes of it
+// (AuditRecord) and the checkpoints written outside the store. They live in
+// the model package, beside the ChangeSet that carries entries. Records are
+// not events on the event log; they are written to the AuditLog contract.
 
 syntax = "proto3";
 
@@ -9,6 +10,7 @@ package bearing.model.v1alpha1;
 
 import "bearing/model/v1alpha1/enums.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
 
@@ -95,10 +97,9 @@ enum AuditTargetKind {
 message AuditActor {
   // What acted.
   AuditActorKind kind = 1;
-  // A stable ID, never a token or a secret: iss and sub for a person, the
-  // client ID for an agent, "local:<uid>" for the local socket, the
-  // component name ("core/resolver", "scheduler") for the system (threat
-  // model C-AUDIT-6).
+  // A stable ID, never a token or a secret (threat model C-AUDIT-6): for an
+  // event's actor, its Actor.subject unchanged; for a component,
+  // "system:<name>" such as "system:resolver" or "system:scheduler".
   string id = 2;
 }
 
@@ -136,4 +137,46 @@ message AuditEntry {
   google.protobuf.Any before = 8;
   // What it is after; absent when it no longer exists.
   google.protobuf.Any after = 9;
+}
+
+// AuditRecord is one entry of the audit log's hash chain.
+message AuditRecord {
+  // The record's position in the log, increasing by one from record to
+  // record. A gap is tampering, except where a retention cut removed the
+  // oldest records and wrote a checkpoint there.
+  uint64 seq = 1;
+  // The record time of the apply that wrote it.
+  google.protobuf.Timestamp recorded_at = 2;
+  // The event whose apply wrote it. Links the log, the graph and the
+  // change journal.
+  string event_id = 3;
+  // This entry's position among the event's entries, from 1. With event_id
+  // it is a natural key, so a record is never written twice.
+  uint32 ordinal = 4;
+  // The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.
+  // The audit log never depends on telemetry.
+  string trace_id = 5;
+  // What happened. Required.
+  AuditEntry entry = 6;
+  // The previous record's hash; empty for the first record.
+  bytes prev_hash = 7;
+  // SHA-256 of prev_hash and this record without its hash. The AuditLog
+  // contract fixes the exact bytes that are hashed.
+  bytes hash = 8;
+}
+
+// AuditCheckpoint is a point of the chain written outside the store, so a
+// rewritten or cut-off chain no longer matches it (threat model C-AUDIT-3).
+message AuditCheckpoint {
+  // The sequence number of the last record covered.
+  uint64 seq = 1;
+  // That record's hash.
+  bytes head_hash = 2;
+  // When the checkpoint was written.
+  google.protobuf.Timestamp time = 3;
+  // The signing key's ID, when a key is configured.
+  string key_id = 4;
+  // The signature over seq, head_hash and time, when a key is configured. The
+  // algorithm and key trust model are fixed with the AuditLog contract (#60).
+  bytes signature = 5;
 }

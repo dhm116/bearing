@@ -48,7 +48,9 @@ message Resource {
 // CapabilityGrant is one capability an adapter may call, with its scope
 // (ADR 9), for example http limited to hosts.
 message CapabilityGrant {
-  // The capability: http, log, trace, metrics, config, kv or clock.
+  // The capability: http, log, trace, metrics, config, kv or clock. The list
+  // is ADR 9's and grows with Bearing, so it is not an enum; a name the core
+  // does not know is rejected.
   string name = 1;
   // What it may reach: hosts for http, empty for the rest.
   repeated string scope = 2;
@@ -195,8 +197,9 @@ message RetentionRule {
 message RetentionTier {
   // The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.
   bearing.model.v1alpha1.CompactionDetail detail = 1;
-  // How far back it applies, an ISO 8601 duration such as "P18M". Empty on
-  // the last tier: from there back, forever.
+  // How far back it applies, an ISO 8601 duration such as "P18M", counted
+  // back in UTC calendar months and years from the compaction event's
+  // observed_at. Empty on the last tier: from there back, forever.
   string for = 2;
 }
 
@@ -228,7 +231,7 @@ message MatchWeight {
     // A matching method.
     bearing.model.v1alpha1.MatchMethod method = 2;
     // A non-authoritative link; link is not a declarable match method.
-    bool link = 3;
+    LinkEvidence link = 3;
   }
   // The weight, in parts per million, 1 to 1000000.
   uint32 weight_ppm = 4;
@@ -239,6 +242,9 @@ message MatchWeight {
   // See source.
   string predicate = 6;
 }
+
+// LinkEvidence marks a MatchWeight as the weight of non-authoritative links.
+message LinkEvidence {}
 
 // MergePolicies are the merge policy of each subject kind.
 message MergePolicies {
@@ -314,7 +320,9 @@ message Assertion {
 
 // AssertionSpec is an Assertion's content.
 message AssertionSpec {
-  // The confidence at which a fact is asserted, in parts per million.
+  // The confidence at which a fact is asserted, in parts per million: the
+  // threshold of every predicate (900000 when this is 0). A merge policy's
+  // threshold_ppm takes its place for same_as.
   uint32 threshold_ppm = 1;
   // Groups of source systems that copy each other, so their confidence counts
   // once (docs/spec/data-model.md, "Confidence").

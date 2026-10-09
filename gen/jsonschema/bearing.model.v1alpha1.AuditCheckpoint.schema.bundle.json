@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "bearing.event.v1alpha1.AuditCheckpoint.schema.json": {
+    "bearing.model.v1alpha1.AuditCheckpoint.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "description": "AuditCheckpoint is a point of the chain written outside the store, so a\n rewritten or cut-off chain no longer matches it (threat model C-AUDIT-3).",
@@ -64,7 +64,7 @@
       "type": "string"
     }
   },
-  "$id": "bearing.event.v1alpha1.AuditCheckpoint.schema.bundle.json",
-  "$ref": "#/$defs/bearing.event.v1alpha1.AuditCheckpoint.schema.json",
+  "$id": "bearing.model.v1alpha1.AuditCheckpoint.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AuditCheckpoint.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

@@ -46,7 +46,7 @@
       "properties": {
         "name": {
           "default": "",
-          "description": "The capability: http, log, trace, metrics, config, kv or clock.",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
           "type": "string"
         },
         "scope": {

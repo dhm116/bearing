@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -11,12 +12,12 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	_ "bearing.example/gen/go/bearing/config/v1alpha1" // registers the config resources
+	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 )
 
 // fixtureMessage returns an empty message for a fixture named
-// "<package>.<Message>.json", for example "event.AuditRecord.json".
+// "<package>.<Message>.json", for example "model.AuditRecord.json".
 func fixtureMessage(t *testing.T, file string) proto.Message {
 	t.Helper()
 	parts := strings.Split(filepath.Base(file), ".")
@@ -36,7 +37,7 @@ func fixtureMessage(t *testing.T, file string) proto.Message {
 // write: unknown fields and numeric enums fail to decode or re-encode
 // differently.
 func TestExampleEventsAndConfigRoundTrip(t *testing.T) {
-	for _, glob := range []string{"../../testdata/events/*.json", "../../testdata/config/*.json"} {
+	for _, glob := range []string{"../../testdata/events/*.json", "../../testdata/config/*.json", "../../testdata/audit/*.json"} {
 		files, err := filepath.Glob(glob)
 		if err != nil || len(files) == 0 {
 			t.Fatalf("got %d fixtures for %s (%v), want some", len(files), glob, err)
@@ -74,5 +75,21 @@ func TestExampleDeclarationChangedDeclaresValidly(t *testing.T) {
 	}
 	if err := ValidateDeclaration(m.GetDeclaration()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestEveryConfigResourceHasAnExample keeps the examples in step with the
+// resource kinds: adding a kind to config.Resource without an example fails.
+func TestEveryConfigResourceHasAnExample(t *testing.T) {
+	oneof := (&configv1alpha1.Resource{}).ProtoReflect().Descriptor().Oneofs().ByName("resource")
+	if oneof == nil || oneof.Fields().Len() == 0 {
+		t.Fatal("config.Resource has no resource oneof")
+	}
+	for i := range oneof.Fields().Len() {
+		kind := string(oneof.Fields().Get(i).Message().Name())
+		file := filepath.Join("..", "..", "testdata", "config", "config."+kind+".json")
+		if _, err := os.Stat(file); err != nil {
+			t.Errorf("no example for resource kind %s: %v", kind, err)
+		}
 	}
 }
