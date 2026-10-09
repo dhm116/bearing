@@ -221,18 +221,21 @@ func splitByWatermark(a, b seg, wms []watermark) bool {
 // dropped reports whether the write w loses to a segment that joins
 // confirmations made on both sides of w's key and says something else, so
 // the series, which would have ordered w in between them had it kept the
-// confirmations apart, ignores it. Without the join it would have won the
-// stretch of the confirmations before its key.
-func (s series) dropped(w seg) bool {
-	return slices.ContainsFunc(s, func(e seg) bool {
+// confirmations apart, ignores it. It returns the keys of the first and the
+// last confirmation the segment joins.
+func (s series) dropped(w seg) (first, last *resolverv1alpha1.OrderingKey, ok bool) {
+	for _, e := range s {
 		if e.to <= w.from || e.from >= w.to || !e.live || model.CompareOrderingKeys(e.key, w.key) <= 0 {
-			return false
+			continue
 		}
 		// Joined segments keep the first confirmation's claim, so its key is
 		// the support's own. A write after it and before e's key was made
 		// between two of the confirmations.
-		return model.CompareOrderingKeys(provenanceKey(e.sup), w.key) < 0 && (!w.live || !sameState(e.sup, w.sup))
-	})
+		if p := provenanceKey(e.sup); model.CompareOrderingKeys(p, w.key) < 0 && (!w.live || !sameState(e.sup, w.sup)) {
+			return p, e.key, true
+		}
+	}
+	return nil, nil, false
 }
 
 // ending is the segment a watermark writes: the fact is ended from `at` on.

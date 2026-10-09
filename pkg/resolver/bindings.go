@@ -30,7 +30,7 @@ type nameState struct {
 	hadObserved bool
 	// ignored are the writes of this ChangeSet that a joined write
 	// outranks although their key falls among the confirmations it joins.
-	ignored []write
+	ignored []ignoredWrite
 }
 
 // engine computes alias binding timelines from the remembered writes. It
@@ -221,7 +221,7 @@ func (n *nameState) add(w write) {
 	if !changed {
 		for _, o := range n.writes {
 			if !w.tentative && !o.tentative && o.joinedAround(w) && !o.from.After(w.from) && o.subject != w.subject {
-				n.ignored = append(n.ignored, w)
+				n.ignored = append(n.ignored, ignoredWrite{w, o})
 				break
 			}
 		}
@@ -229,6 +229,9 @@ func (n *nameState) add(w write) {
 	}
 	n.setWrites(next)
 }
+
+// ignoredWrite is a write that the joined write `by` outranks.
+type ignoredWrite struct{ write, by write }
 
 // joinedAround reports whether w has a key among the confirmations the write
 // joins: after the first and before the last.
@@ -244,17 +247,17 @@ func (j write) joinedAround(w write) bool {
 func (e *engine) noteDropped(ctx context.Context, key *resolverv1alpha1.OrderingKey) []DroppedWrite {
 	var out []DroppedWrite
 	seen := map[string]bool{}
-	note := func(alias model.Key, subject string) {
+	note := func(alias model.Key, subject string, j write) {
 		if k := string(alias) + "\x00" + subject; !seen[k] {
 			seen[k] = true
-			out = append(out, DroppedWrite{Subject: subject, Alias: alias, Key: key})
+			out = append(out, DroppedWrite{Subject: subject, Alias: alias, Key: key, First: j.first, Last: j.key})
 		}
 	}
 	names := slices.Sorted(maps.Keys(e.names))
 	for _, alias := range names {
 		n := e.names[alias]
-		for _, w := range n.ignored {
-			note(n.alias, w.subject)
+		for _, ig := range n.ignored {
+			note(n.alias, ig.write.subject, ig.by)
 		}
 		for _, l := range n.writes {
 			if l.tentative || model.CompareOrderingKeys(l.key, key) != 0 {
@@ -267,7 +270,7 @@ func (e *engine) noteDropped(ctx context.Context, key *resolverv1alpha1.Ordering
 				}
 				for _, j := range m.writes {
 					if !j.tentative && j.joinedAround(l) && e.g.mustCanon(ctx, j.subject) == e.g.mustCanon(ctx, l.subject) {
-						note(n.alias, l.subject)
+						note(n.alias, l.subject, j)
 					}
 				}
 			}
@@ -283,7 +286,7 @@ func (e *engine) noteDropped(ctx context.Context, key *resolverv1alpha1.Ordering
 				for _, j := range n.writes {
 					if !j.tentative && n.ns == id.ns && j.first != nil && model.CompareOrderingKeys(j.first, d.key) < 0 &&
 						model.CompareOrderingKeys(d.key, j.key) < 0 && e.g.mustCanon(ctx, j.subject) == id.subject {
-						note(n.alias, id.subject)
+						note(n.alias, id.subject, j)
 					}
 				}
 			}

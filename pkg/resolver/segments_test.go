@@ -320,8 +320,12 @@ func TestSeriesDroppedFindsWritesAmongConfirmations(t *testing.T) {
 		{"in a stretch they don't cover", liveSeg(3, "m", hour(-5), hour(-4), 800_000), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := joined.dropped(tc.w); got != tc.want {
+			first, last, got := joined.dropped(tc.w)
+			if got != tc.want {
 				t.Errorf("got %v, want %v", got, tc.want)
+			}
+			if got && (first.GetObservationId() != "a" || last.GetObservationId() != "b") {
+				t.Errorf("got the run %q to %q, want a to b", first.GetObservationId(), last.GetObservationId())
 			}
 		})
 	}

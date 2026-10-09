@@ -127,8 +127,8 @@
 // small as after the first sync. Nothing is joined that a watermark, another
 // write or a deletion with a key among the confirmations could still tell
 // apart. What cannot be kept is the order of a write that falls among the
-// confirmations, says something else and arrives after the last of them:
-// [Result.Dropped] reports it, for the audit log.
+// confirmations, says something else and arrives after the last of them: the
+// ChangeSet audits it as compacted_write_dropped and [Result.Dropped] lists it.
 //
 // Source-supplied text in a key is percent-encoded for "%", "/" and ":", so
 // only the subject segment can be a ref. A merged subject's deletions move

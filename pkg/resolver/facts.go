@@ -292,8 +292,8 @@ func (r *factRun) claim(ctx context.Context, claims []*claim) error {
 		}
 		sup := r.supportOf(c)
 		for _, w := range c.writes(r.at, r.p.key, sup) {
-			if e.s.dropped(w) {
-				r.u.dropped = append(r.u.dropped, DroppedWrite{Source: r.p.ev.Source, Subject: c.fact.subject, Predicate: c.fact.pred, Object: c.fact.token, Key: r.p.key})
+			if first, last, ok := e.s.dropped(w); ok {
+				r.u.dropped = append(r.u.dropped, droppedFact(r.p.ev.Source, c.fact, r.p.key, first, last))
 			}
 			e.s = e.s.overlay(w)
 		}
@@ -383,8 +383,8 @@ func (r *factRun) noteDroppedByWatermarks(t affected, s series, wms []watermark)
 		if model.CompareOrderingKeys(w.key, r.p.key) != 0 {
 			continue
 		}
-		if s.dropped(ending(w.at, w.key, w.reason)) {
-			r.u.dropped = append(r.u.dropped, DroppedWrite{Source: t.source, Subject: t.f.subject, Predicate: t.f.pred, Object: t.f.token, Key: r.p.key})
+		if first, last, ok := s.dropped(ending(w.at, w.key, w.reason)); ok {
+			r.u.dropped = append(r.u.dropped, droppedFact(t.source, t.f, r.p.key, first, last))
 			return
 		}
 	}

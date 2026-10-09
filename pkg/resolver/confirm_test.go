@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/contracts"
 )
@@ -216,6 +217,9 @@ func TestWriteAmongConfirmationsIsReported(t *testing.T) {
 	if d.Source != "github-acme" || d.Predicate != "approves_changes" || d.Key.GetObservationId() != keyAt(between) {
 		t.Errorf("got dropped %+v, want an approves_changes claim of %q from github-acme", d, keyAt(between))
 	}
+	if d.First.GetObservationId() != keyAt(first) || d.Last.GetObservationId() != keyAt(third) {
+		t.Errorf("got the run %q to %q, want the first and third syncs'", d.First.GetObservationId(), d.Last.GetObservationId())
+	}
 	facts := factsAt(t, e, t0.Add(150*time.Minute))
 	if !strings.Contains(facts, "approves_changes -> github:team_node/T1(Team) ASSERTED") {
 		t.Errorf("T1 is not approving between its two confirmations, as the ignored snapshot would have ended it:\n%s", facts)
@@ -292,5 +296,38 @@ func TestRenameAmongConfirmationsIsReported(t *testing.T) {
 	}
 	if bound := e.resolveKey("github:team/acme/old", ts("2026-10-04T00:00:00Z")); bound != "" {
 		t.Errorf("the ignored rename bound github:team/acme/old to %s", bound)
+	}
+}
+
+// The ChangeSet audits what it ignores, as the spec's write into a compacted
+// period, and the store takes the entry.
+func TestIgnoredWriteIsAudited(t *testing.T) {
+	e := newEnv(t)
+	e.apply(syncOf(1, "T1"))
+	e.apply(syncOf(3, "T1"))
+	between := syncOf(2, "T2")
+	res, err := e.r.Resolve(context.Background(), between)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []*modelv1alpha1.AuditEntry
+	for _, a := range res.ChangeSet.GetAudit() {
+		if a.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED {
+			entries = append(entries, a)
+		}
+	}
+	if len(entries) != len(res.Dropped) || len(entries) == 0 {
+		t.Fatalf("got %d audit entries for %d dropped writes, want one each and some", len(entries), len(res.Dropped))
+	}
+	a := entries[0]
+	repo := e.resolveKey("github:repo_node/R1", t0)
+	if want := repo + "/approves_changes"; a.GetTarget().GetId() != want || a.GetTarget().GetKind() != modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE {
+		t.Errorf("got target %v, want %s as a subject and predicate", a.GetTarget(), want)
+	}
+	if a.GetActor().GetId() != "system:resolver" || a.GetRule() != "confirmations" || !strings.Contains(a.GetReason(), keyAt(between)) {
+		t.Errorf("got entry %v, want the resolver's, rule confirmations, naming %q", a, keyAt(between))
+	}
+	if _, err := e.store.Apply(context.Background(), res.ChangeSet); err != nil {
+		t.Fatalf("the store refused the ChangeSet with its audit entries: %v", err)
 	}
 }
