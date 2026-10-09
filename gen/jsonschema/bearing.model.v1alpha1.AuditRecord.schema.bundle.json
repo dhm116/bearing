@@ -1,0 +1,374 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.AuditActor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditActor is who or what made a change.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "A stable ID, never a token or a secret (threat model C-AUDIT-6): for an\n event's actor, its Actor.subject unchanged; for a component,\n \"system:\u003cname\u003e\" such as \"system:resolver\" or \"system:scheduler\".",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_ACTOR_KIND_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_ACTOR_KIND_PERSON",
+                "AUDIT_ACTOR_KIND_AGENT",
+                "AUDIT_ACTOR_KIND_SYSTEM"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What acted.",
+          "title": "Audit Actor Kind"
+        }
+      },
+      "title": "Audit Actor",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AuditEntry.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditEntry is what happened, without the log's own fields (sequence, time,\n event, trace, hash chain). The resolver and the other writers produce\n entries; the AuditLog wraps each in an AuditRecord in the transaction that\n applies the change. Entries never contain secret values or tokens.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence behind the decision, when one was scored."
+        },
+        "^(rejectionCode)$": {
+          "anyOf": [
+            {
+              "pattern": "^REJECTION_CODE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "REJECTION_CODE_KIND_MISMATCH",
+                "REJECTION_CODE_IDENTITY_CONFLICT",
+                "REJECTION_CODE_NOT_DECLARED",
+                "REJECTION_CODE_NAMESPACE_NOT_ALLOWED",
+                "REJECTION_CODE_OBSERVED_AT_IN_FUTURE",
+                "REJECTION_CODE_DUPLICATE_CLAIM",
+                "REJECTION_CODE_CARDINALITY_MISMATCH",
+                "REJECTION_CODE_DOMAIN_MISMATCH",
+                "REJECTION_CODE_TYPE_MISMATCH",
+                "REJECTION_CODE_CORE_PREDICATE",
+                "REJECTION_CODE_INVALID_VALUE",
+                "REJECTION_CODE_INVALID_INTERVAL",
+                "REJECTION_CODE_ALREADY_MERGED",
+                "REJECTION_CODE_INVALID_OPERATION",
+                "REJECTION_CODE_MALFORMED",
+                "REJECTION_CODE_TOO_LARGE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Set for AUDIT_ACTION_REJECTION.",
+          "title": "Rejection Code"
+        }
+      },
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_ACTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_ACTION_MINT",
+                "AUDIT_ACTION_BINDING_WRITTEN",
+                "AUDIT_ACTION_BINDING_RELEASED",
+                "AUDIT_ACTION_MERGE",
+                "AUDIT_ACTION_UNMERGE",
+                "AUDIT_ACTION_DISTINCT_FROM_SET",
+                "AUDIT_ACTION_DISTINCT_FROM_CLEARED",
+                "AUDIT_ACTION_CLAIM_WITHDRAWN",
+                "AUDIT_ACTION_FACT_STATUS_CHANGED",
+                "AUDIT_ACTION_CONFLICT_OPENED",
+                "AUDIT_ACTION_CONFLICT_CLOSED",
+                "AUDIT_ACTION_OVERRIDE_SET",
+                "AUDIT_ACTION_OVERRIDE_CLEARED",
+                "AUDIT_ACTION_OVERRIDE_STALE",
+                "AUDIT_ACTION_COMPACTION",
+                "AUDIT_ACTION_COMPACTED_WRITE_DROPPED",
+                "AUDIT_ACTION_REJECTION",
+                "AUDIT_ACTION_CONFIG_APPLIED",
+                "AUDIT_ACTION_DECLARATION_CHANGED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What happened. Required.",
+          "title": "Audit Action"
+        },
+        "actor": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditActor.schema.json",
+          "description": "Who or what did it. Required."
+        },
+        "after": {
+          "$ref": "#/$defs/google.protobuf.Any.schema.json",
+          "description": "What it is after; absent when it no longer exists."
+        },
+        "before": {
+          "$ref": "#/$defs/google.protobuf.Any.schema.json",
+          "description": "What the target was before, as a model message (a Binding, a\n FactTimeline, a MergeRecord, ...); absent when it did not exist."
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence behind the decision, when one was scored."
+        },
+        "reason": {
+          "default": "",
+          "description": "Why: a person's reason, or a rejection's message.",
+          "type": "string"
+        },
+        "rejection_code": {
+          "anyOf": [
+            {
+              "pattern": "^REJECTION_CODE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "REJECTION_CODE_KIND_MISMATCH",
+                "REJECTION_CODE_IDENTITY_CONFLICT",
+                "REJECTION_CODE_NOT_DECLARED",
+                "REJECTION_CODE_NAMESPACE_NOT_ALLOWED",
+                "REJECTION_CODE_OBSERVED_AT_IN_FUTURE",
+                "REJECTION_CODE_DUPLICATE_CLAIM",
+                "REJECTION_CODE_CARDINALITY_MISMATCH",
+                "REJECTION_CODE_DOMAIN_MISMATCH",
+                "REJECTION_CODE_TYPE_MISMATCH",
+                "REJECTION_CODE_CORE_PREDICATE",
+                "REJECTION_CODE_INVALID_VALUE",
+                "REJECTION_CODE_INVALID_INTERVAL",
+                "REJECTION_CODE_ALREADY_MERGED",
+                "REJECTION_CODE_INVALID_OPERATION",
+                "REJECTION_CODE_MALFORMED",
+                "REJECTION_CODE_TOO_LARGE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Set for AUDIT_ACTION_REJECTION.",
+          "title": "Rejection Code"
+        },
+        "rule": {
+          "default": "",
+          "description": "The rule that decided it, in short form: the mint rule, merge rule,\n status reason or conflict resolution, a derivation rule, a compaction\n tier. Empty when none applies.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditTarget.schema.json",
+          "description": "What it was done to. Required."
+        }
+      },
+      "title": "Audit Entry",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AuditRecord.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditRecord is one entry of the audit log's hash chain.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
+          "type": "string"
+        },
+        "^(prevHash)$": {
+          "default": null,
+          "description": "The previous record's hash; empty for the first record.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The record time of the apply that wrote it."
+        },
+        "^(traceId)$": {
+          "default": "",
+          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditEntry.schema.json",
+          "description": "What happened. Required."
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply wrote it. Links the log, the graph and the\n change journal.",
+          "type": "string"
+        },
+        "hash": {
+          "default": null,
+          "description": "SHA-256 of prev_hash and this record without its hash. The AuditLog\n contract fixes the exact bytes that are hashed.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "ordinal": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "This entry's position among the event's entries, from 1. With event_id\n it is a natural key, so a record is never written twice."
+        },
+        "prev_hash": {
+          "default": null,
+          "description": "The previous record's hash; empty for the first record.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "The record time of the apply that wrote it."
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The record's position in the log, increasing by one from record to\n record. A gap is tampering, except where a retention cut removed the\n oldest records and wrote a checkpoint there."
+        },
+        "trace_id": {
+          "default": "",
+          "description": "The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.\n The audit log never depends on telemetry.",
+          "type": "string"
+        }
+      },
+      "title": "Audit Record",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AuditTarget.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditTarget is the thing a change was made to.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "The id, in the form the kind states.",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_TARGET_KIND_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_TARGET_KIND_SUBJECT",
+                "AUDIT_TARGET_KIND_ALIAS",
+                "AUDIT_TARGET_KIND_FACT",
+                "AUDIT_TARGET_KIND_SUBJECT_PREDICATE",
+                "AUDIT_TARGET_KIND_SOURCE",
+                "AUDIT_TARGET_KIND_RESOURCE",
+                "AUDIT_TARGET_KIND_EVENT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the id names.",
+          "title": "Audit Target Kind"
+        }
+      },
+      "title": "Audit Target",
+      "type": "object"
+    },
+    "google.protobuf.Any.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "title": "Any",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.AuditRecord.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AuditRecord.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

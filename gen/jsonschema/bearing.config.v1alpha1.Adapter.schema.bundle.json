@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.Adapter.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Adapter is an adapter module pinned by digest, with the capabilities it\n declares.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"Adapter\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The adapter's name, which sources refer to."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.AdapterSpec.schema.json",
+          "description": "The adapter."
+        }
+      },
+      "title": "Adapter",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.AdapterSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AdapterSpec is an Adapter's content.",
+      "patternProperties": {
+        "^(moduleDigest)$": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "capabilities": {
+          "description": "The capabilities the module declares it needs.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.CapabilityGrant.schema.json"
+          },
+          "type": "array"
+        },
+        "module_digest": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        },
+        "secrets": {
+          "description": "The names of the secrets it needs; a source supplies each by reference.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "settings": {
+          "$ref": "#/$defs/google.protobuf.Struct.schema.json",
+          "description": "Default settings, overridden per source. Checked against the settings\n the adapter's Describe declares."
+        }
+      },
+      "title": "Adapter Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.CapabilityGrant.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CapabilityGrant is one capability an adapter may call, with its scope\n (ADR 9), for example http limited to hosts.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock. The list\n is ADR 9's and grows with Bearing, so it is not an enum; a name the core\n does not know is rejected.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "What it may reach: hosts for http, empty for the rest.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Capability Grant",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.Adapter.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.Adapter.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

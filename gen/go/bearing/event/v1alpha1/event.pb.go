@@ -13,6 +13,7 @@
 package eventv1alpha1
 
 import (
+	v1alpha11 "bearing.example/gen/go/bearing/config/v1alpha1"
 	v1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -28,6 +29,59 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// ConfigChangeType is what a ConfigChange does to a resource.
+type ConfigChangeType int32
+
+const (
+	// Not set. Rejected in every change.
+	ConfigChangeType_CONFIG_CHANGE_TYPE_UNSPECIFIED ConfigChangeType = 0
+	// Create the resource, or replace its content.
+	ConfigChangeType_CONFIG_CHANGE_TYPE_SET ConfigChangeType = 1
+	// Delete the resource.
+	ConfigChangeType_CONFIG_CHANGE_TYPE_DELETE ConfigChangeType = 2
+)
+
+// Enum value maps for ConfigChangeType.
+var (
+	ConfigChangeType_name = map[int32]string{
+		0: "CONFIG_CHANGE_TYPE_UNSPECIFIED",
+		1: "CONFIG_CHANGE_TYPE_SET",
+		2: "CONFIG_CHANGE_TYPE_DELETE",
+	}
+	ConfigChangeType_value = map[string]int32{
+		"CONFIG_CHANGE_TYPE_UNSPECIFIED": 0,
+		"CONFIG_CHANGE_TYPE_SET":         1,
+		"CONFIG_CHANGE_TYPE_DELETE":      2,
+	}
+)
+
+func (x ConfigChangeType) Enum() *ConfigChangeType {
+	p := new(ConfigChangeType)
+	*p = x
+	return p
+}
+
+func (x ConfigChangeType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ConfigChangeType) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_event_v1alpha1_event_proto_enumTypes[0].Descriptor()
+}
+
+func (ConfigChangeType) Type() protoreflect.EnumType {
+	return &file_bearing_event_v1alpha1_event_proto_enumTypes[0]
+}
+
+func (x ConfigChangeType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ConfigChangeType.Descriptor instead.
+func (ConfigChangeType) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{0}
+}
 
 // Observation is a CloudEvents 1.0 event carrying one observation, in
 // structured mode: its ProtoJSON is the CloudEvents JSON form.
@@ -407,10 +461,14 @@ func (x *ObservationsEmitted) GetCompleteSync() *v1alpha1.CompleteSync {
 	return nil
 }
 
-// Actor is who asked for an event: a person or an agent acting for one.
+// Actor is who asked for an event: a person, an agent acting for one, or a
+// Bearing component. A component's subject is "system:<name>", for example
+// "system:scheduler" or "system:loader"; the audit log records that as a
+// system actor.
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// OIDC subject or agent token ID.
+	// The stable ID the authenticator gives a person or agent (OIDC subject
+	// or agent token ID), or "system:<name>".
 	Subject string `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	// True for an agent.
 	Agent         bool `protobuf:"varint,2,opt,name=agent,proto3" json:"agent,omitempty"`
@@ -1300,11 +1358,309 @@ func (x *OverrideStale) GetOverrideRecordedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// CompactionRequested replaces the history of old periods with summaries
+// where the Retention resources say to (docs/spec/data-model.md, "Retention
+// and compaction"). Its observed_at is the instant tiers count back from,
+// and the summaries' compacted_at. The scheduler appends it, or a person
+// does.
+type CompactionRequested struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Who asked: the scheduler, the CLI or the API.
+	Actor *Actor `protobuf:"bytes,1,opt,name=actor,proto3" json:"actor,omitempty"`
+	// Compact only this predicate; empty for every predicate a Retention rule
+	// covers.
+	Predicate string `protobuf:"bytes,2,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	// Compact only subjects of this kind; empty for every kind.
+	Kind          string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompactionRequested) Reset() {
+	*x = CompactionRequested{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompactionRequested) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompactionRequested) ProtoMessage() {}
+
+func (x *CompactionRequested) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompactionRequested.ProtoReflect.Descriptor instead.
+func (*CompactionRequested) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CompactionRequested) GetActor() *Actor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
+func (x *CompactionRequested) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *CompactionRequested) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+// DeclarationChanged says a source's adapter was upgraded and now declares
+// something else (docs/spec/data-model.md, "Declarations"). The new
+// declaration takes effect from the event's record time. Applying it checks
+// the declaration against the key types already bound and is rejected
+// (invalid_operation) if it changes a bound key type's kind, class or case.
+type DeclarationChanged struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The configured source whose adapter changed.
+	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// The adapter's version before, from its Describe result; empty for a
+	// source's first declaration.
+	PreviousAdapterVersion string `protobuf:"bytes,2,opt,name=previous_adapter_version,json=previousAdapterVersion,proto3" json:"previous_adapter_version,omitempty"`
+	// The adapter's version now, from its Describe result.
+	AdapterVersion string `protobuf:"bytes,3,opt,name=adapter_version,json=adapterVersion,proto3" json:"adapter_version,omitempty"`
+	// The module's digest now, "sha256:<hex>", when the adapter is pinned by
+	// digest.
+	ModuleDigest string `protobuf:"bytes,4,opt,name=module_digest,json=moduleDigest,proto3" json:"module_digest,omitempty"`
+	// The new declaration. Required.
+	Declaration   *v1alpha1.AdapterDeclaration `protobuf:"bytes,5,opt,name=declaration,proto3" json:"declaration,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeclarationChanged) Reset() {
+	*x = DeclarationChanged{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeclarationChanged) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeclarationChanged) ProtoMessage() {}
+
+func (x *DeclarationChanged) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeclarationChanged.ProtoReflect.Descriptor instead.
+func (*DeclarationChanged) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *DeclarationChanged) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *DeclarationChanged) GetPreviousAdapterVersion() string {
+	if x != nil {
+		return x.PreviousAdapterVersion
+	}
+	return ""
+}
+
+func (x *DeclarationChanged) GetAdapterVersion() string {
+	if x != nil {
+		return x.AdapterVersion
+	}
+	return ""
+}
+
+func (x *DeclarationChanged) GetModuleDigest() string {
+	if x != nil {
+		return x.ModuleDigest
+	}
+	return ""
+}
+
+func (x *DeclarationChanged) GetDeclaration() *v1alpha1.AdapterDeclaration {
+	if x != nil {
+		return x.Declaration
+	}
+	return nil
+}
+
+// ConfigApplied is one atomic change to the configuration (ADR 10). Applying
+// it versions every resource it changes at the event's record time, skips
+// changes that leave a resource as it is, and re-evaluates what the changed
+// resources affect (docs/spec/data-model.md, "Configuration"). Its
+// observed_at is the ingest time.
+type ConfigApplied struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Who applied it: a person, or the loader at start-up.
+	Actor *Actor `protobuf:"bytes,1,opt,name=actor,proto3" json:"actor,omitempty"`
+	// Why.
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The changes, applied together.
+	Changes       []*ConfigChange `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigApplied) Reset() {
+	*x = ConfigApplied{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigApplied) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigApplied) ProtoMessage() {}
+
+func (x *ConfigApplied) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigApplied.ProtoReflect.Descriptor instead.
+func (*ConfigApplied) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ConfigApplied) GetActor() *Actor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
+func (x *ConfigApplied) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ConfigApplied) GetChanges() []*ConfigChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+// ConfigChange is one resource set or deleted.
+type ConfigChange struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// What the change does.
+	Type ConfigChangeType `protobuf:"varint,1,opt,name=type,proto3,enum=bearing.event.v1alpha1.ConfigChangeType" json:"type,omitempty"`
+	// The resource's kind, e.g. "Source".
+	ResourceKind string `protobuf:"bytes,2,opt,name=resource_kind,json=resourceKind,proto3" json:"resource_kind,omitempty"`
+	// The resource's name.
+	ResourceName string `protobuf:"bytes,3,opt,name=resource_name,json=resourceName,proto3" json:"resource_name,omitempty"`
+	// The whole resource as it is after the change; absent for a delete.
+	Resource      *v1alpha11.Resource `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigChange) Reset() {
+	*x = ConfigChange{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigChange) ProtoMessage() {}
+
+func (x *ConfigChange) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigChange.ProtoReflect.Descriptor instead.
+func (*ConfigChange) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ConfigChange) GetType() ConfigChangeType {
+	if x != nil {
+		return x.Type
+	}
+	return ConfigChangeType_CONFIG_CHANGE_TYPE_UNSPECIFIED
+}
+
+func (x *ConfigChange) GetResourceKind() string {
+	if x != nil {
+		return x.ResourceKind
+	}
+	return ""
+}
+
+func (x *ConfigChange) GetResourceName() string {
+	if x != nil {
+		return x.ResourceName
+	}
+	return ""
+}
+
+func (x *ConfigChange) GetResource() *v1alpha11.Resource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
 var File_bearing_event_v1alpha1_event_proto protoreflect.FileDescriptor
 
 const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\n" +
-	"\"bearing/event/v1alpha1/event.proto\x12\x16bearing.event.v1alpha1\x1a!bearing/model/v1alpha1/fact.proto\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x02\n" +
+	"\"bearing/event/v1alpha1/event.proto\x12\x16bearing.event.v1alpha1\x1a'bearing/config/v1alpha1/resources.proto\x1a(bearing/model/v1alpha1/declaration.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x02\n" +
 	"\vObservation\x12 \n" +
 	"\vspecversion\x18\x01 \x01(\tR\vspecversion\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x16\n" +
@@ -1400,7 +1756,30 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x1c\n" +
 	"\tpredicate\x18\x02 \x01(\tR\tpredicate\x12L\n" +
-	"\x14override_recorded_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12overrideRecordedAtB=Z;bearing.example/gen/go/bearing/event/v1alpha1;eventv1alpha1b\x06proto3"
+	"\x14override_recorded_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12overrideRecordedAt\"|\n" +
+	"\x13CompactionRequested\x123\n" +
+	"\x05actor\x18\x01 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\x12\x1c\n" +
+	"\tpredicate\x18\x02 \x01(\tR\tpredicate\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\"\x82\x02\n" +
+	"\x12DeclarationChanged\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x128\n" +
+	"\x18previous_adapter_version\x18\x02 \x01(\tR\x16previousAdapterVersion\x12'\n" +
+	"\x0fadapter_version\x18\x03 \x01(\tR\x0eadapterVersion\x12#\n" +
+	"\rmodule_digest\x18\x04 \x01(\tR\fmoduleDigest\x12L\n" +
+	"\vdeclaration\x18\x05 \x01(\v2*.bearing.model.v1alpha1.AdapterDeclarationR\vdeclaration\"\x9c\x01\n" +
+	"\rConfigApplied\x123\n" +
+	"\x05actor\x18\x01 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12>\n" +
+	"\achanges\x18\x03 \x03(\v2$.bearing.event.v1alpha1.ConfigChangeR\achanges\"\xd5\x01\n" +
+	"\fConfigChange\x12<\n" +
+	"\x04type\x18\x01 \x01(\x0e2(.bearing.event.v1alpha1.ConfigChangeTypeR\x04type\x12#\n" +
+	"\rresource_kind\x18\x02 \x01(\tR\fresourceKind\x12#\n" +
+	"\rresource_name\x18\x03 \x01(\tR\fresourceName\x12=\n" +
+	"\bresource\x18\x04 \x01(\v2!.bearing.config.v1alpha1.ResourceR\bresource*q\n" +
+	"\x10ConfigChangeType\x12\"\n" +
+	"\x1eCONFIG_CHANGE_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16CONFIG_CHANGE_TYPE_SET\x10\x01\x12\x1d\n" +
+	"\x19CONFIG_CHANGE_TYPE_DELETE\x10\x02B=Z;bearing.example/gen/go/bearing/event/v1alpha1;eventv1alpha1b\x06proto3"
 
 var (
 	file_bearing_event_v1alpha1_event_proto_rawDescOnce sync.Once
@@ -1414,61 +1793,75 @@ func file_bearing_event_v1alpha1_event_proto_rawDescGZIP() []byte {
 	return file_bearing_event_v1alpha1_event_proto_rawDescData
 }
 
-var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_bearing_event_v1alpha1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_bearing_event_v1alpha1_event_proto_goTypes = []any{
-	(*Observation)(nil),              // 0: bearing.event.v1alpha1.Observation
-	(*SyncRequested)(nil),            // 1: bearing.event.v1alpha1.SyncRequested
-	(*WebhookReceived)(nil),          // 2: bearing.event.v1alpha1.WebhookReceived
-	(*Header)(nil),                   // 3: bearing.event.v1alpha1.Header
-	(*ObservationsEmitted)(nil),      // 4: bearing.event.v1alpha1.ObservationsEmitted
-	(*Actor)(nil),                    // 5: bearing.event.v1alpha1.Actor
-	(*MergeRequested)(nil),           // 6: bearing.event.v1alpha1.MergeRequested
-	(*UnmergeRequested)(nil),         // 7: bearing.event.v1alpha1.UnmergeRequested
-	(*DistinctFromSet)(nil),          // 8: bearing.event.v1alpha1.DistinctFromSet
-	(*DistinctFromCleared)(nil),      // 9: bearing.event.v1alpha1.DistinctFromCleared
-	(*ClaimWithdrawn)(nil),           // 10: bearing.event.v1alpha1.ClaimWithdrawn
-	(*OverrideSet)(nil),              // 11: bearing.event.v1alpha1.OverrideSet
-	(*OverrideCleared)(nil),          // 12: bearing.event.v1alpha1.OverrideCleared
-	(*ValidTimeBoundaryReached)(nil), // 13: bearing.event.v1alpha1.ValidTimeBoundaryReached
-	(*SubjectDeletionDerived)(nil),   // 14: bearing.event.v1alpha1.SubjectDeletionDerived
-	(*ConflictOpened)(nil),           // 15: bearing.event.v1alpha1.ConflictOpened
-	(*ConflictResolved)(nil),         // 16: bearing.event.v1alpha1.ConflictResolved
-	(*OverrideStale)(nil),            // 17: bearing.event.v1alpha1.OverrideStale
-	(*timestamppb.Timestamp)(nil),    // 18: google.protobuf.Timestamp
-	(*v1alpha1.ObservationData)(nil), // 19: bearing.model.v1alpha1.ObservationData
-	(*v1alpha1.CompleteSync)(nil),    // 20: bearing.model.v1alpha1.CompleteSync
-	(*v1alpha1.FactObject)(nil),      // 21: bearing.model.v1alpha1.FactObject
-	(*v1alpha1.Conflict)(nil),        // 22: bearing.model.v1alpha1.Conflict
+	(ConfigChangeType)(0),               // 0: bearing.event.v1alpha1.ConfigChangeType
+	(*Observation)(nil),                 // 1: bearing.event.v1alpha1.Observation
+	(*SyncRequested)(nil),               // 2: bearing.event.v1alpha1.SyncRequested
+	(*WebhookReceived)(nil),             // 3: bearing.event.v1alpha1.WebhookReceived
+	(*Header)(nil),                      // 4: bearing.event.v1alpha1.Header
+	(*ObservationsEmitted)(nil),         // 5: bearing.event.v1alpha1.ObservationsEmitted
+	(*Actor)(nil),                       // 6: bearing.event.v1alpha1.Actor
+	(*MergeRequested)(nil),              // 7: bearing.event.v1alpha1.MergeRequested
+	(*UnmergeRequested)(nil),            // 8: bearing.event.v1alpha1.UnmergeRequested
+	(*DistinctFromSet)(nil),             // 9: bearing.event.v1alpha1.DistinctFromSet
+	(*DistinctFromCleared)(nil),         // 10: bearing.event.v1alpha1.DistinctFromCleared
+	(*ClaimWithdrawn)(nil),              // 11: bearing.event.v1alpha1.ClaimWithdrawn
+	(*OverrideSet)(nil),                 // 12: bearing.event.v1alpha1.OverrideSet
+	(*OverrideCleared)(nil),             // 13: bearing.event.v1alpha1.OverrideCleared
+	(*ValidTimeBoundaryReached)(nil),    // 14: bearing.event.v1alpha1.ValidTimeBoundaryReached
+	(*SubjectDeletionDerived)(nil),      // 15: bearing.event.v1alpha1.SubjectDeletionDerived
+	(*ConflictOpened)(nil),              // 16: bearing.event.v1alpha1.ConflictOpened
+	(*ConflictResolved)(nil),            // 17: bearing.event.v1alpha1.ConflictResolved
+	(*OverrideStale)(nil),               // 18: bearing.event.v1alpha1.OverrideStale
+	(*CompactionRequested)(nil),         // 19: bearing.event.v1alpha1.CompactionRequested
+	(*DeclarationChanged)(nil),          // 20: bearing.event.v1alpha1.DeclarationChanged
+	(*ConfigApplied)(nil),               // 21: bearing.event.v1alpha1.ConfigApplied
+	(*ConfigChange)(nil),                // 22: bearing.event.v1alpha1.ConfigChange
+	(*timestamppb.Timestamp)(nil),       // 23: google.protobuf.Timestamp
+	(*v1alpha1.ObservationData)(nil),    // 24: bearing.model.v1alpha1.ObservationData
+	(*v1alpha1.CompleteSync)(nil),       // 25: bearing.model.v1alpha1.CompleteSync
+	(*v1alpha1.FactObject)(nil),         // 26: bearing.model.v1alpha1.FactObject
+	(*v1alpha1.Conflict)(nil),           // 27: bearing.model.v1alpha1.Conflict
+	(*v1alpha1.AdapterDeclaration)(nil), // 28: bearing.model.v1alpha1.AdapterDeclaration
+	(*v1alpha11.Resource)(nil),          // 29: bearing.config.v1alpha1.Resource
 }
 var file_bearing_event_v1alpha1_event_proto_depIdxs = []int32{
-	18, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
-	19, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
-	5,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	3,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
-	18, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
-	0,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
-	20, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
-	5,  // 7: bearing.event.v1alpha1.MergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	5,  // 8: bearing.event.v1alpha1.UnmergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	5,  // 9: bearing.event.v1alpha1.DistinctFromSet.actor:type_name -> bearing.event.v1alpha1.Actor
-	5,  // 10: bearing.event.v1alpha1.DistinctFromCleared.actor:type_name -> bearing.event.v1alpha1.Actor
-	5,  // 11: bearing.event.v1alpha1.ClaimWithdrawn.actor:type_name -> bearing.event.v1alpha1.Actor
-	21, // 12: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
-	5,  // 13: bearing.event.v1alpha1.OverrideSet.actor:type_name -> bearing.event.v1alpha1.Actor
-	21, // 14: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
-	18, // 15: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
-	18, // 16: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
-	5,  // 17: bearing.event.v1alpha1.OverrideCleared.actor:type_name -> bearing.event.v1alpha1.Actor
-	18, // 18: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
-	18, // 19: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
-	22, // 20: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	22, // 21: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	18, // 22: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	23, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
+	24, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
+	6,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	4,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
+	23, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
+	1,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
+	25, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
+	6,  // 7: bearing.event.v1alpha1.MergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 8: bearing.event.v1alpha1.UnmergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 9: bearing.event.v1alpha1.DistinctFromSet.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 10: bearing.event.v1alpha1.DistinctFromCleared.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 11: bearing.event.v1alpha1.ClaimWithdrawn.actor:type_name -> bearing.event.v1alpha1.Actor
+	26, // 12: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
+	6,  // 13: bearing.event.v1alpha1.OverrideSet.actor:type_name -> bearing.event.v1alpha1.Actor
+	26, // 14: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
+	23, // 15: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
+	23, // 16: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
+	6,  // 17: bearing.event.v1alpha1.OverrideCleared.actor:type_name -> bearing.event.v1alpha1.Actor
+	23, // 18: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
+	23, // 19: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
+	27, // 20: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	27, // 21: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	23, // 22: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
+	6,  // 23: bearing.event.v1alpha1.CompactionRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	28, // 24: bearing.event.v1alpha1.DeclarationChanged.declaration:type_name -> bearing.model.v1alpha1.AdapterDeclaration
+	6,  // 25: bearing.event.v1alpha1.ConfigApplied.actor:type_name -> bearing.event.v1alpha1.Actor
+	22, // 26: bearing.event.v1alpha1.ConfigApplied.changes:type_name -> bearing.event.v1alpha1.ConfigChange
+	0,  // 27: bearing.event.v1alpha1.ConfigChange.type:type_name -> bearing.event.v1alpha1.ConfigChangeType
+	29, // 28: bearing.event.v1alpha1.ConfigChange.resource:type_name -> bearing.config.v1alpha1.Resource
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_bearing_event_v1alpha1_event_proto_init() }
@@ -1481,13 +1874,14 @@ func file_bearing_event_v1alpha1_event_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_event_v1alpha1_event_proto_rawDesc), len(file_bearing_event_v1alpha1_event_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   18,
+			NumEnums:      1,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bearing_event_v1alpha1_event_proto_goTypes,
 		DependencyIndexes: file_bearing_event_v1alpha1_event_proto_depIdxs,
+		EnumInfos:         file_bearing_event_v1alpha1_event_proto_enumTypes,
 		MessageInfos:      file_bearing_event_v1alpha1_event_proto_msgTypes,
 	}.Build()
 	File_bearing_event_v1alpha1_event_proto = out.File

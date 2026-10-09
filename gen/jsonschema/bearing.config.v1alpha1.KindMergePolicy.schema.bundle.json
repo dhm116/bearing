@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.KindMergePolicy.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "KindMergePolicy is one kind's policy for when same_as is asserted and its\n subjects merge (docs/spec/data-model.md, \"Merge policy\").",
+      "patternProperties": {
+        "^(thresholdPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "The subject kind. Required.",
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_POLICY_AUTHORITATIVE",
+                "MERGE_POLICY_SCORE",
+                "MERGE_POLICY_MANUAL"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The policy. Required.",
+          "title": "Merge Policy"
+        },
+        "threshold_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,\n in parts per million."
+        }
+      },
+      "title": "Kind Merge Policy",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.KindMergePolicy.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.KindMergePolicy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

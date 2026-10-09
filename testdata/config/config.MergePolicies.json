@@ -1,0 +1,11 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "MergePolicies",
+  "metadata": { "name": "default" },
+  "spec": {
+    "policies": [
+      { "kind": "Person", "policy": "MERGE_POLICY_AUTHORITATIVE" },
+      { "kind": "Team", "policy": "MERGE_POLICY_SCORE", "threshold_ppm": 900000 }
+    ]
+  }
+}

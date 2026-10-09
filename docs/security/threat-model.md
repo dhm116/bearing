@@ -120,13 +120,14 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 ### Audit log
 
-- **C-AUDIT-1** Every fact change, config change, role decision on an admin
-  operation and confirmation by a person is written to the audit log in the
-  same transaction as the change (ADR 8). No change commits without its
-  record. Until the audit log (#138) exists, a `ChangeSet`'s audit entries
-  are kept only in the change journal, which holds the whole `ChangeSet`;
-  C-AUDIT-1 is met for that copy and the entries are not yet readable
-  through any contract. Their text (message, reason, target) is untrusted
+- **C-AUDIT-1** Every fact status change, config change, role decision on an
+  admin operation and confirmation by a person is written to the audit log
+  in the same transaction as the change (ADR 8). No change commits without
+  its record. Individual support writes are in the change journal, which is
+  not hash-chained. Until the audit log (#138) exists, a `ChangeSet`'s audit
+  entries are kept only in the change journal, which holds the whole
+  `ChangeSet`; C-AUDIT-1 is met for that copy and the entries are not yet
+  readable through any contract. Their text (reason, rule, IDs) is untrusted
   input of bounded size: whatever prints it escapes control characters.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
@@ -140,8 +141,13 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   fails.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
-- **C-AUDIT-6** Records name actors by stable ID (`iss` + `sub`, client ID,
-  `local:<uid>`, component name) and never contain tokens or secret values.
+- **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
+  (the OIDC subject, client ID, `local:<uid>`) or, for a component,
+  `system:<name>`, which only the core sets; the API rejects an
+  authenticated subject with that prefix, or with `local:` unless it comes
+  from the local socket. Records never contain tokens or
+  secret values. Whether a person's ID also carries its issuer is decided
+  with authentication (ADR 12).
 
 ## Trust boundaries
 

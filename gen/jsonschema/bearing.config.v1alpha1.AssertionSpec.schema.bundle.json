@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.AssertionSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AssertionSpec is an Assertion's content.",
+      "patternProperties": {
+        "^(confidenceGroups)$": {
+          "description": "Groups of source systems that copy each other, so their confidence counts\n once (docs/spec/data-model.md, \"Confidence\").",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.ConfidenceGroup.schema.json"
+          },
+          "type": "array"
+        },
+        "^(thresholdPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
+        }
+      },
+      "properties": {
+        "confidence_groups": {
+          "description": "Groups of source systems that copy each other, so their confidence counts\n once (docs/spec/data-model.md, \"Confidence\").",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.ConfidenceGroup.schema.json"
+          },
+          "type": "array"
+        },
+        "precedence": {
+          "description": "Per-predicate precedence among source systems.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.PredicatePrecedence.schema.json"
+          },
+          "type": "array"
+        },
+        "threshold_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence at which a fact is asserted, in parts per million: the\n threshold of every predicate (900000 when this is 0). A merge policy's\n threshold_ppm takes its place for same_as."
+        }
+      },
+      "title": "Assertion Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.ConfidenceGroup.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ConfidenceGroup is source systems that count as one in the noisy-OR.",
+      "properties": {
+        "systems": {
+          "description": "The source systems, by namespace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Confidence Group",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.PredicatePrecedence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "PredicatePrecedence is the ordered list of source systems that decides a\n predicate's conflicts (docs/spec/data-model.md, \"Conflicts\").",
+      "properties": {
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "systems": {
+          "description": "The source systems, first wins.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Predicate Precedence",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.AssertionSpec.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.AssertionSpec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

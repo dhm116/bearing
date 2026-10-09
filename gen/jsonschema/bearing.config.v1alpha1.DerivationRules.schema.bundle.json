@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.CodeownersRule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CodeownersRule sets the confidence of the owned_by claims derived from a\n CODEOWNERS file (docs/spec/data-model.md, \"CODEOWNERS\").",
+      "patternProperties": {
+        "^(mixedPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Any other file with a \"*\" line, in parts per million."
+        },
+        "^(soleTeamPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "One rule line, pattern \"*\", naming one team, in parts per million."
+        }
+      },
+      "properties": {
+        "mixed_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Any other file with a \"*\" line, in parts per million."
+        },
+        "sole_team_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "One rule line, pattern \"*\", naming one team, in parts per million."
+        }
+      },
+      "title": "Codeowners Rule",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.DerivationRules.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DerivationRules are the parameters of the core's derivation rules.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"DerivationRules\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.DerivationRulesSpec.schema.json",
+          "description": "The rules."
+        }
+      },
+      "title": "Derivation Rules",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.DerivationRulesSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DerivationRulesSpec is a DerivationRules' content. The rules are the\n core's; this sets their parameters, and a rule not listed uses its\n defaults.",
+      "properties": {
+        "codeowners": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.CodeownersRule.schema.json",
+          "description": "The codeowners rule."
+        }
+      },
+      "title": "Derivation Rules Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.DerivationRules.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.DerivationRules.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

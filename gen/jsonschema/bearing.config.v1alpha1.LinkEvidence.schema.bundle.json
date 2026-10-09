@@ -1,0 +1,15 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.LinkEvidence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkEvidence marks a MatchWeight as the weight of non-authoritative links.",
+      "properties": {},
+      "title": "Link Evidence",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.LinkEvidence.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.LinkEvidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

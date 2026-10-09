@@ -7,7 +7,7 @@
       "properties": {
         "id": {
           "default": "",
-          "description": "A stable ID, never a token or a secret: iss and sub for a person, the\n client ID for an agent, \"local:\u003cuid\u003e\" for the local socket, the\n component name (\"core/resolver\", \"scheduler\") for the system (threat\n model C-AUDIT-6).",
+          "description": "A stable ID, never a token or a secret (threat model C-AUDIT-6): for an\n event's actor, its Actor.subject unchanged; for a component,\n \"system:\u003cname\u003e\" such as \"system:resolver\" or \"system:scheduler\".",
           "type": "string"
         },
         "kind": {

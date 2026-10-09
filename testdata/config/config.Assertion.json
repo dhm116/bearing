@@ -1,0 +1,10 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "Assertion",
+  "metadata": { "name": "default" },
+  "spec": {
+    "threshold_ppm": 900000,
+    "confidence_groups": [ { "systems": [ "github", "ghes-acme" ] } ],
+    "precedence": [ { "predicate": "owned_by", "systems": [ "catalog", "github" ] } ]
+  }
+}

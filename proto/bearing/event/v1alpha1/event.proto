@@ -8,6 +8,8 @@ syntax = "proto3";
 
 package bearing.event.v1alpha1;
 
+import "bearing/config/v1alpha1/resources.proto";
+import "bearing/model/v1alpha1/declaration.proto";
 import "bearing/model/v1alpha1/fact.proto";
 import "bearing/model/v1alpha1/observation.proto";
 import "google/protobuf/timestamp.proto";
@@ -80,9 +82,13 @@ message ObservationsEmitted {
   bearing.model.v1alpha1.CompleteSync complete_sync = 5;
 }
 
-// Actor is who asked for an event: a person or an agent acting for one.
+// Actor is who asked for an event: a person, an agent acting for one, or a
+// Bearing component. A component's subject is "system:<name>", for example
+// "system:scheduler" or "system:loader"; the audit log records that as a
+// system actor.
 message Actor {
-  // OIDC subject or agent token ID.
+  // The stable ID the authenticator gives a person or agent (OIDC subject
+  // or agent token ID), or "system:<name>".
   string subject = 1;
   // True for an agent.
   bool agent = 2;
@@ -227,4 +233,75 @@ message OverrideStale {
   string predicate = 2;
   // When the override was recorded.
   google.protobuf.Timestamp override_recorded_at = 3;
+}
+
+// CompactionRequested replaces the history of old periods with summaries
+// where the Retention resources say to (docs/spec/data-model.md, "Retention
+// and compaction"). Its observed_at is the instant tiers count back from,
+// and the summaries' compacted_at. The scheduler appends it, or a person
+// does.
+message CompactionRequested {
+  // Who asked: the scheduler, the CLI or the API.
+  Actor actor = 1;
+  // Compact only this predicate; empty for every predicate a Retention rule
+  // covers.
+  string predicate = 2;
+  // Compact only subjects of this kind; empty for every kind.
+  string kind = 3;
+}
+
+// DeclarationChanged says a source's adapter was upgraded and now declares
+// something else (docs/spec/data-model.md, "Declarations"). The new
+// declaration takes effect from the event's record time. Applying it checks
+// the declaration against the key types already bound and is rejected
+// (invalid_operation) if it changes a bound key type's kind, class or case.
+message DeclarationChanged {
+  // The configured source whose adapter changed.
+  string source = 1;
+  // The adapter's version before, from its Describe result; empty for a
+  // source's first declaration.
+  string previous_adapter_version = 2;
+  // The adapter's version now, from its Describe result.
+  string adapter_version = 3;
+  // The module's digest now, "sha256:<hex>", when the adapter is pinned by
+  // digest.
+  string module_digest = 4;
+  // The new declaration. Required.
+  bearing.model.v1alpha1.AdapterDeclaration declaration = 5;
+}
+
+// ConfigApplied is one atomic change to the configuration (ADR 10). Applying
+// it versions every resource it changes at the event's record time, skips
+// changes that leave a resource as it is, and re-evaluates what the changed
+// resources affect (docs/spec/data-model.md, "Configuration"). Its
+// observed_at is the ingest time.
+message ConfigApplied {
+  // Who applied it: a person, or the loader at start-up.
+  Actor actor = 1;
+  // Why.
+  string reason = 2;
+  // The changes, applied together.
+  repeated ConfigChange changes = 3;
+}
+
+// ConfigChange is one resource set or deleted.
+message ConfigChange {
+  // What the change does.
+  ConfigChangeType type = 1;
+  // The resource's kind, e.g. "Source".
+  string resource_kind = 2;
+  // The resource's name.
+  string resource_name = 3;
+  // The whole resource as it is after the change; absent for a delete.
+  bearing.config.v1alpha1.Resource resource = 4;
+}
+
+// ConfigChangeType is what a ConfigChange does to a resource.
+enum ConfigChangeType {
+  // Not set. Rejected in every change.
+  CONFIG_CHANGE_TYPE_UNSPECIFIED = 0;
+  // Create the resource, or replace its content.
+  CONFIG_CHANGE_TYPE_SET = 1;
+  // Delete the resource.
+  CONFIG_CHANGE_TYPE_DELETE = 2;
 }

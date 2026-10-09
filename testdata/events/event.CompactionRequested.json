@@ -1,0 +1,4 @@
+{
+  "actor": { "subject": "system:scheduler" },
+  "predicate": "owned_by"
+}

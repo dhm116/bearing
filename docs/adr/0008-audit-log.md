@@ -20,6 +20,9 @@ record that can't be lost or quietly edited.
 - **What gets recorded:**
   - A fact asserted, changed or retracted: the event ID, the rule or judge
     score that decided it, and the old and new values.
+    *Amended 2026-10-09: this is a fact's status change caused by an apply,
+    as the spec's Audit section says, not every support write. The change
+    journal keeps each support write, but it is not hash-chained.*
   - A person confirming or overriding a fact.
   - A configuration change (ADR 10).
   - A policy decision.
@@ -28,6 +31,10 @@ record that can't be lost or quietly edited.
 - **Record shape** (Protobuf, ADR 6): time, actor (person, agent or system
   component), action, target, before/after references, reason, the event ID
   and the trace ID.
+  *Amended 2026-10-09: the shape is `AuditRecord` wrapping an `AuditEntry`,
+  both in `proto/bearing/model/v1alpha1/audit.proto`; before and after are
+  embedded model messages, not references. The spec's Audit section lists
+  the actions.*
 - **Tamper evidence.** Each record includes a hash of the previous record, so
   a gap or an edit breaks the chain. `bearing audit verify` checks the
   chain.

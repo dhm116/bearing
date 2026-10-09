@@ -1,0 +1,28 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.PredicatePrecedence.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "PredicatePrecedence is the ordered list of source systems that decides a\n predicate's conflicts (docs/spec/data-model.md, \"Conflicts\").",
+      "properties": {
+        "predicate": {
+          "default": "",
+          "description": "The predicate.",
+          "type": "string"
+        },
+        "systems": {
+          "description": "The source systems, first wins.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Predicate Precedence",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.PredicatePrecedence.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.PredicatePrecedence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
