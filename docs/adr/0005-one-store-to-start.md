@@ -83,3 +83,8 @@ Options considered:
 - Superseded in part by [ADR 13](0013-backends-store-rows-one-engine-applies-rules.md):
   `internal/surrealstore` stores the graph as rows, not as
   `entity->fact->entity` edges, and the memstore engine applies the rules.
+- Superseded in part by [ADR 14](0014-postgres-is-the-default-store.md):
+  PostgreSQL with pgvector replaces SurrealDB as the default for both
+  contracts, and the SurrealDB backend, including embedded mode, is removed.
+  The separate contracts, URL-based `pkg/store` and one-database default
+  stand.
