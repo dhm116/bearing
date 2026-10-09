@@ -72,7 +72,8 @@ Bearing's state has two parts:
   record time `r` the store can answer for ([Configuration](#configuration),
   [Declarations](#declarations)). They are primary state, backed up with the
   graph, and are not rebuilt from the log, whose window is shorter: a rebuild
-  of the claim store skips `ConfigApplied` and `DeclarationChanged` events.
+  of the claim store skips `ConfigApplied` and `DeclarationChanged` events
+  that are marked processed, and applies any others in log order.
 
 Guarantees:
 
@@ -1202,7 +1203,8 @@ administrator, `local:<uid>`, is a person); the ID is the `subject`, never
 a token. Only the core sets a `system:` subject. The API fills `actor` from the
 authenticated caller and rejects an `actor` in a request payload that
 differs; it MUST also reject an authenticated subject that starts with
-`system:`. The authenticator forms `subject` so that it is unique across the
+`system:`, and one that starts with `local:` unless the local socket set it.
+The authenticator forms `subject` so that it is unique across the
 issuers a deployment trusts. A component that acts with no event actor is
 `system:<name>`, for example `system:resolver`. An entry never holds a secret
 value; resources hold references, and a setting that is a secret is a
@@ -1290,7 +1292,8 @@ document read the configuration in force at record time `r`.
   whole event and changes nothing. A second resource of a singleton kind is
   an `invalid_operation`.
 - **No-ops.** A `SET` equal to the resource in force (Protobuf equality of
-  the stored resource: labels included, list order significant), and a `DELETE` of one
+  the stored resource as written: labels included, list order significant,
+  defaults not normalized), and a `DELETE` of one
   that doesn't exist, write nothing, audit nothing and re-evaluate nothing.
   An event whose changes are all no-ops only gets its processed mark, so the
   start-up loader may append its files on every start.
@@ -1303,7 +1306,7 @@ document read the configuration in force at record time `r`.
   | --- | --- |
   | `Assertion`, a `Source`'s `authority` | statuses, conflicts and their events of the facts affected; and, since `confidence_groups` and thresholds change `same_as` confidence, merge triggers |
   | `DerivationRules` | derived claims, then what reads them |
-  | `MergePolicies`, `MatchWeights`, authority, a declaration's `match` | merge triggers for every pair with a live `same_as` support ([Merge](#merge)); this table is the only list of what re-triggers them |
+  | `MergePolicies`, `MatchWeights`, authority, a declaration's `match` | merge triggers for every pair with a live `same_as` support ([Merge](#merge)); this table is the only list of the configuration changes that re-trigger them |
   | A `Source`'s `namespace`, `issues` or `links` | merge triggers and resolution of later events; bound aliases are unchanged |
   | `Retention`, `Adapter`, `Source` settings and schedule | nothing now; read when next used |
 

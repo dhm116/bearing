@@ -140,7 +140,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
   (the OIDC subject, client ID, `local:<uid>`) or, for a component,
   `system:<name>`, which only the core sets; the API rejects an
-  authenticated subject with that prefix. Records never contain tokens or
+  authenticated subject with that prefix, or with `local:` unless it comes
+  from the local socket. Records never contain tokens or
   secret values. Whether a person's ID also carries its issuer is decided
   with authentication (ADR 12).
 
