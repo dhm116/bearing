@@ -94,7 +94,9 @@ message SupportSegment {
   // WITHDRAWN for a withdrawn claim.
   bearing.model.v1alpha1.SupportReason reason = 5;
   // Live segments: the version's content, without its interval, fact_id and
-  // record times.
+  // record times. For a segment that joins confirmations it is the first
+  // one's, so the first confirmation's key is the support's own
+  // observed_at, observation_id and event_id (without a content hash).
   bearing.model.v1alpha1.Support support = 6;
 }
 

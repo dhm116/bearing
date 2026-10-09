@@ -310,7 +310,7 @@
         },
         "support": {
           "$ref": "#/$defs/bearing.model.v1alpha1.Support.schema.json",
-          "description": "Live segments: the version's content, without its interval, fact_id and\n record times."
+          "description": "Live segments: the version's content, without its interval, fact_id and\n record times. For a segment that joins confirmations it is the first\n one's, so the first confirmation's key is the support's own\n observed_at, observation_id and event_id (without a content hash)."
         },
         "valid_from": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",

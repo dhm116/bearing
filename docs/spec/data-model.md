@@ -99,22 +99,29 @@ A **confirmation** is a write by a source that repeats what its earlier write
 already said: the same state, confidence and qualifiers for a fact, the same
 name bound to the same subject for a binding. A source that syncs again and
 again sends nothing but confirmations until something changes. An
-implementation MUST NOT keep a record per confirmation, so that what it
-remembers grows with the changes sources report and not with the syncs they
-make. It keeps the first confirmation's content, and moves the record's
-ordering key to the latest confirmation's: the **last verified** key. A
-fact's support then has one version, as always, whose `last_confirmed_at` is
-that key's `observed_at`.
+implementation MUST NOT keep a record per confirmation (scope watermarks
+excepted until [issue #77](https://github.com/dhm116/bearing/issues/77) is
+done), so that what it remembers grows with the changes sources report and
+not with the syncs they make. It keeps the first confirmation's content, and
+moves the record's ordering key to the latest confirmation's: the **last
+verified** key. A fact's support then has one version, as always, whose
+`last_confirmed_at` is that key's `observed_at`.
 
-The cost is the one write the run can no longer place. A write whose ordering
-key falls between the first and the latest confirmation of a run, that says
-something else (another state for the fact, another subject or name, a
-deletion, a snapshot that leaves the fact out), and that is applied after the
-latest confirmation, is **dropped**: it has no effect, as a late write into
-a compacted period has none, and it is audited the same way
-(`compacted_write_dropped`, whose `reason` names the run). Applied in order,
-the same write would have decided the valid time before the later
-confirmation. Nothing else is lost:
+The cost is the one write the run can no longer place. A write **of the same
+source** whose ordering key falls between the first and the latest
+confirmation of a run, that says something else (another state for the fact,
+a deletion, a snapshot that leaves the fact out), and that is applied after
+the latest confirmation, is **dropped**: it has no effect, as a late write
+into a compacted period has none, and it is audited the same way
+(`compacted_write_dropped`, whose `reason` names the run). For a binding,
+the write is one of any source that binds another name to the subject the run
+binds, or the run's name to another subject, because a source's names share
+the namespace's other sources. Applied in order, the same write would have
+decided the valid time before the latest confirmation starts, and only there:
+the answers can differ from key-ordered application at valid times before the
+latest confirmation, never at or after it. Writes of `manual` and `core/…`
+sources are never dropped: a manual event is not a confirmation, and derived
+supports follow their inputs. Nothing else is lost:
 
 - Writes applied in ordering-key order are never dropped.
 - A write with a key before the first or after the latest confirmation is
@@ -1263,7 +1270,7 @@ reference in the resource.
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
-| `compacted_write_dropped` | the `(subject, predicate)` | | `reason` names the period |
+| `compacted_write_dropped` | the `(subject, predicate)`; the alias for a binding or a deletion of a name | `confirmations` for a run of confirmations | `reason` names the period, or the run and the write |
 | `rejection` | the event; `reason` names the scope | | `rejection_code` and `reason` |
 | `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
 | `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |

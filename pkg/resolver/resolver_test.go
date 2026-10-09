@@ -60,8 +60,11 @@ type env struct {
 	store *memstore.Store
 	clock *testkit.FakeClock
 	r     *Resolver
-	// dropped counts the claims applies have reported as ignored.
-	dropped int
+	// dropped counts the writes applies have reported as ignored, and
+	// lastConfirmed is the latest key time among the confirmations they fell
+	// among.
+	dropped       int
+	lastConfirmed time.Time
 }
 
 func newEnv(t testing.TB) *env {
@@ -109,15 +112,38 @@ func (e *env) apply(ev Event) Applied {
 	}
 	e.clock.Advance(time.Second)
 	e.dropped += len(got.Dropped)
+	for _, d := range got.Dropped {
+		// A dropped write falls strictly among the confirmations it names.
+		if model.CompareOrderingKeys(withoutHash(d.First), withoutHash(d.Key)) >= 0 || model.CompareOrderingKeys(withoutHash(d.Key), withoutHash(d.Last)) >= 0 {
+			e.t.Errorf("event %s: dropped write %v is not among confirmations %v to %v", ev.ID, d.Key, d.First, d.Last)
+		}
+		if at := d.Last.GetObservedAt().AsTime(); at.After(e.lastConfirmed) {
+			e.lastConfirmed = at
+		}
+	}
 	return got
 }
 
 // sameOrDropped checks that an apply order gave the facts of the in-order
-// apply, unless an apply reported ignoring a claim: the one way the order may
-// show (docs/spec/data-model.md, "State, determinism and apply"). It reports
-// whether the two were equal, and whether the order failed the check.
-func (e *env) sameOrDropped(got, want string) (same, failed bool) {
-	return got == want, got != want && e.dropped == 0
+// apply (per valid time, in the samples taken at times), unless apply reported
+// ignoring a write, and then only at valid times before the latest
+// confirmation it fell among (docs/spec/data-model.md, "Confirmations"). It
+// reports whether the two were equal, and whether the order failed the check.
+func (e *env) sameOrDropped(got, want string, times []time.Time) (same, failed bool) {
+	if got == want {
+		return true, false
+	}
+	g, w := strings.Split(got, "== "), strings.Split(want, "== ")
+	if e.dropped == 0 || len(g) != len(w) || len(g) != len(times)+1 {
+		return false, true
+	}
+	for i := range times {
+		if g[i+1] != w[i+1] && !times[i].Before(e.lastConfirmed) {
+			e.t.Logf("facts differ at %s, not before the latest confirmation dropped writes fell among (%s)", times[i], e.lastConfirmed)
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // sourceOrderShuffle returns a random order of events that keeps each

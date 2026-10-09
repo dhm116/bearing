@@ -286,7 +286,9 @@ type SupportSegment struct {
 	// WITHDRAWN for a withdrawn claim.
 	Reason v1alpha1.SupportReason `protobuf:"varint,5,opt,name=reason,proto3,enum=bearing.model.v1alpha1.SupportReason" json:"reason,omitempty"`
 	// Live segments: the version's content, without its interval, fact_id and
-	// record times.
+	// record times. For a segment that joins confirmations it is the first
+	// one's, so the first confirmation's key is the support's own
+	// observed_at, observation_id and event_id (without a content hash).
 	Support       *v1alpha1.Support `protobuf:"bytes,6,opt,name=support,proto3" json:"support,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

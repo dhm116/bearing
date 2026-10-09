@@ -231,11 +231,17 @@ func (s series) dropped(w seg) (first, last *resolverv1alpha1.OrderingKey, ok bo
 		// Joined segments keep the first confirmation's claim, so its key is
 		// the support's own. A write after it and before e's key was made
 		// between two of the confirmations.
-		if p := provenanceKey(e.sup); model.CompareOrderingKeys(p, w.key) < 0 && (!w.live || !sameState(e.sup, w.sup)) {
+		// The support carries no content hash, so compare without the write's.
+		if p := provenanceKey(e.sup); model.CompareOrderingKeys(p, withoutHash(w.key)) < 0 && (!w.live || !sameState(e.sup, w.sup)) {
 			return p, e.key, true
 		}
 	}
 	return nil, nil, false
+}
+
+// withoutHash returns the key without its content hash.
+func withoutHash(k *resolverv1alpha1.OrderingKey) *resolverv1alpha1.OrderingKey {
+	return &resolverv1alpha1.OrderingKey{ObservedAt: k.GetObservedAt(), ObservationId: k.GetObservationId(), EventId: k.GetEventId()}
 }
 
 // ending is the segment a watermark writes: the fact is ended from `at` on.

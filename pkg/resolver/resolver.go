@@ -73,19 +73,23 @@ func droppedFact(source string, f fact, key, first, last *resolverv1alpha1.Order
 	return DroppedWrite{Source: source, Subject: f.subject, Predicate: f.pred, Object: f.token, Key: key, First: first, Last: last}
 }
 
-// audit returns the audit entry for the dropped write.
+// audit returns the audit entry for the dropped write: the (subject,
+// predicate) of a fact, or the alias of a binding, with the fact's object or
+// the subject written, and the run, in the reason.
 func (d DroppedWrite) audit() *modelv1alpha1.AuditEntry {
 	target := &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, Id: d.Subject + "/" + d.Predicate}
+	what := fmt.Sprintf("%s %s -> %s", d.Subject, d.Predicate, d.Object)
 	if d.Alias != "" {
 		target = &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: string(d.Alias)}
+		what = fmt.Sprintf("alias %s -> %s", d.Alias, d.Subject)
 	}
 	return &modelv1alpha1.AuditEntry{
 		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED,
 		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"},
 		Target: target,
 		Rule:   "confirmations",
-		Reason: model.Clip(fmt.Sprintf("falls among the confirmations of %q by source %s from %s to %s",
-			d.Key.GetObservationId(), d.Source, d.First.GetObservationId(), d.Last.GetObservationId())),
+		Reason: model.Clip(fmt.Sprintf("observation %q falls among the confirmations of %s by source %s, from %q to %q",
+			d.Key.GetObservationId(), what, d.Source, d.First.GetObservationId(), d.Last.GetObservationId())),
 	}
 }
 

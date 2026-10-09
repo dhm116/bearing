@@ -535,9 +535,8 @@ func TestSupportsOfADroppedSourceStillCount(t *testing.T) {
 // before or after the snapshot gives the same state.
 func TestMergeMovesSnapshotsOverUndeclaredPredicates(t *testing.T) {
 	claim := event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/old"))
-	// The team is first seen under its id alone: a name it is bound to by
-	// observations on both sides of the merge's would make the merge arrive
-	// "among confirmations" and be ignored.
+	// The team is first seen under its id alone, so the merge below is a change
+	// to its names, not a write among confirmations of one name.
 	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1"))
 	merge := event("github-acme", obsAt("2026-10-01T12:00:00Z", "Team", "github:team_node/T1", "github:team/acme/old"))
 	snapshot := event("github-acme", withScope(obsAt("2026-10-05T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"), true, "approves_changes"))

@@ -141,7 +141,7 @@ func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
 					continue
 				}
 				got := factsOverTime(t, e)
-				ok, failed := e.sameOrDropped(got, want)
+				ok, failed := e.sameOrDropped(got, want, sampleTimes())
 				if failed {
 					t.Fatalf("seed %d, order %v:\n%s\nwant:\n%s", seed, order, got, want)
 				}

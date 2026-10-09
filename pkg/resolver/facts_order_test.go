@@ -135,7 +135,7 @@ func TestClaimsDoNotDependOnApplyOrder(t *testing.T) {
 			e.apply(events[j])
 		}
 		got := factsOverTime(t, e)
-		ok, failed := e.sameOrDropped(got, want)
+		ok, failed := e.sameOrDropped(got, want, sampleTimes())
 		if failed {
 			t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
@@ -518,7 +519,7 @@ func (e *engine) joinConfirmations(ctx context.Context) {
 			var joined []write
 			for _, w := range observed {
 				if i := len(joined) - 1; i >= 0 && joined[i].from.Before(w.from) && model.CompareOrderingKeys(joined[i].key, w.key) < 0 &&
-					!e.tellsApart(ctx, n, s, joined[i], w) {
+					sourceOf(joined[i].key) != "" && sourceOf(joined[i].key) == sourceOf(w.key) && !e.tellsApart(ctx, n, s, joined[i], w) {
 					if joined[i].first == nil {
 						joined[i].first = joined[i].key
 					}
@@ -532,6 +533,14 @@ func (e *engine) joinConfirmations(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// sourceOf returns the source an ordering key's event came from: the event ID
+// starts with the source and a slash. A confirmation is one source's, so only
+// writes of one source are joined.
+func sourceOf(k *resolverv1alpha1.OrderingKey) string {
+	source, _, _ := strings.Cut(k.GetEventId(), "/")
+	return source
 }
 
 // tellsApart reports whether something besides a and b, writes of the name

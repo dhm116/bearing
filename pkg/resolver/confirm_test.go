@@ -12,6 +12,7 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/model"
 )
 
 // syncOf is the sync of repository R1 at hour h that lists the teams it names
@@ -156,13 +157,14 @@ func TestSyncsWithChangesDoNotDependOnApplyOrder(t *testing.T) {
 				e.apply(syncs[i])
 			}
 			got := factsOverTimes(t, e, 6)
+			ok, failed := e.sameOrDropped(got, want, hourSamples(6))
 			switch {
-			case got == want:
+			case ok:
 				compared++
-			case e.dropped > 0:
-				ignored++
+			case failed:
+				t.Errorf("order %v differs and nothing explains it:\n%s\nwant:\n%s", prefix, got, want)
 			default:
-				t.Errorf("order %v differs and nothing was reported:\n%s\nwant:\n%s", prefix, got, want)
+				ignored++
 			}
 			return
 		}
@@ -176,12 +178,22 @@ func TestSyncsWithChangesDoNotDependOnApplyOrder(t *testing.T) {
 	}
 }
 
-// factsOverTimes is the facts half an hour after each of the first n hours.
+// hourSamples are the valid times half an hour after each of the first n
+// hours.
+func hourSamples(n int) []time.Time {
+	var out []time.Time
+	for h := 1; h <= n; h++ {
+		out = append(out, t0.Add(time.Duration(h)*time.Hour+30*time.Minute))
+	}
+	return out
+}
+
+// factsOverTimes is the facts at hourSamples(n).
 func factsOverTimes(t testing.TB, e *env, n int) string {
 	t.Helper()
 	var out string
-	for h := 1; h <= n; h++ {
-		out += fmt.Sprintf("== %d\n%s\n", h, factsAt(t, e, t0.Add(time.Duration(h)*time.Hour+30*time.Minute)))
+	for h, v := range hourSamples(n) {
+		out += fmt.Sprintf("== %d\n%s\n", h+1, factsAt(t, e, v))
 	}
 	return out
 }
@@ -330,4 +342,73 @@ func TestIgnoredWriteIsAudited(t *testing.T) {
 	if _, err := e.store.Apply(context.Background(), res.ChangeSet); err != nil {
 		t.Fatalf("the store refused the ChangeSet with its audit entries: %v", err)
 	}
+}
+
+// A sync that arrives out of order but says what the run says is not a
+// dropped write: the facts are those of the in-order apply, so nothing is
+// reported or audited.
+func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
+	for _, teams := range [][]string{{"T1"}, {"T1", "T2"}} {
+		e := newEnv(t)
+		e.apply(syncOf(1, "T1"))
+		e.apply(syncOf(3, "T1"))
+		res, err := e.r.Resolve(context.Background(), syncOf(2, teams...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Dropped) != 0 || len(res.ChangeSet.GetAudit()) != 0 {
+			t.Errorf("teams %v: got %d dropped and %d audit entries, want none: %v", teams, len(res.Dropped), len(res.ChangeSet.GetAudit()), res.Dropped)
+		}
+	}
+}
+
+// Only a source's own writes among its confirmations are dropped: the
+// supports of other sources about the same fact, and the ones the core
+// derives, keep every write.
+func TestOtherSourcesAndDerivedSupportsAreNeverDropped(t *testing.T) {
+	events := codeownersScenario()
+	rng := rand.New(rand.NewSource(5)) //nolint:gosec // G404: a seeded shuffle, not security
+	seen := 0
+	for range 100 {
+		e := newEnv(t)
+		for _, i := range rng.Perm(len(events)) {
+			got := e.apply(events[i])
+			for _, d := range got.Dropped {
+				seen++
+				if d.Source != events[i].Source || strings.HasPrefix(d.Source, "core/") || d.Source == "manual" {
+					t.Fatalf("event %s of source %q dropped a write attributed to source %q", events[i].ID, events[i].Source, d.Source)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no order dropped a write, so the test checks nothing")
+	}
+}
+
+// Writes of another source are not joined with a source's confirmations.
+func TestBindingsOfDifferentSourcesAreNotJoined(t *testing.T) {
+	e := newEnv(t)
+	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
+	e.apply(event("github-mirror", obsAt("2026-10-02T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
+	_, binds := (&env{}).bindWrites(e, "github:team/acme/s1", "github:team_node/T1")
+	if len(binds.GetWrites()) != 2 {
+		t.Fatalf("got %d binding writes for two sources, want 2: %v", len(binds.GetWrites()), binds)
+	}
+}
+
+func (*env) bindWrites(e *env, name, id string) (struct{}, *resolverv1alpha1.BindingWrites) {
+	e.t.Helper()
+	subject := e.resolveKey(id, ts("2026-10-03T00:00:00Z"))
+	got, err := e.store.State(context.Background(), []string{bindKey(model.Key(name), subject)}, time.Time{})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	out := &resolverv1alpha1.BindingWrites{}
+	if a := got[bindKey(model.Key(name), subject)]; a != nil {
+		if err := a.UnmarshalTo(out); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	return struct{}{}, out
 }

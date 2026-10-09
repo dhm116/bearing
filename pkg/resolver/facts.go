@@ -83,6 +83,9 @@ type factRun struct {
 	marks  map[string]*wmEntry
 	// touched are the supports to recompute.
 	touched map[string]affected
+	// claimed are the facts the observation itself claims: its claim
+	// outranks its own watermark.
+	claimed map[string]bool
 	// out are the support timelines to write, by source and fact ID.
 	out map[string]*modelv1alpha1.SupportTimeline
 	// retired are the support timelines, as written, that move to another
@@ -100,7 +103,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
 		series: map[string]*seriesEntry{}, marks: map[string]*wmEntry{}, touched: map[string]affected{},
 		out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
-		groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
+		claimed: map[string]bool{}, groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
 	}
 }
@@ -302,6 +305,7 @@ func (r *factRun) claim(ctx context.Context, claims []*claim) error {
 			return err
 		}
 		e.s = e.s.settled(wms)
+		r.claimed[r.p.ev.Source+"\x00"+c.fact.id()] = true
 		e.dirty = true
 		r.touch(r.p.ev.Source, c.fact)
 	}
@@ -379,6 +383,9 @@ func (r *factRun) recompute(ctx context.Context) error {
 // both sides of the watermark's key keeps the later key (see
 // [series.settled]).
 func (r *factRun) noteDroppedByWatermarks(t affected, s series, wms []watermark) {
+	if r.claimed[t.source+"\x00"+t.f.id()] {
+		return // its own claim outranks its watermark; the claim itself was checked
+	}
 	for _, w := range wms {
 		if model.CompareOrderingKeys(w.key, r.p.key) != 0 {
 			continue
