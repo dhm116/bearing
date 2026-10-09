@@ -261,9 +261,6 @@ what it doesn't catch.
 - **ADR diagrams** are SVGs generated from `docs/adr/diagrams/src/`; edit
   the Python there and re-export (see `docs/adr/diagrams/README.md`), never
   the SVGs by hand.
-- **Spikes** live on their own `spike/<name>` branch, code and report
-  together, and are never merged into `main`. An ADR that rests on one
-  links to the report on that branch.
 - **Significant decisions** get an ADR: copy `docs/adr/template.md` to the
   next number, and mark older ADRs "Superseded in part by" when relevant.
 - Keep `README.md`'s "What's here" table current when adding top-level
@@ -282,6 +279,20 @@ Both are plain Markdown checklists; any agent can follow them.
   ("Add PagerDuty adapter"), then a body saying why and anything reviewers
   should know (untested paths, new dependencies, spec changes).
 - Keep changes focused. Spec, code and tests for one change land together.
+- **`main` holds only what Bearing ships or needs to build, test and
+  document itself.** Experiments, one-off benchmarks and dropped approaches stay
+  off it:
+  - A spike lives on its own `spike/<name>` branch, with its code and its
+    report together, and is never merged. An ADR that rests on a spike
+    links to the report on that branch for the record
+    (`https://github.com/dhm116/bearing/blob/spike/<name>/...`).
+  - When a decision replaces an approach, remove the old code in the
+    change that makes the switch, rather than keeping it beside the new one.
+- **Go, plus POSIX shell for short glue in `Makefile` and scripts.** Don't
+  add another language (Python, JavaScript, …) for tooling, scripts or
+  generators; write it in Go, in `tools/` or next to its use. The one
+  exception is the ADR diagram generator in `docs/adr/diagrams/src/`,
+  which predates this rule.
 - PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
 - CI (`.github/workflows/ci.yml`) runs everything `make check` does, as jobs
   that run side by side so a push gets its answer in minutes: `static`
