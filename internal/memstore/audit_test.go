@@ -3,6 +3,7 @@ package memstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -93,5 +94,22 @@ func TestFailedAppliesLeaveNoUnmergeRecords(t *testing.T) {
 	}
 	if recs, _ := s.Merges(context.Background(), contracts.SubjectID(survivor), time.Time{}); len(recs) != 1 || recs[0].GetUnmergedAt() != nil || len(recs[0].GetReviews()) != 0 {
 		t.Fatalf("got %v, want the merge record as it was", recs)
+	}
+}
+
+// SubjectsIn collects the id of a subject-kind audit target, so a scratch
+// store loaded for an apply holds the subject the target names, and nothing
+// else an entry carries.
+func TestSubjectsInCollectsSubjectAuditTargets(t *testing.T) {
+	subject, alias := modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS
+	entry := func(kind modelv1alpha1.AuditTargetKind, id string) *modelv1alpha1.AuditEntry {
+		return &modelv1alpha1.AuditEntry{Target: &modelv1alpha1.AuditTarget{Kind: kind, Id: id}}
+	}
+	cs := &modelv1alpha1.ChangeSet{Audit: []*modelv1alpha1.AuditEntry{
+		entry(subject, "b"), entry(subject, "a"), entry(subject, "b"),
+		entry(subject, "new:x"), entry(alias, "github:repo/acme/svc"),
+	}}
+	if got, want := SubjectsIn(cs), []string{"a", "b"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

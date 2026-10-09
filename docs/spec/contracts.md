@@ -242,7 +242,9 @@ merge that doesn't exist or names one merge twice, a missing or unknown
 status and a score over 1,000,000. A record holds at most `MaxTimelineRows`
 reviews: at the limit a new review replaces the newest, because a source can
 flip its findings as often as it likes and the events that touch the merge
-must not fail for it (the journal keeps the review replaced). A review may follow its merge in the same
+must not fail for it (the journal keeps the review replaced; a read as recorded between the
+replaced review and the one that replaced it does not give the answer the
+store gave then). A review may follow its merge in the same
 `ChangeSet`, naming the merged subject by its ref. The store does not judge
 the findings or open the conflict that `needs_review` goes with: that is the
 resolver's.
