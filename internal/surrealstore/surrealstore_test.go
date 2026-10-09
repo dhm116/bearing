@@ -45,15 +45,32 @@ func provisionScoped(t *testing.T, o ServerOptions) ServerOptions {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	user, pass := "bearing", randomToken()
-	err := Provision(ctx, ProvisionOptions{
-		URL: o.URL, Namespace: o.Namespace, Database: o.Database,
-		AdminUsername: o.Username, AdminPassword: o.Password, Username: user, Password: pass,
+	err := retryConflicts(func() error {
+		return Provision(ctx, ProvisionOptions{
+			URL: o.URL, Namespace: o.Namespace, Database: o.Database,
+			AdminUsername: o.Username, AdminPassword: o.Password, Username: user, Password: pass,
+		})
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	o.Username, o.Password, o.Scoped = user, pass, true
 	return o
+}
+
+// retryConflicts runs a test store's setup again when SurrealDB reports a
+// write conflict it says can be retried. Parallel suites define databases
+// in the shared bearing_test namespace while others apply, and SurrealDB
+// sometimes refuses one of those definitions under load.
+func retryConflicts(setup func() error) error {
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if err = setup(); err == nil || !strings.Contains(err.Error(), "can be retried") {
+			return err
+		}
+		time.Sleep(time.Duration(attempt) * 50 * time.Millisecond)
+	}
+	return err
 }
 
 func newTestStore(t *testing.T) *Store { return newTestStoreAs(t, scopedTests()) }
@@ -79,7 +96,10 @@ func newTestStoreAs(t *testing.T, scoped bool) *Store {
 		if scoped {
 			o = provisionScoped(t, o)
 		}
-		s, err = Dial(ctx, o)
+		err = retryConflicts(func() (err error) {
+			s, err = Dial(ctx, o)
+			return err
+		})
 	case EmbeddedAvailable:
 		s, err = OpenEmbedded(ctx, "mem://", "bearing_test", db)
 	default:
