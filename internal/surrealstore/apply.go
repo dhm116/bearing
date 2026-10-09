@@ -211,6 +211,7 @@ type plan struct {
 	links    []map[string]any // series_subject links, which may exist
 	added    []map[string]any // new version rows
 	merges   []map[string]any // merge records, new or changed
+	unmerges []map[string]any // un-merge records, new
 	changed  []map[string]any // version rows that changed (retired, confirmed)
 	err      error            // the first message that did not marshal
 }
@@ -267,6 +268,7 @@ func (s *Store) commit(ctx context.Context, ld *loaded, cs *modelv1alpha1.Change
 		p.subjects = append(p.subjects, map[string]any{"sid": sub.GetSubjectId(), "kind": sub.GetKind(), "rec": rec, "stg": tok, "data": p.marshal(sub)})
 	}
 	p.mergeRows(ld)
+	p.unmergeRows(ld)
 	p.seriesRows(ld, entry.GetChangeSet(), rec, tok)
 	if p.err != nil {
 		return fmt.Errorf("event %s: encode rows: %w", cs.GetEventId(), p.err)
@@ -277,7 +279,7 @@ func (s *Store) commit(ctx context.Context, ld *loaded, cs *modelv1alpha1.Change
 	}
 	vars := map[string]any{
 		"expect": microsOf(ld.head), "event": cs.GetEventId(), "head": rec, "last_id": lastID, "tok": tok,
-		"merge_count": ld.merges + int64(len(entry.GetMerges())), "j_seq": ld.journal + 1, "j_data": entryBytes,
+		"merge_count": ld.merges + int64(len(entry.GetMerges())), "unmerge_count": ld.unmerges + int64(len(p.unmerges)), "j_seq": ld.journal + 1, "j_data": entryBytes,
 	}
 	bulk := []bulkRows{{"sub", "subject", p.subjects}, {"sr", "series", p.series}, {"ss", "series_subject", p.links}, {"va", "version", p.added}}
 	var sql strings.Builder
@@ -300,6 +302,11 @@ func (s *Store) commit(ctx context.Context, ld *loaded, cs *modelv1alpha1.Change
 		name := fmt.Sprintf("mg%d", i/chunkRows)
 		vars[name] = p.merges[i:min(i+chunkRows, len(p.merges))]
 		fmt.Fprintf(&sql, "FOR $r IN $%s { UPSERT type::record('merge', $r.seq) CONTENT $r; };\n", name)
+	}
+	for i := 0; i < len(p.unmerges); i += chunkRows {
+		name := fmt.Sprintf("um%d", i/chunkRows)
+		vars[name] = p.unmerges[i:min(i+chunkRows, len(p.unmerges))]
+		fmt.Fprintf(&sql, "FOR $r IN $%s { CREATE type::record('unmerge', $r.seq) CONTENT $r; };\n", name)
 	}
 	for i := 0; i < len(p.changed); i += chunkRows {
 		name := fmt.Sprintf("vc%d", i/chunkRows)
@@ -405,6 +412,20 @@ func (p *plan) mergeRows(ld *loaded) {
 	}
 }
 
+// unmergeRows adds the un-merge records the apply created, which follow the
+// stored ones in the scratch store and are never changed.
+func (p *plan) unmergeRows(ld *loaded) {
+	for i, u := range ld.scratch.UnmergeRecords() {
+		if i < len(ld.unmergeRecords) {
+			continue
+		}
+		p.unmerges = append(p.unmerges, map[string]any{
+			"seq": int64(i) + 1, "subject": u.GetSubjectId(), "target": u.GetTargetId(),
+			"rec": microsOf(u.GetRecordedAt().AsTime()), "data": p.marshal(u),
+		})
+	}
+}
+
 // seriesRows adds the series the ChangeSet wrote: each new or changed row,
 // and the series and subject links of a new series.
 func (p *plan) seriesRows(ld *loaded, cs *modelv1alpha1.ChangeSet, rec int64, tok string) {
@@ -500,5 +521,5 @@ DELETE version WHERE rec > $expect AND stg != $tok;
 const commitTail = `
 CREATE type::record('journal', $j_seq) CONTENT { seq: $j_seq, event: $event, rec: $head, data: $j_data };
 CREATE type::record('processed_event', $event) CONTENT { seq: $j_seq, rec: $head };
-UPDATE meta:graph SET head = $head, last_id = $last_id, merges = $merge_count, journal = $j_seq;
+UPDATE meta:graph SET head = $head, last_id = $last_id, merges = $merge_count, unmerges = $unmerge_count, journal = $j_seq;
 COMMIT TRANSACTION;`

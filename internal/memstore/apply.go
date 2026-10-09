@@ -51,6 +51,9 @@ func result(e *modelv1alpha1.JournalEntry, duplicate bool) contracts.ApplyResult
 	for _, m := range e.GetMerges() {
 		res.Merges = append(res.Merges, proto.CloneOf(m))
 	}
+	for _, a := range e.GetChangeSet().GetAudit() {
+		res.Audit = append(res.Audit, proto.CloneOf(a))
+	}
 	return res
 }
 
@@ -73,6 +76,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 			return res, fmt.Errorf("event %s: applied twice", in.GetEventId())
 		}
 		return result(s.journal[i], true), nil
+	}
+	if err := checkAudit(in.GetAudit()); err != nil {
+		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
 	}
 	r, err := s.recordTime(in, want != nil)
 	if err != nil {
@@ -190,13 +196,22 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 		entry.Merges = append(entry.Merges, proto.CloneOf(rec))
 	}
 	for _, u := range cs.GetUnmerges() {
+		rec := &modelv1alpha1.UnmergeRecord{
+			SubjectId: u.GetSubjectId(), TargetId: u.GetTargetId(), Split: revived[u] == nil,
+			Aliases: slices.Compact(slices.Sorted(slices.Values(u.GetAliases()))), EventId: cs.GetEventId(), RecordedAt: cs.RecordedAt,
+		}
 		if old := revived[u]; old != nil {
 			i := s.indexOfMerge(old)
 			next := proto.CloneOf(old)
 			next.UnmergedAt, next.UnmergeEventId = cs.RecordedAt, cs.GetEventId()
 			s.merges[i] = next
 			undo = append(undo, func() { s.merges[i] = old })
+			rec.MergeEventId = old.GetEventId()
 		}
+		undo = append(undo, s.addUnmerge(rec))
+	}
+	if err := s.writeReviews(&undo, cs); err != nil {
+		return res, err
 	}
 	if err := s.writeClaims(&undo, cs, r); err != nil {
 		return res, err
@@ -217,6 +232,73 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	s.head, s.events[cs.GetEventId()] = r, len(s.journal)
 	s.journal = append(s.journal, entry)
 	return result(entry, false), nil
+}
+
+// checkAudit checks the shape of a ChangeSet's audit entries. Their subjects
+// are checked with every other subject_id.
+func checkAudit(entries []*modelv1alpha1.AuditEntry) error {
+	for i, e := range entries {
+		if _, known := modelv1alpha1.AuditAction_name[int32(e.GetAction())]; !known || e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_UNSPECIFIED {
+			return fmt.Errorf("audit entry %d: action %d is not set or not known", i, int32(e.GetAction()))
+		}
+		_, known := modelv1alpha1.RejectionCode_name[int32(e.GetRejection())]
+		switch rejected := e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION; {
+		case rejected && (!known || e.GetRejection() == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED):
+			return fmt.Errorf("audit entry %d: a rejection needs a rejection code, got %d", i, int32(e.GetRejection()))
+		case !rejected && e.GetRejection() != modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED:
+			return fmt.Errorf("audit entry %d: %s has a rejection code", i, e.GetAction())
+		}
+	}
+	return nil
+}
+
+// writeReviews appends each of the ChangeSet's merge reviews to its merge
+// record, which the merges and un-merges before it have already written. A
+// review equal to the latest one, apart from the event and record time,
+// writes nothing, so a resolver that re-evaluates on every apply does not
+// grow the record.
+func (s *Store) writeReviews(undo *[]func(), cs *modelv1alpha1.ChangeSet) error {
+	written := map[int]bool{}
+	for n, w := range cs.GetMergeReviews() {
+		rv := w.GetReview()
+		if _, known := modelv1alpha1.MergeReviewStatus_name[int32(rv.GetStatus())]; !known || rv.GetStatus() == modelv1alpha1.MergeReviewStatus_MERGE_REVIEW_STATUS_UNSPECIFIED {
+			return fmt.Errorf("merge review %d: status %d is not set or not known", n, int32(rv.GetStatus()))
+		}
+		if rv.GetSurvivorScorePpm() > model.MaxConfidence || rv.GetMergedScorePpm() > model.MaxConfidence {
+			return fmt.Errorf("merge review %d: a score is over %d ppm", n, model.MaxConfidence)
+		}
+		rv.EventId, rv.RecordedAt = cs.GetEventId(), cs.GetRecordedAt()
+		i := -1
+		for _, j := range s.mergedBy[w.GetSubjectId()] {
+			if s.merges[j].GetEventId() == w.GetMergeEventId() {
+				i = j
+			}
+		}
+		switch {
+		case i < 0:
+			return fmt.Errorf("merge review %d: %s was not merged by event %q", n, w.GetSubjectId(), w.GetMergeEventId())
+		case written[i]:
+			return fmt.Errorf("merge review %d: two reviews of the merge of %s by event %q", n, w.GetSubjectId(), w.GetMergeEventId())
+		}
+		written[i] = true
+		old := s.merges[i]
+		if k := len(old.GetReviews()); k > 0 && sameReview(old.GetReviews()[k-1], rv) {
+			continue
+		} else if k >= contracts.MaxTimelineRows {
+			return fmt.Errorf("merge review %d: the merge of %s already has %d reviews", n, w.GetSubjectId(), k)
+		}
+		next := proto.CloneOf(old)
+		next.Reviews = append(next.Reviews, proto.CloneOf(rv))
+		s.merges[i] = next
+		*undo = append(*undo, func() { s.merges[i] = old })
+	}
+	return nil
+}
+
+// sameReview reports whether two reviews say the same, leaving out when and
+// by which event they were recorded.
+func sameReview(a, b *modelv1alpha1.MergeReview) bool {
+	return a.GetStatus() == b.GetStatus() && a.GetSurvivorScorePpm() == b.GetSurvivorScorePpm() && a.GetMergedScorePpm() == b.GetMergedScorePpm()
 }
 
 // recordTime is the record time of an apply: max(now, head + 1µs), or on

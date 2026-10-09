@@ -215,6 +215,13 @@ func (s *Store) LoadMerge(m *modelv1alpha1.MergeRecord) {
 	s.addMerge(proto.CloneOf(m))
 }
 
+// LoadUnmerge appends an un-merge record; call it in record order.
+func (s *Store) LoadUnmerge(u *modelv1alpha1.UnmergeRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addUnmerge(proto.CloneOf(u))
+}
+
 // LoadSeries adds or replaces a series.
 func (s *Store) LoadSeries(t Table, key string, ser Series) {
 	s.mu.Lock()
@@ -256,6 +263,14 @@ func (s *Store) MergeRecords() []*modelv1alpha1.MergeRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.merges)
+}
+
+// UnmergeRecords returns every un-merge record the store holds, in record
+// order.
+func (s *Store) UnmergeRecords() []*modelv1alpha1.UnmergeRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.unmerges)
 }
 
 // Position returns the head and the last minted subject ID.

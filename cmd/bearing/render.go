@@ -122,6 +122,13 @@ func (o *out) conflicts(indent int, cs []query.Conflict) {
 	}
 }
 
+// unmergeHint is printed under a subject's merges. Splitting aliases off the
+// survivor of a chain of merges mints a new subject rather than restoring the
+// one that was merged first, so an exact undo goes one merge at a time.
+const unmergeHint = "hint: to undo a merge, un-merge the aliases the merged subject had when it merged. " +
+	"If the survivor has itself been merged into another subject since, un-merging those aliases from the top subject " +
+	"creates a new subject instead; to restore the original exactly, un-merge the later merge first, then this one."
+
 func renderEntity(w io.Writer, e *query.Entity) error {
 	var o out
 	o.line(0, "%s", e.Subject)
@@ -152,12 +159,36 @@ func renderEntity(w io.Writer, e *query.Entity) error {
 	if len(e.Merges) > 0 {
 		o.line(0, "")
 		o.line(0, "merges")
+		undoable := false
 		for _, m := range e.Merges {
 			ended := ""
 			if m.UnmergedAt != nil {
 				ended = ", un-merged " + stamp(*m.UnmergedAt)
+			} else if m.Rule != "placeholder" { // a placeholder merge can't be un-merged
+				undoable = true
 			}
 			o.line(1, "%s into %s by %s at %s, event %s%s", m.Merged, m.Survivor, m.Rule, percent(m.ConfidencePPM), m.EventID, ended)
+			if rv := m.Review; rv != nil {
+				scores := ""
+				if rv.SurvivorScorePPM != 0 || rv.MergedScorePPM != 0 {
+					scores = fmt.Sprintf(" (survivor side %s, merged side %s)", percent(rv.SurvivorScorePPM), percent(rv.MergedScorePPM))
+				}
+				o.line(2, "review %s%s, event %s", rv.Status, scores, rv.EventID)
+			}
+		}
+		if undoable {
+			o.line(1, "%s", unmergeHint)
+		}
+	}
+	if len(e.Unmerges) > 0 {
+		o.line(0, "")
+		o.line(0, "un-merges")
+		for _, u := range e.Unmerges {
+			how := "back to"
+			if u.Split {
+				how = "to a new subject,"
+			}
+			o.line(1, "%s left %s %s %s at %s, event %s", strings.Join(u.Aliases, ", "), u.Subject, how, u.Target, stamp(u.RecordedAt), u.EventID)
 		}
 	}
 	return o.flush(w)

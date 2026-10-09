@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.AuditEntry.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditEntry is one thing the resolver decided to audit (docs/spec/data-model.md,\n \"Audit\"; ADR 8). The audit log adds the rest of the record: its sequence\n number, the apply's record time and event ID, the trace ID and the hash\n chain. Bytes are bounded by MaxChangeSetBytes alone.",
+      "patternProperties": {
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The subject it happened to, if one: an ID, or a ref (\"new:\u003clabel\u003e\") the\n store replaces with the subject it names. Must exist.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_ACTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_ACTION_MINT",
+                "AUDIT_ACTION_BINDING_WRITTEN",
+                "AUDIT_ACTION_BINDING_RELEASED",
+                "AUDIT_ACTION_MERGE",
+                "AUDIT_ACTION_UNMERGE",
+                "AUDIT_ACTION_DISTINCT_FROM_SET",
+                "AUDIT_ACTION_DISTINCT_FROM_CLEARED",
+                "AUDIT_ACTION_FACT_STATUS_CHANGED",
+                "AUDIT_ACTION_CONFLICT_OPENED",
+                "AUDIT_ACTION_CONFLICT_RESOLVED",
+                "AUDIT_ACTION_OVERRIDE_SET",
+                "AUDIT_ACTION_OVERRIDE_CLEARED",
+                "AUDIT_ACTION_OVERRIDE_STALE",
+                "AUDIT_ACTION_CLAIM_WITHDRAWN",
+                "AUDIT_ACTION_COMPACTION",
+                "AUDIT_ACTION_LATE_WRITE",
+                "AUDIT_ACTION_REJECTION"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What happened. Required.",
+          "title": "Audit Action"
+        },
+        "actor": {
+          "default": "",
+          "description": "Who asked, for a manual operation: the OIDC subject or agent token ID of\n the event's actor. Empty for the system's own decisions.",
+          "type": "string"
+        },
+        "agent": {
+          "default": false,
+          "description": "True when the actor is an agent acting for a person.",
+          "type": "boolean"
+        },
+        "message": {
+          "default": "",
+          "description": "A human-readable description.",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "The reason the actor gave, for a manual operation.",
+          "type": "string"
+        },
+        "rejection": {
+          "anyOf": [
+            {
+              "pattern": "^REJECTION_CODE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "REJECTION_CODE_KIND_MISMATCH",
+                "REJECTION_CODE_IDENTITY_CONFLICT",
+                "REJECTION_CODE_NOT_DECLARED",
+                "REJECTION_CODE_NAMESPACE_NOT_ALLOWED",
+                "REJECTION_CODE_OBSERVED_AT_IN_FUTURE",
+                "REJECTION_CODE_DUPLICATE_CLAIM",
+                "REJECTION_CODE_CARDINALITY_MISMATCH",
+                "REJECTION_CODE_DOMAIN_MISMATCH",
+                "REJECTION_CODE_TYPE_MISMATCH",
+                "REJECTION_CODE_CORE_PREDICATE",
+                "REJECTION_CODE_INVALID_VALUE",
+                "REJECTION_CODE_INVALID_INTERVAL",
+                "REJECTION_CODE_ALREADY_MERGED",
+                "REJECTION_CODE_INVALID_OPERATION",
+                "REJECTION_CODE_MALFORMED",
+                "REJECTION_CODE_TOO_LARGE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Why part of an event was rejected. Required when action is\n AUDIT_ACTION_REJECTION, and set for no other action.",
+          "title": "Rejection Code"
+        },
+        "rule": {
+          "default": "",
+          "description": "The rule that decided it: a mint or merge rule, a status reason, a\n rejection's scope.",
+          "type": "string"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The subject it happened to, if one: an ID, or a ref (\"new:\u003clabel\u003e\") the\n store replaces with the subject it names. Must exist.",
+          "type": "string"
+        },
+        "target": {
+          "default": "",
+          "description": "What else it concerned, as text the store never reads: the alias, the\n fact, the other subject of a merge, the path of a rejected claim.",
+          "type": "string"
+        }
+      },
+      "title": "Audit Entry",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.AuditEntry.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AuditEntry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

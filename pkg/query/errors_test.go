@@ -62,6 +62,13 @@ func (s *failNth) Merges(ctx context.Context, id contracts.SubjectID, r time.Tim
 	return s.GraphStore.Merges(ctx, id, r)
 }
 
+func (s *failNth) Unmerges(ctx context.Context, id contracts.SubjectID, r time.Time) ([]*modelv1alpha1.UnmergeRecord, error) {
+	if err := s.fail(); err != nil {
+		return nil, err
+	}
+	return s.GraphStore.Unmerges(ctx, id, r)
+}
+
 func (s *failNth) AsOf(ctx context.Context, f contracts.FactFilter, v, r time.Time) ([]*modelv1alpha1.FactState, error) {
 	if err := s.fail(); err != nil {
 		return nil, err

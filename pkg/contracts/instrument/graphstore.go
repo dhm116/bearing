@@ -213,6 +213,16 @@ func (g *graphStore) Merges(ctx context.Context, id contracts.SubjectID, recorde
 	return out, err
 }
 
+// Unmerges implements contracts.GraphStore.
+func (g *graphStore) Unmerges(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) (out []*modelv1alpha1.UnmergeRecord, err error) {
+	err = g.observe(ctx, "unmerges", []attribute.KeyValue{attrSubject.String(string(id))}, func(ctx context.Context) error {
+		out, err = g.next.Unmerges(ctx, id, recordedAt)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
 // Supports implements contracts.GraphStore.
 func (g *graphStore) Supports(ctx context.Context, f contracts.SupportFilter, recordedAt time.Time) (out []*modelv1alpha1.SupportTimeline, err error) {
 	err = g.observe(ctx, "supports", nil, func(ctx context.Context) error {

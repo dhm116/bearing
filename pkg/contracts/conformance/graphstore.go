@@ -73,6 +73,10 @@ func GraphStore(t *testing.T, newStore func(t *testing.T) (contracts.GraphStore,
 		{"Merges in one ChangeSet apply in order", g.mergeOrder},
 		{"Un-merge reactivates the subject that merged", g.unmerge},
 		{"Un-merge of a new alias set mints a split subject", g.split},
+		{"Un-merge records are read for reactivations and splits", g.unmergeRecords},
+		{"An un-merge through a chain mints a split, and two steps restore exactly", g.chainUnmerge},
+		{"Apply carries audit entries and resolves their refs", g.auditEntries},
+		{"Merge reviews are recorded on the merge record and read as recorded", g.mergeReviews},
 		{"A 5,000-fact ChangeSet applies", g.large},
 		{"Support versions keep recorded_at and take confirmations", g.replaceSupports},
 		{"AsOf answers both sides of a time-bounded fact", g.asOf},
@@ -949,6 +953,10 @@ func dump(t *testing.T, s contracts.GraphStore, ids []string, v, r time.Time) st
 		for _, m := range merges {
 			add(m, err)
 		}
+		unmerges, err := s.Unmerges(ctx, contracts.SubjectID(id), r)
+		for _, u := range unmerges {
+			add(u, err)
+		}
 	}
 	bindings, err := s.Bindings(ctx, nil, func() (out []contracts.SubjectID) {
 		for _, id := range ids {
@@ -982,6 +990,7 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", ""))},
 			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
 			State:    []*modelv1alpha1.StateEntry{{Key: "k", Value: val}},
+			Audit:    []*modelv1alpha1.AuditEntry{{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, SubjectId: "new:g", Rule: "observation"}},
 		},
 		{Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{l, p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_SCORE, ConfidencePpm: 900_000}}},
 		{
@@ -996,7 +1005,8 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 		},
 		{
 			Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{"new:g", p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL}}, Mints: []*modelv1alpha1.Mint{mint("new:g", "Team")},
-			Issues: []*modelv1alpha1.IssueTimeline{issueOf("i", unobserved, l)},
+			Issues:       []*modelv1alpha1.IssueTimeline{issueOf("i", unobserved, l)},
+			MergeReviews: []*modelv1alpha1.MergeReviewWrite{{SubjectId: "new:g", MergeEventId: "h3", Review: &modelv1alpha1.MergeReview{Status: modelv1alpha1.MergeReviewStatus_MERGE_REVIEW_STATUS_NEEDS_REVIEW}}},
 		},
 	} {
 		clk.Set(clk.Now().Add(time.Hour))

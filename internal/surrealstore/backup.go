@@ -185,12 +185,13 @@ func (s *Store) reset(ctx context.Context) error {
 BEGIN TRANSACTION;
 DELETE subject;
 DELETE merge;
+DELETE unmerge;
 DELETE series;
 DELETE series_subject;
 DELETE version;
 DELETE journal;
 DELETE processed_event;
-UPDATE meta:graph SET head = 0, last_id = '', merges = 0, journal = 0;
+UPDATE meta:graph SET head = 0, last_id = '', merges = 0, unmerges = 0, journal = 0;
 COMMIT TRANSACTION;`, nil)
 	return err
 }

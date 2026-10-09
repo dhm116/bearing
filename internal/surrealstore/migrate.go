@@ -64,6 +64,14 @@ DEFINE INDEX IF NOT EXISTS version_rec ON version FIELDS rec;
 DEFINE TABLE IF NOT EXISTS journal SCHEMALESS;
 DEFINE INDEX IF NOT EXISTS journal_seq ON journal FIELDS seq;
 DEFINE TABLE IF NOT EXISTS processed_event SCHEMALESS;`},
+
+	// Un-merge records, one per un-merge, keyed by sequence number like
+	// merge records. A database written before this step has none for the
+	// un-merges it already recorded.
+	{3, "unmerge records", `
+DEFINE TABLE IF NOT EXISTS unmerge SCHEMALESS;
+DEFINE INDEX IF NOT EXISTS unmerge_seq ON unmerge FIELDS seq;
+UPDATE meta:graph SET unmerges = 0 WHERE unmerges = NONE;`},
 }
 
 // schemaVersion is the newest step this build knows.

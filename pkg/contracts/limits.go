@@ -18,7 +18,8 @@ import (
 // bounded by MaxChangeSetBytes alone.
 const (
 	// MaxChangeSetItems is the most entries in each of a ChangeSet's lists:
-	// mints, bindings, supports, facts, conflicts, issues and state.
+	// mints, bindings, supports, facts, conflicts, issues, state, audit
+	// entries and merge reviews.
 	//
 	// In the reference store the work is linear in the items: 50,000
 	// single-row binding timelines apply in under a second.
@@ -52,6 +53,8 @@ func CheckChangeSetLimits(cs *modelv1alpha1.ChangeSet) error {
 		{"conflicts", len(cs.GetConflicts())},
 		{"issues", len(cs.GetIssues())},
 		{"state", len(cs.GetState())},
+		{"audit entries", len(cs.GetAudit())},
+		{"merge reviews", len(cs.GetMergeReviews())},
 	} {
 		if l.n > MaxChangeSetItems {
 			return fmt.Errorf("%d %s, over the limit of %d", l.n, l.name, MaxChangeSetItems)

@@ -35,6 +35,9 @@ type ApplyResult struct {
 	Minted []*modelv1alpha1.Subject
 	// Merges lists the merges recorded, for re-pointing vector points.
 	Merges []*modelv1alpha1.MergeRecord
+	// Audit lists the ChangeSet's audit entries as applied, in order, with
+	// their refs replaced by the subjects they named.
+	Audit []*modelv1alpha1.AuditEntry
 }
 
 // FactFilter selects facts. Empty fields match anything.
@@ -117,8 +120,13 @@ type GraphStore interface {
 	// recordedAt. Subject IDs are as written.
 	Bindings(ctx context.Context, aliases []model.Key, subjects []SubjectID, recordedAt time.Time) ([]*modelv1alpha1.Binding, error)
 	// Merges returns the merge records involving the subject, merged or
-	// un-merged, as recorded at recordedAt, oldest first.
+	// un-merged, as recorded at recordedAt, oldest first. Each holds the
+	// reviews recorded by then and shows an un-merge only if recorded by then.
 	Merges(ctx context.Context, id SubjectID, recordedAt time.Time) ([]*modelv1alpha1.MergeRecord, error)
+	// Unmerges returns the un-merge records that involve the subject, as the
+	// subject the aliases left or as the one they moved to, reactivations
+	// and splits alike, as recorded at recordedAt, oldest first.
+	Unmerges(ctx context.Context, id SubjectID, recordedAt time.Time) ([]*modelv1alpha1.UnmergeRecord, error)
 	// Supports returns support timelines as recorded at recordedAt. Subject
 	// and object are as written; each version's fact_id is canonical.
 	Supports(ctx context.Context, f SupportFilter, recordedAt time.Time) ([]*modelv1alpha1.SupportTimeline, error)

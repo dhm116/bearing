@@ -30,6 +30,29 @@ type Merge struct {
 	EventID       string     `json:"event_id"`
 	RecordedAt    time.Time  `json:"recorded_at"`
 	UnmergedAt    *time.Time `json:"unmerged_at,omitempty"`
+	// Review is the latest re-evaluation of the merge's evidence, if any.
+	Review *Review `json:"review,omitempty"`
+}
+
+// Review is a re-evaluation of a merge's evidence (docs/spec/data-model.md,
+// "Merge" step 4). The scores are set for score merges.
+type Review struct {
+	Status           string    `json:"status"`
+	SurvivorScorePPM uint32    `json:"survivor_score_ppm,omitempty"`
+	MergedScorePPM   uint32    `json:"merged_score_ppm,omitempty"`
+	EventID          string    `json:"event_id"`
+	RecordedAt       time.Time `json:"recorded_at"`
+}
+
+// Unmerge is an un-merge record involving a subject: aliases that left one
+// subject for another. A split minted the target subject.
+type Unmerge struct {
+	Subject    Ref       `json:"subject"`
+	Target     Ref       `json:"target"`
+	Split      bool      `json:"split,omitempty"`
+	Aliases    []string  `json:"aliases"`
+	EventID    string    `json:"event_id"`
+	RecordedAt time.Time `json:"recorded_at"`
 }
 
 // Position is one source system's side of a conflict.
@@ -61,6 +84,7 @@ type Entity struct {
 	Facts     []Fact     `json:"facts"`
 	Conflicts []Conflict `json:"conflicts"`
 	Merges    []Merge    `json:"merges"`
+	Unmerges  []Unmerge  `json:"unmerges,omitempty"`
 }
 
 // Get returns everything known about the subject ref names: its keys, its
@@ -99,6 +123,9 @@ func (q *Querier) Get(ctx context.Context, ref string, p Point) (*Entity, error)
 		return nil, err
 	}
 	if e.Merges, err = q.merges(ctx, l, id); err != nil {
+		return nil, err
+	}
+	if e.Unmerges, err = q.unmerges(ctx, l, id); err != nil {
 		return nil, err
 	}
 	return e, nil

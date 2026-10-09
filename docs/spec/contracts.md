@@ -81,6 +81,8 @@ is one event's writes:
 | `merges` | Applied in order, each seeing the merges before it. Each needs a rule. |
 | `unmerges` | Each un-merge's target is resolved against the state before the `ChangeSet`, not after the un-merges listed before it, and two un-merges may not claim the same merge record or subject. An un-merge has a ref (`new:<label>`, required, unique among the `ChangeSet`'s mints and un-merges) for the subject its aliases move to. |
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
+| `audit` | What the resolver decided to audit in this event, in order ([Audit entries](#audit-entries)). |
+| `merge_reviews` | Re-evaluations of merges recorded earlier, or in this `ChangeSet`: the per-side score and review status of a merge record ([Merge reviews](#merge-reviews)). |
 
 Anywhere a subject ID appears in a `ChangeSet`, a ref may stand for a
 subject the same `ChangeSet` creates; the store substitutes the minted ID.
@@ -91,7 +93,8 @@ timeline retracts the series. An alias, state key or issue key appears at
 most once in a `ChangeSet`, judged after refs are substituted. A support's
 `last_confirmed_at` is the exception to versioning: a confirmation updates
 it in place, without a new version, so it is not bitemporal. Items apply in
-this order: mints, un-merge targets, bindings, merges, un-merges, supports, facts, conflicts, issues, state.
+this order: mints, un-merge targets, bindings, merges, un-merges, merge reviews, supports, facts, conflicts, issues, state.
+Audit entries are not applied to anything; the store carries them.
 
 A `ChangeSet` larger than `contracts.MaxChangeSetBytes` (16 MiB, by
 `proto.Size`; a 5,000-fact `ChangeSet` with evidence on every support and a
@@ -103,9 +106,9 @@ so every backend refuses the same `ChangeSet`s:
 
 | Limit | Value | Applies to |
 | --- | --- | --- |
-| `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts, conflicts, issues and state |
+| `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts, conflicts, issues, state, audit entries and merge reviews |
 | `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
-| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions of one conflict, objects of one position, subjects, aliases and supports of one issue |
+| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions of one conflict, objects of one position, subjects, aliases and supports of one issue; reviews on one merge record |
 
 The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
 thousands of rows, or thousands of merges, costs a naive store time
@@ -184,6 +187,76 @@ so a source that lists many facts approaches `MaxChangeSetBytes` and then has
 every observation rejected as `too_large`. The `bearing.graph.state_entry.bytes`
 metric shows the sizes. Tracked in [#77](https://github.com/dhm116/bearing/issues/77).
 
+#### Audit entries
+
+`ChangeSet.audit` holds what the resolver decided to audit in one event
+([Audit](data-model.md#audit), [ADR 8](../adr/0008-audit-log.md)): a mint, a
+binding written or released, a merge or un-merge, a status change an apply
+caused, a conflict opened or closed, a rejection and the rest of that list.
+Each entry is an `AuditEntry`:
+
+| Field | Meaning |
+| --- | --- |
+| `action` | What happened. Required. |
+| `rejection` | The `RejectionCode`, required when `action` is `rejection` and set for no other action. |
+| `subject_id` | The subject concerned, if any: an ID or a ref, which the store replaces. It must exist. |
+| `target` | What else it concerned (an alias, the other subject of a merge, the path of a rejected claim), as text the store never reads. |
+| `rule` | The rule that decided it. |
+| `actor`, `agent`, `reason` | For a manual operation, who asked and why, taken from the event. Empty for the system's own decisions. |
+| `message` | A description for people. |
+
+The store checks each entry's shape (`action` and `rejection` as above, a
+subject that exists) and refuses the `ChangeSet` if one fails. It keeps the
+entries as part of the `ChangeSet` in its change journal and returns them in
+`ApplyResult.Audit` in order, refs replaced, also for a repeated event. It
+does not check that the entries cover the other items: what to audit is the
+resolver's rule. The audit log adds the rest of a record (its sequence
+number, the apply's record time and event ID, the trace ID and the hash
+chain) when it writes the entries in the apply's transaction; that log is a
+separate contract ([ADR 8](../adr/0008-audit-log.md)).
+
+#### Merge reviews
+
+A merge record is written once, but two things about it change after: the
+per-side score of a `score` merge and whether its evidence still holds
+([Merge](data-model.md#merge), step 4). The resolver reports them with
+`ChangeSet.merge_reviews`; each `MergeReviewWrite` names a merge record by
+the merged subject and the event that merged it (`subject_id`,
+`merge_event_id`), which is unique, and carries a `MergeReview`: the
+survivor's and the merged side's score in ppm (0 unless the rule is
+`score`) and a status, `holds` or `needs_review`.
+
+The store appends the review to the record's `reviews`, oldest first, with
+the event and record time, and reads return the reviews recorded by the
+read's record time, so the latest is current. A review equal to the latest
+in score and status writes nothing, so a resolver that re-evaluates on
+every apply does not grow the record. It refuses a `ChangeSet` that names a
+merge that doesn't exist or names one merge twice, a missing or unknown
+status, a score over 1,000,000, and a record that would hold more than
+`MaxTimelineRows` reviews. A review may follow its merge in the same
+`ChangeSet`, naming the merged subject by its ref. The store does not judge
+the findings or open the conflict that `needs_review` goes with: that is the
+resolver's.
+
+#### Un-merge records
+
+Every un-merge leaves an `UnmergeRecord`, which `Unmerges(subject, t)`
+returns for the subject the aliases left and for the one they moved to, oldest
+first, as recorded at `t`. It holds both subjects, the sorted aliases that
+moved, whether the target is a split mint, the event and record time and, for
+a reactivated subject, the event that had merged it. A reactivation also
+closes its merge record (`unmerged_at`, which `Merges` returns); a split
+mints a subject and writes no merge record, and so, until this record, left
+nothing that said where its subject came from.
+
+**Un-merging through a chain.** If B merged into A and A then into Z,
+un-merging B's aliases from Z finds no merge of Z with exactly that alias
+set, so it mints a split and B stays merged into A. That is the rule as
+written ([Un-merge](data-model.md#un-merge), step 1). To restore B exactly,
+un-merge the later merge first (A's aliases at the time, B's included, from
+Z) and then B's aliases from A. `bearing get` says so beside the merges it
+lists.
+
 ### Backup
 
 `Backup` writes a stream of length-delimited `BackupFrame` messages
@@ -234,23 +307,25 @@ References are to sections of the [data model](data-model.md).
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
 | Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
 | Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Configuration apply, which reads the bindings and rejects the change. The store doesn't know key types. |
+| Audit entries: their shape and subjects, carried with the `ChangeSet` ([Audit entries](#audit-entries)) | Store. The audit log writes the records ([ADR 8](../adr/0008-audit-log.md)). |
 | Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying (`too_large`). Compacting and splitting are not implemented yet: the resolver merges adjacent equal spans and rejects anything still over a limit. |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
+| Merge review: re-evaluating a merge's evidence, the per-side score and the status, and opening the conflict for review | Resolver. The store appends the review to the merge record ([Merge reviews](#merge-reviews)). |
 | Merge: same kind, both active | Store checks; resolver decides |
 | Merge triggers, policies, the guard, evidence re-evaluation | Resolver |
-| Un-merge: reactivating the subject whose alias set matches, else a `split` mint; no un-merge of a `placeholder` merge; aliases a non-empty proper subset | Store |
+| Un-merge: reactivating the subject whose alias set matches, else a `split` mint; no un-merge of a `placeholder` merge; aliases a non-empty proper subset; the un-merge record ([Un-merge records](#un-merge-records)) | Store |
 | Un-merge: re-pointing bindings and claims, setting `distinct_from` | Resolver. It re-points by the binding rows as written, not by alias membership. |
 | Backup and restore of primary state (ADR 11) | Store ([Backup](#backup)) |
 | Vector points re-pointed on merge | Core, through `VectorIndex.Repoint` |
 | Supports and fact statuses as timelines; reads that canonicalize subject, object and `fact_id` through merges; `last_confirmed_at` updated in place without a new version | Store (`Supports`, `AsOf`, `Changes`) |
-| Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, audit | Resolver, which writes the resulting support and fact timelines. The ordering keys of writes, which the support rows don't carry, are the resolver's state ([State keys](#state-keys)). |
+| Claims, ordering and idempotency of claims, snapshot scopes, sync completeness, derived claims, confidence, status, matching, manual operations, which events to audit and what each entry says | Resolver, which writes the resulting support and fact timelines. The ordering keys of writes, which the support rows don't carry, are the resolver's state ([State keys](#state-keys)). |
 | Conflicts and data-quality issues as timelines, canonicalized on read | Store (`Conflicts`, `DataQuality`) |
 | Detecting conflicts and data-quality issues, and when they end | Resolver, which writes the resulting timelines |
 
 ### Reads
 
 Every read takes a record time and returns what was recorded at or before
-it; `ResolveKey`, `AsOf`, `Conflicts` and `DataQuality` also take a valid
+it (`Merges` also leaves out the reviews and the un-merge recorded after it); `ResolveKey`, `AsOf`, `Conflicts` and `DataQuality` also take a valid
 time, and `Changes` compares two points on the valid or the record axis. A
 zero time means now, for either point of `Changes` too. Subject IDs in
 answers are canonical as of the record time, except where a method returns rows as written (`Bindings`,
