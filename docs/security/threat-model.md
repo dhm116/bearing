@@ -635,53 +635,76 @@ Assets: caller identity, role mapping, A7 (API availability).
 - **C-IDP-5** Tokens are never logged, traced or stored. Only `iss`, `sub`
   and client ID are recorded.
 
-### B6. The store (SurrealDB)
+### B6. The store (PostgreSQL)
 
 The store holds everything except secrets. Whoever controls it controls
-Bearing's answers.
+Bearing's answers. The default backend is PostgreSQL with pgvector (ADR 14);
+`internal/pgstore` is its graph half. The SurrealDB backend stays in the tree
+until the change that removes it (#134) and is not a supported
+configuration: its controls (a database-scoped user from
+`surrealstore.Provision`, `wss`, a server started with `--deny-net
+--deny-scripting --deny-guests`, one escaping function for embedded values)
+are as built and are deleted with it.
 
 Assets: A1, A3, A4, A5, A6.
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
-| T-STORE-1 | S, E | Attacker on the network connects to SurrealDB | C-STORE-2, C-STORE-3 |
-| T-STORE-2 | I | Store password leaks through a URL, process list or log | C-STORE-1 |
-| T-STORE-3 | E, T | Query injection through source values | C-STORE-5 |
-| T-STORE-4 | E | Injected or legitimate queries use SurrealDB network functions or scripting for SSRF or code execution | C-STORE-4 |
+| T-STORE-1 | S, E | Attacker on the network connects to PostgreSQL, or Bearing connects as a role that can do more than own its schema | C-STORE-2, C-STORE-3 |
+| T-STORE-2 | I | Store password leaks through a URL, process list, log or an environment variable or file the driver reads | C-STORE-1 |
+| T-STORE-3 | E, T | SQL injection through source values or settings | C-STORE-5 |
 | T-STORE-5 | T, R | Someone with database access edits, deletes or prunes audit records to hide a change | C-AUDIT-2, C-AUDIT-3, C-AUDIT-4, C-AUDIT-5 |
-| T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
+| T-STORE-6 | I, S | Credentials sniffed on the store connection, or a man in the middle serves a copy of the store | C-STORE-6 |
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
-| T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
+| T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 
-- **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
-  store URL that contains a password is rejected at start. Store errors
-  name a server only by scheme and host, never its path or query.
-- **C-STORE-2** Bearing connects as a database-scoped user, never root or a
-  namespace user. `surrealstore.Provision` creates that user (EDITOR on one
-  database) and a store URL with `?auth=database` signs in as it; CI runs
-  the SurrealDB suites that way. The database-scoped user is the supported
-  setup; `auth=root` is the development default and is not supported for a
-  deployment. The default flips in the change that adds compose provisioning.
-- **C-STORE-3** The compose deployment generates a random SurrealDB password
-  on first start into a secrets file (mode 0600), passes it as a Docker
-  secret, and does not publish the SurrealDB port. The store secret is
-  mounted outside the Source secrets directory.
-- **C-STORE-4** SurrealDB runs with network access from functions and
-  embedded scripting denied, and with guest access off (`--deny-net
-  --deny-scripting --deny-guests`). The CI server runs that way, and a test
-  checks that a scoped user cannot reach another database.
-- **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
-  driver forces inlining (the embedded driver's arrays of objects, ADR 5),
-  one escaping function does it, covered by fuzz tests. Namespace, database
-  and user names cannot be parameters in `DEFINE`, so they must match
-  `^[A-Za-z0-9_.-]{1,64}$` before they are quoted into a statement (escaping
-  alone is not enough); a name that does not match is refused without being
+T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
+PostgreSQL has no equivalent that a role without administrator rights can
+reach, so they are retired and their numbers are not reused.
+
+- **C-STORE-1** The store password comes only from the environment variable
+  `BEARING_STORE_PASSWORD` (a secret reference, C-SECRET-1). `pkg/store`
+  rejects a URL with a password in it or with a `password`, `passfile`,
+  `service`, `servicefile` or `sslpassword` parameter, and rejects any
+  parameter it does not name. `pgstore` builds the connection string
+  itself with every key the driver would fill from `PG*` environment
+  variables, the password file or a service file set explicitly, so none of
+  those is read, and refuses to open while `PGSERVICE` or `PGSERVICEFILE` is
+  set because a service file cannot be overridden. Store errors name a
+  server only by host and port (or "the Unix socket in <directory>"), never
+  the user, the database, the path or the query, and the driver's errors,
+  which quote the connection string, are reduced to their cause.
+- **C-STORE-2** Bearing connects as a login role that owns its schema and
+  nothing else: not a superuser, not `CREATEROLE`, not `CREATEDB`. `Open`
+  checks the role and refuses one that can administer the server, unless
+  `insecure_store_superuser=true` (C-GEN-1), so a development setup that
+  connects as `postgres` is visible in config. `pgstore.Provision` creates
+  such a role and a schema it owns, and CI runs the PostgreSQL suites as
+  that role. The connection's `search_path` is Bearing's schema alone.
+  pgvector is the only extension, and an administrator installs it; the
+  migrations check that it exists and never create it. A role that cannot
+  create its own schema is told to have an administrator create it.
+- **C-STORE-3** The compose deployment generates a random PostgreSQL
+  password on first start into a secrets file (mode 0600), passes it as a
+  Docker secret, and does not publish the PostgreSQL port. The store secret
+  is mounted outside the Source secrets directory. Planned with the compose
+  deployment.
+- **C-STORE-5** Values reach SQL only as bound parameters; bulk writes bind
+  arrays (`unnest`) rather than building statements. Role and schema names
+  cannot be parameters in `CREATE ROLE` or `CREATE SCHEMA`, so they must
+  match `^[a-z_][a-z0-9_]{0,62}$` before the server quotes them (`format`
+  with `%I`; escaping alone is not enough), and a password is quoted by the
+  server (`%L`). A name that does not match is refused without being
   repeated in the error.
-- **C-STORE-6** Store connections use TLS (`wss`, `https`). Plaintext to a
-  non-loopback host requires `insecure_store_plaintext`. Compose sets it for
-  its internal network, with no published port, so `bearing status` shows
-  it.
+- **C-STORE-6** Store connections use TLS with the server's certificate
+  verified: `pkg/store` requires `sslmode=verify-full` for a host that is
+  not loopback or a Unix socket, and `insecure_store_plaintext=true` is the
+  only way around it. Compose sets it for its internal network, with no
+  published port, so `bearing status` shows it. A loopback or socket
+  connection defaults to `sslmode=prefer`. The driver's minimum protocol
+  version is pinned to 3.0 and `target_session_attrs=read-write` keeps the
+  pool off a read-only replica.
 - **C-STORE-7** Operator docs state that exports contain organization data
   and audit records, and must be stored encrypted. Exports never contain
   secrets (C-SECRET-2).
@@ -723,21 +746,28 @@ Assets: A1, A3, A4, A5, A6.
   (`MaxAuditIDBytes`, `MaxAuditReasonBytes`) because they are kept for good,
   and a merge record's reviews are capped at `MaxTimelineRows`, a full record
   replacing its newest review so that a source toggling evidence cannot make
-  the events that touch the merge fail. **Known exception:** the "MUST"
-  above is met by the reference store and not yet by the SurrealDB backend.
-  Its Apply and every read load every merge record and un-merge record, with
-  their alias sets (merge reviews ride on the merge records), and every
-  conflict retry loads them again; they also load the whole history of each
-  series they touch. Its other tables are loaded by key, predicate or
-  subject, except that an unfiltered `Supports`, `AsOf`, `Changes` or
-  `DataQuality` loads every series of its table. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
-  operations fail with `ErrTooManyMerges`, an error that names #81, instead
-  of stalling. Loading only the merge components of the subjects a ChangeSet
-  names is tracked in #81 and measured in the M3 benchmark (#27).
+  the events that touch the merge fail. `pgstore` meets the rule for merges:
+  its component table names the merge component of every subject any merge
+  record ever joined, and an operation loads the merge records of the
+  components of the subjects it names and no others (#81); a test shows that
+  each operation reads the same answers as the reference store while
+  loading only those. Its Apply is one transaction under the head row's
+  lock, so a stalled writer holds the queue for as long as the transaction
+  lasts; bulk rows are written in chunks of 5,000, and the largest
+  permitted ChangeSet is measured in #135. **Known exception:** an operation
+  loads the whole history of each series it touches, and an unfiltered
+  `Supports`, `AsOf`, `Changes` or `DataQuality` loads every series of its
+  table. That stays until a series can be loaded as of one record time.
+  Retries are bounded: an Apply that the database keeps failing (a
+  deadlock, a serialization failure, a lost connection) gives up after six
+  attempts with `ErrBusy`, having written nothing visible; the event's
+  mark makes a repeat safe.
 - **C-STORE-10** `internal/memstore`'s rule engine is trusted production
-  code. The SurrealDB backend runs every operation on it (rows are loaded
+  code. The PostgreSQL backend runs every operation on it (rows are loaded
   into a scratch store and the delta written back), so a flaw in it is a
-  flaw in every backend built on it, and changes to it are reviewed as store changes.
+  flaw in every backend built on it, and changes to it are reviewed as store
+  changes. The PostgreSQL tests compare `pgstore` with the engine itself on
+  random histories, so a difference between the two shows up as a failure.
 
 ### B7. Operators and configuration
 

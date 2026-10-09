@@ -1,4 +1,4 @@
-.PHONY: all build test test-surrealdb test-embedded fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test test-postgres test-surrealdb test-embedded fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -68,6 +68,16 @@ build:
 test:
 	go vet ./...
 	go test ./...
+
+# Runs the PostgreSQL backend's suites against a server, e.g.
+#   docker run --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16
+#   make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=postgres
+# The role must be allowed to create roles and schemas. Set POSTGRES_SCOPED=1
+# to run the stores as a role without administrator rights, as CI does.
+test-postgres:
+	BEARING_TEST_POSTGRES=$(POSTGRES) BEARING_TEST_POSTGRES_PASSWORD=$(POSTGRES_PASS) \
+		BEARING_TEST_POSTGRES_SCOPED=$(POSTGRES_SCOPED) \
+		go test -count=1 -timeout 30m ./internal/pgstore/ ./pkg/store/
 
 # Runs the SurrealDB backend's conformance suites against a server, e.g.
 #   surreal start --user root --pass root memory

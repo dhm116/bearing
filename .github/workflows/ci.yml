@@ -24,6 +24,14 @@ env:
   BEARING_TEST_SURREALDB_USER: root
   BEARING_TEST_SURREALDB_PASS: root
   BEARING_TEST_SURREALDB_SCOPED: "1"
+  # internal/pgstore and pkg/store run against the server the
+  # .github/actions/postgres action starts. The administrator's password
+  # guards a throwaway server on the runner; the suites provision a role
+  # without administrator rights and a schema per test, and run as that role
+  # (C-STORE-2).
+  BEARING_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/postgres
+  BEARING_TEST_POSTGRES_PASSWORD: postgres
+  BEARING_TEST_POSTGRES_SCOPED: "1"
 
 # `make check` runs everything below in one process. Here it is split into
 # jobs that run side by side, so a push is answered in the time of the
@@ -73,6 +81,8 @@ jobs:
 
       - uses: ./.github/actions/surrealdb
 
+      - uses: ./.github/actions/postgres
+
       - run: make cover SHARD=${{ matrix.shard }} COVER_OUT=cover-${{ matrix.shard }}.out
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -112,6 +122,8 @@ jobs:
             tools/go.sum
 
       - uses: ./.github/actions/surrealdb
+
+      - uses: ./.github/actions/postgres
 
       # Writes baseline/base-<shard>.out, or nothing when the gate would skip
       # (only documentation changed). The marker keeps the artifact from

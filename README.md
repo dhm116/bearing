@@ -44,6 +44,7 @@ keeps the adapters that fetch it small.
 | [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
 | [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation; also the rule engine the SurrealDB backend runs on |
+| [`internal/pgstore`](internal/pgstore) | PostgreSQL backend for the graph (the vector index follows) |
 | [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
@@ -60,6 +61,7 @@ Requires Go 1.27.2 or later (the `go` command downloads it automatically if need
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
+make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=...   # also run the PostgreSQL suites
 make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # also run the SurrealDB suites
 make build         # builds bin/bearing and bin/bearing-adapter-github
 
@@ -92,6 +94,7 @@ SurrealDB database serves both, so there is one thing to run, or nothing.
 | Store URL | What runs |
 | --- | --- |
 | `mem://` | Nothing; in-memory, for tests and demos |
+| `postgres://bearing@localhost/bearing` | A PostgreSQL 16 server (graph only for now; set the password in `BEARING_STORE_PASSWORD`) |
 | `surrealdb+ws://root@localhost:8000` | One `surreal start` process |
 | `surrealkv:///var/lib/bearing` | SurrealDB inside Bearing (`go build -tags surrealembed`, needs CGO) |
 

@@ -87,6 +87,16 @@ Options considered:
   surrealstore. That part of the C-STORE-9 exception stays until a series
   can be loaded as of one record time. `DefaultMaxMerges` and
   `ErrTooManyMerges` go with surrealstore.
+  *Amended 2026-10-09, when `pgstore` was built:* the table (`component`)
+  maps each subject that any merge record ever joined to the lowest subject
+  ID of its component and is not versioned by record time. It only decides
+  which merge records to load, and the merge records themselves carry the
+  record times that the engine canonicalizes by, so a read at a past record
+  time gets the same answer. An un-merge ends a merge record and never
+  splits a component, so the table never needs to shrink: components
+  only grow, and a lookup that returns a larger component than a past
+  record time had loads more records than needed, never fewer. Joining two
+  components relabels the one with the higher label, in the apply's transaction.
 - **The driver is pgx (MIT).**
 - **`internal/surrealstore` is removed** in the change that makes
   `pgstore` the default, once `pgstore` passes both conformance suites in
