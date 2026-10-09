@@ -28,6 +28,12 @@ record that can't be lost or quietly edited.
 - **Record shape** (Protobuf, ADR 6): time, actor (person, agent or system
   component), action, target, before/after references, reason, the event ID
   and the trace ID.
+  *Amended 2026-10-09: the shape is `AuditRecord` (`proto/bearing/event/v1alpha1/audit.proto`),
+  wrapping an `AuditEntry` (`proto/bearing/model/v1alpha1/audit.proto`) that
+  the writer produces. The spec's Audit section lists the actions. Raw fact
+  changes are not audited one by one: the change journal keeps every support
+  write, and the log records the fact status changes, merges and other
+  decisions an apply makes. A checkpoint is `AuditCheckpoint`.*
 - **Tamper evidence.** Each record includes a hash of the previous record, so
   a gap or an edit breaks the chain. `bearing audit verify` checks the
   chain.

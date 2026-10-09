@@ -1,0 +1,6 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "DerivationRules",
+  "metadata": { "name": "default" },
+  "spec": { "codeowners": { "sole_team_ppm": 950000, "mixed_ppm": 700000 } }
+}

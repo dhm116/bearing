@@ -1,0 +1,51 @@
+// The audit log's records and checkpoints (ADR 8; docs/spec/data-model.md,
+// "Audit"). An AuditRecord wraps the entry a writer produced with the fields
+// the log adds in the transaction that applies the change. Records are not
+// events on the event log; they are written to the AuditLog contract.
+
+syntax = "proto3";
+
+package bearing.event.v1alpha1;
+
+import "bearing/model/v1alpha1/audit.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "bearing.example/gen/go/bearing/event/v1alpha1;eventv1alpha1";
+
+// AuditRecord is one entry of the audit log's hash chain.
+message AuditRecord {
+  // The record's position in the log: 1 for the first, then every next
+  // integer. A gap is tampering.
+  uint64 seq = 1;
+  // The record time of the apply that wrote it.
+  google.protobuf.Timestamp recorded_at = 2;
+  // The event whose apply wrote it. Links the log, the graph and the
+  // change journal.
+  string event_id = 3;
+  // The W3C trace ID, 32 lowercase hex digits; empty when there was no trace.
+  // The audit log never depends on telemetry.
+  string trace_id = 4;
+  // What happened. Required.
+  bearing.model.v1alpha1.AuditEntry entry = 5;
+  // The previous record's hash; empty for seq 1.
+  bytes prev_hash = 6;
+  // SHA-256 of prev_hash and this record without its hash. The AuditLog
+  // contract fixes the exact bytes that are hashed.
+  bytes hash = 7;
+}
+
+// AuditCheckpoint is a point of the chain written outside the store, so a
+// rewritten or cut-off chain no longer matches it (threat model C-AUDIT-3).
+message AuditCheckpoint {
+  // The sequence number of the last record covered.
+  uint64 seq = 1;
+  // That record's hash.
+  bytes head_hash = 2;
+  // When the checkpoint was written.
+  google.protobuf.Timestamp time = 3;
+  // The signing key's ID, when a key is configured.
+  string key_id = 4;
+  // The signature over seq, head_hash and time, when a key is configured. The
+  // algorithm and key trust model are fixed with the AuditLog contract (#60).
+  bytes signature = 5;
+}

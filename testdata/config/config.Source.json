@@ -1,0 +1,19 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "Source",
+  "metadata": { "name": "github-acme", "labels": { "team": "platform" } },
+  "spec": {
+    "adapter": "github",
+    "issues": [ { "namespace": "authentik-saml", "issuer_type": "saml", "key_classes": { "name_id": "KEY_CLASS_NAME" } } ],
+    "links": [ { "namespace": "authentik-saml", "issuer_type": "saml" } ],
+    "authority": [
+      { "kind": "Repository", "predicate": "owned_by", "direction": "DIRECTION_OUT", "authority": {} },
+      { "kind": "Person", "link": { "issuer_type": "github", "key_type": "user" }, "authority": { "authoritative": true } },
+      { "derived": "codeowners", "authority": { "authoritative": true } }
+    ],
+    "settings": { "org": "acme" },
+    "secrets": { "token": "env:GITHUB_TOKEN" },
+    "schedule": "PT1H",
+    "capabilities": [ { "name": "http", "scope": [ "api.github.com" ] } ]
+  }
+}

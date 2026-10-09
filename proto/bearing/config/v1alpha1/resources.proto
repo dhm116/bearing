@@ -1,0 +1,339 @@
+// Configuration resources (ADR 10): the typed, versioned objects an operator
+// applies, in the apiVersion/kind/metadata/spec shape. Each resource is one
+// message with the same four fields; a file or API call picks the message
+// by its kind. The data model reads them as "the configuration in force at
+// record time r" (docs/spec/data-model.md, "Configuration"). Resources hold
+// secret references, never secret values.
+
+syntax = "proto3";
+
+package bearing.config.v1alpha1;
+
+import "bearing/model/v1alpha1/declaration.proto";
+import "bearing/model/v1alpha1/enums.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "bearing.example/gen/go/bearing/config/v1alpha1;configv1alpha1";
+
+// Metadata identifies a resource.
+message Metadata {
+  // Unique among resources of one kind: lowercase letters, digits, "-" and
+  // "_". Required.
+  string name = 1;
+  // Free-form labels for selecting and grouping.
+  map<string, string> labels = 2;
+}
+
+// Resource holds one resource of any kind, for events and bulk apply.
+message Resource {
+  // The resource. Its kind is the message's name.
+  oneof resource {
+    // kind Adapter.
+    Adapter adapter = 1;
+    // kind Source.
+    Source source = 2;
+    // kind Retention.
+    Retention retention = 3;
+    // kind MatchWeights.
+    MatchWeights match_weights = 4;
+    // kind MergePolicies.
+    MergePolicies merge_policies = 5;
+    // kind DerivationRules.
+    DerivationRules derivation_rules = 6;
+    // kind Assertion.
+    Assertion assertion = 7;
+  }
+}
+
+// CapabilityGrant is one capability an adapter may call, with its scope
+// (ADR 9), for example http limited to hosts.
+message CapabilityGrant {
+  // The capability: http, log, trace, metrics, config, kv or clock.
+  string name = 1;
+  // What it may reach: hosts for http, empty for the rest.
+  repeated string scope = 2;
+}
+
+// Adapter is an adapter module pinned by digest, with the capabilities it
+// declares.
+message Adapter {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "Adapter".
+  string kind = 2;
+  // The adapter's name, which sources refer to.
+  Metadata metadata = 3;
+  // The adapter.
+  AdapterSpec spec = 4;
+}
+
+// AdapterSpec is an Adapter's content.
+message AdapterSpec {
+  // The module's sha256 digest, "sha256:<hex>". Required.
+  string module_digest = 1;
+  // The capabilities the module declares it needs.
+  repeated CapabilityGrant capabilities = 2;
+  // The names of the secrets it needs; a source supplies each by reference.
+  repeated string secrets = 3;
+  // Default settings, overridden per source. Checked against the settings
+  // the adapter's Describe declares.
+  google.protobuf.Struct settings = 4;
+}
+
+// Source is one configured instance of an adapter, the unit of provenance.
+message Source {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "Source".
+  string kind = 2;
+  // The source's name, for example "github-acme". It may not be "manual"
+  // or start with "core/".
+  Metadata metadata = 3;
+  // The source.
+  SourceSpec spec = 4;
+}
+
+// SourceSpec is a Source's content.
+message SourceSpec {
+  // The Adapter it runs, by name. Required.
+  string adapter = 1;
+  // The namespace it reads. Default: the adapter's issuer type.
+  string namespace = 2;
+  // Other namespaces it is the issuer for.
+  repeated NamespaceUse issues = 3;
+  // Namespaces it reports linked_ids in.
+  repeated NamespaceUse links = 4;
+  // Overrides of declared authority, one per target.
+  repeated AuthorityOverride authority = 5;
+  // Its settings, checked against the adapter's declared settings.
+  google.protobuf.Struct settings = 6;
+  // Secret references by the adapter's secret name: "env:NAME",
+  // "file:/path", "vault:path#key", "aws-sm:arn". Never values.
+  map<string, string> secrets = 7;
+  // Time between scheduled syncs, an ISO 8601 duration such as "PT1H".
+  // Empty: webhooks and manual syncs only.
+  string schedule = 8;
+  // Narrows the adapter's capabilities; never widens them.
+  repeated CapabilityGrant capabilities = 9;
+}
+
+// NamespaceUse is a namespace a source issues or links, with its issuer type
+// (docs/spec/data-model.md, "Keys and namespaces").
+message NamespaceUse {
+  // The namespace, for example "authentik-saml".
+  string namespace = 1;
+  // The kind of issuer, for example "saml".
+  string issuer_type = 2;
+  // Issued namespaces only: overrides of a key type's class, by key type.
+  map<string, bearing.model.v1alpha1.KeyClass> key_classes = 3;
+}
+
+// LinkRef names a declared link by the other system's key type.
+message LinkRef {
+  // The other system's issuer type.
+  string issuer_type = 1;
+  // A key type declared for that issuer type.
+  string key_type = 2;
+}
+
+// AuthorityOverride sets the authority of exactly one field, link or
+// derived source. In ProtoJSON it reads as the data model's examples:
+// { "kind": ..., "predicate": ..., "authority": ... }.
+message AuthorityOverride {
+  // The kind of a field or link target; empty for a derived target.
+  string kind = 1;
+  // What it applies to. Required.
+  oneof target {
+    // A declared field: with kind and direction.
+    string predicate = 2;
+    // A declared link: with kind.
+    LinkRef link = 3;
+    // A derivation rule: the authority of core/derive/<rule>/<this source>.
+    string derived = 4;
+  }
+  // A field target only: DIRECTION_IN for relations given with "from".
+  bearing.model.v1alpha1.Direction direction = 5;
+  // The authority to use. Required.
+  bearing.model.v1alpha1.Authority authority = 6;
+}
+
+// Retention is the compaction tiers per predicate or kind.
+message Retention {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "Retention".
+  string kind = 2;
+  // The resource's name.
+  Metadata metadata = 3;
+  // The tiers.
+  RetentionSpec spec = 4;
+}
+
+// RetentionSpec is a Retention's content.
+message RetentionSpec {
+  // The rules. A predicate's rule overrides its subject kind's.
+  repeated RetentionRule rules = 1;
+}
+
+// RetentionRule is the tiers of one predicate or one subject kind
+// (docs/spec/data-model.md, "Retention and compaction").
+message RetentionRule {
+  // What the rule covers. Required.
+  oneof scope {
+    // One predicate.
+    string predicate = 1;
+    // Every predicate of subjects of one kind.
+    string kind = 2;
+  }
+  // From finest to coarsest, each keeping its level of detail for a span of
+  // valid time counted back from the compaction event's observed_at. The
+  // last tier has no span.
+  repeated RetentionTier tiers = 3;
+}
+
+// RetentionTier keeps one level of detail for a span.
+message RetentionTier {
+  // The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.
+  bearing.model.v1alpha1.CompactionDetail detail = 1;
+  // How far back it applies, an ISO 8601 duration such as "P18M". Empty on
+  // the last tier: from there back, forever.
+  string for = 2;
+}
+
+// MatchWeights are the weights of identity evidence.
+message MatchWeights {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "MatchWeights".
+  string kind = 2;
+  // The resource's name.
+  Metadata metadata = 3;
+  // The weights.
+  MatchWeightsSpec spec = 4;
+}
+
+// MatchWeightsSpec is a MatchWeights' content.
+message MatchWeightsSpec {
+  // The weights.
+  repeated MatchWeight weights = 1;
+}
+
+// MatchWeight is the weight of one kind of evidence for one subject kind
+// (docs/spec/data-model.md, "Matching").
+message MatchWeight {
+  // The subject kind. Required.
+  string kind = 1;
+  // What counts as evidence. Required.
+  oneof evidence {
+    // A matching method.
+    bearing.model.v1alpha1.MatchMethod method = 2;
+    // A non-authoritative link; link is not a declarable match method.
+    bool link = 3;
+  }
+  // The weight, in parts per million, 1 to 1000000.
+  uint32 weight_ppm = 4;
+  // With predicate: this weight is an override for that source's field.
+  // Both empty: the default for the kind and method. One without the other
+  // is invalid.
+  string source = 5;
+  // See source.
+  string predicate = 6;
+}
+
+// MergePolicies are the merge policy of each subject kind.
+message MergePolicies {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "MergePolicies".
+  string kind = 2;
+  // The resource's name.
+  Metadata metadata = 3;
+  // The policies.
+  MergePoliciesSpec spec = 4;
+}
+
+// MergePoliciesSpec is a MergePolicies' content.
+message MergePoliciesSpec {
+  // The policies.
+  repeated KindMergePolicy policies = 1;
+}
+
+// KindMergePolicy is one kind's policy for when same_as is asserted and its
+// subjects merge (docs/spec/data-model.md, "Merge policy").
+message KindMergePolicy {
+  // The subject kind. Required.
+  string kind = 1;
+  // The policy. Required.
+  bearing.model.v1alpha1.MergePolicy policy = 2;
+  // MERGE_POLICY_SCORE only: the same_as confidence at which subjects merge,
+  // in parts per million.
+  uint32 threshold_ppm = 3;
+}
+
+// DerivationRules are the parameters of the core's derivation rules.
+message DerivationRules {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "DerivationRules".
+  string kind = 2;
+  // The resource's name.
+  Metadata metadata = 3;
+  // The rules.
+  DerivationRulesSpec spec = 4;
+}
+
+// DerivationRulesSpec is a DerivationRules' content. The rules are the
+// core's; this sets their parameters, and a rule not listed uses its
+// defaults.
+message DerivationRulesSpec {
+  // The codeowners rule.
+  CodeownersRule codeowners = 1;
+}
+
+// CodeownersRule sets the confidence of the owned_by claims derived from a
+// CODEOWNERS file (docs/spec/data-model.md, "CODEOWNERS").
+message CodeownersRule {
+  // One rule line, pattern "*", naming one team, in parts per million.
+  uint32 sole_team_ppm = 1;
+  // Any other file with a "*" line, in parts per million.
+  uint32 mixed_ppm = 2;
+}
+
+// Assertion is how supports become an asserted fact: the confidence
+// threshold, systems that copy each other, and per-predicate precedence.
+message Assertion {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "Assertion".
+  string kind = 2;
+  // The resource's name.
+  Metadata metadata = 3;
+  // The settings.
+  AssertionSpec spec = 4;
+}
+
+// AssertionSpec is an Assertion's content.
+message AssertionSpec {
+  // The confidence at which a fact is asserted, in parts per million.
+  uint32 threshold_ppm = 1;
+  // Groups of source systems that copy each other, so their confidence counts
+  // once (docs/spec/data-model.md, "Confidence").
+  repeated ConfidenceGroup confidence_groups = 2;
+  // Per-predicate precedence among source systems.
+  repeated PredicatePrecedence precedence = 3;
+}
+
+// ConfidenceGroup is source systems that count as one in the noisy-OR.
+message ConfidenceGroup {
+  // The source systems, by namespace.
+  repeated string systems = 1;
+}
+
+// PredicatePrecedence is the ordered list of source systems that decides a
+// predicate's conflicts (docs/spec/data-model.md, "Conflicts").
+message PredicatePrecedence {
+  // The predicate.
+  string predicate = 1;
+  // The source systems, first wins.
+  repeated string systems = 2;
+}

@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.RetentionRule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionRule is the tiers of one predicate or one subject kind\n (docs/spec/data-model.md, \"Retention and compaction\").",
+      "properties": {
+        "kind": {
+          "description": "Every predicate of subjects of one kind.",
+          "type": "string"
+        },
+        "predicate": {
+          "description": "One predicate.",
+          "type": "string"
+        },
+        "tiers": {
+          "description": "From finest to coarsest, each keeping its level of detail for a span of\n valid time counted back from the compaction event's observed_at. The\n last tier has no span.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.RetentionTier.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Retention Rule",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.RetentionTier.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RetentionTier keeps one level of detail for a span.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "pattern": "^COMPACTION_DETAIL_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "COMPACTION_DETAIL_FULL",
+                "COMPACTION_DETAIL_QUARTER",
+                "COMPACTION_DETAIL_YEAR"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The level of detail. COMPACTION_DETAIL_FULL, _QUARTER or _YEAR.",
+          "title": "Compaction Detail"
+        },
+        "for": {
+          "default": "",
+          "description": "How far back it applies, an ISO 8601 duration such as \"P18M\". Empty on\n the last tier: from there back, forever.",
+          "type": "string"
+        }
+      },
+      "title": "Retention Tier",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.RetentionRule.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.RetentionRule.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

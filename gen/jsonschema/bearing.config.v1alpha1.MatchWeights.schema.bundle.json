@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.MatchWeight.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeight is the weight of one kind of evidence for one subject kind\n (docs/spec/data-model.md, \"Matching\").",
+      "patternProperties": {
+        "^(weightPpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The weight, in parts per million, 1 to 1000000."
+        }
+      },
+      "properties": {
+        "kind": {
+          "default": "",
+          "description": "The subject kind. Required.",
+          "type": "string"
+        },
+        "link": {
+          "description": "A non-authoritative link; link is not a declarable match method.",
+          "type": "boolean"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "enum": [
+                "MATCH_METHOD_UNSPECIFIED",
+                "MATCH_METHOD_EXACT",
+                "MATCH_METHOD_EMAIL",
+                "MATCH_METHOD_NAME",
+                "MATCH_METHOD_MEMBERS"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "description": "A matching method.",
+          "title": "Match Method"
+        },
+        "predicate": {
+          "default": "",
+          "description": "See source.",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "description": "With predicate: this weight is an override for that source's field.\n Both empty: the default for the kind and method. One without the other\n is invalid.",
+          "type": "string"
+        },
+        "weight_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The weight, in parts per million, 1 to 1000000."
+        }
+      },
+      "title": "Match Weight",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MatchWeights.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeights are the weights of identity evidence.",
+      "patternProperties": {
+        "^(apiVersion)$": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "api_version": {
+          "default": "",
+          "description": "\"bearing/v1alpha1\".",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "description": "\"MatchWeights\".",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+          "description": "The resource's name."
+        },
+        "spec": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeightsSpec.schema.json",
+          "description": "The weights."
+        }
+      },
+      "title": "Match Weights",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.MatchWeightsSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MatchWeightsSpec is a MatchWeights' content.",
+      "properties": {
+        "weights": {
+          "description": "The weights.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeight.schema.json"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Match Weights Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.MatchWeights.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.MatchWeights.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

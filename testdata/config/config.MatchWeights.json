@@ -1,0 +1,13 @@
+{
+  "api_version": "bearing/v1alpha1",
+  "kind": "MatchWeights",
+  "metadata": { "name": "example" },
+  "spec": {
+    "weights": [
+      { "kind": "Person", "method": "MATCH_METHOD_EMAIL", "weight_ppm": 900000 },
+      { "kind": "Person", "link": true, "weight_ppm": 800000 },
+      { "kind": "Team", "method": "MATCH_METHOD_MEMBERS", "weight_ppm": 950000 },
+      { "kind": "Person", "method": "MATCH_METHOD_EMAIL", "weight_ppm": 600000, "source": "github-acme", "predicate": "commit_email" }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "source": "github-acme",
+  "previous_adapter_version": "0.2.0",
+  "adapter_version": "0.3.0",
+  "module_digest": "sha256:3b1d5c0e9f7a24d86e1c0b5a7f93d2e4a6c8b0d1f2e3a4b5c6d7e8f9a0b1c2d3",
+  "declaration": {
+    "name": "github",
+    "issuer_type": "github",
+    "kinds": [
+      {
+        "kind": "Team",
+        "keys": [
+          { "key_type": "team_node", "class": "KEY_CLASS_ID" },
+          { "key_type": "team", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_ONE", "case": "KEY_CASE_INSENSITIVE" }
+        ],
+        "fields": [
+          { "predicate": "name", "match": "MATCH_METHOD_NAME" },
+          { "predicate": "member_of", "direction": "DIRECTION_IN", "match": "MATCH_METHOD_MEMBERS", "authority": { "authoritative": true } }
+        ]
+      }
+    ]
+  }
+}

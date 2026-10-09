@@ -1,0 +1,31 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.Metadata.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Metadata identifies a resource.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form labels for selecting and grouping.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "description": "Unique among resources of one kind: lowercase letters, digits, \"-\" and\n \"_\". Required.",
+          "type": "string"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.Metadata.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.Metadata.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

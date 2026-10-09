@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.AdapterSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AdapterSpec is an Adapter's content.",
+      "patternProperties": {
+        "^(moduleDigest)$": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "capabilities": {
+          "description": "The capabilities the module declares it needs.",
+          "items": {
+            "$ref": "#/$defs/bearing.config.v1alpha1.CapabilityGrant.schema.json"
+          },
+          "type": "array"
+        },
+        "module_digest": {
+          "default": "",
+          "description": "The module's sha256 digest, \"sha256:\u003chex\u003e\". Required.",
+          "type": "string"
+        },
+        "secrets": {
+          "description": "The names of the secrets it needs; a source supplies each by reference.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "settings": {
+          "$ref": "#/$defs/google.protobuf.Struct.schema.json",
+          "description": "Default settings, overridden per source. Checked against the settings\n the adapter's Describe declares."
+        }
+      },
+      "title": "Adapter Spec",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.CapabilityGrant.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CapabilityGrant is one capability an adapter may call, with its scope\n (ADR 9), for example http limited to hosts.",
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "The capability: http, log, trace, metrics, config, kv or clock.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "What it may reach: hosts for http, empty for the rest.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Capability Grant",
+      "type": "object"
+    },
+    "google.protobuf.Struct.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Struct",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.AdapterSpec.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.AdapterSpec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

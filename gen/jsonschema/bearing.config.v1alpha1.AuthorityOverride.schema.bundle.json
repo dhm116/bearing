@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.AuthorityOverride.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuthorityOverride sets the authority of exactly one field, link or\n derived source. In ProtoJSON it reads as the data model's examples:\n { \"kind\": ..., \"predicate\": ..., \"authority\": ... }.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.Authority.schema.json",
+          "description": "The authority to use. Required."
+        },
+        "derived": {
+          "description": "A derivation rule: the authority of core/derive/\u003crule\u003e/\u003cthis source\u003e.",
+          "type": "string"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "pattern": "^DIRECTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DIRECTION_OUT",
+                "DIRECTION_IN"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "A field target only: DIRECTION_IN for relations given with \"from\".",
+          "title": "Direction"
+        },
+        "kind": {
+          "default": "",
+          "description": "The kind of a field or link target; empty for a derived target.",
+          "type": "string"
+        },
+        "link": {
+          "$ref": "#/$defs/bearing.config.v1alpha1.LinkRef.schema.json",
+          "description": "A declared link: with kind."
+        },
+        "predicate": {
+          "description": "A declared field: with kind and direction.",
+          "type": "string"
+        }
+      },
+      "title": "Authority Override",
+      "type": "object"
+    },
+    "bearing.config.v1alpha1.LinkRef.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkRef names a declared link by the other system's key type.",
+      "patternProperties": {
+        "^(issuerType)$": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "^(keyType)$": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "issuer_type": {
+          "default": "",
+          "description": "The other system's issuer type.",
+          "type": "string"
+        },
+        "key_type": {
+          "default": "",
+          "description": "A key type declared for that issuer type.",
+          "type": "string"
+        }
+      },
+      "title": "Link Ref",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.Authority.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Authority is a source's claim to be the source of record. It is a message\n so levels can be added later without breaking declarations or overrides.",
+      "properties": {
+        "authoritative": {
+          "default": false,
+          "description": "True when the source is the source of record. Default false.",
+          "type": "boolean"
+        }
+      },
+      "title": "Authority",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.AuthorityOverride.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.AuthorityOverride.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

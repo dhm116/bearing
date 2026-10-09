@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.ConfidenceGroup.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ConfidenceGroup is source systems that count as one in the noisy-OR.",
+      "properties": {
+        "systems": {
+          "description": "The source systems, by namespace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Confidence Group",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.ConfidenceGroup.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.ConfidenceGroup.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
