@@ -27,5 +27,5 @@ for c in 1 16; do pgbench -n -c $c -j $c -T 10 -f "$D/point.sql" 2>/dev/null | g
 echo "load two series with key IN (...), surrealstore's load shape:"
 ms "SELECT tbl, key, n, rec, ret, data FROM version WHERE rec <= 1800000000000000 AND tbl = 'fact' AND key IN ('acme/k2', 'acme/k6') ORDER BY n"
 echo "scan: versions per table in a record-time window:"
-for w in cold warm; do ms "SELECT tbl, count(*), count(*) FILTER (WHERE ret <> 0) FROM version WHERE rec BETWEEN 1767225600000000 AND 1767226600000000000 GROUP BY tbl" "$w "; done
+for w in cold warm; do ms "SELECT tbl, count(*), count(*) FILTER (WHERE ret <> 0) FROM version WHERE rec BETWEEN 1767225600000000 AND 1767226100000000 GROUP BY tbl" "$w "; done
 $P -t -c "SELECT pg_size_pretty(pg_total_relation_size('version'))" | sed 's/^ */  size on disk: /'

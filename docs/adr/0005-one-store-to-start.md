@@ -1,6 +1,6 @@
 # 5. One database for the graph and vectors to start, with SurrealDB
 
-Date: 2026-09-29 · Status: proposed
+Date: 2026-09-29 · Status: proposed · Superseded in part by ADR 13, ADR 14
 
 Tested: both conformance suites pass against SurrealDB 3.3.0 over
 WebSocket and HTTP (`make test-surrealdb`) and embedded in memory and on

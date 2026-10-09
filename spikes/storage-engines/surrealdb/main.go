@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,6 +51,34 @@ func q(sql string) (time.Duration, error) {
 		return d, fmt.Errorf("%s", b[:min(len(b), 400)])
 	}
 	return d, nil
+}
+
+// explain runs an EXPLAIN statement and returns the operators and indexes
+// of its plan, in order.
+func explain(sql string) (string, error) {
+	req, err := http.NewRequest(http.MethodPost, *server+"/sql", strings.NewReader(sql))
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth("root", "root")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("surreal-ns", "bench")
+	req.Header.Set("surreal-db", "bench")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	re := regexp.MustCompile(`"(operator|index)":"([^"]+)"`)
+	var parts []string
+	for _, m := range re.FindAllSubmatch(b, -1) {
+		parts = append(parts, string(m[2]))
+	}
+	return strings.Join(parts, " "), nil
 }
 
 func must(d time.Duration, err error) time.Duration {
@@ -153,14 +182,20 @@ DEFINE INDEX version_key ON version FIELDS tbl, key; DEFINE INDEX version_rec ON
 		fmt.Printf("  c=%d %.0f/s p50 %.2fms p99 %.2fms\n", c, float64(len(lat))/10, float64(lat[len(lat)/2].Microseconds())/1000, float64(lat[len(lat)*99/100].Microseconds())/1000)
 	}
 
-	fmt.Println("load two series with key IN [...], surrealstore's load shape, and the same keys as OR'd equalities:")
-	in := must(q(`SELECT tbl, key, n, rec, ret, data FROM version WHERE rec <= 1800000000000000 AND tbl = 'fact' AND key IN ['acme/k2', 'acme/k6'] ORDER BY n;`))
-	or := must(q(`SELECT tbl, key, n, rec, ret, data FROM version WHERE (tbl = 'fact' AND key = 'acme/k2') OR (tbl = 'fact' AND key = 'acme/k6') ORDER BY n;`))
-	fmt.Printf("  IN %.3fs, OR %.3fs\n", in.Seconds(), or.Seconds())
+	fmt.Println("load two series as surrealstore does (keys bound as $k), then the same keys as OR'd equalities:")
+	const load = `LET $k = ['acme/k2', 'acme/k6']; SELECT tbl, key, n, rec, ret, data FROM version WHERE rec <= 1800000000000000 AND tbl = 'fact' AND key IN $k ORDER BY n;`
+	in := must(q(load))
+	or := must(q(`SELECT tbl, key, n, rec, ret, data FROM version WHERE rec <= 1800000000000000 AND ((tbl = 'fact' AND key = 'acme/k2') OR (tbl = 'fact' AND key = 'acme/k6')) ORDER BY n;`))
+	fmt.Printf("  IN $k %.3fs, OR %.3fs\n", in.Seconds(), or.Seconds())
+	plan, err := explain(strings.Replace(load, " ORDER BY n;", " ORDER BY n EXPLAIN;", 1))
+	if err != nil {
+		must(0, err)
+	}
+	fmt.Println("  plan of the IN $k load:", plan)
 
 	fmt.Println("scan: versions per table in a record-time window:")
 	for _, w := range []string{"cold", "warm"} {
-		d := must(q(`SELECT tbl, count() AS c FROM version WHERE rec >= 1767225600000000 AND rec <= 1767226600000000000 GROUP BY tbl;`))
+		d := must(q(`SELECT tbl, count() AS c FROM version WHERE rec >= 1767225600000000 AND rec <= 1767226100000000 GROUP BY tbl;`))
 		fmt.Printf("  %s %.2fs\n", w, d.Seconds())
 	}
 }
