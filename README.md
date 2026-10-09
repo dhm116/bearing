@@ -28,7 +28,6 @@ keeps the adapters that fetch it small.
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
-| [`docs/spikes/`](docs/spikes/) | Time-boxed technical spikes and their results (e.g. WASM adapters) |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
@@ -51,12 +50,11 @@ keeps the adapters that fetch it small.
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, and reads the store with `get`, `owner`, `related` and `changes` |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
-| [`spikes/`](spikes/) | Throwaway spike code in its own Go modules; not part of the build |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
 ## Try it
 
-Requires Go 1.27.1 or later (the `go` command downloads it automatically if needed).
+Requires Go 1.27.2 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build

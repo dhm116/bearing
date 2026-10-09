@@ -85,6 +85,8 @@ Options considered:
   `entity->fact->entity` edges ADR 5's Decision describes. ADR 5 carries the
   note.
 - **Not decided here.** The shape of the contracts, `mem://` for tests, and
-  ADR 5's choice of SurrealDB are unchanged. Moving the engine out of
+  ADR 5's choice of SurrealDB are unchanged. [ADR 14](0014-postgres-is-the-default-store.md)
+  later replaces SurrealDB with PostgreSQL; the backend design here applies
+  to `internal/pgstore` unchanged. Moving the engine out of
   `memstore` into a package named for what it does is open; it is a rename,
   not a design change, and can wait until a second backend needs it.
