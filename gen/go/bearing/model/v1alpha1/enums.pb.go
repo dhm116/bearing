@@ -1217,121 +1217,6 @@ func (RejectionCode) EnumDescriptor() ([]byte, []int) {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{18}
 }
 
-// AuditAction says what an audit entry records (docs/spec/data-model.md,
-// "Audit"). Add-only: later milestones add configuration changes, policy
-// decisions and executor actions.
-type AuditAction int32
-
-const (
-	// Not set. Rejected on every audit entry.
-	AuditAction_AUDIT_ACTION_UNSPECIFIED AuditAction = 0
-	// A subject was minted.
-	AuditAction_AUDIT_ACTION_MINT AuditAction = 1
-	// An alias binding was written.
-	AuditAction_AUDIT_ACTION_BINDING_WRITTEN AuditAction = 2
-	// An alias binding was released.
-	AuditAction_AUDIT_ACTION_BINDING_RELEASED AuditAction = 3
-	// Two subjects merged.
-	AuditAction_AUDIT_ACTION_MERGE AuditAction = 4
-	// Aliases were un-merged off a subject.
-	AuditAction_AUDIT_ACTION_UNMERGE AuditAction = 5
-	// distinct_from was set between two subjects.
-	AuditAction_AUDIT_ACTION_DISTINCT_FROM_SET AuditAction = 6
-	// distinct_from was cleared between two subjects.
-	AuditAction_AUDIT_ACTION_DISTINCT_FROM_CLEARED AuditAction = 7
-	// A fact's status changed because of the apply.
-	AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED AuditAction = 8
-	// A conflict opened.
-	AuditAction_AUDIT_ACTION_CONFLICT_OPENED AuditAction = 9
-	// A standing conflict closed.
-	AuditAction_AUDIT_ACTION_CONFLICT_RESOLVED AuditAction = 10
-	// An override was set.
-	AuditAction_AUDIT_ACTION_OVERRIDE_SET AuditAction = 11
-	// An override was cleared.
-	AuditAction_AUDIT_ACTION_OVERRIDE_CLEARED AuditAction = 12
-	// An override was flagged stale.
-	AuditAction_AUDIT_ACTION_OVERRIDE_STALE AuditAction = 13
-	// One source's claims on a fact were withdrawn.
-	AuditAction_AUDIT_ACTION_CLAIM_WITHDRAWN AuditAction = 14
-	// A period was compacted.
-	AuditAction_AUDIT_ACTION_COMPACTION AuditAction = 15
-	// A write arrived for a period already compacted and was dropped.
-	AuditAction_AUDIT_ACTION_LATE_WRITE AuditAction = 16
-	// Part of an event was rejected; the entry's rejection says why.
-	AuditAction_AUDIT_ACTION_REJECTION AuditAction = 17
-)
-
-// Enum value maps for AuditAction.
-var (
-	AuditAction_name = map[int32]string{
-		0:  "AUDIT_ACTION_UNSPECIFIED",
-		1:  "AUDIT_ACTION_MINT",
-		2:  "AUDIT_ACTION_BINDING_WRITTEN",
-		3:  "AUDIT_ACTION_BINDING_RELEASED",
-		4:  "AUDIT_ACTION_MERGE",
-		5:  "AUDIT_ACTION_UNMERGE",
-		6:  "AUDIT_ACTION_DISTINCT_FROM_SET",
-		7:  "AUDIT_ACTION_DISTINCT_FROM_CLEARED",
-		8:  "AUDIT_ACTION_FACT_STATUS_CHANGED",
-		9:  "AUDIT_ACTION_CONFLICT_OPENED",
-		10: "AUDIT_ACTION_CONFLICT_RESOLVED",
-		11: "AUDIT_ACTION_OVERRIDE_SET",
-		12: "AUDIT_ACTION_OVERRIDE_CLEARED",
-		13: "AUDIT_ACTION_OVERRIDE_STALE",
-		14: "AUDIT_ACTION_CLAIM_WITHDRAWN",
-		15: "AUDIT_ACTION_COMPACTION",
-		16: "AUDIT_ACTION_LATE_WRITE",
-		17: "AUDIT_ACTION_REJECTION",
-	}
-	AuditAction_value = map[string]int32{
-		"AUDIT_ACTION_UNSPECIFIED":           0,
-		"AUDIT_ACTION_MINT":                  1,
-		"AUDIT_ACTION_BINDING_WRITTEN":       2,
-		"AUDIT_ACTION_BINDING_RELEASED":      3,
-		"AUDIT_ACTION_MERGE":                 4,
-		"AUDIT_ACTION_UNMERGE":               5,
-		"AUDIT_ACTION_DISTINCT_FROM_SET":     6,
-		"AUDIT_ACTION_DISTINCT_FROM_CLEARED": 7,
-		"AUDIT_ACTION_FACT_STATUS_CHANGED":   8,
-		"AUDIT_ACTION_CONFLICT_OPENED":       9,
-		"AUDIT_ACTION_CONFLICT_RESOLVED":     10,
-		"AUDIT_ACTION_OVERRIDE_SET":          11,
-		"AUDIT_ACTION_OVERRIDE_CLEARED":      12,
-		"AUDIT_ACTION_OVERRIDE_STALE":        13,
-		"AUDIT_ACTION_CLAIM_WITHDRAWN":       14,
-		"AUDIT_ACTION_COMPACTION":            15,
-		"AUDIT_ACTION_LATE_WRITE":            16,
-		"AUDIT_ACTION_REJECTION":             17,
-	}
-)
-
-func (x AuditAction) Enum() *AuditAction {
-	p := new(AuditAction)
-	*p = x
-	return p
-}
-
-func (x AuditAction) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AuditAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[19].Descriptor()
-}
-
-func (AuditAction) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[19]
-}
-
-func (x AuditAction) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AuditAction.Descriptor instead.
-func (AuditAction) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{19}
-}
-
 // MergeReviewStatus is what re-evaluating a merge's evidence found
 // (docs/spec/data-model.md, "Merge" step 4).
 type MergeReviewStatus int32
@@ -1373,11 +1258,11 @@ func (x MergeReviewStatus) String() string {
 }
 
 func (MergeReviewStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[20].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[19].Descriptor()
 }
 
 func (MergeReviewStatus) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[20]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[19]
 }
 
 func (x MergeReviewStatus) Number() protoreflect.EnumNumber {
@@ -1386,7 +1271,7 @@ func (x MergeReviewStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MergeReviewStatus.Descriptor instead.
 func (MergeReviewStatus) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{20}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{19}
 }
 
 var File_bearing_model_v1alpha1_enums_proto protoreflect.FileDescriptor
@@ -1518,27 +1403,7 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x1dREJECTION_CODE_ALREADY_MERGED\x10\r\x12$\n" +
 	" REJECTION_CODE_INVALID_OPERATION\x10\x0e\x12\x1c\n" +
 	"\x18REJECTION_CODE_MALFORMED\x10\x0f\x12\x1c\n" +
-	"\x18REJECTION_CODE_TOO_LARGE\x10\x10*\xcc\x04\n" +
-	"\vAuditAction\x12\x1c\n" +
-	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12\x15\n" +
-	"\x11AUDIT_ACTION_MINT\x10\x01\x12 \n" +
-	"\x1cAUDIT_ACTION_BINDING_WRITTEN\x10\x02\x12!\n" +
-	"\x1dAUDIT_ACTION_BINDING_RELEASED\x10\x03\x12\x16\n" +
-	"\x12AUDIT_ACTION_MERGE\x10\x04\x12\x18\n" +
-	"\x14AUDIT_ACTION_UNMERGE\x10\x05\x12\"\n" +
-	"\x1eAUDIT_ACTION_DISTINCT_FROM_SET\x10\x06\x12&\n" +
-	"\"AUDIT_ACTION_DISTINCT_FROM_CLEARED\x10\a\x12$\n" +
-	" AUDIT_ACTION_FACT_STATUS_CHANGED\x10\b\x12 \n" +
-	"\x1cAUDIT_ACTION_CONFLICT_OPENED\x10\t\x12\"\n" +
-	"\x1eAUDIT_ACTION_CONFLICT_RESOLVED\x10\n" +
-	"\x12\x1d\n" +
-	"\x19AUDIT_ACTION_OVERRIDE_SET\x10\v\x12!\n" +
-	"\x1dAUDIT_ACTION_OVERRIDE_CLEARED\x10\f\x12\x1f\n" +
-	"\x1bAUDIT_ACTION_OVERRIDE_STALE\x10\r\x12 \n" +
-	"\x1cAUDIT_ACTION_CLAIM_WITHDRAWN\x10\x0e\x12\x1b\n" +
-	"\x17AUDIT_ACTION_COMPACTION\x10\x0f\x12\x1b\n" +
-	"\x17AUDIT_ACTION_LATE_WRITE\x10\x10\x12\x1a\n" +
-	"\x16AUDIT_ACTION_REJECTION\x10\x11*}\n" +
+	"\x18REJECTION_CODE_TOO_LARGE\x10\x10*}\n" +
 	"\x11MergeReviewStatus\x12#\n" +
 	"\x1fMERGE_REVIEW_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19MERGE_REVIEW_STATUS_HOLDS\x10\x01\x12$\n" +
@@ -1556,7 +1421,7 @@ func file_bearing_model_v1alpha1_enums_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 21)
+var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 20)
 var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(SubjectStatus)(0),      // 0: bearing.model.v1alpha1.SubjectStatus
 	(MintRule)(0),           // 1: bearing.model.v1alpha1.MintRule
@@ -1577,8 +1442,7 @@ var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(CompactionDetail)(0),   // 16: bearing.model.v1alpha1.CompactionDetail
 	(IssueType)(0),          // 17: bearing.model.v1alpha1.IssueType
 	(RejectionCode)(0),      // 18: bearing.model.v1alpha1.RejectionCode
-	(AuditAction)(0),        // 19: bearing.model.v1alpha1.AuditAction
-	(MergeReviewStatus)(0),  // 20: bearing.model.v1alpha1.MergeReviewStatus
+	(MergeReviewStatus)(0),  // 19: bearing.model.v1alpha1.MergeReviewStatus
 }
 var file_bearing_model_v1alpha1_enums_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1598,7 +1462,7 @@ func file_bearing_model_v1alpha1_enums_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_enums_proto_rawDesc), len(file_bearing_model_v1alpha1_enums_proto_rawDesc)),
-			NumEnums:      21,
+			NumEnums:      20,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

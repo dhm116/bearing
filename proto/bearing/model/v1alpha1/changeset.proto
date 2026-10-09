@@ -8,6 +8,7 @@ syntax = "proto3";
 
 package bearing.model.v1alpha1;
 
+import "bearing/model/v1alpha1/audit.proto";
 import "bearing/model/v1alpha1/enums.proto";
 import "bearing/model/v1alpha1/fact.proto";
 import "google/protobuf/any.proto";
@@ -229,36 +230,6 @@ message StateEntry {
   string key = 1;
   // The value; absent deletes the entry.
   google.protobuf.Any value = 2;
-}
-
-// AuditEntry is one thing the resolver decided to audit (docs/spec/data-model.md,
-// "Audit"; ADR 8). The audit log adds the rest of the record: its sequence
-// number, the apply's record time and event ID, the trace ID and the hash
-// chain. Bytes are bounded by MaxChangeSetBytes alone.
-message AuditEntry {
-  // What happened. Required.
-  AuditAction action = 1;
-  // Why part of an event was rejected. Required when action is
-  // AUDIT_ACTION_REJECTION, and set for no other action.
-  RejectionCode rejection = 2;
-  // The subject it happened to, if one: an ID, or a ref ("new:<label>") the
-  // store replaces with the subject it names. Must exist.
-  string subject_id = 3;
-  // What else it concerned, as text the store never reads: the alias, the
-  // fact, the other subject of a merge, the path of a rejected claim.
-  string target = 4;
-  // The rule that decided it: a mint or merge rule, a status reason, a
-  // rejection's scope.
-  string rule = 5;
-  // Who asked, for a manual operation: the OIDC subject or agent token ID of
-  // the event's actor. Empty for the system's own decisions.
-  string actor = 6;
-  // True when the actor is an agent acting for a person.
-  bool agent = 7;
-  // The reason the actor gave, for a manual operation.
-  string reason = 8;
-  // A human-readable description.
-  string message = 9;
 }
 
 // MergeReview is what re-evaluating one merge's evidence found, as the

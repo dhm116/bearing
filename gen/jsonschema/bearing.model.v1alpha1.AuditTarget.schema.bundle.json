@@ -1,0 +1,49 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.AuditTarget.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditTarget is the thing a change was made to.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "The id, in the form the kind states.",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_TARGET_KIND_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_TARGET_KIND_SUBJECT",
+                "AUDIT_TARGET_KIND_ALIAS",
+                "AUDIT_TARGET_KIND_FACT",
+                "AUDIT_TARGET_KIND_SUBJECT_PREDICATE",
+                "AUDIT_TARGET_KIND_SOURCE",
+                "AUDIT_TARGET_KIND_RESOURCE",
+                "AUDIT_TARGET_KIND_EVENT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the id names.",
+          "title": "Audit Target Kind"
+        }
+      },
+      "title": "Audit Target",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.AuditTarget.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.AuditTarget.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

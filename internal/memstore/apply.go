@@ -156,6 +156,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if err := resolveKeys(cs, entry.GetSubjects()); err != nil {
 		return res, err
 	}
+	if err := s.resolveAuditTargets(cs.GetAudit(), entry.GetSubjects()); err != nil {
+		return res, err
+	}
 	aliases := map[string]bool{}
 	for _, b := range cs.GetBindings() {
 		if _, _, _, err := model.Key(b.GetAlias()).Parse(); err != nil {
@@ -234,19 +237,47 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	return result(entry, false), nil
 }
 
-// checkAudit checks the shape of a ChangeSet's audit entries. Their subjects
-// are checked with every other subject_id.
+// checkAudit checks the shape of a ChangeSet's audit entries. Subjects they
+// name are checked once refs are known (resolveAuditTargets).
 func checkAudit(entries []*modelv1alpha1.AuditEntry) error {
 	for i, e := range entries {
 		if _, known := modelv1alpha1.AuditAction_name[int32(e.GetAction())]; !known || e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_UNSPECIFIED {
 			return fmt.Errorf("audit entry %d: action %d is not set or not known", i, int32(e.GetAction()))
 		}
-		_, known := modelv1alpha1.RejectionCode_name[int32(e.GetRejection())]
+		if _, known := modelv1alpha1.AuditActorKind_name[int32(e.GetActor().GetKind())]; !known || e.GetActor().GetKind() == modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_UNSPECIFIED || e.GetActor().GetId() == "" {
+			return fmt.Errorf("audit entry %d: the actor needs a known kind and an id", i)
+		}
+		if _, known := modelv1alpha1.AuditTargetKind_name[int32(e.GetTarget().GetKind())]; !known || e.GetTarget().GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED || e.GetTarget().GetId() == "" {
+			return fmt.Errorf("audit entry %d: the target needs a known kind and an id", i)
+		}
+		_, known := modelv1alpha1.RejectionCode_name[int32(e.GetRejectionCode())]
 		switch rejected := e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION; {
-		case rejected && (!known || e.GetRejection() == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED):
-			return fmt.Errorf("audit entry %d: a rejection needs a rejection code, got %d", i, int32(e.GetRejection()))
-		case !rejected && e.GetRejection() != modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED:
+		case rejected && (!known || e.GetRejectionCode() == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED):
+			return fmt.Errorf("audit entry %d: a rejection needs a rejection code, got %d", i, int32(e.GetRejectionCode()))
+		case !rejected && e.GetRejectionCode() != modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED:
 			return fmt.Errorf("audit entry %d: %s has a rejection code", i, e.GetAction())
+		}
+	}
+	return nil
+}
+
+// resolveAuditTargets replaces the refs in the ids of audit targets that name
+// a subject, and checks every such subject exists. Other targets and the
+// before and after messages are the audit log's and are not read.
+func (s *Store) resolveAuditTargets(entries []*modelv1alpha1.AuditEntry, refs map[string]string) error {
+	for i, e := range entries {
+		t := e.GetTarget()
+		if t.GetKind() != modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT {
+			continue
+		}
+		if strings.HasPrefix(t.GetId(), refPrefix) {
+			id, ok := refs[t.GetId()]
+			if !ok {
+				return fmt.Errorf("audit entry %d: ref %s names no mint or unmerge", i, t.GetId())
+			}
+			t.Id = id
+		} else if _, ok := s.subjects[t.GetId()]; !ok {
+			return fmt.Errorf("audit entry %d: subject %s: %w", i, t.GetId(), contracts.ErrNotFound)
 		}
 	}
 	return nil

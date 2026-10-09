@@ -14,19 +14,31 @@ import (
 // The cases of GraphStore for audit entries, merge reviews and un-merge
 // records (docs/spec/contracts.md, "GraphStore").
 
+// auditActor and auditTarget build the required parts of an audit entry.
+func auditActor() *modelv1alpha1.AuditActor {
+	return &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"}
+}
+
+func auditTarget(kind modelv1alpha1.AuditTargetKind, id string) *modelv1alpha1.AuditTarget {
+	return &modelv1alpha1.AuditTarget{Kind: kind, Id: id}
+}
+
 func (g *suite) auditEntries(t *testing.T) {
 	s, _ := g.store(t)
 	r, _, _ := seed(t, s)
+	subject, alias := modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS
+	person := &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_PERSON, Id: "https://issuer|doug"}
 	entries := []*modelv1alpha1.AuditEntry{
-		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, SubjectId: "new:x", Rule: "observation", Message: "minted for the sync"},
-		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, SubjectId: r, Target: "github:repo/acme/other", Rule: "manual", Actor: "oidc|doug", Reason: "same repository", Agent: true},
-		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, Rejection: modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, Target: "data.relations[0]", Rule: "claim"},
+		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(subject, "new:x"), Rule: "observation"},
+		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, Actor: person, Target: auditTarget(subject, r), Rule: "manual", Reason: "same repository"},
+		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, Actor: auditActor(), Target: auditTarget(alias, "github:repo/acme/other"), RejectionCode: modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED},
+		// An alias that looks like a ref is just an alias.
+		{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, Actor: auditActor(), Target: auditTarget(alias, "new:y")},
 	}
-	cs := &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:x", "Team")}, Audit: entries}
-	res := apply(t, s, cs)
+	res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:x", "Team")}, Audit: entries})
 	minted := string(res.Subjects["new:x"])
-	want := []*modelv1alpha1.AuditEntry{proto.CloneOf(entries[0]), entries[1], entries[2]}
-	want[0].SubjectId = minted
+	want := proto.CloneOf(&modelv1alpha1.ChangeSet{Audit: entries}).GetAudit()
+	want[0].Target.Id = minted
 	if len(res.Audit) != len(want) {
 		t.Fatalf("got %d audit entries, want %d", len(res.Audit), len(want))
 	}
@@ -43,15 +55,30 @@ func (g *suite) auditEntries(t *testing.T) {
 		t.Fatalf("got %v, want no audit entries", res.Audit)
 	}
 	head, _ := s.Head(ctx)
+	mintEntry := func(mod func(*modelv1alpha1.AuditEntry)) []*modelv1alpha1.AuditEntry {
+		e := &modelv1alpha1.AuditEntry{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(subject, r)}
+		mod(e)
+		return []*modelv1alpha1.AuditEntry{e}
+	}
 	for name, bad := range map[string][]*modelv1alpha1.AuditEntry{
-		"no action":                {{Message: "m"}},
-		"unknown action":           {{Action: 999}},
-		"rejection without a code": {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION}},
-		"rejection with bad code":  {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, Rejection: 999}},
-		"code on another action":   {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Rejection: modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED}},
-		"unknown ref":              {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, SubjectId: "new:nope"}},
-		"unknown subject":          {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, SubjectId: "0192b1c4-0000-7000-8000-000000000000"}},
-		"invalid UTF-8":            {{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Message: "\xff"}},
+		"no action":                mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Action = 0 }),
+		"unknown action":           mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Action = 999 }),
+		"no actor":                 mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Actor = nil }),
+		"actor without a kind":     mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Actor.Kind = 0 }),
+		"actor without an id":      mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Actor.Id = "" }),
+		"no target":                mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target = nil }),
+		"target without a kind":    mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Kind = 0 }),
+		"target without an id":     mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "" }),
+		"rejection without a code": mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Action = modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION }),
+		"rejection with bad code": mintEntry(func(e *modelv1alpha1.AuditEntry) {
+			e.Action, e.RejectionCode = modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, 999
+		}),
+		"code on another action": mintEntry(func(e *modelv1alpha1.AuditEntry) {
+			e.RejectionCode = modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED
+		}),
+		"unknown ref":     mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "new:nope" }),
+		"unknown subject": mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "0192b1c4-0000-7000-8000-000000000000" }),
+		"invalid UTF-8":   mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Reason = "\xff" }),
 	} {
 		// A mint beside the bad entry must not stay either.
 		if _, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Mints: []*modelv1alpha1.Mint{mint("new:y", "Team")}, Audit: bad}); err == nil {

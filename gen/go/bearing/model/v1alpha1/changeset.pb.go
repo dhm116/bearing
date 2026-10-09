@@ -1094,132 +1094,6 @@ func (x *StateEntry) GetValue() *anypb.Any {
 	return nil
 }
 
-// AuditEntry is one thing the resolver decided to audit (docs/spec/data-model.md,
-// "Audit"; ADR 8). The audit log adds the rest of the record: its sequence
-// number, the apply's record time and event ID, the trace ID and the hash
-// chain. Bytes are bounded by MaxChangeSetBytes alone.
-type AuditEntry struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// What happened. Required.
-	Action AuditAction `protobuf:"varint,1,opt,name=action,proto3,enum=bearing.model.v1alpha1.AuditAction" json:"action,omitempty"`
-	// Why part of an event was rejected. Required when action is
-	// AUDIT_ACTION_REJECTION, and set for no other action.
-	Rejection RejectionCode `protobuf:"varint,2,opt,name=rejection,proto3,enum=bearing.model.v1alpha1.RejectionCode" json:"rejection,omitempty"`
-	// The subject it happened to, if one: an ID, or a ref ("new:<label>") the
-	// store replaces with the subject it names. Must exist.
-	SubjectId string `protobuf:"bytes,3,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
-	// What else it concerned, as text the store never reads: the alias, the
-	// fact, the other subject of a merge, the path of a rejected claim.
-	Target string `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
-	// The rule that decided it: a mint or merge rule, a status reason, a
-	// rejection's scope.
-	Rule string `protobuf:"bytes,5,opt,name=rule,proto3" json:"rule,omitempty"`
-	// Who asked, for a manual operation: the OIDC subject or agent token ID of
-	// the event's actor. Empty for the system's own decisions.
-	Actor string `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
-	// True when the actor is an agent acting for a person.
-	Agent bool `protobuf:"varint,7,opt,name=agent,proto3" json:"agent,omitempty"`
-	// The reason the actor gave, for a manual operation.
-	Reason string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
-	// A human-readable description.
-	Message       string `protobuf:"bytes,9,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AuditEntry) Reset() {
-	*x = AuditEntry{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AuditEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AuditEntry) ProtoMessage() {}
-
-func (x *AuditEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AuditEntry.ProtoReflect.Descriptor instead.
-func (*AuditEntry) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *AuditEntry) GetAction() AuditAction {
-	if x != nil {
-		return x.Action
-	}
-	return AuditAction_AUDIT_ACTION_UNSPECIFIED
-}
-
-func (x *AuditEntry) GetRejection() RejectionCode {
-	if x != nil {
-		return x.Rejection
-	}
-	return RejectionCode_REJECTION_CODE_UNSPECIFIED
-}
-
-func (x *AuditEntry) GetSubjectId() string {
-	if x != nil {
-		return x.SubjectId
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetTarget() string {
-	if x != nil {
-		return x.Target
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetRule() string {
-	if x != nil {
-		return x.Rule
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetActor() string {
-	if x != nil {
-		return x.Actor
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetAgent() bool {
-	if x != nil {
-		return x.Agent
-	}
-	return false
-}
-
-func (x *AuditEntry) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
 // MergeReview is what re-evaluating one merge's evidence found, as the
 // resolver wrote it. The store sets event_id and recorded_at.
 type MergeReview struct {
@@ -1241,7 +1115,7 @@ type MergeReview struct {
 
 func (x *MergeReview) Reset() {
 	*x = MergeReview{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[14]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1253,7 +1127,7 @@ func (x *MergeReview) String() string {
 func (*MergeReview) ProtoMessage() {}
 
 func (x *MergeReview) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[14]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1266,7 +1140,7 @@ func (x *MergeReview) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergeReview.ProtoReflect.Descriptor instead.
 func (*MergeReview) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{14}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MergeReview) GetSurvivorScorePpm() uint32 {
@@ -1322,7 +1196,7 @@ type MergeReviewWrite struct {
 
 func (x *MergeReviewWrite) Reset() {
 	*x = MergeReviewWrite{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[15]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1334,7 +1208,7 @@ func (x *MergeReviewWrite) String() string {
 func (*MergeReviewWrite) ProtoMessage() {}
 
 func (x *MergeReviewWrite) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[15]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1347,7 +1221,7 @@ func (x *MergeReviewWrite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergeReviewWrite.ProtoReflect.Descriptor instead.
 func (*MergeReviewWrite) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{15}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MergeReviewWrite) GetSubjectId() string {
@@ -1407,7 +1281,7 @@ type MergeRecord struct {
 
 func (x *MergeRecord) Reset() {
 	*x = MergeRecord{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[16]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +1293,7 @@ func (x *MergeRecord) String() string {
 func (*MergeRecord) ProtoMessage() {}
 
 func (x *MergeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[16]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +1306,7 @@ func (x *MergeRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergeRecord.ProtoReflect.Descriptor instead.
 func (*MergeRecord) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{16}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MergeRecord) GetSurvivorId() string {
@@ -1546,7 +1420,7 @@ type UnmergeRecord struct {
 
 func (x *UnmergeRecord) Reset() {
 	*x = UnmergeRecord{}
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[17]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1558,7 +1432,7 @@ func (x *UnmergeRecord) String() string {
 func (*UnmergeRecord) ProtoMessage() {}
 
 func (x *UnmergeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[17]
+	mi := &file_bearing_model_v1alpha1_changeset_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1571,7 +1445,7 @@ func (x *UnmergeRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnmergeRecord.ProtoReflect.Descriptor instead.
 func (*UnmergeRecord) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{17}
+	return file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UnmergeRecord) GetSubjectId() string {
@@ -1627,7 +1501,7 @@ var File_bearing_model_v1alpha1_changeset_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\n" +
-	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe1\x06\n" +
+	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/audit.proto\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe1\x06\n" +
 	"\tChangeSet\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12D\n" +
 	"\x10base_recorded_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0ebaseRecordedAt\x12;\n" +
@@ -1714,19 +1588,7 @@ const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\n" +
 	"StateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
-	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value\"\xb7\x02\n" +
-	"\n" +
-	"AuditEntry\x12;\n" +
-	"\x06action\x18\x01 \x01(\x0e2#.bearing.model.v1alpha1.AuditActionR\x06action\x12C\n" +
-	"\trejection\x18\x02 \x01(\x0e2%.bearing.model.v1alpha1.RejectionCodeR\trejection\x12\x1d\n" +
-	"\n" +
-	"subject_id\x18\x03 \x01(\tR\tsubjectId\x12\x16\n" +
-	"\x06target\x18\x04 \x01(\tR\x06target\x12\x12\n" +
-	"\x04rule\x18\x05 \x01(\tR\x04rule\x12\x14\n" +
-	"\x05actor\x18\x06 \x01(\tR\x05actor\x12\x14\n" +
-	"\x05agent\x18\a \x01(\bR\x05agent\x12\x16\n" +
-	"\x06reason\x18\b \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\t \x01(\tR\amessage\"\x80\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value\"\x80\x02\n" +
 	"\vMergeReview\x12,\n" +
 	"\x12survivor_score_ppm\x18\x01 \x01(\rR\x10survivorScorePpm\x12(\n" +
 	"\x10merged_score_ppm\x18\x02 \x01(\rR\x0emergedScorePpm\x12A\n" +
@@ -1779,7 +1641,7 @@ func file_bearing_model_v1alpha1_changeset_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_changeset_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_bearing_model_v1alpha1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_bearing_model_v1alpha1_changeset_proto_goTypes = []any{
 	(*ChangeSet)(nil),             // 0: bearing.model.v1alpha1.ChangeSet
 	(*Mint)(nil),                  // 1: bearing.model.v1alpha1.Mint
@@ -1794,12 +1656,12 @@ var file_bearing_model_v1alpha1_changeset_proto_goTypes = []any{
 	(*IssueSpan)(nil),             // 10: bearing.model.v1alpha1.IssueSpan
 	(*IssueTimeline)(nil),         // 11: bearing.model.v1alpha1.IssueTimeline
 	(*StateEntry)(nil),            // 12: bearing.model.v1alpha1.StateEntry
-	(*AuditEntry)(nil),            // 13: bearing.model.v1alpha1.AuditEntry
-	(*MergeReview)(nil),           // 14: bearing.model.v1alpha1.MergeReview
-	(*MergeReviewWrite)(nil),      // 15: bearing.model.v1alpha1.MergeReviewWrite
-	(*MergeRecord)(nil),           // 16: bearing.model.v1alpha1.MergeRecord
-	(*UnmergeRecord)(nil),         // 17: bearing.model.v1alpha1.UnmergeRecord
-	(*timestamppb.Timestamp)(nil), // 18: google.protobuf.Timestamp
+	(*MergeReview)(nil),           // 13: bearing.model.v1alpha1.MergeReview
+	(*MergeReviewWrite)(nil),      // 14: bearing.model.v1alpha1.MergeReviewWrite
+	(*MergeRecord)(nil),           // 15: bearing.model.v1alpha1.MergeRecord
+	(*UnmergeRecord)(nil),         // 16: bearing.model.v1alpha1.UnmergeRecord
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(*AuditEntry)(nil),            // 18: bearing.model.v1alpha1.AuditEntry
 	(MintRule)(0),                 // 19: bearing.model.v1alpha1.MintRule
 	(MergeRule)(0),                // 20: bearing.model.v1alpha1.MergeRule
 	(*Support)(nil),               // 21: bearing.model.v1alpha1.Support
@@ -1809,13 +1671,11 @@ var file_bearing_model_v1alpha1_changeset_proto_goTypes = []any{
 	(*Conflict)(nil),              // 25: bearing.model.v1alpha1.Conflict
 	(*DataQualityIssue)(nil),      // 26: bearing.model.v1alpha1.DataQualityIssue
 	(*anypb.Any)(nil),             // 27: google.protobuf.Any
-	(AuditAction)(0),              // 28: bearing.model.v1alpha1.AuditAction
-	(RejectionCode)(0),            // 29: bearing.model.v1alpha1.RejectionCode
-	(MergeReviewStatus)(0),        // 30: bearing.model.v1alpha1.MergeReviewStatus
+	(MergeReviewStatus)(0),        // 28: bearing.model.v1alpha1.MergeReviewStatus
 }
 var file_bearing_model_v1alpha1_changeset_proto_depIdxs = []int32{
-	18, // 0: bearing.model.v1alpha1.ChangeSet.base_recorded_at:type_name -> google.protobuf.Timestamp
-	18, // 1: bearing.model.v1alpha1.ChangeSet.recorded_at:type_name -> google.protobuf.Timestamp
+	17, // 0: bearing.model.v1alpha1.ChangeSet.base_recorded_at:type_name -> google.protobuf.Timestamp
+	17, // 1: bearing.model.v1alpha1.ChangeSet.recorded_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: bearing.model.v1alpha1.ChangeSet.mints:type_name -> bearing.model.v1alpha1.Mint
 	5,  // 3: bearing.model.v1alpha1.ChangeSet.bindings:type_name -> bearing.model.v1alpha1.BindingTimeline
 	2,  // 4: bearing.model.v1alpha1.ChangeSet.merges:type_name -> bearing.model.v1alpha1.Merge
@@ -1825,46 +1685,44 @@ var file_bearing_model_v1alpha1_changeset_proto_depIdxs = []int32{
 	9,  // 8: bearing.model.v1alpha1.ChangeSet.conflicts:type_name -> bearing.model.v1alpha1.ConflictTimeline
 	11, // 9: bearing.model.v1alpha1.ChangeSet.issues:type_name -> bearing.model.v1alpha1.IssueTimeline
 	12, // 10: bearing.model.v1alpha1.ChangeSet.state:type_name -> bearing.model.v1alpha1.StateEntry
-	13, // 11: bearing.model.v1alpha1.ChangeSet.audit:type_name -> bearing.model.v1alpha1.AuditEntry
-	15, // 12: bearing.model.v1alpha1.ChangeSet.merge_reviews:type_name -> bearing.model.v1alpha1.MergeReviewWrite
+	18, // 11: bearing.model.v1alpha1.ChangeSet.audit:type_name -> bearing.model.v1alpha1.AuditEntry
+	14, // 12: bearing.model.v1alpha1.ChangeSet.merge_reviews:type_name -> bearing.model.v1alpha1.MergeReviewWrite
 	19, // 13: bearing.model.v1alpha1.Mint.rule:type_name -> bearing.model.v1alpha1.MintRule
 	20, // 14: bearing.model.v1alpha1.Merge.rule:type_name -> bearing.model.v1alpha1.MergeRule
 	21, // 15: bearing.model.v1alpha1.Merge.evidence:type_name -> bearing.model.v1alpha1.Support
-	18, // 16: bearing.model.v1alpha1.Binding.valid_from:type_name -> google.protobuf.Timestamp
-	18, // 17: bearing.model.v1alpha1.Binding.valid_to:type_name -> google.protobuf.Timestamp
-	18, // 18: bearing.model.v1alpha1.Binding.recorded_at:type_name -> google.protobuf.Timestamp
-	18, // 19: bearing.model.v1alpha1.Binding.retracted_at:type_name -> google.protobuf.Timestamp
+	17, // 16: bearing.model.v1alpha1.Binding.valid_from:type_name -> google.protobuf.Timestamp
+	17, // 17: bearing.model.v1alpha1.Binding.valid_to:type_name -> google.protobuf.Timestamp
+	17, // 18: bearing.model.v1alpha1.Binding.recorded_at:type_name -> google.protobuf.Timestamp
+	17, // 19: bearing.model.v1alpha1.Binding.retracted_at:type_name -> google.protobuf.Timestamp
 	4,  // 20: bearing.model.v1alpha1.BindingTimeline.bindings:type_name -> bearing.model.v1alpha1.Binding
 	22, // 21: bearing.model.v1alpha1.SupportTimeline.object:type_name -> bearing.model.v1alpha1.FactObject
 	21, // 22: bearing.model.v1alpha1.SupportTimeline.versions:type_name -> bearing.model.v1alpha1.Support
 	23, // 23: bearing.model.v1alpha1.FactSpan.status:type_name -> bearing.model.v1alpha1.FactStatus
 	24, // 24: bearing.model.v1alpha1.FactSpan.status_reason:type_name -> bearing.model.v1alpha1.StatusReason
-	18, // 25: bearing.model.v1alpha1.FactSpan.valid_from:type_name -> google.protobuf.Timestamp
-	18, // 26: bearing.model.v1alpha1.FactSpan.valid_to:type_name -> google.protobuf.Timestamp
+	17, // 25: bearing.model.v1alpha1.FactSpan.valid_from:type_name -> google.protobuf.Timestamp
+	17, // 26: bearing.model.v1alpha1.FactSpan.valid_to:type_name -> google.protobuf.Timestamp
 	22, // 27: bearing.model.v1alpha1.FactTimeline.object:type_name -> bearing.model.v1alpha1.FactObject
 	7,  // 28: bearing.model.v1alpha1.FactTimeline.spans:type_name -> bearing.model.v1alpha1.FactSpan
 	25, // 29: bearing.model.v1alpha1.ConflictTimeline.conflicts:type_name -> bearing.model.v1alpha1.Conflict
 	26, // 30: bearing.model.v1alpha1.IssueSpan.issue:type_name -> bearing.model.v1alpha1.DataQualityIssue
-	18, // 31: bearing.model.v1alpha1.IssueSpan.valid_from:type_name -> google.protobuf.Timestamp
-	18, // 32: bearing.model.v1alpha1.IssueSpan.valid_to:type_name -> google.protobuf.Timestamp
+	17, // 31: bearing.model.v1alpha1.IssueSpan.valid_from:type_name -> google.protobuf.Timestamp
+	17, // 32: bearing.model.v1alpha1.IssueSpan.valid_to:type_name -> google.protobuf.Timestamp
 	10, // 33: bearing.model.v1alpha1.IssueTimeline.spans:type_name -> bearing.model.v1alpha1.IssueSpan
 	27, // 34: bearing.model.v1alpha1.StateEntry.value:type_name -> google.protobuf.Any
-	28, // 35: bearing.model.v1alpha1.AuditEntry.action:type_name -> bearing.model.v1alpha1.AuditAction
-	29, // 36: bearing.model.v1alpha1.AuditEntry.rejection:type_name -> bearing.model.v1alpha1.RejectionCode
-	30, // 37: bearing.model.v1alpha1.MergeReview.status:type_name -> bearing.model.v1alpha1.MergeReviewStatus
-	18, // 38: bearing.model.v1alpha1.MergeReview.recorded_at:type_name -> google.protobuf.Timestamp
-	14, // 39: bearing.model.v1alpha1.MergeReviewWrite.review:type_name -> bearing.model.v1alpha1.MergeReview
-	20, // 40: bearing.model.v1alpha1.MergeRecord.rule:type_name -> bearing.model.v1alpha1.MergeRule
-	21, // 41: bearing.model.v1alpha1.MergeRecord.evidence:type_name -> bearing.model.v1alpha1.Support
-	18, // 42: bearing.model.v1alpha1.MergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
-	18, // 43: bearing.model.v1alpha1.MergeRecord.unmerged_at:type_name -> google.protobuf.Timestamp
-	14, // 44: bearing.model.v1alpha1.MergeRecord.reviews:type_name -> bearing.model.v1alpha1.MergeReview
-	18, // 45: bearing.model.v1alpha1.UnmergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	28, // 35: bearing.model.v1alpha1.MergeReview.status:type_name -> bearing.model.v1alpha1.MergeReviewStatus
+	17, // 36: bearing.model.v1alpha1.MergeReview.recorded_at:type_name -> google.protobuf.Timestamp
+	13, // 37: bearing.model.v1alpha1.MergeReviewWrite.review:type_name -> bearing.model.v1alpha1.MergeReview
+	20, // 38: bearing.model.v1alpha1.MergeRecord.rule:type_name -> bearing.model.v1alpha1.MergeRule
+	21, // 39: bearing.model.v1alpha1.MergeRecord.evidence:type_name -> bearing.model.v1alpha1.Support
+	17, // 40: bearing.model.v1alpha1.MergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
+	17, // 41: bearing.model.v1alpha1.MergeRecord.unmerged_at:type_name -> google.protobuf.Timestamp
+	13, // 42: bearing.model.v1alpha1.MergeRecord.reviews:type_name -> bearing.model.v1alpha1.MergeReview
+	17, // 43: bearing.model.v1alpha1.UnmergeRecord.recorded_at:type_name -> google.protobuf.Timestamp
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_changeset_proto_init() }
@@ -1872,6 +1730,7 @@ func file_bearing_model_v1alpha1_changeset_proto_init() {
 	if File_bearing_model_v1alpha1_changeset_proto != nil {
 		return
 	}
+	file_bearing_model_v1alpha1_audit_proto_init()
 	file_bearing_model_v1alpha1_enums_proto_init()
 	file_bearing_model_v1alpha1_fact_proto_init()
 	type x struct{}
@@ -1880,7 +1739,7 @@ func file_bearing_model_v1alpha1_changeset_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_changeset_proto_rawDesc), len(file_bearing_model_v1alpha1_changeset_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

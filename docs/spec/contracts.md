@@ -193,27 +193,27 @@ metric shows the sizes. Tracked in [#77](https://github.com/dhm116/bearing/issue
 ([Audit](data-model.md#audit), [ADR 8](../adr/0008-audit-log.md)): a mint, a
 binding written or released, a merge or un-merge, a status change an apply
 caused, a conflict opened or closed, a rejection and the rest of that list.
-Each entry is an `AuditEntry`:
+Each entry is an `AuditEntry`
+([`audit.proto`](../../proto/bearing/model/v1alpha1/audit.proto)): the action,
+the actor and target (each a kind and an ID), the rule, the confidence, the
+rejection code, the reason and the target's state before and after. The store
+checks each entry's shape and refuses the `ChangeSet` if one fails:
 
-| Field | Meaning |
-| --- | --- |
-| `action` | What happened. Required. |
-| `rejection` | The `RejectionCode`, required when `action` is `rejection` and set for no other action. |
-| `subject_id` | The subject concerned, if any: an ID or a ref, which the store replaces. It must exist. |
-| `target` | What else it concerned (an alias, the other subject of a merge, the path of a rejected claim), as text the store never reads. |
-| `rule` | The rule that decided it. |
-| `actor`, `agent`, `reason` | For a manual operation, who asked and why, taken from the event. Empty for the system's own decisions. |
-| `message` | A description for people. |
+- `action` is set and known;
+- the actor and the target have a known kind and an ID;
+- `rejection_code` is set when `action` is `rejection` and for no other
+  action;
+- a target of kind `subject` names a subject that exists, by ID or by a ref
+  (`new:<label>`) for a subject the same `ChangeSet` creates, which the store
+  replaces. No other ID is read, and `before` and `after` are kept as given.
 
-The store checks each entry's shape (`action` and `rejection` as above, a
-subject that exists) and refuses the `ChangeSet` if one fails. It keeps the
-entries as part of the `ChangeSet` in its change journal and returns them in
-`ApplyResult.Audit` in order, refs replaced, also for a repeated event. It
-does not check that the entries cover the other items: what to audit is the
-resolver's rule. The audit log adds the rest of a record (its sequence
-number, the apply's record time and event ID, the trace ID and the hash
-chain) when it writes the entries in the apply's transaction; that log is a
-separate contract ([ADR 8](../adr/0008-audit-log.md)).
+The store keeps the entries as part of the `ChangeSet` in its change journal
+and returns them in `ApplyResult.Audit`, in order and refs replaced, also for a
+repeated event. It does not check that the entries cover the other items:
+what to audit is the resolver's rule. The audit log adds the rest of a record
+(its sequence number, the apply's record time and event ID, the trace ID and
+the hash chain) when it writes the entries in the apply's transaction; that log
+is a separate contract ([ADR 8](../adr/0008-audit-log.md)).
 
 #### Merge reviews
 

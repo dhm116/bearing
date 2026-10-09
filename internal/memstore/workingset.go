@@ -155,7 +155,8 @@ func ChangeSetKeys(cs *modelv1alpha1.ChangeSet) map[Table][]string {
 }
 
 // SubjectsIn returns the subject IDs a message names in any subject_id,
-// subject_ids, survivor_id, merged_id or merged_into field, refs
+// subject_ids, survivor_id, merged_id or merged_into field, or as the id of
+// an audit target of kind subject, refs
 // ("new:…") left out, sorted and without repeats.
 func SubjectsIn(m proto.Message) []string {
 	var out []string
@@ -169,6 +170,9 @@ func collect(m protoreflect.Message, out *[]string) {
 		if v != "" && !strings.HasPrefix(v, refPrefix) {
 			*out = append(*out, v)
 		}
+	}
+	if t, ok := m.Interface().(*modelv1alpha1.AuditTarget); ok && t.GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT {
+		add(t.GetId())
 	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {

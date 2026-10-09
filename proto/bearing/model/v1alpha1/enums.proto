@@ -293,48 +293,6 @@ enum RejectionCode {
   REJECTION_CODE_TOO_LARGE = 16;
 }
 
-// AuditAction says what an audit entry records (docs/spec/data-model.md,
-// "Audit"). Add-only: later milestones add configuration changes, policy
-// decisions and executor actions.
-enum AuditAction {
-  // Not set. Rejected on every audit entry.
-  AUDIT_ACTION_UNSPECIFIED = 0;
-  // A subject was minted.
-  AUDIT_ACTION_MINT = 1;
-  // An alias binding was written.
-  AUDIT_ACTION_BINDING_WRITTEN = 2;
-  // An alias binding was released.
-  AUDIT_ACTION_BINDING_RELEASED = 3;
-  // Two subjects merged.
-  AUDIT_ACTION_MERGE = 4;
-  // Aliases were un-merged off a subject.
-  AUDIT_ACTION_UNMERGE = 5;
-  // distinct_from was set between two subjects.
-  AUDIT_ACTION_DISTINCT_FROM_SET = 6;
-  // distinct_from was cleared between two subjects.
-  AUDIT_ACTION_DISTINCT_FROM_CLEARED = 7;
-  // A fact's status changed because of the apply.
-  AUDIT_ACTION_FACT_STATUS_CHANGED = 8;
-  // A conflict opened.
-  AUDIT_ACTION_CONFLICT_OPENED = 9;
-  // A standing conflict closed.
-  AUDIT_ACTION_CONFLICT_RESOLVED = 10;
-  // An override was set.
-  AUDIT_ACTION_OVERRIDE_SET = 11;
-  // An override was cleared.
-  AUDIT_ACTION_OVERRIDE_CLEARED = 12;
-  // An override was flagged stale.
-  AUDIT_ACTION_OVERRIDE_STALE = 13;
-  // One source's claims on a fact were withdrawn.
-  AUDIT_ACTION_CLAIM_WITHDRAWN = 14;
-  // A period was compacted.
-  AUDIT_ACTION_COMPACTION = 15;
-  // A write arrived for a period already compacted and was dropped.
-  AUDIT_ACTION_LATE_WRITE = 16;
-  // Part of an event was rejected; the entry's rejection says why.
-  AUDIT_ACTION_REJECTION = 17;
-}
-
 // MergeReviewStatus is what re-evaluating a merge's evidence found
 // (docs/spec/data-model.md, "Merge" step 4).
 enum MergeReviewStatus {

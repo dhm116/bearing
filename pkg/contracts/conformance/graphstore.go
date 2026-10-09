@@ -990,7 +990,7 @@ func history(t *testing.T, s contracts.GraphStore, clk Clock) (ids []string, tim
 			Supports: []*modelv1alpha1.SupportTimeline{supports("github-acme", r, "owned_by", ref(p), version("github-acme", 950_000, "2026-09-28T01:30:00Z", ""))},
 			Facts:    []*modelv1alpha1.FactTimeline{fact(r, "owned_by", ref(p), span(asserted, 950_000, "2026-09-28T01:30:00Z", ""))},
 			State:    []*modelv1alpha1.StateEntry{{Key: "k", Value: val}},
-			Audit:    []*modelv1alpha1.AuditEntry{{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, SubjectId: "new:g", Rule: "observation"}},
+			Audit:    []*modelv1alpha1.AuditEntry{{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, "new:g"), Rule: "observation"}},
 		},
 		{Merges: []*modelv1alpha1.Merge{{SubjectIds: []string{l, p}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_SCORE, ConfidencePpm: 900_000}}},
 		{
