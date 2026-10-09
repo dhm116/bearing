@@ -123,7 +123,11 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-1** Every fact change, config change, role decision on an admin
   operation and confirmation by a person is written to the audit log in the
   same transaction as the change (ADR 8). No change commits without its
-  record.
+  record. Until the audit log (#138) exists, a `ChangeSet`'s audit entries
+  are kept only in the change journal, which holds the whole `ChangeSet`;
+  C-AUDIT-1 is met for that copy and the entries are not yet readable
+  through any contract. Their text (message, reason, target) is untrusted
+  input of bounded size: whatever prints it escapes control characters.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
 - **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,
@@ -682,7 +686,9 @@ Assets: A1, A3, A4, A5, A6.
   (docs/spec/contracts.md, "Backup"). Every frame is at most
   `contracts.MaxChangeSetBytes`, and replaying a record applies the count
   limits too (`contracts.CheckChangeSetLimits`). The reference store replays its change
-  journal and refuses any apply that decides differently, an entry with no
+  journal, which regenerates merge reviews and un-merge records from the
+  entries rather than reading them from the backup, and refuses any apply
+  that decides differently, an entry with no
   record time or one later than the header's `taken_at`, which it doesn't
   compare with its own clock, so a backup from a host whose clock ran ahead
   restores with its head and ID timestamps ahead too. These checks are in
@@ -707,9 +713,14 @@ Assets: A1, A3, A4, A5, A6.
   timelines, all changed. Merge records, which carry both alias sets, are
   refused as soon as together they pass the byte limit, and a record that
   grows past it when recorded is refused too. A limit error quotes at most
-  64 bytes of the input. **Known exception:** the "MUST" above is met by
-  the reference store and not yet by the SurrealDB backend. Its Apply and
-  every read load every merge record, with both alias sets, and every
+  64 bytes of the input. Audit entries are held to byte bounds per field
+  (`MaxAuditIDBytes`, `MaxAuditReasonBytes`) because they are kept for good,
+  and a merge record's reviews are capped at `MaxTimelineRows`, a full record
+  replacing its newest review so that a source toggling evidence cannot make
+  the events that touch the merge fail. **Known exception:** the "MUST"
+  above is met by the reference store and not yet by the SurrealDB backend.
+  Its Apply and every read load every merge record and un-merge record, with
+  their alias sets (merge reviews ride on the merge records), and every
   conflict retry loads them again; they also load the whole history of each
   series they touch. Its other tables are loaded by key, predicate or
   subject, except that an unfiltered `Supports`, `AsOf`, `Changes` or

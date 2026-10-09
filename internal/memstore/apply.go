@@ -287,7 +287,8 @@ func (s *Store) resolveAuditTargets(entries []*modelv1alpha1.AuditEntry, refs ma
 // record, which the merges and un-merges before it have already written. A
 // review equal to the latest one, apart from the event and record time,
 // writes nothing, so a resolver that re-evaluates on every apply does not
-// grow the record.
+// grow the record, and a record at MaxTimelineRows reviews replaces its
+// newest.
 func (s *Store) writeReviews(undo *[]func(), cs *modelv1alpha1.ChangeSet) error {
 	written := map[int]bool{}
 	for n, w := range cs.GetMergeReviews() {
@@ -313,13 +314,18 @@ func (s *Store) writeReviews(undo *[]func(), cs *modelv1alpha1.ChangeSet) error 
 		}
 		written[i] = true
 		old := s.merges[i]
-		if k := len(old.GetReviews()); k > 0 && sameReview(old.GetReviews()[k-1], rv) {
-			continue
-		} else if k >= contracts.MaxTimelineRows {
-			return fmt.Errorf("merge review %d: the merge of %s already has %d reviews", n, w.GetSubjectId(), k)
-		}
 		next := proto.CloneOf(old)
-		next.Reviews = append(next.Reviews, proto.CloneOf(rv))
+		switch k := len(next.GetReviews()); {
+		case k > 0 && sameReview(next.Reviews[k-1], rv):
+			continue
+		case k >= contracts.MaxTimelineRows:
+			// A source can flip its findings as often as it likes, so a full
+			// record takes the new review in place of its newest rather than
+			// refusing the event. The journal keeps the one it replaces.
+			next.Reviews[k-1] = proto.CloneOf(rv)
+		default:
+			next.Reviews = append(next.Reviews, proto.CloneOf(rv))
+		}
 		s.merges[i] = next
 		*undo = append(*undo, func() { s.merges[i] = old })
 	}

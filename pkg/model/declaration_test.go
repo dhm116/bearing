@@ -2,6 +2,7 @@ package model
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -107,6 +108,8 @@ func TestValidateManualEvent(t *testing.T) {
 		{&eventv1alpha1.MergeRequested{Reason: "r", SubjectIds: []string{a, b}}, codeMalformed},
 		{&eventv1alpha1.MergeRequested{Actor: actor, SubjectIds: []string{a, b}}, codeMalformed},
 		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: "r", SubjectIds: []string{a}}, codeMalformed},
+		{&eventv1alpha1.MergeRequested{Actor: &eventv1alpha1.Actor{Subject: strings.Repeat("a", MaxActorBytes+1)}, Reason: "r", SubjectIds: []string{a, b}}, codeMalformed},
+		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: strings.Repeat("a", MaxReasonBytes+1), SubjectIds: []string{a, b}}, codeMalformed},
 		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: "r", SubjectIds: []string{a, a}}, codeInvalidOperation},
 		{&eventv1alpha1.DistinctFromSet{Actor: actor, Reason: "r", SubjectIds: []string{a, "0192B1C4-5E11-7B4D-8E3F-7A2B3C4D5E6F"}}, codeMalformed},
 		{&eventv1alpha1.UnmergeRequested{Actor: actor, Reason: "r", SubjectId: a}, codeInvalidOperation},

@@ -108,7 +108,8 @@ so every backend refuses the same `ChangeSet`s:
 | --- | --- | --- |
 | `MaxChangeSetItems` | 50,000 | Entries in each of mints, bindings, supports, facts, conflicts, issues, state, audit entries and merge reviews |
 | `MaxChangeSetMerges` | 250 | Merges, and separately un-merges |
-| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions of one conflict, objects of one position, subjects, aliases and supports of one issue; reviews on one merge record |
+| `MaxTimelineRows` | 256 | Rows in one binding, support, fact, conflict or issue timeline; aliases in one un-merge; positions of one conflict, objects of one position, subjects, aliases and supports of one issue; reviews on one merge record (a full record replaces its newest review) |
+| `MaxAuditIDBytes`, `MaxAuditReasonBytes` | 1,024, 4,096 | Bytes in an audit entry's actor ID, target ID and rule, and in its reason |
 
 The byte limit alone leaves the shape of a `ChangeSet` open: a timeline of
 thousands of rows, or thousands of merges, costs a naive store time
@@ -200,6 +201,12 @@ rejection code, the reason and the target's state before and after. The store
 checks each entry's shape and refuses the `ChangeSet` if one fails:
 
 - `action` is set and known;
+- the actor ID, the target ID and the rule are at most `MaxAuditIDBytes`
+  (1,024) and the reason at most `MaxAuditReasonBytes` (4,096), the same
+  bounds a manual event's actor and reason have. The entries are kept for
+  good and carry text from events and sources, so the bounds are settled
+  before the first is stored. Control characters are not refused: whatever
+  prints an entry's text MUST escape them;
 - the actor and the target have a known kind and an ID;
 - `rejection_code` is set when `action` is `rejection` and for no other
   action;
@@ -232,8 +239,10 @@ read's record time, so the latest is current. A review equal to the latest
 in score and status writes nothing, so a resolver that re-evaluates on
 every apply does not grow the record. It refuses a `ChangeSet` that names a
 merge that doesn't exist or names one merge twice, a missing or unknown
-status, a score over 1,000,000, and a record that would hold more than
-`MaxTimelineRows` reviews. A review may follow its merge in the same
+status and a score over 1,000,000. A record holds at most `MaxTimelineRows`
+reviews: at the limit a new review replaces the newest, because a source can
+flip its findings as often as it likes and the events that touch the merge
+must not fail for it (the journal keeps the review replaced). A review may follow its merge in the same
 `ChangeSet`, naming the merged subject by its ref. The store does not judge
 the findings or open the conflict that `needs_review` goes with: that is the
 resolver's.

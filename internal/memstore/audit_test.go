@@ -40,10 +40,11 @@ func twoTeams(t *testing.T, s *Store, clk interface{ Advance(time.Duration) }) (
 	return survivor, merged
 }
 
-// TestMergeReviewsStopAtTheTimelineLimit: a merge record keeps at most
-// MaxTimelineRows reviews, so a resolver that flips its findings every apply
-// is refused rather than growing the record without bound.
-func TestMergeReviewsStopAtTheTimelineLimit(t *testing.T) {
+// TestMergeReviewsAtTheTimelineLimitReplaceTheNewest: a merge record keeps at
+// most MaxTimelineRows reviews, and a resolver that flips its findings every
+// apply is not refused for it, so an input that toggles evidence cannot wedge
+// the events that touch the merge.
+func TestMergeReviewsAtTheTimelineLimitReplaceTheNewest(t *testing.T) {
 	s, clk := newTestStore()
 	survivor, merged := twoTeams(t, s, clk)
 	review := func(i uint32) *modelv1alpha1.ChangeSet {
@@ -55,19 +56,19 @@ func TestMergeReviewsStopAtTheTimelineLimit(t *testing.T) {
 			}}},
 		}
 	}
-	for i := uint32(1); i <= contracts.MaxTimelineRows; i++ {
+	for i := uint32(1); i <= contracts.MaxTimelineRows+10; i++ {
 		clk.Advance(time.Second)
 		if _, err := s.Apply(context.Background(), review(i)); err != nil {
 			t.Fatalf("review %d: %v", i, err)
 		}
 	}
-	clk.Advance(time.Second)
-	if _, err := s.Apply(context.Background(), review(contracts.MaxTimelineRows+1)); err == nil {
-		t.Fatalf("got no error from review %d, want the limit of %d", contracts.MaxTimelineRows+1, contracts.MaxTimelineRows)
-	}
 	recs, _ := s.Merges(context.Background(), contracts.SubjectID(survivor), time.Time{})
 	if len(recs) != 1 || len(recs[0].GetReviews()) != contracts.MaxTimelineRows {
 		t.Fatalf("got %v, want %d reviews kept", recs, contracts.MaxTimelineRows)
+	}
+	rs := recs[0].GetReviews()
+	if first, last := rs[0].GetMergedScorePpm(), rs[len(rs)-1].GetMergedScorePpm(); first != 1 || last != contracts.MaxTimelineRows+10 {
+		t.Fatalf("got reviews from %d to %d, want the first and the latest", first, last)
 	}
 }
 
