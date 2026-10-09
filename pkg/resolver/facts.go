@@ -292,8 +292,16 @@ func (r *factRun) claim(ctx context.Context, claims []*claim) error {
 		}
 		sup := r.supportOf(c)
 		for _, w := range c.writes(r.at, r.p.key, sup) {
+			if e.s.dropped(w) {
+				r.u.dropped = append(r.u.dropped, DroppedWrite{Source: r.p.ev.Source, Subject: c.fact.subject, Predicate: c.fact.pred, Object: c.fact.token, Key: r.p.key})
+			}
 			e.s = e.s.overlay(w)
 		}
+		wms, err := r.watermarksFor(ctx, r.p.ev.Source, c.fact)
+		if err != nil {
+			return err
+		}
+		e.s = e.s.settled(wms)
 		e.dirty = true
 		r.touch(r.p.ev.Source, c.fact)
 	}
@@ -356,6 +364,7 @@ func (r *factRun) recompute(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		r.noteDroppedByWatermarks(t, e.s, wms)
 		var versions []*modelv1alpha1.Support
 		for _, v := range e.s.effective(wms).versions() {
 			versions = append(versions, v.support())
@@ -363,6 +372,22 @@ func (r *factRun) recompute(ctx context.Context) error {
 		r.setSupport(t.source, t.f, versions)
 	}
 	return nil
+}
+
+// noteDroppedByWatermarks records the facts this observation's watermarks fail
+// to end where they should have: a segment that joins confirmations made on
+// both sides of the watermark's key keeps the later key (see
+// [series.settled]).
+func (r *factRun) noteDroppedByWatermarks(t affected, s series, wms []watermark) {
+	for _, w := range wms {
+		if model.CompareOrderingKeys(w.key, r.p.key) != 0 {
+			continue
+		}
+		if s.dropped(ending(w.at, w.key, w.reason)) {
+			r.u.dropped = append(r.u.dropped, DroppedWrite{Source: t.source, Subject: t.f.subject, Predicate: t.f.pred, Object: t.f.token, Key: r.p.key})
+			return
+		}
+	}
 }
 
 // setSupport records the support versions a source has for a fact.

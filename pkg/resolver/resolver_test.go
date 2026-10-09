@@ -1,9 +1,13 @@
 package resolver
 
 import (
+	"cmp"
 	"context"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +60,8 @@ type env struct {
 	store *memstore.Store
 	clock *testkit.FakeClock
 	r     *Resolver
+	// dropped counts the claims applies have reported as ignored.
+	dropped int
 }
 
 func newEnv(t testing.TB) *env {
@@ -102,7 +108,46 @@ func (e *env) apply(ev Event) Applied {
 		e.t.Fatalf("apply %s: %v", ev.ID, err)
 	}
 	e.clock.Advance(time.Second)
+	e.dropped += len(got.Dropped)
 	return got
+}
+
+// sameOrDropped checks that an apply order gave the facts of the in-order
+// apply, unless an apply reported ignoring a claim: the one way the order may
+// show (docs/spec/data-model.md, "State, determinism and apply"). It reports
+// whether the two were equal, and whether the order failed the check.
+func (e *env) sameOrDropped(got, want string) (same, failed bool) {
+	return got == want, got != want && e.dropped == 0
+}
+
+// sourceOrderShuffle returns a random order of events that keeps each
+// source's events in ordering-key order: no event of a source arrives after a
+// later one of the same source, so no claim can be ignored.
+func sourceOrderShuffle(rng *rand.Rand, events []Event) []int {
+	bySource := map[string][]int{}
+	for i, ev := range events {
+		bySource[ev.Source] = append(bySource[ev.Source], i)
+	}
+	for _, idx := range bySource {
+		slices.SortFunc(idx, func(a, b int) int {
+			x, y := events[a].Observation, events[b].Observation
+			return cmp.Or(x.GetTime().AsTime().Compare(y.GetTime().AsTime()), strings.Compare(x.GetId(), y.GetId()), strings.Compare(events[a].ID, events[b].ID))
+		})
+	}
+	var out []int
+	for len(out) < len(events) {
+		var live []string
+		for src, idx := range bySource {
+			if len(idx) > 0 {
+				live = append(live, src)
+			}
+		}
+		slices.Sort(live)
+		src := live[rng.Intn(len(live))]
+		out = append(out, bySource[src][0])
+		bySource[src] = bySource[src][1:]
+	}
+	return out
 }
 
 // resolveKey returns the subject key maps to at valid time v, or "".

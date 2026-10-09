@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
@@ -38,6 +39,30 @@ type Result struct {
 	ChangeSet *modelv1alpha1.ChangeSet
 	// Rejections are the refusals to audit.
 	Rejections []Rejection
+	// Dropped are the writes the ChangeSet ignores because a source's
+	// confirmations on both sides of their key were joined into one.
+	Dropped []DroppedWrite
+}
+
+// DroppedWrite is a claim, binding or deletion of the observation that the
+// resolver's state ignored: the source had confirmed the same state before
+// and after its ordering key, the resolver keeps only the last confirmation,
+// and the write says something else (docs/spec/data-model.md, "State, determinism
+// and apply"). Applied in key order it would have decided the stretch of
+// valid time before the later confirmation, so the answer differs from the
+// one an in-order apply gives. The host is to audit it once the audit log is
+// wired in (issue #138).
+type DroppedWrite struct {
+	// Source is the source whose state ignored the claim.
+	Source string
+	// Subject, Predicate and Object name the fact a claim wrote or a
+	// watermark should have ended: the subject ID, the predicate, and the
+	// object's subject ID or "=" and the fact ID of a value. For a dropped
+	// binding, Subject is the subject written and Alias the name.
+	Subject, Predicate, Object string
+	Alias                      model.Key
+	// Key is the ordering key of the dropped claim.
+	Key *resolverv1alpha1.OrderingKey
 }
 
 // Resolve computes the ChangeSet for ev against the store's current head.
@@ -72,13 +97,17 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		}
 	}
 	rejs = append(rejs, more...)
+	var dropped []DroppedWrite
+	if u != nil {
+		dropped = u.dropped
+	}
 	if rej := tooLarge(cs); rej != nil {
 		// An error would make the host retry the event forever, so the event
 		// is recorded as processed and changes nothing.
 		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt()}
 		return &Result{ChangeSet: empty, Rejections: append(rejs, *rej)}, nil
 	}
-	return &Result{ChangeSet: cs, Rejections: rejs}, nil
+	return &Result{ChangeSet: cs, Rejections: rejs, Dropped: dropped}, nil
 }
 
 // tooLarge reports the store limit cs is over, as the rejection of the whole
@@ -101,6 +130,9 @@ type Applied struct {
 	contracts.ApplyResult
 	// Rejections are the refusals to audit. They are empty for a duplicate.
 	Rejections []Rejection
+	// Dropped are the claims the applied ChangeSet ignores (see
+	// [DroppedWrite]). They are empty for a duplicate.
+	Dropped []DroppedWrite
 }
 
 // maxStale is how often Apply recomputes after losing a race.
@@ -124,9 +156,9 @@ func (r *Resolver) Apply(ctx context.Context, ev Event) (Applied, error) {
 		if err != nil {
 			return Applied{}, fmt.Errorf("resolver: apply event %s: %w", ev.ID, err)
 		}
-		out := Applied{ApplyResult: got, Rejections: res.Rejections}
+		out := Applied{ApplyResult: got, Rejections: res.Rejections, Dropped: res.Dropped}
 		if got.Duplicate {
-			out.Rejections = nil
+			out.Rejections, out.Dropped = nil, nil
 		}
 		return out, nil
 	}

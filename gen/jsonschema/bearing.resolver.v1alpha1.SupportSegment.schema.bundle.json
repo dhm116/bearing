@@ -272,7 +272,7 @@
       "properties": {
         "key": {
           "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
-          "description": "The deciding write's ordering key."
+          "description": "The deciding write's ordering key; for a segment that joins\n confirmations, the last one's."
         },
         "live": {
           "default": false,

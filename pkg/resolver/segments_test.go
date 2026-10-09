@@ -246,3 +246,83 @@ func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
 		}
 	}
 }
+
+// Neighbours that say the same join into one segment with the later key,
+// unless a watermark could still tell them apart.
+func TestSettledJoinsConfirmationsUnlessAWatermarkSeparatesThem(t *testing.T) {
+	a := liveSeg(1, "a", hour(0), hour(2), 1_000_000)
+	b := liveSeg(3, "b", hour(2), posInf, 1_000_000)
+	if got, want := show(series{a, b}.settled(nil)), "[0,+)=live(1000000)@b"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+	// The joined segment keeps the first claim's support.
+	if got := (series{a, b}).settled(nil)[0].sup.GetObservationId(); got != "a" {
+		t.Errorf("got the support of %q, want the first claim's", got)
+	}
+
+	// A watermark between the keys that starts before a ends would end part
+	// of a and none of b: a snapshot that left the fact out between them.
+	between := watermark{at: hour(1), key: model.NewOrderingKey(t0.Add(2*time.Hour), "w", "src/w", ""), reason: modelv1alpha1.SupportReason_SUPPORT_REASON_SNAPSHOT}
+	if got, want := show(series{a, b}.settled([]watermark{between})), show(series{a, b}); got != want {
+		t.Errorf("a watermark in between: got %s, want %s", got, want)
+	}
+	// One that starts as a ends, or is older than a, changes nothing.
+	for _, w := range []watermark{
+		{at: hour(2), key: between.key, reason: between.reason},
+		{at: hour(1), key: model.NewOrderingKey(t0, "w", "src/w", ""), reason: between.reason},
+	} {
+		if got, want := show(series{a, b}.settled([]watermark{w})), "[0,+)=live(1000000)@b"; got != want {
+			t.Errorf("watermark at %d: got %s, want %s", w.at, got, want)
+		}
+	}
+}
+
+func TestSettledKeepsChangesAndEndings(t *testing.T) {
+	a := liveSeg(1, "a", hour(0), hour(2), 1_000_000)
+	changed := liveSeg(3, "b", hour(2), hour(4), 800_000)
+	back := liveSeg(5, "c", hour(4), posInf, 1_000_000)
+	stale := liveSeg(2, "s", hour(4), posInf, 1_000_000) // older than its neighbour
+	ended := endSeg(6, "e", hour(4))
+	tests := []struct {
+		name string
+		in   series
+		want string
+	}{
+		{"a change in between", series{a, changed, back}, show(series{a, changed, back})},
+		{"an older neighbour", series{changed, stale}, show(series{changed, stale})},
+		{"an ending", series{a, ended}, show(series{a, ended})},
+		{"a gap", series{a, liveSeg(5, "c", hour(3), posInf, 1_000_000)}, show(series{a, liveSeg(5, "c", hour(3), posInf, 1_000_000)})},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := show(tc.in.settled(nil)); got != tc.want {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// A write among the confirmations that a segment joins and that says
+// something else is the one the series drops.
+func TestSeriesDroppedFindsWritesAmongConfirmations(t *testing.T) {
+	joined := series{liveSeg(1, "a", hour(0), hour(2), 1_000_000), liveSeg(5, "b", hour(2), posInf, 1_000_000)}.settled(nil)
+	among := liveSeg(3, "m", hour(1), posInf, 800_000)
+	for _, tc := range []struct {
+		name string
+		w    seg
+		want bool
+	}{
+		{"another state among them", among, true},
+		{"an ending among them", endSeg(3, "m", hour(1)), true},
+		{"the same state among them", liveSeg(3, "m", hour(1), posInf, 1_000_000), false},
+		{"before the first", liveSeg(0, "m", hour(1), posInf, 800_000), false},
+		{"after the last", liveSeg(6, "m", hour(1), posInf, 800_000), false},
+		{"in a stretch they don't cover", liveSeg(3, "m", hour(-5), hour(-4), 800_000), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := joined.dropped(tc.w); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -40,7 +40,7 @@ func packWrites(ws []write) (*anypb.Any, error) {
 	slices.SortStableFunc(ws, writeCmp)
 	msg := &resolverv1alpha1.BindingWrites{}
 	for _, w := range ws {
-		bw := &resolverv1alpha1.BindingWrite{Key: w.key, Tentative: w.tentative}
+		bw := &resolverv1alpha1.BindingWrite{Key: w.key, Tentative: w.tentative, FirstKey: w.first}
 		if !w.tentative {
 			bw.ValidFrom = timestamppb.New(w.from)
 		}
@@ -72,7 +72,7 @@ func unpackWrites(a *anypb.Any, subject string) ([]write, error) {
 	}
 	out := make([]write, 0, len(msg.GetWrites()))
 	for _, bw := range msg.GetWrites() {
-		w := write{key: bw.GetKey(), tentative: bw.GetTentative(), subject: subject}
+		w := write{key: bw.GetKey(), tentative: bw.GetTentative(), subject: subject, first: bw.GetFirstKey()}
 		switch {
 		case bw.GetReleased():
 			return nil, fmt.Errorf("%w: a binding write is a release", ErrCorrupt)

@@ -54,6 +54,8 @@ type run struct {
 	idConflicts []idClash
 	// rejections are refusals made while resolving.
 	rejections []Rejection
+	// dropped are the writes the support state ignored (see [DroppedWrite]).
+	dropped []DroppedWrite
 }
 
 // identify resolves the observed entity and its references to subjects and
@@ -406,6 +408,11 @@ func (u *run) finish(ctx context.Context) error {
 		u.cs.Bindings = append(u.cs.Bindings, byAlias[a])
 	}
 	u.cs.Merges = append(u.cs.Merges, u.merges...)
+	for _, d := range u.eng.noteDropped(ctx, u.p.key) {
+		d.Source = u.p.ev.Source
+		u.dropped = append(u.dropped, d)
+	}
+	u.eng.joinConfirmations(ctx)
 	entries, err := u.eng.stateEntries()
 	if err != nil {
 		return err

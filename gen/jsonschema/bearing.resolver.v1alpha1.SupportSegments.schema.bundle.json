@@ -272,7 +272,7 @@
       "properties": {
         "key": {
           "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
-          "description": "The deciding write's ordering key."
+          "description": "The deciding write's ordering key; for a segment that joins\n confirmations, the last one's."
         },
         "live": {
           "default": false,
@@ -327,7 +327,7 @@
     "bearing.resolver.v1alpha1.SupportSegments.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "SupportSegments is one source's segments for one fact, sorted by\n valid_from and not overlapping. A sync that repeats the fact adds a segment\n with a greater key.",
+      "description": "SupportSegments is one source's segments for one fact, sorted by\n valid_from and not overlapping. A sync that repeats a live segment's state\n extends it: the segment takes the sync's key and end, and keeps the first\n claim's support, whose key is the first confirmation's.",
       "properties": {
         "segments": {
           "description": "The segments.",

@@ -6,10 +6,14 @@
 // read them back; they never look inside (docs/spec/contracts.md, "State
 // keys"). These messages are not part of the data model.
 //
-// Known limit: every message below is rewritten whole by each apply that
-// touches it and grows with every sync, because each re-observation is a new
-// write with a greater ordering key. Nothing prunes them yet
-// (docs/spec/contracts.md, "State keys"; issue #77).
+// Every message below is rewritten whole by each apply that touches it. A
+// re-observation that says what the entry already says (a confirmation) does
+// not add a record: it moves the existing record's ordering key to its own, the
+// "last verified" key, so BindingWrites and SupportSegments grow with the
+// changes a source reports, not with its syncs. A write whose key falls
+// between a record's first and last confirmations is ignored when it is applied
+// after the last (docs/spec/data-model.md, "State, determinism and apply").
+// ScopeWatermarks still adds a record per sync of its scope (issue #77).
 
 syntax = "proto3";
 
@@ -40,7 +44,8 @@ message OrderingKey {
 // BindingWrite is one observed write to an alias: a binding of the name to
 // a subject from valid_from on, or its release.
 message BindingWrite {
-  // The write's ordering key.
+  // The write's ordering key; for a joined write, that of the last
+  // confirmation.
   OrderingKey key = 1;
   // Where the write starts in valid time, extending to infinity. Absent
   // means all valid time (id aliases) or, with tentative, no start.
@@ -55,11 +60,15 @@ message BindingWrite {
   bool released = 4;
   // Written by a reference when minting a placeholder.
   bool tentative = 5;
+  // The key of the first confirmation, when the write joins several: the
+  // same name bound to the same subject by observations with greater keys.
+  // Absent for a write that joins none.
+  OrderingKey first_key = 6;
 }
 
 // BindingWrites is every write to one alias, in no particular order. The
-// binding timeline in the graph is computed from it. It gains a write for each
-// sync that mentions the alias.
+// binding timeline in the graph is computed from it. It gains a write when a
+// sync binds the alias to a subject differently from before.
 message BindingWrites {
   // The writes.
   repeated BindingWrite writes = 1;
@@ -70,7 +79,8 @@ message BindingWrites {
 // is what remains of all the source's writes about the fact: at each valid
 // time the covering write with the greatest key.
 message SupportSegment {
-  // The deciding write's ordering key.
+  // The deciding write's ordering key; for a segment that joins
+  // confirmations, the last one's.
   OrderingKey key = 1;
   // Start of valid time; absent means unbounded.
   google.protobuf.Timestamp valid_from = 2;
@@ -89,8 +99,9 @@ message SupportSegment {
 }
 
 // SupportSegments is one source's segments for one fact, sorted by
-// valid_from and not overlapping. A sync that repeats the fact adds a segment
-// with a greater key.
+// valid_from and not overlapping. A sync that repeats a live segment's state
+// extends it: the segment takes the sync's key and end, and keeps the first
+// claim's support, whose key is the first confirmation's.
 message SupportSegments {
   // The segments.
   repeated SupportSegment segments = 1;

@@ -1,8 +1,10 @@
 package resolver
 
 import (
+	"cmp"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -97,8 +99,12 @@ func joined(e *env) string {
 	return b.String()
 }
 
+// Events applied in any order give the facts of the in-order apply, and with
+// each source's events in key order none is ignored; in other orders a claim
+// the resolver ignores explains any difference
+// (docs/spec/data-model.md, "State, determinism and apply").
 func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
-	compared := 0
+	compared, sourceOrdered := 0, 0
 	for seed := range int64(150) {
 		rng := rand.New(rand.NewSource(seed)) //nolint:gosec // G404: a seeded shuffle, not security
 		var events []Event
@@ -109,27 +115,49 @@ func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
 				events = append(events, ev)
 			}
 		}
+		// The in-order apply: every source's events, and so all of them, in
+		// observed_at order.
+		inOrder := sourceOrderShuffle(rng, events)
+		slices.SortStableFunc(inOrder, func(a, b int) int {
+			x, y := events[a].Observation, events[b].Observation
+			return cmp.Or(x.GetTime().AsTime().Compare(y.GetTime().AsTime()), strings.Compare(x.GetId(), y.GetId()), strings.Compare(events[a].ID, events[b].ID))
+		})
 		base := newEnv(t)
-		for _, ev := range events {
-			base.apply(ev)
+		for _, i := range inOrder {
+			base.apply(events[i])
+		}
+		if base.dropped != 0 {
+			t.Fatalf("seed %d: the in-order apply ignored %d claims", seed, base.dropped)
 		}
 		want, wantJoined := factsOverTime(t, base), joined(base)
 		for range 4 {
-			order := rng.Perm(len(events))
-			e := newEnv(t)
-			for _, i := range order {
-				e.apply(events[i])
-			}
-			if joined(e) != wantJoined {
-				continue
-			}
-			compared++
-			if got := factsOverTime(t, e); got != want {
-				t.Fatalf("seed %d, order %v:\n%s\nwant:\n%s", seed, order, got, want)
+			sourceOrder := sourceOrderShuffle(rng, events)
+			for _, order := range [][]int{rng.Perm(len(events)), sourceOrder} {
+				e := newEnv(t)
+				for _, i := range order {
+					e.apply(events[i])
+				}
+				if joined(e) != wantJoined {
+					continue
+				}
+				got := factsOverTime(t, e)
+				ok, failed := e.sameOrDropped(got, want)
+				if failed {
+					t.Fatalf("seed %d, order %v:\n%s\nwant:\n%s", seed, order, got, want)
+				}
+				if ok {
+					compared++
+				}
+				if slices.Equal(order, sourceOrder) {
+					sourceOrdered++
+					if e.dropped != 0 {
+						t.Fatalf("seed %d, order %v: %d claims ignored with each source in key order", seed, order, e.dropped)
+					}
+				}
 			}
 		}
 	}
-	if compared < 100 {
-		t.Fatalf("compared only %d orders; the generator no longer makes comparable runs", compared)
+	if compared < 100 || sourceOrdered < 100 {
+		t.Fatalf("compared %d orders and %d in source order; the generator no longer makes comparable runs", compared, sourceOrdered)
 	}
 }
