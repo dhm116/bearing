@@ -20,11 +20,9 @@ tm $C -q "UPDATE version SET ret = 1800000000000001 WHERE n = 4 AND key IN (SELE
 $C -q "OPTIMIZE TABLE version FINAL"
 # clickhouse benchmark takes no parameters, so the keys are literals: a
 # computed key would stop the primary index from being used.
-python3 -I -c "
-import random; random.seed(2)
-for _ in range(2000):
-    print(f\"SELECT n, rec, ret, data FROM version WHERE tbl = 'fact' AND key = 'acme/k{4 * random.randrange(50000) + 2}' AND rec <= 1767226600000000 AND (ret = 0 OR ret > 1767226600000000)\")
-" > "$D/ch-point.sql"
+awk 'BEGIN { srand(2); for (i = 0; i < 2000; i++)
+  printf "SELECT n, rec, ret, data FROM version WHERE tbl = \047fact\047 AND key = \047acme/k%d\047 AND rec <= 1767226600000000 AND (ret = 0 OR ret > 1767226600000000)\n", 4 * int(rand() * 50000) + 2
+}' > "$D/ch-point.sql"
 echo "point read of one series as of a record time (10 s each):"
 for c in 1 16; do $CH benchmark --port 9000 -c $c -t 10 < "$D/ch-point.sql" 2>&1 | grep QPS | tail -1 | sed "s/^/  c=$c /"; done
 echo "load two series with key IN (...), surrealstore's load shape:"

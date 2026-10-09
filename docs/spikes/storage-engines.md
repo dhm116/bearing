@@ -17,10 +17,10 @@ multi-statement transactions. SurrealDB's planner also turns surrealstore's
 
 ## Setup
 
-Code is in [`spikes/storage-engines/`](../../spikes/storage-engines/):
-`gen.py` writes the rows, `postgres.sh` and `clickhouse.sh` drive those
-engines with their own clients, and `surrealdb/` is a small Go module that
-drives SurrealDB over HTTP. The root module is untouched.
+Code is in [`spikes/storage-engines/`](../../spikes/storage-engines/), a
+Go module of its own so the root module is untouched: `gen` writes the rows,
+`postgres.sh` and `clickhouse.sh` drive those engines with their own
+clients, and `surrealdb` drives SurrealDB over HTTP.
 
 - **Rows.** A table shaped like surrealstore's `version` table: `tbl`, `key`,
   `n`, `rec` and `ret` (record times in µs) and about 300 bytes of `data`,
@@ -125,11 +125,11 @@ single-binary install.
 ```sh
 cd spikes/storage-engines
 mkdir -p /tmp/se
-python3 gen.py seed 200000 > /tmp/se/seed.tsv
-python3 gen.py apply 50000 > /tmp/se/apply.tsv
+go run ./gen seed 200000 > /tmp/se/seed.tsv
+go run ./gen apply 50000 > /tmp/se/apply.tsv
 PGHOST=/tmp PGPORT=5433 PGUSER=postgres ./postgres.sh /tmp/se
 ./clickhouse.sh "$(command -v clickhouse)" /tmp/se
-(cd surrealdb && go run . -data /tmp/se)
+go run ./surrealdb -data /tmp/se
 ```
 
 Each script expects its server on the default local port (PostgreSQL as

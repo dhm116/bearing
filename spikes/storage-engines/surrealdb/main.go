@@ -3,7 +3,7 @@
 // internal/surrealstore: 500 rows per INSERT and 2,000 per transaction.
 //
 //	surreal start --user root --pass root --bind 127.0.0.1:8000 surrealkv://DIR
-//	go run . -data DATA_DIR
+//	go run ./surrealdb -data DATA_DIR   # in spikes/storage-engines
 package main
 
 import (
@@ -141,7 +141,7 @@ func staged(rows []row) time.Duration {
 }
 
 func main() {
-	dir := flag.String("data", ".", "directory holding seed.tsv and apply.tsv from gen.py")
+	dir := flag.String("data", ".", "directory holding seed.tsv and apply.tsv from ./gen")
 	seed := flag.Bool("seed", true, "recreate and seed the table; false reuses an earlier run's")
 	flag.Parse()
 	if *seed {

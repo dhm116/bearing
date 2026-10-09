@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs the storage-engine benchmark on PostgreSQL. Usage:
-#   postgres.sh DATA_DIR   (DATA_DIR holds seed.tsv and apply.tsv from gen.py)
+#   postgres.sh DATA_DIR   (DATA_DIR holds seed.tsv and apply.tsv from ./gen)
 # Connects with PG* environment variables, e.g. PGHOST=/tmp PGPORT=5433
 # PGUSER=postgres; needs psql and pgbench on PATH.
 set -e
