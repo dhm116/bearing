@@ -1,12 +1,14 @@
 package memstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -62,12 +64,34 @@ func TestMergeReviewsAtTheTimelineLimitReplaceTheNewest(t *testing.T) {
 		if _, err := s.Apply(context.Background(), review(i)); err != nil {
 			t.Fatalf("review %d: %v", i, err)
 		}
+		// The same findings again write nothing, at the limit too.
+		clk.Advance(time.Second)
+		again := review(i)
+		again.EventId += "-again"
+		if _, err := s.Apply(context.Background(), again); err != nil {
+			t.Fatalf("review %d again: %v", i, err)
+		}
 	}
 	recs, _ := s.Merges(context.Background(), contracts.SubjectID(survivor), time.Time{})
 	if len(recs) != 1 || len(recs[0].GetReviews()) != contracts.MaxTimelineRows {
 		t.Fatalf("got %v, want %d reviews kept", recs, contracts.MaxTimelineRows)
 	}
 	rs := recs[0].GetReviews()
+	// The history restores the same, replaced reviews and unchanged ones
+	// included: replay re-decides every apply and refuses a difference.
+	var buf bytes.Buffer
+	if err := s.Backup(context.Background(), &buf); err != nil {
+		t.Fatal(err)
+	}
+	dst, dclk := newTestStore()
+	dclk.Set(clk.Now())
+	if err := dst.Restore(context.Background(), &buf); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := dst.Merges(context.Background(), contracts.SubjectID(survivor), time.Time{})
+	if len(got) != 1 || !proto.Equal(got[0], recs[0]) {
+		t.Fatalf("got %v after a restore, want %v", got, recs[0])
+	}
 	if first, last := rs[0].GetMergedScorePpm(), rs[len(rs)-1].GetMergedScorePpm(); first != 1 || last != contracts.MaxTimelineRows+10 {
 		t.Fatalf("got reviews from %d to %d, want the first and the latest", first, last)
 	}

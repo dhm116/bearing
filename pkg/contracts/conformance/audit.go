@@ -70,9 +70,10 @@ func (g *suite) auditEntries(t *testing.T) {
 		"code on another action": mintEntry(func(e *modelv1alpha1.AuditEntry) {
 			e.RejectionCode = modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED
 		}),
-		"unknown ref":     mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "new:nope" }),
-		"unknown subject": mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "0192b1c4-0000-7000-8000-000000000000" }),
-		"invalid UTF-8":   mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Reason = "\xff" }),
+		"unknown ref":         mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "new:nope" }),
+		"unknown subject":     mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Target.Id = "0192b1c4-0000-7000-8000-000000000000" }),
+		"confidence over one": mintEntry(func(e *modelv1alpha1.AuditEntry) { e.ConfidencePpm = 1_000_001 }),
+		"invalid UTF-8":       mintEntry(func(e *modelv1alpha1.AuditEntry) { e.Reason = "\xff" }),
 	} {
 		// A mint beside the bad entry must not stay either.
 		_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Mints: []*modelv1alpha1.Mint{mint("new:y", "Team")}, Audit: bad})

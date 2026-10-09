@@ -207,6 +207,7 @@ checks each entry's shape and refuses the `ChangeSet` if one fails:
   good and carry text from events and sources, so the bounds are settled
   before the first is stored. Control characters are not refused: whatever
   prints an entry's text MUST escape them;
+- `confidence_ppm` is at most 1,000,000;
 - the actor and the target have a known kind and an ID;
 - `rejection_code` is set when `action` is `rejection` and for no other
   action;

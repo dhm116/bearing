@@ -250,6 +250,9 @@ func checkAudit(entries []*modelv1alpha1.AuditEntry) error {
 		if _, known := modelv1alpha1.AuditTargetKind_name[int32(e.GetTarget().GetKind())]; !known || e.GetTarget().GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED || e.GetTarget().GetId() == "" {
 			return fmt.Errorf("audit entry %d: the target needs a known kind and an id", i)
 		}
+		if e.GetConfidencePpm() > model.MaxConfidence {
+			return fmt.Errorf("audit entry %d: confidence %d is over %d", i, e.GetConfidencePpm(), model.MaxConfidence)
+		}
 		_, known := modelv1alpha1.RejectionCode_name[int32(e.GetRejectionCode())]
 		switch rejected := e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION; {
 		case rejected && (!known || e.GetRejectionCode() == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED):
