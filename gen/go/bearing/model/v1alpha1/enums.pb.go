@@ -1217,6 +1217,63 @@ func (RejectionCode) EnumDescriptor() ([]byte, []int) {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{18}
 }
 
+// MergeReviewStatus is what re-evaluating a merge's evidence found
+// (docs/spec/data-model.md, "Merge" step 4).
+type MergeReviewStatus int32
+
+const (
+	// Not set. Rejected on a review write.
+	MergeReviewStatus_MERGE_REVIEW_STATUS_UNSPECIFIED MergeReviewStatus = 0
+	// The evidence still supports the merge, or it ended in a way that is not a
+	// reason for review (a subject was deleted, or lost its exists).
+	MergeReviewStatus_MERGE_REVIEW_STATUS_HOLDS MergeReviewStatus = 1
+	// The evidence now contradicts the merge, and the core opened a conflict
+	// on (subject, same_as) for a person to look at. The core never un-merges
+	// by itself.
+	MergeReviewStatus_MERGE_REVIEW_STATUS_NEEDS_REVIEW MergeReviewStatus = 2
+)
+
+// Enum value maps for MergeReviewStatus.
+var (
+	MergeReviewStatus_name = map[int32]string{
+		0: "MERGE_REVIEW_STATUS_UNSPECIFIED",
+		1: "MERGE_REVIEW_STATUS_HOLDS",
+		2: "MERGE_REVIEW_STATUS_NEEDS_REVIEW",
+	}
+	MergeReviewStatus_value = map[string]int32{
+		"MERGE_REVIEW_STATUS_UNSPECIFIED":  0,
+		"MERGE_REVIEW_STATUS_HOLDS":        1,
+		"MERGE_REVIEW_STATUS_NEEDS_REVIEW": 2,
+	}
+)
+
+func (x MergeReviewStatus) Enum() *MergeReviewStatus {
+	p := new(MergeReviewStatus)
+	*p = x
+	return p
+}
+
+func (x MergeReviewStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MergeReviewStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[19].Descriptor()
+}
+
+func (MergeReviewStatus) Type() protoreflect.EnumType {
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[19]
+}
+
+func (x MergeReviewStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MergeReviewStatus.Descriptor instead.
+func (MergeReviewStatus) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{19}
+}
+
 var File_bearing_model_v1alpha1_enums_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
@@ -1346,7 +1403,11 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x1dREJECTION_CODE_ALREADY_MERGED\x10\r\x12$\n" +
 	" REJECTION_CODE_INVALID_OPERATION\x10\x0e\x12\x1c\n" +
 	"\x18REJECTION_CODE_MALFORMED\x10\x0f\x12\x1c\n" +
-	"\x18REJECTION_CODE_TOO_LARGE\x10\x10B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
+	"\x18REJECTION_CODE_TOO_LARGE\x10\x10*}\n" +
+	"\x11MergeReviewStatus\x12#\n" +
+	"\x1fMERGE_REVIEW_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19MERGE_REVIEW_STATUS_HOLDS\x10\x01\x12$\n" +
+	" MERGE_REVIEW_STATUS_NEEDS_REVIEW\x10\x02B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
 
 var (
 	file_bearing_model_v1alpha1_enums_proto_rawDescOnce sync.Once
@@ -1360,7 +1421,7 @@ func file_bearing_model_v1alpha1_enums_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 19)
+var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 20)
 var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(SubjectStatus)(0),      // 0: bearing.model.v1alpha1.SubjectStatus
 	(MintRule)(0),           // 1: bearing.model.v1alpha1.MintRule
@@ -1381,6 +1442,7 @@ var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(CompactionDetail)(0),   // 16: bearing.model.v1alpha1.CompactionDetail
 	(IssueType)(0),          // 17: bearing.model.v1alpha1.IssueType
 	(RejectionCode)(0),      // 18: bearing.model.v1alpha1.RejectionCode
+	(MergeReviewStatus)(0),  // 19: bearing.model.v1alpha1.MergeReviewStatus
 }
 var file_bearing_model_v1alpha1_enums_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1400,7 +1462,7 @@ func file_bearing_model_v1alpha1_enums_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_enums_proto_rawDesc), len(file_bearing_model_v1alpha1_enums_proto_rawDesc)),
-			NumEnums:      19,
+			NumEnums:      20,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

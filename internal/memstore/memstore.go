@@ -51,6 +51,8 @@ type Store struct {
 	merges       []*modelv1alpha1.MergeRecord      // in record order
 	mergedBy     map[string][]int                  // indexes into merges, by merged subject
 	survivorOf   map[string][]int                  // indexes into merges, by survivor
+	unmerges     []*modelv1alpha1.UnmergeRecord    // in record order
+	unmergesBy   map[string][]int                  // indexes into unmerges, by subject and by target
 	aliasesBy    map[string]map[string]bool        // aliases that ever had a row for a subject, as written
 	liveBy       map[string]map[string]bool        // aliases with a current (not retracted) row for a subject, as written
 	direct       map[string][]string               // during an apply: aliasesOf's per-subject scans, until bindings change
@@ -74,9 +76,9 @@ func New() *Store {
 
 // reset empties the graph.
 func (s *Store) reset() {
-	s.head, s.lastID, s.journal, s.merges = time.Time{}, "", nil, nil
+	s.head, s.lastID, s.journal, s.merges, s.unmerges = time.Time{}, "", nil, nil, nil
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
-	s.mergedBy, s.survivorOf = map[string][]int{}, map[string][]int{}
+	s.mergedBy, s.survivorOf, s.unmergesBy = map[string][]int{}, map[string][]int{}, map[string][]int{}
 	s.aliasesBy, s.liveBy = map[string]map[string]bool{}, map[string]map[string]bool{}
 	s.bindings, s.supports, s.facts, s.conflict, s.issues, s.state = table{}, table{}, table{}, table{}, table{}, table{}
 }

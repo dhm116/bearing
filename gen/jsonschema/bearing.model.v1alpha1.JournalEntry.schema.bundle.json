@@ -1,5 +1,266 @@
 {
   "$defs": {
+    "bearing.model.v1alpha1.AuditActor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditActor is who or what made a change.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "A stable ID, never a token or a secret (threat model C-AUDIT-6): for an\n event's actor, its Actor.subject unchanged; for a component,\n \"system:\u003cname\u003e\" such as \"system:resolver\" or \"system:scheduler\".",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_ACTOR_KIND_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_ACTOR_KIND_PERSON",
+                "AUDIT_ACTOR_KIND_AGENT",
+                "AUDIT_ACTOR_KIND_SYSTEM"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What acted.",
+          "title": "Audit Actor Kind"
+        }
+      },
+      "title": "Audit Actor",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AuditEntry.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditEntry is what happened, without the log's own fields (sequence, time,\n event, trace, hash chain). The resolver and the other writers produce\n entries; the AuditLog wraps each in an AuditRecord in the transaction that\n applies the change. Entries never contain secret values or tokens.",
+      "patternProperties": {
+        "^(confidencePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence behind the decision, when one was scored."
+        },
+        "^(rejectionCode)$": {
+          "anyOf": [
+            {
+              "pattern": "^REJECTION_CODE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "REJECTION_CODE_KIND_MISMATCH",
+                "REJECTION_CODE_IDENTITY_CONFLICT",
+                "REJECTION_CODE_NOT_DECLARED",
+                "REJECTION_CODE_NAMESPACE_NOT_ALLOWED",
+                "REJECTION_CODE_OBSERVED_AT_IN_FUTURE",
+                "REJECTION_CODE_DUPLICATE_CLAIM",
+                "REJECTION_CODE_CARDINALITY_MISMATCH",
+                "REJECTION_CODE_DOMAIN_MISMATCH",
+                "REJECTION_CODE_TYPE_MISMATCH",
+                "REJECTION_CODE_CORE_PREDICATE",
+                "REJECTION_CODE_INVALID_VALUE",
+                "REJECTION_CODE_INVALID_INTERVAL",
+                "REJECTION_CODE_ALREADY_MERGED",
+                "REJECTION_CODE_INVALID_OPERATION",
+                "REJECTION_CODE_MALFORMED",
+                "REJECTION_CODE_TOO_LARGE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Set for AUDIT_ACTION_REJECTION.",
+          "title": "Rejection Code"
+        }
+      },
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_ACTION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_ACTION_MINT",
+                "AUDIT_ACTION_BINDING_WRITTEN",
+                "AUDIT_ACTION_BINDING_RELEASED",
+                "AUDIT_ACTION_MERGE",
+                "AUDIT_ACTION_UNMERGE",
+                "AUDIT_ACTION_DISTINCT_FROM_SET",
+                "AUDIT_ACTION_DISTINCT_FROM_CLEARED",
+                "AUDIT_ACTION_CLAIM_WITHDRAWN",
+                "AUDIT_ACTION_FACT_STATUS_CHANGED",
+                "AUDIT_ACTION_CONFLICT_OPENED",
+                "AUDIT_ACTION_CONFLICT_CLOSED",
+                "AUDIT_ACTION_OVERRIDE_SET",
+                "AUDIT_ACTION_OVERRIDE_CLEARED",
+                "AUDIT_ACTION_OVERRIDE_STALE",
+                "AUDIT_ACTION_COMPACTION",
+                "AUDIT_ACTION_COMPACTED_WRITE_DROPPED",
+                "AUDIT_ACTION_REJECTION",
+                "AUDIT_ACTION_CONFIG_APPLIED",
+                "AUDIT_ACTION_DECLARATION_CHANGED"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What happened. Required.",
+          "title": "Audit Action"
+        },
+        "actor": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditActor.schema.json",
+          "description": "Who or what did it. Required."
+        },
+        "after": {
+          "$ref": "#/$defs/google.protobuf.Any.schema.json",
+          "description": "What it is after; absent when it no longer exists."
+        },
+        "before": {
+          "$ref": "#/$defs/google.protobuf.Any.schema.json",
+          "description": "What the target was before, as a model message (a Binding, a\n FactTimeline, a MergeRecord, ...); absent when it did not exist."
+        },
+        "confidence_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The confidence behind the decision, when one was scored."
+        },
+        "reason": {
+          "default": "",
+          "description": "Why: a person's reason, or a rejection's message.",
+          "type": "string"
+        },
+        "rejection_code": {
+          "anyOf": [
+            {
+              "pattern": "^REJECTION_CODE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "REJECTION_CODE_KIND_MISMATCH",
+                "REJECTION_CODE_IDENTITY_CONFLICT",
+                "REJECTION_CODE_NOT_DECLARED",
+                "REJECTION_CODE_NAMESPACE_NOT_ALLOWED",
+                "REJECTION_CODE_OBSERVED_AT_IN_FUTURE",
+                "REJECTION_CODE_DUPLICATE_CLAIM",
+                "REJECTION_CODE_CARDINALITY_MISMATCH",
+                "REJECTION_CODE_DOMAIN_MISMATCH",
+                "REJECTION_CODE_TYPE_MISMATCH",
+                "REJECTION_CODE_CORE_PREDICATE",
+                "REJECTION_CODE_INVALID_VALUE",
+                "REJECTION_CODE_INVALID_INTERVAL",
+                "REJECTION_CODE_ALREADY_MERGED",
+                "REJECTION_CODE_INVALID_OPERATION",
+                "REJECTION_CODE_MALFORMED",
+                "REJECTION_CODE_TOO_LARGE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Set for AUDIT_ACTION_REJECTION.",
+          "title": "Rejection Code"
+        },
+        "rule": {
+          "default": "",
+          "description": "The rule that decided it, in short form: the mint rule, merge rule,\n status reason or conflict resolution, a derivation rule, a compaction\n tier. Empty when none applies.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.AuditTarget.schema.json",
+          "description": "What it was done to. Required."
+        }
+      },
+      "title": "Audit Entry",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.AuditTarget.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AuditTarget is the thing a change was made to.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "The id, in the form the kind states.",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "pattern": "^AUDIT_TARGET_KIND_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "AUDIT_TARGET_KIND_SUBJECT",
+                "AUDIT_TARGET_KIND_ALIAS",
+                "AUDIT_TARGET_KIND_FACT",
+                "AUDIT_TARGET_KIND_SUBJECT_PREDICATE",
+                "AUDIT_TARGET_KIND_SOURCE",
+                "AUDIT_TARGET_KIND_RESOURCE",
+                "AUDIT_TARGET_KIND_EVENT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the id names.",
+          "title": "Audit Target Kind"
+        }
+      },
+      "title": "Audit Target",
+      "type": "object"
+    },
     "bearing.model.v1alpha1.Authority.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -117,12 +378,26 @@
           "description": "The event applied. Required; the store applies each event ID once.",
           "type": "string"
         },
+        "^(mergeReviews)$": {
+          "description": "Re-evaluations of merges recorded earlier, or in this ChangeSet: the\n per-side score and review status of a merge record. Applied after the\n merges and un-merges.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.MergeReviewWrite.schema.json"
+          },
+          "type": "array"
+        },
         "^(recordedAt)$": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
           "description": "Set by the store: this apply's record time."
         }
       },
       "properties": {
+        "audit": {
+          "description": "What the resolver decided to audit in this event, in order. The audit log\n (ADR 8) records them in this apply's transaction; the store checks their\n shape and replaces refs, and does not check that they cover the other\n items.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.AuditEntry.schema.json"
+          },
+          "type": "array"
+        },
         "base_recorded_at": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
           "description": "The store's head (the latest apply's recorded_at) the ChangeSet was\n computed from. Absent for an empty store. Apply fails as stale if the\n head has moved."
@@ -157,6 +432,13 @@
           "description": "Data-quality issue timelines.",
           "items": {
             "$ref": "#/$defs/bearing.model.v1alpha1.IssueTimeline.schema.json"
+          },
+          "type": "array"
+        },
+        "merge_reviews": {
+          "description": "Re-evaluations of merges recorded earlier, or in this ChangeSet: the\n per-side score and review status of a merge record. Applied after the\n merges and un-merges.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.MergeReviewWrite.schema.json"
           },
           "type": "array"
         },
@@ -200,7 +482,7 @@
           "type": "array"
         }
       },
-      "title": "ChangeSet is one event's writes. Subject IDs anywhere in it may be refs\n (\"new:\u003clabel\u003e\") naming a subject a Mint or Unmerge in the same ChangeSet\n creates; the store replaces them with the minted IDs. Items apply in this\n order: mints, unmerge targets, bindings, merges, unmerges, then the rest.\n Merges apply in order, each seeing the ones before it. Un-merges don't:\n every un-merge's target is resolved against the state before the\n ChangeSet, and two un-merges may not claim the same merge record or\n subject.",
+      "title": "ChangeSet is one event's writes. Subject IDs anywhere in it may be refs\n (\"new:\u003clabel\u003e\") naming a subject a Mint or Unmerge in the same ChangeSet\n creates; the store replaces them with the minted IDs. Items apply in this\n order: mints, unmerge targets, bindings, merges, unmerges, merge reviews, then\n the rest.\n Merges apply in order, each seeing the ones before it. Un-merges don't:\n every un-merge's target is resolved against the state before the\n ChangeSet, and two un-merges may not claim the same merge record or\n subject.",
       "type": "object"
     },
     "bearing.model.v1alpha1.Conflict.schema.json": {
@@ -948,6 +1230,13 @@
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
           "description": "When the merge was recorded."
         },
+        "reviews": {
+          "description": "The re-evaluations of the merge's evidence, oldest first; the last is\n current. A read as recorded at r holds those recorded by r. Empty until\n the resolver writes one.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.MergeReview.schema.json"
+          },
+          "type": "array"
+        },
         "rule": {
           "anyOf": [
             {
@@ -997,6 +1286,153 @@
         }
       },
       "title": "Merge Record",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.MergeReview.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergeReview is what re-evaluating one merge's evidence found, as the\n resolver wrote it. The store sets event_id and recorded_at.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "Set by the store: the event whose apply wrote the review.",
+          "type": "string"
+        },
+        "^(mergedScorePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "As survivor_score_ppm, for the merged subject's side."
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the review was recorded."
+        },
+        "^(survivorScorePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The same_as confidence the survivor's side supports alone (data-model.md,\n \"Merge\" step 4), in ppm, for a score merge; 0 for the other rules."
+        }
+      },
+      "properties": {
+        "event_id": {
+          "default": "",
+          "description": "Set by the store: the event whose apply wrote the review.",
+          "type": "string"
+        },
+        "merged_score_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "As survivor_score_ppm, for the merged subject's side."
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the review was recorded."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_REVIEW_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_REVIEW_STATUS_HOLDS",
+                "MERGE_REVIEW_STATUS_NEEDS_REVIEW"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the re-evaluation found. Required.",
+          "title": "Merge Review Status"
+        },
+        "survivor_score_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The same_as confidence the survivor's side supports alone (data-model.md,\n \"Merge\" step 4), in ppm, for a score merge; 0 for the other rules."
+        }
+      },
+      "title": "Merge Review",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.MergeReviewWrite.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergeReviewWrite sets the review of one merge record. It names the record\n by the subject that was merged and the event that merged it, which is\n unique: a subject merges at most once per event.",
+      "patternProperties": {
+        "^(mergeEventId)$": {
+          "default": "",
+          "description": "The event whose apply merged it (the record's event_id).",
+          "type": "string"
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The merged subject (the record's merged_id): an ID, or a ref.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "merge_event_id": {
+          "default": "",
+          "description": "The event whose apply merged it (the record's event_id).",
+          "type": "string"
+        },
+        "review": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.MergeReview.schema.json",
+          "description": "The review. A review equal to the record's latest, apart from event_id\n and recorded_at, writes nothing."
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The merged subject (the record's merged_id): an ID, or a ref.",
+          "type": "string"
+        }
+      },
+      "title": "Merge Review Write",
       "type": "object"
     },
     "bearing.model.v1alpha1.Mint.schema.json": {

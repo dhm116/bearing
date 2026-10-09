@@ -8,6 +8,7 @@ syntax = "proto3";
 
 package bearing.model.v1alpha1;
 
+import "bearing/model/v1alpha1/audit.proto";
 import "bearing/model/v1alpha1/enums.proto";
 import "bearing/model/v1alpha1/fact.proto";
 import "google/protobuf/any.proto";
@@ -18,7 +19,8 @@ option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1
 // ChangeSet is one event's writes. Subject IDs anywhere in it may be refs
 // ("new:<label>") naming a subject a Mint or Unmerge in the same ChangeSet
 // creates; the store replaces them with the minted IDs. Items apply in this
-// order: mints, unmerge targets, bindings, merges, unmerges, then the rest.
+// order: mints, unmerge targets, bindings, merges, unmerges, merge reviews, then
+// the rest.
 // Merges apply in order, each seeing the ones before it. Un-merges don't:
 // every un-merge's target is resolved against the state before the
 // ChangeSet, and two un-merges may not claim the same merge record or
@@ -56,6 +58,15 @@ message ChangeSet {
   repeated IssueTimeline issues = 11;
   // The resolver's own state.
   repeated StateEntry state = 12;
+  // What the resolver decided to audit in this event, in order. The audit log
+  // (ADR 8) records them in this apply's transaction; the store checks their
+  // shape and replaces refs, and does not check that they cover the other
+  // items.
+  repeated AuditEntry audit = 13;
+  // Re-evaluations of merges recorded earlier, or in this ChangeSet: the
+  // per-side score and review status of a merge record. Applied after the
+  // merges and un-merges.
+  repeated MergeReviewWrite merge_reviews = 14;
 }
 
 // Mint creates a subject (docs/spec/data-model.md, "Minting").
@@ -221,6 +232,35 @@ message StateEntry {
   google.protobuf.Any value = 2;
 }
 
+// MergeReview is what re-evaluating one merge's evidence found, as the
+// resolver wrote it. The store sets event_id and recorded_at.
+message MergeReview {
+  // The same_as confidence the survivor's side supports alone (data-model.md,
+  // "Merge" step 4), in ppm, for a score merge; 0 for the other rules.
+  uint32 survivor_score_ppm = 1;
+  // As survivor_score_ppm, for the merged subject's side.
+  uint32 merged_score_ppm = 2;
+  // What the re-evaluation found. Required.
+  MergeReviewStatus status = 3;
+  // Set by the store: the event whose apply wrote the review.
+  string event_id = 4;
+  // Set by the store: when the review was recorded.
+  google.protobuf.Timestamp recorded_at = 5;
+}
+
+// MergeReviewWrite sets the review of one merge record. It names the record
+// by the subject that was merged and the event that merged it, which is
+// unique: a subject merges at most once per event.
+message MergeReviewWrite {
+  // The merged subject (the record's merged_id): an ID, or a ref.
+  string subject_id = 1;
+  // The event whose apply merged it (the record's event_id).
+  string merge_event_id = 2;
+  // The review. A review equal to the record's latest, apart from event_id
+  // and recorded_at, writes nothing.
+  MergeReview review = 3;
+}
+
 // MergeRecord is one merge of two subjects, and its un-merge if there was
 // one (docs/spec/data-model.md, "Merge" step 6).
 message MergeRecord {
@@ -246,4 +286,30 @@ message MergeRecord {
   google.protobuf.Timestamp unmerged_at = 10;
   // The event whose apply un-merged them.
   string unmerge_event_id = 11;
+  // The re-evaluations of the merge's evidence, oldest first; the last is
+  // current. A read as recorded at r holds those recorded by r. Empty until
+  // the resolver writes one.
+  repeated MergeReview reviews = 12;
+}
+
+// UnmergeRecord is one un-merge: aliases that left an active subject for
+// another (docs/spec/data-model.md, "Un-merge"). A reactivated subject
+// also has its merge record stamped with unmerged_at; a split mint has
+// nothing else that says where it came from.
+message UnmergeRecord {
+  // The active subject the aliases left.
+  string subject_id = 1;
+  // The subject they moved to: the one reactivated, or the split mint.
+  string target_id = 2;
+  // True when target_id was minted by this un-merge (rule split).
+  bool split = 3;
+  // The aliases that moved, sorted.
+  repeated string aliases = 4;
+  // The event whose apply un-merged them.
+  string event_id = 5;
+  // When the un-merge was recorded.
+  google.protobuf.Timestamp recorded_at = 6;
+  // For a reactivated subject, the event that had merged it into subject_id;
+  // empty for a split.
+  string merge_event_id = 7;
 }

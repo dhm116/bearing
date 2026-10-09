@@ -121,6 +121,13 @@
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
           "description": "When the merge was recorded."
         },
+        "reviews": {
+          "description": "The re-evaluations of the merge's evidence, oldest first; the last is\n current. A read as recorded at r holds those recorded by r. Empty until\n the resolver writes one.",
+          "items": {
+            "$ref": "#/$defs/bearing.model.v1alpha1.MergeReview.schema.json"
+          },
+          "type": "array"
+        },
         "rule": {
           "anyOf": [
             {
@@ -170,6 +177,118 @@
         }
       },
       "title": "Merge Record",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.MergeReview.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MergeReview is what re-evaluating one merge's evidence found, as the\n resolver wrote it. The store sets event_id and recorded_at.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "Set by the store: the event whose apply wrote the review.",
+          "type": "string"
+        },
+        "^(mergedScorePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "As survivor_score_ppm, for the merged subject's side."
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the review was recorded."
+        },
+        "^(survivorScorePpm)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The same_as confidence the survivor's side supports alone (data-model.md,\n \"Merge\" step 4), in ppm, for a score merge; 0 for the other rules."
+        }
+      },
+      "properties": {
+        "event_id": {
+          "default": "",
+          "description": "Set by the store: the event whose apply wrote the review.",
+          "type": "string"
+        },
+        "merged_score_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "As survivor_score_ppm, for the merged subject's side."
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Set by the store: when the review was recorded."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "pattern": "^MERGE_REVIEW_STATUS_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "MERGE_REVIEW_STATUS_HOLDS",
+                "MERGE_REVIEW_STATUS_NEEDS_REVIEW"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the re-evaluation found. Required.",
+          "title": "Merge Review Status"
+        },
+        "survivor_score_ppm": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The same_as confidence the survivor's side supports alone (data-model.md,\n \"Merge\" step 4), in ppm, for a score merge; 0 for the other rules."
+        }
+      },
+      "title": "Merge Review",
       "type": "object"
     },
     "bearing.model.v1alpha1.Support.schema.json": {

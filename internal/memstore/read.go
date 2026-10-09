@@ -48,6 +48,25 @@ func (s *Store) addMerge(rec *modelv1alpha1.MergeRecord) func() {
 	}
 }
 
+// addUnmerge appends an un-merge record and indexes it under the subject the
+// aliases left and the one they moved to; it returns the undo.
+func (s *Store) addUnmerge(rec *modelv1alpha1.UnmergeRecord) func() {
+	i := len(s.unmerges)
+	s.unmerges = append(s.unmerges, rec)
+	ids := []string{rec.GetSubjectId(), rec.GetTargetId()}
+	for _, id := range ids {
+		s.unmergesBy[id] = append(s.unmergesBy[id], i)
+	}
+	return func() {
+		s.unmerges = s.unmerges[:i]
+		for _, id := range ids {
+			if s.unmergesBy[id] = s.unmergesBy[id][:len(s.unmergesBy[id])-1]; len(s.unmergesBy[id]) == 0 {
+				delete(s.unmergesBy, id)
+			}
+		}
+	}
+}
+
 // indexOfMerge returns the index of rec in merges.
 func (s *Store) indexOfMerge(rec *modelv1alpha1.MergeRecord) int {
 	for _, i := range s.mergedBy[rec.GetMergedId()] {
@@ -305,7 +324,22 @@ func (s *Store) Merges(_ context.Context, id contracts.SubjectID, recordedAt tim
 			if m.GetUnmergedAt() != nil && m.GetUnmergedAt().AsTime().After(r) {
 				m.UnmergedAt, m.UnmergeEventId = nil, ""
 			}
+			m.Reviews = slices.DeleteFunc(m.Reviews, func(rv *modelv1alpha1.MergeReview) bool { return rv.GetRecordedAt().AsTime().After(r) })
 			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// Unmerges implements contracts.GraphStore.
+func (s *Store) Unmerges(_ context.Context, id contracts.SubjectID, recordedAt time.Time) ([]*modelv1alpha1.UnmergeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, r := s.times(time.Time{}, recordedAt)
+	var out []*modelv1alpha1.UnmergeRecord
+	for _, i := range s.unmergesBy[string(id)] { // record order
+		if u := s.unmerges[i]; !u.GetRecordedAt().AsTime().After(r) {
+			out = append(out, proto.CloneOf(u))
 		}
 	}
 	return out, nil

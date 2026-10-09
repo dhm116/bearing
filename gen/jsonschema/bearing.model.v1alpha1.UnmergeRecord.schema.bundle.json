@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "bearing.model.v1alpha1.UnmergeRecord.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "UnmergeRecord is one un-merge: aliases that left an active subject for\n another (docs/spec/data-model.md, \"Un-merge\"). A reactivated subject\n also has its merge record stamped with unmerged_at; a split mint has\n nothing else that says where it came from.",
+      "patternProperties": {
+        "^(eventId)$": {
+          "default": "",
+          "description": "The event whose apply un-merged them.",
+          "type": "string"
+        },
+        "^(mergeEventId)$": {
+          "default": "",
+          "description": "For a reactivated subject, the event that had merged it into subject_id;\n empty for a split.",
+          "type": "string"
+        },
+        "^(recordedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the un-merge was recorded."
+        },
+        "^(subjectId)$": {
+          "default": "",
+          "description": "The active subject the aliases left.",
+          "type": "string"
+        },
+        "^(targetId)$": {
+          "default": "",
+          "description": "The subject they moved to: the one reactivated, or the split mint.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "aliases": {
+          "description": "The aliases that moved, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "event_id": {
+          "default": "",
+          "description": "The event whose apply un-merged them.",
+          "type": "string"
+        },
+        "merge_event_id": {
+          "default": "",
+          "description": "For a reactivated subject, the event that had merged it into subject_id;\n empty for a split.",
+          "type": "string"
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the un-merge was recorded."
+        },
+        "split": {
+          "default": false,
+          "description": "True when target_id was minted by this un-merge (rule split).",
+          "type": "boolean"
+        },
+        "subject_id": {
+          "default": "",
+          "description": "The active subject the aliases left.",
+          "type": "string"
+        },
+        "target_id": {
+          "default": "",
+          "description": "The subject they moved to: the one reactivated, or the split mint.",
+          "type": "string"
+        }
+      },
+      "title": "Unmerge Record",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.model.v1alpha1.UnmergeRecord.schema.bundle.json",
+  "$ref": "#/$defs/bearing.model.v1alpha1.UnmergeRecord.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
