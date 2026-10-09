@@ -137,8 +137,12 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   fails.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
-- **C-AUDIT-6** Records name actors by stable ID (`iss` + `sub`, client ID,
-  `local:<uid>`, component name) and never contain tokens or secret values.
+- **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
+  (the OIDC subject, client ID, `local:<uid>`) or, for a component,
+  `system:<name>`, which only the core sets; the API rejects an
+  authenticated subject with that prefix. Records never contain tokens or
+  secret values. Whether a person's ID also carries its issuer is decided
+  with authentication (ADR 12).
 
 ## Trust boundaries
 

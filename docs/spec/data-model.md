@@ -71,7 +71,8 @@ Bearing's state has two parts:
 - The **configuration** and **declaration versions** in force at every
   record time `r` the store can answer for ([Configuration](#configuration),
   [Declarations](#declarations)). They are primary state, backed up with the
-  graph, and are not rebuilt from the log, whose window is shorter.
+  graph, and are not rebuilt from the log, whose window is shorter: a rebuild
+  of the claim store skips `ConfigApplied` and `DeclarationChanged` events.
 
 Guarantees:
 
@@ -205,9 +206,10 @@ Adapters declare key types per kind ([Declarations](#declarations)):
   `observed_at` is the ingest time. Its record time changes authority and
   matching for the source, so it re-evaluates what
   [Configuration](#configuration) lists for authority and declaration
-  changes. The change and every rejection are audited. The core appends it
-  before it accepts observations from the new version, since those are
-  checked against the declaration in force.
+  changes. The change and every rejection are audited. The core accepts
+  observations from the new adapter version only after the event has been
+  applied (or rejected), since each observation is checked against the
+  declaration in force when it is applied and a rejection is final.
 - GitHub `id` keys are next-format global node IDs (the adapter sends
   `X-Github-Next-Global-ID: 1`). Legacy node IDs MUST NOT be emitted.
   Webhook payloads may carry legacy-format `node_id`s, and no header
@@ -380,9 +382,9 @@ Across applies, the first merge stands and the later pair is flagged.
 **When merges happen.** Each apply evaluates merge triggers after writing
 its claims and derived claims, for every pair of active subjects whose
 `same_as` supports, member sets, `distinct_from` or guard the apply
-changed, and, after a configuration change to merge policies, thresholds
-or match weights (applied as an event, ADR 10), for every pair with a live
-`same_as` support. A pair merges if its kind's
+changed, and, after a configuration or declaration change that
+[Configuration](#configuration) says re-triggers merges (applied as an
+event, ADR 10), for every pair with a live `same_as` support. A pair merges if its kind's
 policy accepts `same_as` at any valid time `v` ≤ the applied event's
 `observed_at` (the ingest time for manual, boundary and derived events).
 Qualifying pairs are taken in order (confidence descending, then lower
@@ -1185,7 +1187,8 @@ applies.
 
 A record is an `AuditRecord` (`model/v1alpha1/audit.proto`): the log's `seq`,
 the apply's `recorded_at`, the `event_id` and the entry's `ordinal` within
-it, the `trace_id` when there was one, the hash-chain fields of
+it (from 1, in the order the apply produces them; `event_id` and `ordinal`
+are unique together), the `trace_id` when there was one, the hash-chain fields of
 [ADR 8](../adr/0008-audit-log.md), and an `AuditEntry` that the writer
 produces:
 `action`, `actor`, `target`, the `rule` that decided it (short form),
@@ -1194,8 +1197,13 @@ produces:
 not exist, or no longer does). The actor is derived from the
 event's `actor`: `agent` makes an agent, a `subject` starting `system:` (the
 scheduler and the start-up loader append their events as `system:scheduler`
-and `system:loader`) a system component, any other a person; the ID is the
-`subject`, never a token. A component that acts with no event actor is
+and `system:loader`) a system component, any other a person (a local
+administrator, `local:<uid>`, is a person); the ID is the `subject`, never
+a token. Only the core sets a `system:` subject. The API fills `actor` from the
+authenticated caller and rejects an `actor` in a request payload that
+differs; it MUST also reject an authenticated subject that starts with
+`system:`. The authenticator forms `subject` so that it is unique across the
+issuers a deployment trusts. A component that acts with no event actor is
 `system:<name>`, for example `system:resolver`. An entry never holds a secret
 value; resources hold references, and a setting that is a secret is a
 reference in the resource.
@@ -1257,7 +1265,8 @@ document read the configuration in force at record time `r`.
 - Weights, thresholds and confidences are integers in ppm, 1 to 1000000.
   Spans (`schedule`, a tier's `for`) are ISO 8601 durations. In ProtoJSON an
   `authority` override that makes a target non-authoritative is written
-  `"authority": {}`, because a default value is left out.
+  `"authority": {}`, because a default value is left out, and `MatchWeight`
+  evidence `link` is written `"link": {}`.
 - **One configuration.** `Assertion`, `MatchWeights`, `MergePolicies` and
   `DerivationRules` are singletons: at most one resource of each kind
   exists, under any name. Several `Retention` resources may exist if no two
@@ -1278,8 +1287,10 @@ document read the configuration in force at record time `r`.
   tier order, a reference where a secret is). A structural fault (a missing
   field, a mismatch, a duplicate, an unknown capability, an unspecified change type) is
   `malformed`; a rule violation is `invalid_operation`. Either rejects the
-  whole event and changes nothing.
-- **No-ops.** A `SET` equal to the resource in force, and a `DELETE` of one
+  whole event and changes nothing. A second resource of a singleton kind is
+  an `invalid_operation`.
+- **No-ops.** A `SET` equal to the resource in force (Protobuf equality of
+  the stored resource: labels included, list order significant), and a `DELETE` of one
   that doesn't exist, write nothing, audit nothing and re-evaluate nothing.
   An event whose changes are all no-ops only gets its processed mark, so the
   start-up loader may append its files on every start.
@@ -1290,9 +1301,10 @@ document read the configuration in force at record time `r`.
 
   | Changed | Re-evaluated |
   | --- | --- |
-  | `Assertion`, a `Source`'s `authority` | statuses, conflicts and their events of the facts affected |
+  | `Assertion`, a `Source`'s `authority` | statuses, conflicts and their events of the facts affected; and, since `confidence_groups` and thresholds change `same_as` confidence, merge triggers |
   | `DerivationRules` | derived claims, then what reads them |
-  | `MergePolicies`, `MatchWeights`, authority, a declaration's `match` | merge triggers for every pair with a live `same_as` support ([Merge](#merge)) |
+  | `MergePolicies`, `MatchWeights`, authority, a declaration's `match` | merge triggers for every pair with a live `same_as` support ([Merge](#merge)); this table is the only list of what re-triggers them |
+  | A `Source`'s `namespace`, `issues` or `links` | merge triggers and resolution of later events; bound aliases are unchanged |
   | `Retention`, `Adapter`, `Source` settings and schedule | nothing now; read when next used |
 
   A large graph may need more than one transaction for this. That is for the

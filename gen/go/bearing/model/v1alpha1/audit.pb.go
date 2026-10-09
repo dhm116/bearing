@@ -215,7 +215,9 @@ type AuditTargetKind int32
 const (
 	// Not set. Rejected in every audit target.
 	AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED AuditTargetKind = 0
-	// A subject: its subject_id.
+	// A subject: its subject_id. In a ChangeSet's entry the id may be a ref
+	// ("new:<label>") for a subject the same ChangeSet mints; the store
+	// replaces it, and the subject must exist.
 	AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT AuditTargetKind = 1
 	// An alias: its key, <namespace>:<key_type>/<external_id>.
 	AuditTargetKind_AUDIT_TARGET_KIND_ALIAS AuditTargetKind = 2
