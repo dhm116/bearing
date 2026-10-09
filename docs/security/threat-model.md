@@ -6,7 +6,7 @@ This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
 threat. It follows ADRs 2 and 4–12 plus the MVP security decisions. ADR 9,
 accepted with conditions after the
-[WASM adapters spike](../spikes/wasm-adapters.md), makes WASM modules the
+[WASM adapters spike](https://github.com/dhm116/bearing/blob/spike/wasm-adapters/docs/spikes/wasm-adapters.md), makes WASM modules the
 default adapter runtime once [M4](https://github.com/dhm116/bearing/milestone/5) lands.
 Adapters that can't run as WASM run as local processes serving the
 Protobuf adapter service on a Unix socket, with the exceptions in B2; ADR

@@ -3,7 +3,7 @@
 Date: 2026-09-29 · Status: accepted (with amendment), 2026-10-02
 
 > Proposed 2026-09-29. Accepted 2026-10-02 after the
-> [WASM adapters spike](../spikes/wasm-adapters.md) (PR #24). Context,
+> [WASM adapters spike](https://github.com/dhm116/bearing/blob/spike/wasm-adapters/docs/spikes/wasm-adapters.md) (PR #24). Context,
 > Decision, Shape and Consequences are the original proposal; where the
 > amendment differs, the amendment wins, and the changed bullets say so.
 > See [the amendment](#amendment-accepted-with-conditions-2026-10-02).
@@ -119,7 +119,7 @@ runs changes.
 
 ## Amendment: accepted with conditions (2026-10-02)
 
-The [spike](../spikes/wasm-adapters.md) ran the GitHub adapter's unchanged
+The [spike](https://github.com/dhm116/bearing/blob/spike/wasm-adapters/docs/spikes/wasm-adapters.md) ran the GitHub adapter's unchanged
 source as a WASM module with output identical to the stdio adapter, and ran
 the AWS SDK for Go v2 over the host `http` capability. It also found costs
 the proposal did not assume. ADR 9 is accepted with these conditions; the

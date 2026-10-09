@@ -19,8 +19,10 @@ backend has to be good at follows from that:
 - **Real transactions.** An apply checks and moves the head, marks the
   event processed and writes its rows atomically.
 
-A spike measured SurrealDB, PostgreSQL and ClickHouse on those operations
-([report](../spikes/storage-engines.md)). In short:
+A spike measured SurrealDB, PostgreSQL and ClickHouse on those operations.
+Its report and code are on the `spike/storage-engines` branch
+([report](https://github.com/dhm116/bearing/blob/spike/storage-engines/docs/spikes/storage-engines.md)).
+In short:
 
 - Bearing's own 50,000-item conformance cases take 18 to 36 s on SurrealDB
   and 0.4 to 1.7 s on the engine alone, so 95% or more of the time is

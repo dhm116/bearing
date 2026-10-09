@@ -78,7 +78,6 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), and `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, optionally `--as-of` and `--recorded-at`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
-| `spikes/` | Spike code, each in its own Go module(s) so the root module stays untouched; results in `docs/spikes/`. |
 | `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
 
 The Go module path is the placeholder `bearing.example`. Import packages as
@@ -262,6 +261,9 @@ what it doesn't catch.
 - **ADR diagrams** are SVGs generated from `docs/adr/diagrams/src/`; edit
   the Python there and re-export (see `docs/adr/diagrams/README.md`), never
   the SVGs by hand.
+- **Spikes** live on their own `spike/<name>` branch, code and report
+  together, and are never merged into `main`. An ADR that rests on one
+  links to the report on that branch.
 - **Significant decisions** get an ADR: copy `docs/adr/template.md` to the
   next number, and mark older ADRs "Superseded in part by" when relevant.
 - Keep `README.md`'s "What's here" table current when adding top-level
