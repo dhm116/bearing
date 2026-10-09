@@ -10,7 +10,7 @@ After:
 
 ## Review
 
-<!-- The lead posts a "Review N" comment after every review (see AGENTS.md, "Review and merge process"). -->
+<!-- The lead posts a "Code Review" comment after every review (see AGENTS.md, "Review and merge process"). -->
 
 ## Checklist
 

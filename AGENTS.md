@@ -328,22 +328,64 @@ Both are plain Markdown checklists; any agent can follow them.
 - **Rounds.** A round is one push answering the findings plus the
   reviewers' re-review. Up to five rounds per PR. After the fifth round
   with blocking findings open, the lead stops and mentions @dhm116 (Doug,
-  the maintainer) in that review's summary comment. Rounds and reviews are
-  numbered differently: the first review comes before any round, so round
-  k's re-review is Review k+1 and the fifth round ends with Review 6.
-- **Review summary.** After every review, including the first and one
-  that approves outright, the lead posts one PR comment headed "Review N"
-  (the first review is 1). It gives each reviewer's verdict, then each
-  finding with its status: blocking ones open, fixed in a named commit, or
-  withdrawn with the reason; non-blocking ones fixed in a named commit,
-  filed as a follow-up issue, or open until that issue is filed. When a
-  later push settles an open item, the lead edits that comment. An edit
-  sends no notification, so the next "Review N" comment also lists the
-  earlier items it settled, for example "Settles from Review 1: ...".
-  Someone reading only the PR sees what the reviewers caught and how each
-  item was settled.
+  the maintainer) in that review's comment. The comment's Round field is
+  the review's number: the first review is Round 1, so push k's
+  re-review is Round k+1 and the fifth push ends with Round 6.
+- **Review comment.** After every review, including the first and one that
+  approves outright, the lead posts one PR comment in the format below.
+  Each reviewer gets a verdict and a summary. Blocking findings go under
+  Critical Issues; everything else goes under Non-blocking Suggestions. A
+  Critical Issues row has no Status column, so its description ends with
+  the status (open, fixed in a named commit, or withdrawn with the
+  reason). A suggestion's Status is fixed in a named commit, `Filed as #N`,
+  or open until that issue is filed. When a later push settles an open
+  item, the lead edits that comment. An edit sends no notification, so the
+  next review's Summary also lists the earlier items it settled, for
+  example "Settles from Round 1: ...". A table with no rows is replaced by
+  "None.". Someone reading only the PR sees what the reviewers caught and
+  how each item was settled.
+
+  ````markdown
+  ## Code Review:
+
+  **Round**: [review round]
+
+  **Participants**: [agents]
+
+  ### Verdict
+  - **[agent]**: [🟢 Approve / 🔴 Request Changes / 🟡 Needs Discussion]
+
+    **Summary**: [1-2 sentence overview of the changes and overall quality]
+
+  <!-- Use `<details open>` when critical issue count > 0, else `<details>`. -->
+  <details [open]>
+
+  <summary>Critical Issues: [count]</summary>
+
+  <!-- Sort from most to least severe. -->
+  | # | File | Line | Reviewer | Issue | Severity |
+  |---|------|------|----------|-------|----------|
+  | 1 | [file] | [line] | [agent] | [description and status] | 🔴 Critical |
+
+  </details>
+
+  <!-- Use `<details open>` when critical issue count is 0 and suggestions count > 0, else `<details>`. -->
+  <details [open]>
+
+  <summary>Non-blocking Suggestions: [count]</summary>
+
+  | # | File | Line | Reviewer | Suggestion | Category | Status |
+  |---|------|------|----------|------------|----------|--------|
+  | 1 | [file] | [line] | [agent] | [description] | Performance | Filed as #130 |
+
+  </details>
+  ````
+
+  The blank lines after `<details>` and after `</summary>` are required
+  for GitHub to render the Markdown inside. Leave the HTML comments out of
+  the posted comment.
 - **Merge.** The lead merges once CI passes (or the change needs no tests),
-  the assigned reviewers approve, and every review summary shows each
+  the assigned reviewers approve, and every review comment shows each
   finding as fixed, withdrawn or linked to an issue.
 - **Milestones** close only with Doug's review and approval.
 - **Shared files** are owned by the lead: `proto/`, `gen/go`,
