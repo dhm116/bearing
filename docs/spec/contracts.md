@@ -613,7 +613,9 @@ written apart from its change could be lost or orphaned. (Writers that change
 no graph state, such as policy decisions and executor actions in ADR 8, get
 an append when the first of them exists.) Nothing updates or deletes a
 record. Because the log lives in the graph's backend, `store.Store.Audit` is
-that backend; it has no URL of its own.
+that backend; it has no URL of its own. A backend whose `GraphStore` already
+has a `Head` method offers the log through an `AuditLog()` method, since the
+two `Head`s differ.
 
 ### Records
 
@@ -624,7 +626,7 @@ For each entry of an applied `ChangeSet.audit`, in order, `Apply` writes one
 | Field | Value |
 | --- | --- |
 | `seq` | The previous record's `seq` plus one; 1 for the first. The numbers have no gaps: an `Apply` that fails uses none. |
-| `recorded_at` | The apply's record time. |
+| `recorded_at` | The apply's record time, a whole number of microseconds (as every record time is), so a backend that stores microseconds reads back what was hashed. `audit.Seal` refuses any other. |
 | `event_id`, `ordinal` | The event, and the entry's position among the event's entries from 1. They are unique together. |
 | `trace_id` | `ChangeSet.trace_id`, which the journal keeps; empty when there was none. |
 | `entry` | The entry as `Apply` returns it in `ApplyResult.Audit`, refs replaced. |
@@ -655,6 +657,11 @@ without it, and a field that is set is always covered: `pkg/audit` tests that
 changing any field of a record changes its hash. A change to these rules
 takes a new version in the leading bytes, never an edit of version 1.
 `audit.Hash` is the reference; its test pins the hash of a known record.
+A verifier fails closed on a field it does not know, so it must be at least
+as new as the store that wrote the log, and a repeated or map field in a
+record would need its own encoding rule first. A record is no larger than the
+`ChangeSet` that carried its entry ([`MaxChangeSetBytes`](#graphstore)),
+which bounds `before` and `after`.
 
 The chain alone shows that the records are consistent with each other. Whoever
 can write to the store can rewrite every record from the one they edit and
@@ -670,6 +677,16 @@ now). It writes them **outside the store**: to the log stream, a file or an
 exporter, never to a table the store's writers can edit. The operator keeps
 that place where the store's writers can't write. A checkpoint is one line of
 ProtoJSON, so a file of them is NDJSON.
+
+What the checkpoints protect depends on where they go. The server process
+writes the records, holds the signing key and writes the checkpoints, so
+signing protects the log against someone with access to the store, not
+against someone who has compromised that process. The destination MUST be
+append-only or remote: a process that can rewrite the file can also rewrite
+the checkpoints. A verifier checks only the checkpoints it is given, so
+deleting or withholding the newest ones silently shortens the protected
+window back to the newest one that remains. Keeping the set complete is the
+operator's job.
 
 Signing is optional and settles issue #60:
 
@@ -688,12 +705,17 @@ Signing is optional and settles issue #60:
 - **Trust**: a verifier trusts exactly the public keys it is given, by key
   ID, out of band. It never reads a key from the store or the checkpoint
   file. A checkpoint that names a key it does not hold fails, as does one
-  whose signature does not match, and `RequireSigned` fails an unsigned one.
-- **Rotation and compromise**: a new key gets a new ID, and the verifier
-  keeps the public keys of old checkpoints. If a signing key leaks, the
-  chain it signed for can no longer be told from a forgery after the leak:
-  the operator verifies the log by other means, writes a checkpoint under a
-  new key, and drops the old public key from the keys it trusts.
+  whose signature does not match. An unsigned checkpoint fails too, unless
+  the caller sets `AllowUnsigned` for a log whose operator signs nothing, so
+  whoever controls the checkpoint file can't swap signed lines for unsigned
+  forgeries.
+- **Rotation and compromise**: a new key gets a new ID and a checkpoint is
+  written under it at once, and the verifier keeps the public keys of old
+  checkpoints. If a signing key leaks, checkpoints under it can no longer be
+  told from forgeries: the operator verifies the log by other means (for
+  example against an independent backup), writes a checkpoint under a new
+  key, and gives the verifier the new key and only the checkpoints from the
+  new one on. The new checkpoint pins the chain as it stands.
 - The signature says the checkpoint's writer held the key. The time in it is
   the writer's claim.
 
@@ -705,20 +727,21 @@ what it finds, naming the first bad record by `seq`:
 - a record whose hash doesn't match its content (an edit);
 - a gap (records missing: a deletion), or a record whose `prev_hash` isn't
   the one before it (an insertion or a replaced record);
-- an oldest record that isn't record 1 and isn't the record after a
-  checkpoint at a retention cut (a cut-off start);
+- an oldest record that isn't record 1 (a cut-off start). No checkpoint
+  excuses a missing start, since nothing marks one as written at a retention
+  cut; that marker, a signed field of the checkpoint, comes with retention;
 - a checkpoint whose hash differs from the record at its `seq` (a chain
   rewritten end to end);
 - a checkpoint newer than the log's newest record (a cut-off tail);
-- a checkpoint with a bad or untrusted signature, which is also not used to
-  judge the chain.
+- a checkpoint that is unsigned (unless allowed) or has a bad or untrusted
+  signature, which is also not used to judge the chain.
 
-It stops reading at the first broken record. Checkpoints older than the
-oldest record are counted and skipped. `bearing audit verify` runs it against
-a store, a checkpoint file and public keys, and exits non-zero when anything
-fails. What it can't find is a rewrite of records newer than the latest
-checkpoint, so the interval bounds how much recent history someone with store
-access can change undetected.
+It stops reading at the first broken record. `bearing audit verify` runs it
+against a store, a checkpoint file and public keys, and exits non-zero when
+anything fails. What it can't find is a rewrite of records newer than the
+latest checkpoint it is given, so the interval bounds how much recent history
+someone with store access can change undetected, and a truncation back to the
+newest checkpoint still held if the newer ones were withheld.
 
 ### Query
 
@@ -727,17 +750,28 @@ limit of 1 to `MaxAuditQueryRecords` (1,000, required), narrowed by event ID,
 actions, actor ID, target kind and ID (an ID requires its kind) and a
 `recorded_at` range `[From, To)`. It returns the matching records oldest
 first and at most `MaxAuditQueryBytes` (32 MiB) of them, always at least one
-if any match. A caller pages with the last `seq` it saw. A filter outside
-these bounds fails with `ErrInvalidAuditQuery` (`CheckAuditFilter`). `Head`
-returns the newest record's `seq` and hash, or the zero value for an empty
-log. Records name people, so the API that exposes `Query` is for the admin
+if any match (the size is the Protobuf wire size of the records). A caller
+pages with the last `seq` it saw until a call returns nothing: a short page
+does not mean the end. A filter outside the bounds fails with
+`ErrInvalidAuditQuery` (`CheckAuditFilter`): a limit outside 1 to 1,000, an
+action that is unset or unknown or more actions than there are, an event ID
+over `MaxEventIDBytes` or an actor or target ID over `MaxAuditIDBytes`, an
+unknown target kind, a target ID without its kind, or `From` not before `To`
+when both are set. `Head` returns the newest record's `seq`, hash and
+`recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin
 role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
 ### Not implemented yet
 
+- Writing records. No backend writes a record yet: `Apply` doing so, the
+  `ChangeSet.trace_id` check (`CheckTraceID`) and journaling, `AuditLog()` on
+  the memory and PostgreSQL stores, `store.Store.Audit`, the `instrument`
+  wrapper and `conformance.AuditLog` (issue #138, next).
+- `bearing audit verify` and `bearing audit checkpoint` (issue #138).
 - Retention. The contract has no delete. The cut that removes the oldest
-  records, and the checkpoint written at it, come with the server (issue
-  #139); `Verify` already accepts a log that starts after such a checkpoint.
+  records comes with the server (issue #139), together with the signed marker
+  on a checkpoint that says it was written at a cut; until then `Verify`
+  accepts only a log that starts at record 1.
 - Export to object storage or a SIEM (ADR 8).
 - Writers that change no graph state (policy decisions, executor actions).
 

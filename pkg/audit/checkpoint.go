@@ -65,7 +65,7 @@ func checkpointMessage(cp *modelv1alpha1.AuditCheckpoint) ([]byte, error) {
 // under cp's key ID. keys is what the verifier trusts, given by the
 // operator; a key ID it does not hold fails, and so does a signature on an
 // unsigned checkpoint's behalf. An unsigned checkpoint (no key ID, no
-// signature) passes here; RequireSigned in Options refuses it.
+// signature) passes here; Verify refuses it unless Options.AllowUnsigned is set.
 func VerifyCheckpoint(cp *modelv1alpha1.AuditCheckpoint, keys map[string]ed25519.PublicKey) error {
 	if cp.GetSeq() == 0 || len(cp.GetHeadHash()) != HashSize {
 		return errors.New("the checkpoint has no sequence number or a head hash that is not a SHA-256")

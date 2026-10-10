@@ -65,7 +65,11 @@ record that can't be lost or quietly edited.
   encoding of the checkpoint, with PEM keys the operator labels. Verifiers
   trust only the public keys they are given, never ones from the store or
   the checkpoint file. The key trust model and rotation are in
-  [`contracts.md`](../spec/contracts.md#auditlog).*
+  [`contracts.md`](../spec/contracts.md#auditlog). Checkpoints are signed
+  by the same process that writes the records, so signing protects against
+  someone with store access, not against a compromised server. Until
+  retention adds a signed marker for a cut, only a log that starts at
+  record 1 verifies, and unsigned checkpoints are refused unless allowed.*
 - **Storage.** The default is an append-only table in the main store,
   written in the same transaction as the change it describes: no change
   without its record. An optional exporter streams records to object

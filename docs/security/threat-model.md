@@ -139,12 +139,22 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   checkpoints holds the private key, and verifiers hold only the public keys
   the operator gave them, never keys read from the store or the checkpoint
   file. A rewrite of the whole chain in the store no longer matches the
-  checkpoints.
+  checkpoints. The server process writes the records, holds the key and
+  writes the checkpoints, so signing protects against someone with access to
+  the store, not against a compromised server process. The checkpoint
+  destination must be append-only or remote, or whoever can rewrite it can
+  rewrite the checkpoints; withholding the newest checkpoints silently
+  shortens the protected window to the newest that remain, so the operator
+  keeps the set complete.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
-  fails.
+  fails. An unsigned checkpoint fails unless the operator allows it, and the
+  log must start at record 1.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
+  Until a signed marker says a checkpoint was written at a cut (with
+  retention, #139), the verifier accepts no log that starts after record 1,
+  so a deleted prefix is found.
 - **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
   (the OIDC subject, client ID, `local:<uid>`) or, for a component,
   `system:<name>`, which only the core sets; the API rejects an

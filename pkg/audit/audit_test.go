@@ -319,11 +319,11 @@ func wantFailure(t *testing.T, rep Report, seq uint64, contains string) {
 func TestVerifyAcceptsAnIntactChain(t *testing.T) {
 	l := chain(t, 2500) // more than one page
 	s, pub := signer(t, "audit-1")
-	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{l.checkpoint(t, 10, s), l.checkpoint(t, 2500, nil)}, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}})
+	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{l.checkpoint(t, 10, s), l.checkpoint(t, 2500, s)}, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}})
 	if !rep.OK() || rep.Records != 2500 || rep.First != 1 || rep.Last != 2500 || rep.Checkpoints != 2 {
 		t.Fatalf("got %+v, want 2500 records and 2 checkpoints verified", rep)
 	}
-	if rep := verify(t, &fakeLog{}, nil, Options{}); !rep.OK() || rep.Records != 0 {
+	if rep := verify(t, &fakeLog{}, nil, Options{AllowUnsigned: true}); !rep.OK() || rep.Records != 0 {
 		t.Fatalf("got %+v, want an empty log to verify", rep)
 	}
 }
@@ -350,14 +350,14 @@ func TestVerifyNamesTheFirstBadRecord(t *testing.T) {
 			l.recs = slices.Insert(l.recs, 4, extra)
 		}, 5, "does not follow"},
 		{"a record with a field the verifier does not know", func(l *fakeLog) { l.recs[2].Entry.ProtoReflect().SetUnknown(protoRaw(99, 1)) }, 3, "cannot be hashed"},
-		{"a wrong first prev_hash", func(l *fakeLog) { l.recs[0].PrevHash = bytes.Repeat([]byte{1}, HashSize) }, 1, "not record 1"},
-		{"a cut-off start", func(l *fakeLog) { l.recs = l.recs[3:] }, 4, "no checkpoint covers record 3"},
+		{"a wrong first prev_hash", func(l *fakeLog) { l.recs[0].PrevHash = bytes.Repeat([]byte{1}, HashSize) }, 1, "not the start of a chain"},
+		{"a cut-off start", func(l *fakeLog) { l.recs = l.recs[3:] }, 1, "records 1 to 3 are missing"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			l := chain(t, 8)
 			c.tamper(l)
-			wantFailure(t, verify(t, l, nil, Options{}), c.seq, c.contains)
+			wantFailure(t, verify(t, l, nil, Options{AllowUnsigned: true}), c.seq, c.contains)
 		})
 	}
 }
@@ -370,7 +370,7 @@ func TestVerifyFindsAChainRewrittenEndToEndOnlyByACheckpoint(t *testing.T) {
 	cp := l.checkpoint(t, 6, s)
 	l.recs[2].Entry.Reason = "the owner never changed"
 	l.rewrite(t, 2)
-	if rep := verify(t, l, nil, Options{}); !rep.OK() {
+	if rep := verify(t, l, nil, Options{AllowUnsigned: true}); !rep.OK() {
 		t.Fatalf("got %+v, want a consistent chain to verify without checkpoints", rep.Failures)
 	}
 	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}})
@@ -381,26 +381,35 @@ func TestVerifyFindsACutOffTail(t *testing.T) {
 	l := chain(t, 8)
 	cp := l.checkpoint(t, 8, nil)
 	l.recs = l.recs[:5]
-	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{}), 6, "6 to 8")
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{AllowUnsigned: true}), 6, "6 to 8")
 	l.recs = nil
-	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{}), 1, "1 to 8")
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{AllowUnsigned: true}), 1, "1 to 8")
 }
 
-// A retention cut removes the oldest records and leaves a checkpoint at the
-// cut: the log may then start there.
-func TestVerifyAcceptsAStartThatACheckpointAnchors(t *testing.T) {
+// Records 1 to k deleted, with a checkpoint at k: the log looks like a
+// retention cut, but nothing marks a checkpoint as one yet, so it fails.
+func TestVerifyRefusesADeletedPrefixEvenWithACheckpoint(t *testing.T) {
 	l := chain(t, 8)
-	cut := l.checkpoint(t, 3, nil)
-	older := l.checkpoint(t, 2, nil)
-	l.recs = l.recs[3:]
-	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cut, older}, Options{})
-	if !rep.OK() || rep.First != 4 || rep.Records != 5 || rep.Skipped != 2 {
-		t.Fatalf("got %+v, want 5 records from 4 and the 2 older checkpoints skipped", rep)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	plain, signed := l.checkpoint(t, 5, nil), l.checkpoint(t, 5, s)
+	l.recs = l.recs[5:]
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{plain}, Options{AllowUnsigned: true}), 1, "records 1 to 5 are missing")
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{signed}, Options{Keys: keys}), 1, "records 1 to 5 are missing")
+	// Without any checkpoint it is no better.
+	wantFailure(t, verify(t, l, nil, Options{}), 1, "records 1 to 5 are missing")
+}
+
+// An unsigned checkpoint counts only when the caller says so, so whoever
+// controls the checkpoint file can't replace signed lines with forgeries.
+func TestVerifyRefusesUnsignedCheckpointsByDefault(t *testing.T) {
+	l := chain(t, 4)
+	_, pub := signer(t, "audit-1")
+	cp := l.checkpoint(t, 4, nil)
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}}), 4, "not signed")
+	if rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{AllowUnsigned: true}); !rep.OK() || rep.Checkpoints != 1 {
+		t.Fatalf("got %+v, want the unsigned checkpoint accepted when allowed", rep)
 	}
-	// A checkpoint that holds another hash at the cut does not anchor it.
-	bad := proto.CloneOf(cut)
-	bad.HeadHash[0] ^= 1
-	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{bad}, Options{}), 4, "no checkpoint covers")
 }
 
 func TestVerifyChecksSignatures(t *testing.T) {
@@ -417,10 +426,15 @@ func TestVerifyChecksSignatures(t *testing.T) {
 		opts Options
 		want string
 	}{
-		"signed by another key":  {l.checkpoint(t, 4, other), Options{Keys: keys}, "does not match"},
-		"a key nobody trusts":    {signed, Options{Keys: map[string]ed25519.PublicKey{"audit-2": otherPub}}, "no trusted public key"},
-		"no keys at all":         {signed, Options{}, "no trusted public key"},
-		"unsigned when required": {l.checkpoint(t, 4, nil), Options{Keys: keys, RequireSigned: true}, "not signed"},
+		"signed by another key": {l.checkpoint(t, 4, other), Options{Keys: keys}, "does not match"},
+		"a key nobody trusts":   {signed, Options{Keys: map[string]ed25519.PublicKey{"audit-2": otherPub}}, "no trusted public key"},
+		"no keys at all":        {signed, Options{AllowUnsigned: true}, "no trusted public key"},
+		"unsigned by default":   {l.checkpoint(t, 4, nil), Options{Keys: keys}, "not signed"},
+		"an empty signature": {func() *modelv1alpha1.AuditCheckpoint {
+			cp := l.checkpoint(t, 4, nil)
+			cp.Signature = []byte{}
+			return cp
+		}(), Options{Keys: keys}, "not signed"},
 		"a moved sequence": {func() *modelv1alpha1.AuditCheckpoint {
 			cp := proto.CloneOf(signed)
 			cp.Seq = 3
@@ -521,5 +535,33 @@ func TestKeysParseFromPEM(t *testing.T) {
 		if err := f(); err == nil {
 			t.Errorf("%s: got no error", name)
 		}
+	}
+}
+
+// A record time with a sub-microsecond part would not survive a store that
+// keeps microseconds, so a record carrying one is not sealed.
+func TestSealRefusesASubMicrosecondRecordTime(t *testing.T) {
+	rec := record(1)
+	rec.RecordedAt = timestamppb.New(t0.Add(time.Nanosecond))
+	if _, err := Seal(contracts.AuditHead{}, rec); err == nil {
+		t.Fatal("sealed a record time with nanoseconds")
+	}
+	rec.RecordedAt = timestamppb.New(t0.Add(time.Microsecond))
+	if _, err := Seal(contracts.AuditHead{}, rec); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Ed25519 is deterministic, so a second implementation can check itself
+// against this signature of a known checkpoint.
+func TestCheckpointSignatureIsFixed(t *testing.T) {
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	cp, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: bytes.Repeat([]byte{1}, HashSize)}, t0, &Signer{KeyID: "audit-1", Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "0c6c7d19733f44d279013bd3b77f28ffd16a1de5b5c727f64d7975f857ca2ef425620d3d9112a0579c14c7e8414d727e6d30ba36182ed622ad0e77b005dd0d0a"
+	if got := hex.EncodeToString(cp.GetSignature()); got != want {
+		t.Fatalf("got signature %s, want %s", got, want)
 	}
 }

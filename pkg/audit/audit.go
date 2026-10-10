@@ -47,6 +47,11 @@ func Hash(rec *modelv1alpha1.AuditRecord) ([]byte, error) {
 // Seal makes rec the record after head: it sets Seq, PrevHash and Hash, and
 // returns the new head. The caller fills the rest of rec first.
 func Seal(head contracts.AuditHead, rec *modelv1alpha1.AuditRecord) (contracts.AuditHead, error) {
+	if rec.GetRecordedAt().GetNanos()%1000 != 0 {
+		// Record times are whole microseconds, so a backend that keeps them
+		// in a microsecond column reads back what was hashed.
+		return head, errors.New("audit: recorded_at is not a whole number of microseconds")
+	}
 	rec.Seq, rec.PrevHash, rec.Hash = head.Seq+1, slices.Clone(head.Hash), nil
 	h, err := Hash(rec)
 	if err != nil {
@@ -77,7 +82,7 @@ func hashOf(domain string, m interface{ ProtoReflect() protoreflect.Message }, s
 // (TestEveryFieldOfARecordChangesItsHash) rather than going unhashed.
 func appendMessage(b []byte, m protoreflect.Message, skip protoreflect.Name) ([]byte, error) {
 	if len(m.GetUnknown()) != 0 {
-		return nil, fmt.Errorf("%w: %s has unknown fields", ErrUnsupported, m.Descriptor().FullName())
+		return nil, fmt.Errorf("%w: %s has fields this build does not know (is the writer newer than the verifier?)", ErrUnsupported, m.Descriptor().FullName())
 	}
 	for _, fd := range fieldsByNumber(m.Descriptor()) {
 		if fd.Name() == skip || !m.Has(fd) {

@@ -16,8 +16,11 @@ type Options struct {
 	// Keys are the public keys the verifier trusts, by key ID. They come from
 	// the operator, never from the store or from the checkpoint file.
 	Keys map[string]ed25519.PublicKey
-	// RequireSigned fails any checkpoint that carries no signature.
-	RequireSigned bool
+	// AllowUnsigned lets a checkpoint without a signature count. The zero
+	// value refuses them, so whoever controls the checkpoint file can't swap
+	// signed lines for unsigned forgeries. Set it only to check a log whose
+	// operator signs nothing.
+	AllowUnsigned bool
 }
 
 // Failure is one thing Verify found wrong. Seq names the first record it
@@ -39,10 +42,8 @@ type Report struct {
 	// the sequence numbers of the oldest and the newest of them.
 	Records     uint64
 	First, Last uint64
-	// Checkpoints is how many checkpoints agreed with the chain. Skipped is
-	// how many named a record older than the log's oldest, which a retention
-	// cut removed: nothing can be checked against them.
-	Checkpoints, Skipped int
+	// Checkpoints is how many checkpoints agreed with the chain.
+	Checkpoints int
 	// Failures are sorted by sequence number. The first is the first bad
 	// record.
 	Failures []Failure
@@ -57,13 +58,15 @@ func (r Report) OK() bool { return len(r.Failures) == 0 }
 //   - every record follows the one before it (no gap, an unbroken prev_hash)
 //     and its hash matches its content, so an edited, deleted or inserted
 //     record is found;
-//   - the oldest record is the first (seq 1, no prev_hash) or follows a
-//     checkpoint at the cut that removed the records before it;
+//   - the oldest record is the first (seq 1, no prev_hash): until a signed
+//     retention-cut marker exists, no checkpoint excuses a missing start, so
+//     a deleted prefix is found;
 //   - every checkpoint that covers a record agrees with that record's hash,
 //     so a chain rewritten end to end no longer matches;
 //   - no checkpoint is newer than the log's newest record, so a cut-off tail
 //     is found;
-//   - every signed checkpoint's signature verifies against a trusted key.
+//   - every checkpoint is signed (unless Options.AllowUnsigned) and its
+//     signature verifies against a trusted key.
 //
 // A checkpoint that fails its signature is reported and not used to judge the
 // chain. Verify stops reading at the first broken record, since nothing after
@@ -102,8 +105,13 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			after = rec.GetSeq()
 			if prev == nil {
 				rep.First = rec.GetSeq()
-				if !anchored(rec, bySeq) {
-					fail(rec.GetSeq(), "the log starts here but nothing says the records before it were cut on purpose: it is not record 1 and no checkpoint covers record %d with this record's prev_hash", rec.GetSeq()-1)
+				if rec.GetSeq() != 1 {
+					fail(1, "records 1 to %d are missing: the log must start at record 1 (a checkpoint cannot excuse a missing start)", rec.GetSeq()-1)
+					broken = true
+					break
+				}
+				if len(rec.GetPrevHash()) != 0 {
+					fail(1, "is not the start of a chain: record 1 has a prev_hash")
 					broken = true
 					break
 				}
@@ -142,11 +150,6 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 	if !broken && maxSeq > rep.Last {
 		fail(rep.Last+1, "records %d to %d are missing: a checkpoint covers them", rep.Last+1, maxSeq)
 	}
-	for seq, cps := range bySeq {
-		if rep.First > 0 && seq < rep.First {
-			rep.Skipped += len(cps)
-		}
-	}
 	slices.SortStableFunc(rep.Failures, func(a, b Failure) int {
 		switch {
 		case a.Seq < b.Seq:
@@ -161,20 +164,11 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 
 // checkpointOK says whether a checkpoint can be used to judge the chain.
 func checkpointOK(cp *modelv1alpha1.AuditCheckpoint, opts Options) error {
-	if opts.RequireSigned && cp.GetSignature() == nil {
+	if err := VerifyCheckpoint(cp, opts.Keys); err != nil {
+		return err
+	}
+	if !opts.AllowUnsigned && len(cp.GetSignature()) == 0 {
 		return fmt.Errorf("it is not signed")
 	}
-	return VerifyCheckpoint(cp, opts.Keys)
-}
-
-// anchored says whether the oldest record the log holds is a legitimate
-// start: record 1 with no prev_hash, or the record after a checkpoint that
-// holds its prev_hash.
-func anchored(first *modelv1alpha1.AuditRecord, bySeq map[uint64][]*modelv1alpha1.AuditCheckpoint) bool {
-	if first.GetSeq() == 1 {
-		return len(first.GetPrevHash()) == 0
-	}
-	return slices.ContainsFunc(bySeq[first.GetSeq()-1], func(cp *modelv1alpha1.AuditCheckpoint) bool {
-		return bytes.Equal(cp.GetHeadHash(), first.GetPrevHash())
-	})
+	return nil
 }
