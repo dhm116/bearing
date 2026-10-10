@@ -83,6 +83,20 @@ func (s *failNth) Changes(ctx context.Context, f contracts.FactFilter, t1, t2 ti
 	return s.GraphStore.Changes(ctx, f, t1, t2, a)
 }
 
+func (s *failNth) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (contracts.ChangesPage, error) {
+	if err := s.fail(); err != nil {
+		return contracts.ChangesPage{}, err
+	}
+	return s.GraphStore.ChangesPage(ctx, r)
+}
+
+func (s *failNth) LastChange(ctx context.Context, f contracts.FactFilter, t time.Time, a contracts.Axis) (time.Time, error) {
+	if err := s.fail(); err != nil {
+		return time.Time{}, err
+	}
+	return s.GraphStore.LastChange(ctx, f, t, a)
+}
+
 func (s *failNth) Conflicts(context.Context, contracts.SubjectID, string, time.Time, time.Time) ([]*modelv1alpha1.Conflict, error) {
 	if err := s.fail(); err != nil {
 		return nil, err
@@ -140,11 +154,11 @@ func TestStoreFailuresReachTheCaller(t *testing.T) {
 			return err
 		},
 		"changes": func(q *query.Querier) error {
-			_, err := q.Changes(context.Background(), "", since, time.Time{}, query.AxisValid)
+			_, err := q.Changes(context.Background(), query.ChangesRequest{Since: since})
 			return err
 		},
 		"changes of a subject": func(q *query.Querier) error {
-			_, err := q.Changes(context.Background(), "catalog:repo/payments", since, until, query.AxisRecord)
+			_, err := q.Changes(context.Background(), query.ChangesRequest{Ref: "catalog:repo/payments", Since: since, Until: until, Axis: query.AxisRecord})
 			return err
 		},
 	}

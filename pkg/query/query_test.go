@@ -65,7 +65,7 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rig{t: t, clock: clk, store: s, r: r, q: &query.Querier{Graph: s}}
+	return &rig{t: t, clock: clk, store: s, r: r, q: &query.Querier{Graph: s, Now: clk.Now}}
 }
 
 func readFile(t *testing.T, path string) string {
@@ -145,7 +145,7 @@ func TestChangesOnTheValidAxisReadWhatIsKnownNow(t *testing.T) {
 	r.observeAt(seen, "catalog-acme", "Team", "catalog:team/platform", nil, "Platform")
 	r.observeAt(seen, "catalog-acme", "Repository", "catalog:repo/payments", nil, "payments", relation("owned_by", "catalog:team/platform"))
 	until := seen.Add(24 * time.Hour)
-	got, err := r.q.Changes(context.Background(), "catalog:repo/payments", seen.Add(-time.Hour), until, query.AxisValid)
+	got, err := r.q.Changes(context.Background(), query.ChangesRequest{Ref: "catalog:repo/payments", Since: seen.Add(-time.Hour), Until: until})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestChangesOnTheValidAxisReadWhatIsKnownNow(t *testing.T) {
 		}
 	}
 	// The same window on the record axis is as Bearing knew it then: nothing.
-	rec, err := r.q.Changes(context.Background(), "", seen.Add(-time.Hour), until, query.AxisRecord)
+	rec, err := r.q.Changes(context.Background(), query.ChangesRequest{Since: seen.Add(-time.Hour), Until: until, Axis: query.AxisRecord})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,10 +275,10 @@ func TestResolveRejectsWhatIsNotASubject(t *testing.T) {
 func TestChangesRejectsBadWindows(t *testing.T) {
 	r := newRig(t)
 	now := r.clock.Now()
-	if _, err := r.q.Changes(context.Background(), "", now, now.Add(-time.Hour), query.AxisValid); err == nil || !strings.Contains(err.Error(), "after") {
+	if _, err := r.q.Changes(context.Background(), query.ChangesRequest{Since: now, Until: now.Add(-time.Hour)}); err == nil || !strings.Contains(err.Error(), "after") {
 		t.Errorf("window ending before it starts: got %v, want an error", err)
 	}
-	if _, err := r.q.Changes(context.Background(), "", now, time.Time{}, "sideways"); err == nil || !strings.Contains(err.Error(), "axis") {
+	if _, err := r.q.Changes(context.Background(), query.ChangesRequest{Since: now, Axis: "sideways"}); err == nil || !strings.Contains(err.Error(), "axis") {
 		t.Errorf("unknown axis: got %v, want an error", err)
 	}
 }

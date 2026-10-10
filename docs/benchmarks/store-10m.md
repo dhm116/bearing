@@ -30,8 +30,12 @@ person 27 ms (11.7 ms at 1M), `bearing get <person>` 122 ms (70 ms before the `r
    repository passed a 6 GB heap limit, because the store loaded every fact
    with the predicate to find the ones pointing at a subject. **Fixed in this
    change** (a missing use of the subject index, a few lines in
-   `internal/pgstore`): 1.0 s and 9.5 MB, and 21 ms. Still open: the whole-org
-   `changes --since`, which passes 6 GB and needs a result limit.
+   `internal/pgstore`): 1.0 s and 9.5 MB, and 21 ms. The whole-org
+   `changes --since`, which passed 6 GB, now returns the newest 100 changes a
+   page ([#167](https://github.com/dhm116/bearing/issues/167)), so its memory
+   is a page and not the window. It has not been measured at this size: it
+   still reads every fact row once per page, which an index on when facts
+   changed would avoid.
 2. *The resolver* ([#168](https://github.com/dhm116/bearing/issues/168)).
    One new Change costs 220 database transactions at 3M fact rows (49 at 12k);
    one pipeline ingests 3.3 events/s, 45 minutes for a full re-read of the
@@ -129,6 +133,8 @@ p50 / p99 in milliseconds, one caller and 16 callers at the same time. 1M and
 | `bearing related <person> --predicate changed_by` | 12,469 | stopped at 6 GB | 64,331 | stopped at 6 GB | 7,216 |
 | `bearing related <repository>` (every predicate) | 69,416 | not run | stopped at 6 GB | not run | |
 | `bearing changes --since 1 day`, whole org | stopped at 6 GB | not run | stopped at 6 GB | not run | |
+
+The last row was measured before `changes` was paged; `make bench` now asks for the first page of 100.
 
 The four `related` rows above were measured before the fix in this change.
 The same store afterwards, same machine:

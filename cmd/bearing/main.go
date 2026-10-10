@@ -10,7 +10,7 @@
 //	bearing get <subject>
 //	bearing owner <repo>
 //	bearing related <subject>
-//	bearing changes --since <time> [<subject>]
+//	bearing changes [--since <time>] [<subject>]
 //
 // and checks the audit log against checkpoints kept outside the store:
 //
@@ -20,7 +20,9 @@
 // Each takes --store (or $BEARING_STORE); the queries also take --as-of. Run
 // one with -h for its flags. A subject is a subject ID or a key such as
 // github:repo/acme/payments. For changes, --since and --as-of are the two
-// ends of the window, and the default end is now.
+// ends of the window, and the default end is now. Without --since it looks
+// at the last 24 hours, newest change first, 100 at a time; a page that is
+// not the last ends with the --page-token for the next.
 package main
 
 import (
@@ -47,7 +49,8 @@ const usage = `usage:
   bearing get <subject> [--store URL] [--as-of T] [--recorded-at T] [--json]
   bearing owner <repo> [--store URL] [--as-of T] [--recorded-at T] [--json]
   bearing related <subject> [--predicate P] [--store URL] [--as-of T] [--recorded-at T] [--json]
-  bearing changes --since T [<subject>] [--axis valid|record] [--store URL] [--as-of T] [--json]
+  bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL] [--as-of T] [--json]
+  bearing changes --page-token TOKEN [--limit N] [--store URL] [--json]
   bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
   bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
 `

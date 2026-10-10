@@ -26,6 +26,8 @@ import (
 // Querier reads one graph store.
 type Querier struct {
 	Graph contracts.GraphStore
+	// Now is the time a question with no end is asked at; nil means time.Now.
+	Now func() time.Time
 }
 
 // Point is the pair of times a question is asked at. A zero time means now,

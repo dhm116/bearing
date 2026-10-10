@@ -247,23 +247,19 @@ func renderRelations(w io.Writer, r *query.Relations) error {
 
 func renderChanges(w io.Writer, c *query.Changes) error {
 	var o out
-	end := "now"
-	if !c.Until.IsZero() {
-		end = stamp(c.Until)
-	}
 	scope := ""
 	if c.Subject != nil {
 		scope = " of " + c.Subject.String()
 	}
-	o.line(0, "changes%s from %s to %s, %s axis", scope, stamp(c.Since), end, c.Axis)
+	o.line(0, "changes%s from %s to %s, %s axis", scope, stamp(c.Since), stamp(c.Until), c.Axis)
 	if len(c.Changes) == 0 {
 		o.line(0, "")
-		o.line(0, "none")
+		o.line(0, "%s", nothingChanged(c))
 	}
 	for _, ch := range c.Changes {
 		o.line(0, "")
 		o.line(0, "%s %s %s", ch.Subject, ch.Predicate, ch.Object)
-		o.line(1, "%s %s to %s %s", ch.From.Status, percent(ch.From.ConfidencePPM), ch.To.Status, percent(ch.To.ConfidencePPM))
+		o.line(1, "%s %s to %s %s, changed %s", ch.From.Status, percent(ch.From.ConfidencePPM), ch.To.Status, percent(ch.To.ConfidencePPM), stamp(ch.ChangedAt))
 		if len(ch.Before) > 0 {
 			o.line(1, "before")
 			o.supports(2, ch.Before)
@@ -273,5 +269,23 @@ func renderChanges(w io.Writer, c *query.Changes) error {
 			o.supports(2, ch.After)
 		}
 	}
+	if c.NextPageToken != "" {
+		o.line(0, "")
+		o.line(0, "%d changes shown, newest first. For the next page: bearing changes --page-token %s", len(c.Changes), c.NextPageToken)
+	}
 	return o.flush(w)
+}
+
+// nothingChanged says that a window held no changes and when the newest
+// change before it was, if there was one.
+func nothingChanged(c *query.Changes) string {
+	within := "from " + stamp(c.Since) + " to " + stamp(c.Until)
+	then := " before then"
+	if c.DefaultWindow {
+		within, then = fmt.Sprintf("within the last %d hours", int(c.Until.Sub(c.Since).Hours())), ""
+	}
+	if c.MostRecentChange == nil {
+		return "nothing changed " + within + "; no change has been recorded" + then
+	}
+	return "nothing changed " + within + "; the most recent change" + then + " occurred on " + stamp(*c.MostRecentChange)
 }

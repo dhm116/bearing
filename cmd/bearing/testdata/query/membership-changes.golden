@@ -1,9 +1,9 @@
 $ bearing changes authentik:username/lfischer --since 2026-10-15T00:00:00Z
 
-changes of Lena Fischer [Person 01a0fb32-b704-7000-8000-000000000000] from 2026-10-15T00:00:00Z to now, valid axis
+changes of Lena Fischer [Person 01a0fb32-b704-7000-8000-000000000000] from 2026-10-15T00:00:00Z to 2026-11-02T00:00:00Z, valid axis
 
 Lena Fischer [Person 01a0fb32-b704-7000-8000-000000000000] member_of engineering [Team 01a0fb32-b705-7000-8000-000000000000]
-  asserted 100% to none 0%
+  asserted 100% to none 0%, changed 2026-11-01T00:00:00Z
   before
     authentik-acme: 100%, observed 2026-10-02T06:00:00Z, event authentik-acme/feed-1/6 adapter authentik
       valid 2024-01-01T00:00:00Z until 2026-11-01T00:00:00Z, recorded 2026-10-02T06:00:00.005Z

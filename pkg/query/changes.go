@@ -36,6 +36,9 @@ type Change struct {
 	Object    Object      `json:"object"`
 	From      StatusPoint `json:"from"`
 	To        StatusPoint `json:"to"`
+	// ChangedAt is when the fact took the status and confidence it has at the
+	// window's end (docs/spec/data-model.md, "What changed").
+	ChangedAt time.Time `json:"changed_at"`
 	// SupportsChanged are the sources whose supports differ between the ends.
 	SupportsChanged []string `json:"supports_changed"`
 	// Before are the supports the fact had at the window's start, After at
@@ -45,59 +48,128 @@ type Change struct {
 	After  []Support `json:"after"`
 }
 
-// Changes are the facts that differ across a window.
+// Changes are one page of the facts that differ across a window, newest
+// first.
 type Changes struct {
 	Axis Axis `json:"axis"`
-	// Since and Until bound the window; a zero Until is now.
-	Since   time.Time `json:"since"`
-	Until   time.Time `json:"until,omitzero"`
-	Subject *Ref      `json:"subject,omitempty"`
-	Changes []Change  `json:"changes"`
+	// Since and Until bound the window, as resolved: a question that named no
+	// end is answered up to the time it was asked.
+	Since time.Time `json:"since"`
+	Until time.Time `json:"until"`
+	// DefaultWindow is set when the question named neither end, so the
+	// window is the last [DefaultChangesWindow].
+	DefaultWindow bool     `json:"default_window,omitempty"`
+	Subject       *Ref     `json:"subject,omitempty"`
+	Changes       []Change `json:"changes"`
+	// NextPageToken asks for the next page when more changes follow. It is
+	// opaque to callers and carries the whole question.
+	NextPageToken string `json:"next_page_token,omitempty"`
+	// MostRecentChange is, on a first page with no changes, when the newest
+	// change before the window happened. It is empty when none ever did.
+	MostRecentChange *time.Time `json:"most_recent_change,omitempty"`
 }
 
-// Changes returns the facts whose status or confidence differs between since
-// and until (zero is now). It is an endpoint diff: steps in between are not
-// listed. A non-empty ref limits it to facts about that subject.
-func (q *Querier) Changes(ctx context.Context, ref string, since, until time.Time, axis Axis) (*Changes, error) {
+// DefaultChangesWindow is how far back a question that names no start looks.
+const DefaultChangesWindow = 24 * time.Hour
+
+// ChangesRequest asks Querier.Changes for a page of changes.
+type ChangesRequest struct {
+	// Ref limits the answer to facts about a subject: its ID or a key. Empty
+	// asks about the whole graph.
+	Ref string
+	// Since and Until bound the window (Since, Until]. A zero Until is now,
+	// and a zero Since is [DefaultChangesWindow] before Until.
+	Since, Until time.Time
+	// Axis defaults to [AxisValid].
+	Axis Axis
+	// Limit is the page size: [contracts.DefaultChangesLimit] when zero, at
+	// most [contracts.MaxChangesLimit].
+	Limit int
+	// PageToken continues an earlier answer: a NextPageToken. It carries the
+	// question, so Ref, Since, Until and Axis must be empty.
+	PageToken string
+}
+
+// ErrBadPageToken is returned for a page token that Changes did not issue
+// or that cannot be read.
+var ErrBadPageToken = errors.New("query: invalid page token")
+
+// Changes returns a page of the facts whose status or confidence differs
+// between the ends of a window, newest first. It is an endpoint diff: steps
+// in between are not listed. A question that names no window gets the last
+// [DefaultChangesWindow]; when nothing changed in a window, the answer says
+// when the newest change before it was. A page that is not the last carries
+// the token for the next.
+func (q *Querier) Changes(ctx context.Context, req ChangesRequest) (*Changes, error) {
+	w, err := q.changesWindow(req)
+	if err != nil {
+		return nil, err
+	}
 	var a contracts.Axis
-	switch axis {
+	switch w.axis {
 	case AxisValid:
 		a = contracts.AxisValid
 	case AxisRecord:
 		a = contracts.AxisRecord
 	default:
-		return nil, fmt.Errorf("unknown axis %q: want %s or %s", axis, AxisValid, AxisRecord)
+		return nil, fmt.Errorf("unknown axis %q: want %s or %s", w.axis, AxisValid, AxisRecord)
 	}
-	if !until.IsZero() && since.After(until) {
+	if req.Limit < 0 || req.Limit > contracts.MaxChangesLimit {
+		return nil, fmt.Errorf("limit %d: want 1 to %d", req.Limit, contracts.MaxChangesLimit)
+	}
+	if w.since.After(w.until) {
 		return nil, errors.New("the window starts after it ends")
 	}
-	end := pointAt(until, axis)
+	end := pointAt(w.until, w.axis)
 	l := q.labeler(end)
-	out := &Changes{Axis: axis, Since: since, Until: until, Changes: []Change{}}
+	out := &Changes{Axis: w.axis, Since: w.since, Until: w.until, DefaultWindow: w.deflt, Changes: []Change{}}
 	var filter contracts.FactFilter
-	if ref != "" {
+	switch {
+	case w.subject != "":
+		filter.SubjectID = contracts.SubjectID(w.subject)
+	case req.Ref != "":
 		// The subject is looked up as the world stands at the window's end.
-		id, err := q.Resolve(ctx, ref, end)
+		id, err := q.Resolve(ctx, req.Ref, end)
 		if err != nil {
 			return nil, err
 		}
-		filter.SubjectID = id
-		r, err := l.ref(ctx, string(id))
+		filter.SubjectID, w.subject = id, string(id)
+	}
+	if filter.SubjectID != "" {
+		r, err := l.ref(ctx, string(filter.SubjectID))
 		if err != nil {
 			return nil, err
 		}
 		out.Subject = &r
 	}
-	in, err := q.Graph.Changes(ctx, filter, since, until, a)
+	page, err := q.Graph.ChangesPage(ctx, contracts.ChangesRequest{
+		Filter: filter, T1: w.since, T2: w.until, Axis: a, Limit: req.Limit, After: w.after,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("changes: %w", err)
 	}
-	for _, c := range in {
-		ch, err := q.change(ctx, l, c, since, until, axis)
+	for _, c := range page.Changes {
+		ch, err := q.change(ctx, l, c, w.since, w.until, w.axis)
 		if err != nil {
 			return nil, err
 		}
 		out.Changes = append(out.Changes, ch)
+	}
+	switch {
+	case page.Next != nil:
+		w.after = page.Next
+		out.NextPageToken = w.encode()
+	case len(page.Changes) == 0 && req.PageToken == "":
+		// Nothing in the window: say when anything last changed, so the
+		// answer is not just "none".
+		at, err := q.Graph.LastChange(ctx, filter, w.since, a)
+		switch {
+		case errors.Is(err, contracts.ErrNotFound):
+		case err != nil:
+			return nil, fmt.Errorf("last change: %w", err)
+		default:
+			out.MostRecentChange = &at
+		}
 	}
 	return out, nil
 }
@@ -112,7 +184,7 @@ func (q *Querier) change(ctx context.Context, l *labeler, c *modelv1alpha1.FactC
 		return Change{}, err
 	}
 	ch := Change{
-		FactID: c.GetFactId(), Subject: subject, Predicate: c.GetPredicate(), Object: object,
+		FactID: c.GetFactId(), Subject: subject, Predicate: c.GetPredicate(), Object: object, ChangedAt: c.GetChangedAt().AsTime(),
 		From: point(c.GetFrom()), To: point(c.GetTo()), SupportsChanged: c.GetSupportsChanged(),
 	}
 	if ch.SupportsChanged == nil {

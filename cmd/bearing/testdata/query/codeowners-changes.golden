@@ -1,9 +1,9 @@
 $ bearing changes github:repo/acme/payments --since 2026-10-02T00:00:00Z
 
-changes of payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] from 2026-10-02T00:00:00Z to now, valid axis
+changes of payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] from 2026-10-02T00:00:00Z to 2026-10-03T00:00:00Z, valid axis
 
 payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
-  asserted 100% to none 0%
+  asserted 100% to none 0%, changed 2026-10-02T08:30:00Z
   before
     github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
       valid 2026-09-28T01:30:00Z until 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
@@ -11,7 +11,7 @@ payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Paym
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
 payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]
-  none 0% to asserted 100%
+  none 0% to asserted 100%, changed 2026-10-02T08:30:00Z
   after
     github-acme: 100%, observed 2026-10-02T08:30:00Z, event github-acme/delivery-0002/1 adapter github
       valid from 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
@@ -19,7 +19,7 @@ payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Plat
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
 payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Platform [Team 01a0e5a2-15c2-7000-8000-000000000001]
-  none 0% to asserted 95%
+  none 0% to asserted 95%, changed 2026-10-02T08:30:00Z
   after
     core/derive/codeowners/github-acme: 95%, observed 2026-10-02T08:30:00Z, event github-acme/delivery-0002/1
       valid from 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
@@ -27,7 +27,7 @@ payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Platform [Te
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
 payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
-  asserted 95% to none 0%
+  asserted 95% to none 0%, changed 2026-10-02T08:30:00Z
   before
     core/derive/codeowners/github-acme: 95%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2
       valid 2026-09-28T01:30:00Z until 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
