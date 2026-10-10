@@ -334,6 +334,11 @@ func resolveAny(a *anypb.Any, subject func(string) (string, error)) (*anypb.Any,
 	if err != nil {
 		return nil, fmt.Errorf("embedded %s: %w", a.GetTypeUrl(), err)
 	}
+	switch m.ProtoReflect().Descriptor().FullName().Parent() {
+	case "bearing.model.v1alpha1", "bearing.config.v1alpha1":
+	default:
+		return nil, fmt.Errorf("embedded %s: not a message of the model or config package", a.GetTypeUrl())
+	}
 	changed := false
 	if err := rewriteSubjects(m.ProtoReflect(), func(v string) (string, error) {
 		out, err := subject(v)

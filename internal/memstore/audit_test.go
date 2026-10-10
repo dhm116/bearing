@@ -10,6 +10,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -220,5 +222,48 @@ func TestApplyKeepsAnEmbeddedMessageThatHoldsNoRef(t *testing.T) {
 	}
 	if got := res.Audit[0].GetAfter().GetValue(); !bytes.Equal(got, value) {
 		t.Fatalf("got %x, want the bytes as given, %x", got, value)
+	}
+}
+
+// The store reads subject IDs through nested and repeated messages, not
+// through map values (docs/spec/contracts.md, "Audit entries"). This fails
+// when a message of the model or config package gains a map whose values hold
+// a subject ID, which a ref could hide in.
+func TestNoSubjectIDHidesInAMapValue(t *testing.T) {
+	var holds func(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) bool
+	holds = func(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) bool {
+		if seen[md.FullName()] || md.FullName().Parent() == "google.protobuf" {
+			return false
+		}
+		seen[md.FullName()] = true
+		for i := range md.Fields().Len() {
+			fd := md.Fields().Get(i)
+			if isSubjectField(fd) || (fd.Message() != nil && !fd.IsMap() && holds(fd.Message(), seen)) {
+				return true
+			}
+		}
+		return false
+	}
+	checked := 0
+	protoregistry.GlobalFiles.RangeFiles(func(f protoreflect.FileDescriptor) bool {
+		if p := f.Package(); p != "bearing.model.v1alpha1" && p != "bearing.config.v1alpha1" {
+			return true
+		}
+		for i := range f.Messages().Len() {
+			md := f.Messages().Get(i)
+			for j := range md.Fields().Len() {
+				fd := md.Fields().Get(j)
+				if fd.IsMap() && fd.MapValue().Message() != nil {
+					checked++
+					if holds(fd.MapValue().Message(), map[protoreflect.FullName]bool{}) {
+						t.Errorf("%s: the values of the map hold a subject ID, which the store does not read", fd.FullName())
+					}
+				}
+			}
+		}
+		return true
+	})
+	if checked == 0 {
+		t.Fatal("found no map of messages to check; the walk is broken")
 	}
 }

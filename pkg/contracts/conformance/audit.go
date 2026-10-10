@@ -1,16 +1,19 @@
 package conformance
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 )
@@ -114,6 +117,11 @@ func (g *suite) auditRefs(t *testing.T) {
 				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(pred, "new:a/owned_by"),
 				After: embed(t, &modelv1alpha1.Conflict{SubjectId: "new:a", Predicate: "owned_by"}),
 			},
+			{
+				// The subject is in the message and in its object, one level down.
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED, Actor: auditActor(), Target: auditTarget(pred, "new:a/owned_by"),
+				After: embed(t, &modelv1alpha1.FactTimeline{SubjectId: "new:a", Predicate: "owned_by", Object: &modelv1alpha1.FactObject{SubjectId: "new:a"}}),
+			},
 		}
 	}
 	// A ref in a text the store does not read stays as it is.
@@ -129,7 +137,7 @@ func (g *suite) auditRefs(t *testing.T) {
 		s, _ := g.store(t)
 		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
 		id := string(res.Subjects["new:a"])
-		failIf(t, len(res.Audit) != 3, "got %d audit entries, want 3", len(res.Audit))
+		failIf(t, len(res.Audit) != 4, "got %d audit entries, want 4", len(res.Audit))
 		noRefs(t, res.Audit)
 		failIf(t, res.Audit[0].GetTarget().GetId() != id, "got target %q, want %s", res.Audit[0].GetTarget().GetId(), id)
 		failIf(t, res.Audit[2].GetTarget().GetId() != id+"/owned_by", "got target %q, want %s/owned_by", res.Audit[2].GetTarget().GetId(), id)
@@ -137,9 +145,11 @@ func (g *suite) auditRefs(t *testing.T) {
 		failIf(t, res.Audit[1].GetAfter().UnmarshalTo(&binding) != nil || binding.GetBindings()[0].GetSubjectId() != id, "got %v, want the binding of %s", &binding, id)
 		var conflict modelv1alpha1.Conflict
 		failIf(t, res.Audit[2].GetAfter().UnmarshalTo(&conflict) != nil || conflict.GetSubjectId() != id || conflict.GetPredicate() != "owned_by", "got %v, want the conflict of %s", &conflict, id)
+		var timeline modelv1alpha1.FactTimeline
+		failIf(t, res.Audit[3].GetAfter().UnmarshalTo(&timeline) != nil || timeline.GetSubjectId() != id || timeline.GetObject().GetSubjectId() != id, "got %v, want the timeline of %s with %s as its object", &timeline, id, id)
 		// A repeated event reports the same entries.
 		again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
-		failIf(t, !again.Duplicate || len(again.Audit) != 3, "got %+v, want e1 reported again", again)
+		failIf(t, !again.Duplicate || len(again.Audit) != 4, "got %+v, want e1 reported again", again)
 		for i := range res.Audit {
 			failIf(t, !proto.Equal(again.Audit[i], res.Audit[i]), "audit entry %d: got %v, want %v", i, again.Audit[i], res.Audit[i])
 		}
@@ -155,21 +165,44 @@ func (g *suite) auditRefs(t *testing.T) {
 		var rec modelv1alpha1.MergeRecord
 		failIf(t, res.Audit[0].GetBefore().UnmarshalTo(&rec) != nil || rec.GetSurvivorId() != r || rec.GetMergedId() != p, "got %v, want the embedded message as given", &rec)
 	})
-	t.Run("one ChangeSet gives the same bytes on every store", func(t *testing.T) {
-		encode := func() []byte {
-			s, _ := g.store(t)
-			res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
-			var out []byte
-			for _, e := range res.Audit {
-				b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
-				failIf(t, err != nil, "%v", err)
-				// Two stores mint different IDs of one length; compare the rest.
-				out = append(out, strings.ReplaceAll(string(b), string(res.Subjects["new:a"]), strings.Repeat("x", len(res.Subjects["new:a"])))...)
-			}
-			return out
+	t.Run("a message that holds no ref keeps its bytes", func(t *testing.T) {
+		// Fields written in descending order are valid Protobuf that no
+		// deterministic encoder writes, so only a store that leaves the
+		// message alone returns them as given.
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		value := protowire.AppendString(protowire.AppendTag(nil, 2, protowire.BytesType), "owned_by")
+		value = protowire.AppendString(protowire.AppendTag(value, 1, protowire.BytesType), p)
+		given := &anypb.Any{TypeUrl: "type.googleapis.com/bearing.model.v1alpha1.Conflict", Value: value}
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(pred, p+"/owned_by"), After: given,
+		}}})
+		failIf(t, !bytes.Equal(res.Audit[0].GetAfter().GetValue(), value), "got %x, want the message's bytes as given, %x", res.Audit[0].GetAfter().GetValue(), value)
+	})
+	t.Run("a configuration resource is embedded as it is", func(t *testing.T) {
+		s, _ := g.store(t)
+		resource := embed(t, &configv1alpha1.Resource{Resource: &configv1alpha1.Resource_Retention{Retention: &configv1alpha1.Retention{}}})
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFIG_APPLIED, Actor: auditActor(),
+			Target: auditTarget(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_RESOURCE, "Retention/default"), After: resource,
+		}}})
+		failIf(t, !proto.Equal(res.Audit[0].GetAfter(), resource), "got %v, want the resource as given", res.Audit[0].GetAfter())
+	})
+	t.Run("a message the store cannot read is refused", func(t *testing.T) {
+		s, _ := g.store(t)
+		head, _ := s.Head(ctx)
+		for name, a := range map[string]*anypb.Any{
+			"another package": {TypeUrl: "type.googleapis.com/google.protobuf.Timestamp", Value: []byte{8, 1}},
+			"an unknown type": {TypeUrl: "type.googleapis.com/no.such.Message", Value: []byte("new:a")},
+			"malformed bytes": {TypeUrl: "type.googleapis.com/bearing.model.v1alpha1.Conflict", Value: []byte{0xff, 0xff}},
+		} {
+			_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Audit: []*modelv1alpha1.AuditEntry{{
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(alias, "github:team_node/T_x"), After: a,
+			}}})
+			failIf(t, err == nil, "%s: got no error, want one", name)
 		}
-		first, second := encode(), encode()
-		failIf(t, string(first) != string(second), "got entries that differ between two stores for one ChangeSet:\n%q\n%q", first, second)
+		now, _ := s.Head(ctx)
+		failIf(t, !now.Equal(head), "got head %s, want %s: a refused audit entry wrote", now, head)
 	})
 	t.Run("a ref no mint declares is refused", func(t *testing.T) {
 		s, _ := g.store(t)

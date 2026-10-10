@@ -212,21 +212,33 @@ checks each entry's shape and refuses the `ChangeSet` if one fails:
   action;
 - a subject ID in an entry is the ID of a subject that exists, or a ref
   (`new:<label>`) for a subject the same `ChangeSet` creates, which the store
-  replaces. Subject IDs are read in three places: the ID of a target of kind
-  `subject`; the part of a target of kind `subject_predicate` before its first
-  `/` (the target needs both parts); and the `subject_id`, `subject_ids`,
-  `survivor_id`, `merged_id` and `merged_into` fields of the model messages in
-  `before` and `after`. The store checks each, and refuses the `ChangeSet`
-  for a ref no mint or un-merge declares (so no entry leaves the store with a
-  `new:` ref in it) and for a subject that doesn't exist (`ErrNotFound`).
-  Where it replaces a ref inside `before` or `after` it encodes the message
-  deterministically; a message with no ref is kept byte for byte. A message
-  of a type the store doesn't know is refused, since a ref inside it could not
-  be found. The other targets (`alias`, `fact`, `source`, `resource`,
-  `event`) hold no subject ID and are kept as given: a fact's ID is a hash, so
-  a fact of a subject minted in the same event is audited with a
-  `subject_predicate` target and its timeline in `after`. Entries are history
-  and are not re-pointed when subjects merge later.
+  replaces. Subject IDs are read in three places:
+  - the ID of a target of kind `subject`;
+  - the part of a target of kind `subject_predicate` before its first `/`.
+    The target needs both parts, and a ref used there MUST NOT contain `/`
+    (the rule for [State keys](#state-keys)), or it names no mint;
+  - the `subject_id`, `subject_ids`, `survivor_id`, `merged_id` and
+    `merged_into` fields of the messages in `before` and `after`, at any
+    depth: the store walks nested and repeated messages (a `BindingTimeline`
+    holds its `subject_id` in `bindings`, a `FactTimeline` in `object`). It
+    does not read map values, fields of `google.protobuf` types, or a nested
+    `Any`.
+
+  The store checks each one, and refuses the `ChangeSet` for a ref no mint or
+  un-merge declares (so no subject ID leaves the store as a ref) and for a
+  subject that doesn't exist (`ErrNotFound`). It refuses an embedded message
+  that is malformed or not a message of the `bearing.model.v1alpha1` or
+  `bearing.config.v1alpha1` packages (a configuration change embeds a
+  `Resource`), since a ref inside it could not be found. Where it replaces a
+  ref inside `before` or `after` it re-encodes the message with the Go
+  Protobuf library's deterministic marshalling; a message with no ref is kept
+  byte for byte. Nothing needs the bytes to match across builds or libraries,
+  because the audit log hashes the bytes the store hands it. The other
+  targets (`alias`, `fact`, `source`, `resource`, `event`) hold no subject ID
+  and are kept as given: a fact's ID is a hash, so the status change of a
+  fact of a subject minted in the same event is audited with a
+  `subject_predicate` target and its `FactTimeline` in `after`. Entries are
+  history and are not re-pointed when subjects merge later.
 
 The store keeps the entries as part of the `ChangeSet` in its change journal
 and returns them in `ApplyResult.Audit`, in order and refs replaced, also for a

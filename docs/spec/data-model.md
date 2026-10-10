@@ -1272,7 +1272,7 @@ target or in `before` and `after`, and the store replaces it
 | `merge` | the surviving subject | the merge rule | `after`: the `MergeRecord` |
 | `unmerge` | the subject split from | | `after`: the `MergeRecord`, where one exists |
 | `distinct_from_set`, `distinct_from_cleared` | the `distinct_from` fact | | |
-| `claim_withdrawn` | the fact | | the source's `SupportTimeline` |
+| `claim_withdrawn` | the fact (a `(subject, predicate)` when the subject is minted in the same event) | | the source's `SupportTimeline` |
 | `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of a subject this event mints, since its ID can't be known before the apply | the `status_reason` | the `FactTimeline` |
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |

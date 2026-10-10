@@ -147,7 +147,7 @@
         },
         "before": {
           "$ref": "#/$defs/google.protobuf.Any.schema.json",
-          "description": "What the target was before, as a model message (a Binding, a\n FactTimeline, a MergeRecord, ...); absent when it did not exist."
+          "description": "What the target was before, as a message of the model or config package\n (a Binding, a FactTimeline, a MergeRecord, a config Resource, ...);\n absent when it did not exist. Subject IDs inside it may be refs in a\n ChangeSet's entry; the store replaces them (docs/spec/contracts.md,\n \"Audit entries\")."
         },
         "confidence_ppm": {
           "anyOf": [
