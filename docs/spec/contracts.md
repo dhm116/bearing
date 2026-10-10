@@ -232,8 +232,11 @@ checks each entry's shape and refuses the `ChangeSet` if one fails:
   `bearing.config.v1alpha1` packages (a configuration change embeds a
   `Resource`), since a ref inside it could not be found. Where it replaces a
   ref inside `before` or `after` it re-encodes the message with the Go
-  Protobuf library's deterministic marshalling; a message with no ref is kept
-  byte for byte. Nothing needs the bytes to match across builds or libraries,
+  Protobuf library's deterministic marshalling and keeps the `type_url` the
+  `Any` came with; a message with no ref is kept byte for byte. An empty
+  string in a `subject_ids` list is not checked (it is for the entry's writer
+  to explain), and the fields above are matched by name, so a field of those
+  names in a message of either package holds a subject ID. Nothing needs the bytes to match across builds or libraries,
   because the audit log hashes the bytes the store hands it. The other
   targets (`alias`, `fact`, `source`, `resource`, `event`) hold no subject ID
   and are kept as given: a fact's ID is a hash, so the status change of a
