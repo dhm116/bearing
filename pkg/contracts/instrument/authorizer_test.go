@@ -51,7 +51,7 @@ func authzCounts(t *testing.T) map[string]int64 {
 				result, _ := dp.Attributes.Value(attribute.Key("bearing.result"))
 				out[method.AsString()+"/"+result.AsString()] += dp.Value
 				for _, kv := range dp.Attributes.ToSlice() {
-					if v := kv.Value.Emit(); v == "user-7f3c" || v == "very-secret-group" || v == "client-9d1" {
+					if v := kv.Value.String(); v == "user-7f3c" || v == "very-secret-group" || v == "client-9d1" {
 						t.Errorf("attribute %s carries the caller: %q", kv.Key, v)
 					}
 				}
