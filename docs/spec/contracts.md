@@ -210,9 +210,23 @@ checks each entry's shape and refuses the `ChangeSet` if one fails:
 - the actor and the target have a known kind and an ID;
 - `rejection_code` is set when `action` is `rejection` and for no other
   action;
-- a target of kind `subject` names a subject that exists, by ID or by a ref
+- a subject ID in an entry is the ID of a subject that exists, or a ref
   (`new:<label>`) for a subject the same `ChangeSet` creates, which the store
-  replaces. No other ID is read, and `before` and `after` are kept as given.
+  replaces. Subject IDs are read in three places: the ID of a target of kind
+  `subject`; the part of a target of kind `subject_predicate` before its first
+  `/` (the target needs both parts); and the `subject_id`, `subject_ids`,
+  `survivor_id`, `merged_id` and `merged_into` fields of the model messages in
+  `before` and `after`. The store checks each, and refuses the `ChangeSet`
+  for a ref no mint or un-merge declares (so no entry leaves the store with a
+  `new:` ref in it) and for a subject that doesn't exist (`ErrNotFound`).
+  Where it replaces a ref inside `before` or `after` it encodes the message
+  deterministically; a message with no ref is kept byte for byte. A message
+  of a type the store doesn't know is refused, since a ref inside it could not
+  be found. The other targets (`alias`, `fact`, `source`, `resource`,
+  `event`) hold no subject ID and are kept as given: a fact's ID is a hash, so
+  a fact of a subject minted in the same event is audited with a
+  `subject_predicate` target and its timeline in `after`. Entries are history
+  and are not re-pointed when subjects merge later.
 
 The store keeps the entries as part of the `ChangeSet` in its change journal
 and returns them in `ApplyResult.Audit`, in order and refs replaced, also for a

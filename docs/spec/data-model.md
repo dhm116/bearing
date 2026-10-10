@@ -1260,6 +1260,11 @@ issuers a deployment trusts. A component that acts with no event actor is
 value; resources hold references, and a setting that is a secret is a
 reference in the resource.
 
+Every subject an entry names is a real subject ID in the record: a writer may
+use a ref for a subject the same event mints, anywhere an ID appears in the
+target or in `before` and `after`, and the store replaces it
+([Audit entries](contracts.md#audit-entries)).
+
 | `action` | `target` | `rule` | `before` / `after` |
 | --- | --- | --- | --- |
 | `mint` | subject | the mint rule | `after`: the `Subject` |
@@ -1268,7 +1273,7 @@ reference in the resource.
 | `unmerge` | the subject split from | | `after`: the `MergeRecord`, where one exists |
 | `distinct_from_set`, `distinct_from_cleared` | the `distinct_from` fact | | |
 | `claim_withdrawn` | the fact | | the source's `SupportTimeline` |
-| `fact_status_changed` | the fact | the `status_reason` | the `FactTimeline` |
+| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of a subject this event mints, since its ID can't be known before the apply | the `status_reason` | the `FactTimeline` |
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |

@@ -1,10 +1,14 @@
 package conformance
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -81,6 +85,178 @@ func (g *suite) auditEntries(t *testing.T) {
 	}
 	now, _ := s.Head(ctx)
 	failIf(t, !now.Equal(head), "got head %s, want %s: a refused audit entry wrote", now, head)
+}
+
+// embed packs a model message as the before or after of an audit entry.
+func embed(t *testing.T, m proto.Message) *anypb.Any {
+	t.Helper()
+	a, err := anypb.New(m)
+	failIf(t, err != nil, "%v", err)
+	return a
+}
+
+// auditRefs: the store replaces a ref wherever an audit entry names a subject
+// (docs/spec/contracts.md, "Audit entries"): the target of kind subject, the
+// first part of a target of kind subject_predicate and the subject fields of
+// the messages in before and after. It refuses any other "new:" and any
+// subject that doesn't exist, and keeps targets of the other kinds as given.
+func (g *suite) auditRefs(t *testing.T) {
+	subject, pred := modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE
+	alias := modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS
+	entries := func(t *testing.T) []*modelv1alpha1.AuditEntry {
+		return []*modelv1alpha1.AuditEntry{
+			{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(subject, "new:a"), Rule: "observation"},
+			{
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, Actor: auditActor(), Target: auditTarget(alias, "github:team_node/T_a"),
+				After: embed(t, bind("github:team_node/T_a", row("new:a", "", ""))),
+			},
+			{
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(pred, "new:a/owned_by"),
+				After: embed(t, &modelv1alpha1.Conflict{SubjectId: "new:a", Predicate: "owned_by"}),
+			},
+		}
+	}
+	// A ref in a text the store does not read stays as it is.
+	noRefs := func(t *testing.T, got []*modelv1alpha1.AuditEntry) {
+		t.Helper()
+		for i, e := range got {
+			for _, text := range []string{e.GetTarget().GetId(), embeddedText(t, e.GetBefore()), embeddedText(t, e.GetAfter())} {
+				failIf(t, strings.Contains(text, "new:"), "audit entry %d: got %q, want no ref left", i, text)
+			}
+		}
+	}
+	t.Run("a minted subject is named in the target and in before and after", func(t *testing.T) {
+		s, _ := g.store(t)
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
+		id := string(res.Subjects["new:a"])
+		failIf(t, len(res.Audit) != 3, "got %d audit entries, want 3", len(res.Audit))
+		noRefs(t, res.Audit)
+		failIf(t, res.Audit[0].GetTarget().GetId() != id, "got target %q, want %s", res.Audit[0].GetTarget().GetId(), id)
+		failIf(t, res.Audit[2].GetTarget().GetId() != id+"/owned_by", "got target %q, want %s/owned_by", res.Audit[2].GetTarget().GetId(), id)
+		var binding modelv1alpha1.BindingTimeline
+		failIf(t, res.Audit[1].GetAfter().UnmarshalTo(&binding) != nil || binding.GetBindings()[0].GetSubjectId() != id, "got %v, want the binding of %s", &binding, id)
+		var conflict modelv1alpha1.Conflict
+		failIf(t, res.Audit[2].GetAfter().UnmarshalTo(&conflict) != nil || conflict.GetSubjectId() != id || conflict.GetPredicate() != "owned_by", "got %v, want the conflict of %s", &conflict, id)
+		// A repeated event reports the same entries.
+		again := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
+		failIf(t, !again.Duplicate || len(again.Audit) != 3, "got %+v, want e1 reported again", again)
+		for i := range res.Audit {
+			failIf(t, !proto.Equal(again.Audit[i], res.Audit[i]), "audit entry %d: got %v, want %v", i, again.Audit[i], res.Audit[i])
+		}
+	})
+	t.Run("an existing subject is named by its ID", func(t *testing.T) {
+		s, _ := g.store(t)
+		r, p, _ := seed(t, s)
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_OVERRIDE_SET, Actor: auditActor(), Target: auditTarget(pred, r+"/owned_by"),
+			Before: embed(t, &modelv1alpha1.MergeRecord{SurvivorId: r, MergedId: p}),
+		}}})
+		failIf(t, res.Audit[0].GetTarget().GetId() != r+"/owned_by", "got target %q, want %s/owned_by", res.Audit[0].GetTarget().GetId(), r)
+		var rec modelv1alpha1.MergeRecord
+		failIf(t, res.Audit[0].GetBefore().UnmarshalTo(&rec) != nil || rec.GetSurvivorId() != r || rec.GetMergedId() != p, "got %v, want the embedded message as given", &rec)
+	})
+	t.Run("one ChangeSet gives the same bytes on every store", func(t *testing.T) {
+		encode := func() []byte {
+			s, _ := g.store(t)
+			res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: entries(t)})
+			var out []byte
+			for _, e := range res.Audit {
+				b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
+				failIf(t, err != nil, "%v", err)
+				// Two stores mint different IDs of one length; compare the rest.
+				out = append(out, strings.ReplaceAll(string(b), string(res.Subjects["new:a"]), strings.Repeat("x", len(res.Subjects["new:a"])))...)
+			}
+			return out
+		}
+		first, second := encode(), encode()
+		failIf(t, string(first) != string(second), "got entries that differ between two stores for one ChangeSet:\n%q\n%q", first, second)
+	})
+	t.Run("a ref no mint declares is refused", func(t *testing.T) {
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		head, _ := s.Head(ctx)
+		for name, e := range map[string]*modelv1alpha1.AuditEntry{
+			"subject target":           {Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: auditActor(), Target: auditTarget(subject, "new:nope")},
+			"subject_predicate target": {Action: modelv1alpha1.AuditAction_AUDIT_ACTION_OVERRIDE_SET, Actor: auditActor(), Target: auditTarget(pred, "new:nope/owned_by")},
+			"before": {
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_CLOSED, Actor: auditActor(), Target: auditTarget(pred, p+"/owned_by"),
+				Before: embed(t, &modelv1alpha1.Conflict{SubjectId: "new:nope"}),
+			},
+			"after": {
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, Actor: auditActor(), Target: auditTarget(alias, "github:team_node/T_x"),
+				After: embed(t, bind("github:team_node/T_x", row("new:nope", "", ""))),
+			},
+			"a subject list": {
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, Actor: auditActor(), Target: auditTarget(subject, p),
+				After: embed(t, &modelv1alpha1.DataQualityIssue{SubjectIds: []string{p, "new:nope"}}),
+			},
+		} {
+			_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "bad/" + name, Mints: []*modelv1alpha1.Mint{mint("new:y", "Team")}, Audit: []*modelv1alpha1.AuditEntry{e}})
+			failIf(t, err == nil, "%s: got no error, want one", name)
+		}
+		now, _ := s.Head(ctx)
+		failIf(t, !now.Equal(head), "got head %s, want %s: a refused audit entry wrote", now, head)
+	})
+	t.Run("a subject that does not exist is not found", func(t *testing.T) {
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		const missing = "0192b1c4-0000-7000-8000-000000000000"
+		for name, e := range map[string]*modelv1alpha1.AuditEntry{
+			"subject_predicate target": {Action: modelv1alpha1.AuditAction_AUDIT_ACTION_OVERRIDE_SET, Actor: auditActor(), Target: auditTarget(pred, missing+"/owned_by")},
+			"before": {
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_CLOSED, Actor: auditActor(), Target: auditTarget(pred, p+"/owned_by"),
+				Before: embed(t, &modelv1alpha1.Conflict{SubjectId: missing}),
+			},
+			"after": {
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(pred, p+"/owned_by"),
+				After: embed(t, &modelv1alpha1.Conflict{SubjectId: missing}),
+			},
+		} {
+			_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "missing/" + name, Audit: []*modelv1alpha1.AuditEntry{e}})
+			failIf(t, !errors.Is(err, contracts.ErrNotFound), "%s: got %v, want ErrNotFound", name, err)
+		}
+	})
+	t.Run("a subject_predicate target needs both parts", func(t *testing.T) {
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		for _, id := range []string{p, p + "/", "/owned_by"} {
+			_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "shape/" + id, Audit: []*modelv1alpha1.AuditEntry{{
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_OVERRIDE_SET, Actor: auditActor(), Target: auditTarget(pred, id),
+			}}})
+			failIf(t, err == nil, "%q: got no error, want one", id)
+		}
+	})
+	t.Run("targets that hold no subject are kept as given", func(t *testing.T) {
+		// No store can tell a fact ID from any other text, and an alias key,
+		// a source, a resource or an event ID may hold "new:" legitimately.
+		s, _ := g.store(t)
+		var want []*modelv1alpha1.AuditEntry
+		for i, k := range []modelv1alpha1.AuditTargetKind{
+			modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_FACT, alias, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SOURCE,
+			modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_RESOURCE, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT,
+		} {
+			want = append(want, &modelv1alpha1.AuditEntry{
+				Action: modelv1alpha1.AuditAction_AUDIT_ACTION_OVERRIDE_SET, Actor: auditActor(),
+				Target: auditTarget(k, "new:"+strings.Repeat("x", i+1)+"/not-a-subject"),
+			})
+		}
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Audit: want})
+		failIf(t, len(res.Audit) != len(want), "got %d entries, want %d", len(res.Audit), len(want))
+		for i := range want {
+			failIf(t, !proto.Equal(res.Audit[i], want[i]), "audit entry %d: got %v, want %v as given", i, res.Audit[i], want[i])
+		}
+	})
+}
+
+// embeddedText prints an embedded audit message for a search.
+func embeddedText(t *testing.T, a *anypb.Any) string {
+	t.Helper()
+	if a == nil {
+		return ""
+	}
+	m, err := a.UnmarshalNew()
+	failIf(t, err != nil, "%v", err)
+	return prototext.Format(m)
 }
 
 func (g *suite) mergeReviews(t *testing.T) {

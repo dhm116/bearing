@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -155,14 +156,31 @@ func ChangeSetKeys(cs *modelv1alpha1.ChangeSet) map[Table][]string {
 }
 
 // SubjectsIn returns the subject IDs a message names in any subject_id,
-// subject_ids, survivor_id, merged_id or merged_into field, or as the id of
-// an audit target of kind subject, refs
-// ("new:…") left out, sorted and without repeats.
+// subject_ids, survivor_id, merged_id or merged_into field, as the id of an
+// audit target of kind subject, in the first part of one of kind
+// subject_predicate, or in the messages an audit entry embeds as before and
+// after, refs ("new:…") left out, sorted and without repeats.
 func SubjectsIn(m proto.Message) []string {
 	var out []string
 	collect(m.ProtoReflect(), &out)
 	slices.Sort(out)
 	return slices.Compact(out)
+}
+
+// isSubjectField says whether a field holds a subject ID. SubjectsIn reads
+// these fields and the audit entries' embedded messages are rewritten through
+// them, so the two can't drift apart.
+func isSubjectField(fd protoreflect.FieldDescriptor) bool {
+	if fd.Kind() != protoreflect.StringKind || fd.IsMap() {
+		return false
+	}
+	switch fd.Name() {
+	case "subject_id", "survivor_id", "merged_id", "merged_into":
+		return !fd.IsList()
+	case "subject_ids":
+		return fd.IsList()
+	}
+	return false
 }
 
 func collect(m protoreflect.Message, out *[]string) {
@@ -171,20 +189,33 @@ func collect(m protoreflect.Message, out *[]string) {
 			*out = append(*out, v)
 		}
 	}
-	if t, ok := m.Interface().(*modelv1alpha1.AuditTarget); ok && t.GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT {
-		add(t.GetId())
+	switch x := m.Interface().(type) {
+	case *modelv1alpha1.AuditTarget:
+		switch x.GetKind() {
+		case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT:
+			add(x.GetId())
+		case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE:
+			id, _, _ := strings.Cut(x.GetId(), "/")
+			add(id)
+		}
+	case *modelv1alpha1.AuditEntry:
+		for _, a := range []*anypb.Any{x.GetBefore(), x.GetAfter()} {
+			if a == nil {
+				continue
+			}
+			if embedded, err := a.UnmarshalNew(); err == nil {
+				collect(embedded.ProtoReflect(), out)
+			}
+		}
 	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
-		case fd.Kind() == protoreflect.StringKind && !fd.IsList() && !fd.IsMap():
-			switch fd.Name() {
-			case "subject_id", "survivor_id", "merged_id", "merged_into":
-				add(v.String())
-			}
-		case fd.Kind() == protoreflect.StringKind && fd.IsList() && fd.Name() == "subject_ids":
+		case isSubjectField(fd) && fd.IsList():
 			for i := range v.List().Len() {
 				add(v.List().Get(i).String())
 			}
+		case isSubjectField(fd):
+			add(v.String())
 		case fd.Message() == nil || fd.IsMap() || fd.Message().FullName().Parent() == "google.protobuf":
 		case fd.IsList():
 			for i := range v.List().Len() {
