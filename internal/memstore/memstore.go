@@ -46,6 +46,8 @@ type Store struct {
 	restoreUntil time.Time
 	lastID       string // the latest minted subject ID
 	journal      []*modelv1alpha1.JournalEntry
+	audit        []*modelv1alpha1.AuditRecord      // the audit log, oldest first, written with the journal
+	auditHead    contracts.AuditHead               // the newest record, or what a scratch store was loaded with
 	events       map[string]int                    // event ID to journal index
 	subjects     map[string]*modelv1alpha1.Subject // as minted
 	merges       []*modelv1alpha1.MergeRecord      // in record order
@@ -79,6 +81,7 @@ func New() *Store {
 // reset empties the graph.
 func (s *Store) reset() {
 	s.head, s.lastID, s.journal, s.merges, s.unmerges = time.Time{}, "", nil, nil, nil
+	s.audit, s.auditHead = nil, contracts.AuditHead{}
 	s.events, s.subjects = map[string]int{}, map[string]*modelv1alpha1.Subject{}
 	s.mergedBy, s.survivorOf, s.unmergesBy = map[string][]int{}, map[string][]int{}, map[string][]int{}
 	s.aliasesBy, s.liveBy = map[string]map[string]bool{}, map[string]map[string]bool{}

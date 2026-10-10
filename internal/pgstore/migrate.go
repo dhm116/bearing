@@ -160,6 +160,40 @@ CREATE TABLE event_offset (
 	off  bigint NOT NULL,
 	PRIMARY KEY (grp, part)
 );`},
+	// The audit log (ADR 8) is written by commit, in the transaction of the
+	// apply whose change it describes, and rebuilt by Restore, which replays
+	// the journal.
+	//
+	//   audit_record  one per record, by its sequence number. data is the
+	//                 AuditRecord as marshaled; the other columns only find
+	//                 records: the event, the record time (µs since the
+	//                 epoch), the entry's action and actor, and its target's
+	//                 kind and ID. Actor and target are bytea because the
+	//                 contract bounds their length (1 KB) and not their bytes.
+	//   meta          audit_seq, audit_hash and audit_time are the newest
+	//                 record's number, hash and record time: all that the next
+	//                 record needs, read under the head lock.
+	{3, "audit log", `
+ALTER TABLE meta
+	ADD COLUMN audit_seq  bigint NOT NULL DEFAULT 0,
+	ADD COLUMN audit_hash bytea  NOT NULL DEFAULT ''::bytea,
+	ADD COLUMN audit_time bigint NOT NULL DEFAULT 0;
+
+CREATE TABLE audit_record (
+	seq         bigint   PRIMARY KEY,
+	event       text     NOT NULL,
+	event_kid   bytea    NOT NULL,
+	recorded_at bigint   NOT NULL,
+	action      smallint NOT NULL,
+	actor       bytea    NOT NULL,
+	target_kind smallint NOT NULL,
+	target      bytea    NOT NULL,
+	data        bytea    NOT NULL
+);
+CREATE INDEX audit_record_event ON audit_record (event_kid);
+CREATE INDEX audit_record_time ON audit_record (recorded_at);
+CREATE INDEX audit_record_actor ON audit_record (actor, seq);
+CREATE INDEX audit_record_target ON audit_record (target_kind, target, seq);`},
 }
 
 // schemaVersion is the newest step this build knows.

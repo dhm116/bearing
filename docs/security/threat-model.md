@@ -124,23 +124,51 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   admin operation and confirmation by a person is written to the audit log
   in the same transaction as the change (ADR 8). No change commits without
   its record. Individual support writes are in the change journal, which is
-  not hash-chained. Until the audit log (#138) exists, a `ChangeSet`'s audit
-  entries are kept only in the change journal, which holds the whole
-  `ChangeSet`; C-AUDIT-1 is met for that copy and the entries are not yet
-  readable through any contract. Their text (reason, rule, IDs) is untrusted
-  input of bounded size: whatever prints it escapes control characters.
+  not hash-chained. The store writes the records itself inside `Apply`, from
+  the `ChangeSet`'s audit entries; a refused `Apply` and a repeated event
+  write none, and `Restore` rebuilds them from the journal. Their text
+  (reason, rule, IDs) is untrusted input of bounded size: whatever prints it
+  escapes control characters.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
 - **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,
   head hash and time) outside the store: to the log stream, a file or the
   configured exporter. When a signing key is configured (a secret
-  reference, C-SECRET-1), the checkpoint is signed. A rewrite of the whole
-  chain in the store no longer matches the checkpoints.
+  reference, C-SECRET-1), the checkpoint is signed with Ed25519 over its
+  sequence number, head hash, time and key ID. The process that writes
+  checkpoints holds the private key, and verifiers hold only the public keys
+  the operator gave them, never keys read from the store or the checkpoint
+  file. A rewrite of the whole chain in the store no longer matches the
+  checkpoints. The server process writes the records, holds the key and
+  writes the checkpoints, so signing protects against someone with access to
+  the store, not against a compromised server process. The checkpoint
+  destination must be append-only or remote, or whoever can rewrite it can
+  rewrite the checkpoints; withholding the newest checkpoints silently
+  shortens the protected window to the newest that remain, so the operator
+  keeps the set complete.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
-  fails.
+  fails. An unsigned checkpoint fails unless the operator allows it, and the
+  log must start at record 1. `--max-age` finds withheld newest checkpoints
+  (and one dated ahead of the clock); a `--checkpoints` file that holds none
+  fails the run, so emptying it does not turn verify into a chain-only check.
+  `bearing audit checkpoint` is an operator-run command that holds the signing
+  key: it takes the key from a bare environment variable name (not the
+  `env:NAME` form of C-SECRET-1, and never as a value), and it refuses to
+  sign a head that the newest record does not carry. It writes a plain file,
+  so making that file append-only, or shipping it, is the operator's job. The
+  verifier reads the log without a filter.
+  The PostgreSQL store's filtered `Query` also looks at columns outside the
+  hash (event, time, action, actor, target); it refuses a row whose number
+  differs from its record's, but an edit to the other columns can hide a
+  record from a filtered read without breaking the chain, so a filtered
+  answer is not evidence that no record exists. Re-deriving those columns
+  from the records is a later mode of `bearing audit verify`.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
+  Until a signed marker says a checkpoint was written at a cut (with
+  retention, #139), the verifier accepts no log that starts after record 1,
+  so a deleted prefix is found.
 - **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
   (the OIDC subject, client ID, `local:<uid>`) or, for a component,
   `system:<name>`, which only the core sets; the API rejects an
@@ -739,7 +767,10 @@ reach, so they are retired and their numbers are not reused.
   record time or one later than the header's `taken_at`, which it doesn't
   compare with its own clock, so a backup from a host whose clock ran ahead
   restores with its head and ID timestamps ahead too. These checks are in
-  the store contract today. **Planned**, with the restore entry point, which
+  the store contract today. A restore rebuilds the audit log from the same
+  journal, so its records and hashes are the original's; a restored log
+  is verified against the newest checkpoints, which a tampered backup
+  would no longer match. **Planned**, with the restore entry point, which
   doesn't exist yet: that entry point caps the backup's total size; it
   reports the backup's `taken_at` and head against the host's clock and
   refuses, or asks for an audited confirmation, when they are further ahead

@@ -203,6 +203,17 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 			return err
 		}},
 		{"Backup", func(ctx context.Context, s *Store) error { return s.Backup(ctx, io.Discard) }},
+		{"Apply with audit entries", func(ctx context.Context, s *Store) error {
+			cs := next(1)
+			cs.Audit = []*modelv1alpha1.AuditEntry{auditEntry("a"), auditEntry("b")}
+			_, err := s.Apply(ctx, cs)
+			return err
+		}},
+		{"AuditLog Query", func(ctx context.Context, s *Store) error {
+			_, err := s.AuditLog().Query(ctx, contracts.AuditFilter{Limit: 10, ActorID: "core/resolver"})
+			return err
+		}},
+		{"AuditLog Head", func(ctx context.Context, s *Store) error { _, err := s.AuditLog().Head(ctx); return err }},
 		{"Apply of many rows", func(ctx context.Context, s *Store) error { _, err := s.Apply(ctx, next(rowChunk+1)); return err }},
 	}
 	for _, op := range ops {
@@ -213,12 +224,16 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 			}
 			for at := 1; at <= counter.calls; at++ {
 				headBefore, _ := s.Head(ctx)
+				auditBefore, _ := s.AuditLog().Head(ctx)
 				f := &faultPool{failAt: at}
 				if err := op.do(ctx, withPool(s, f)); !errors.Is(err, errInjected) {
 					t.Fatalf("statement %d of %d: got %v, want the injected failure", at, counter.calls, err)
 				}
 				if got, err := s.Head(ctx); err != nil || !got.Equal(headBefore) {
 					t.Fatalf("statement %d: head is %v, %v after the failure, want %v", at, got, err, headBefore)
+				}
+				if got, err := s.AuditLog().Head(ctx); err != nil || got.Seq != auditBefore.Seq || !bytes.Equal(got.Hash, auditBefore.Hash) {
+					t.Fatalf("statement %d: audit head is %+v, %v after the failure, want %+v", at, got, err, auditBefore)
 				}
 				if err := op.do(ctx, s); err != nil {
 					t.Fatalf("statement %d: retry after failure: %v", at, err)
@@ -235,7 +250,7 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 	ctx := context.Background()
 	src, clk := graphStoreAt(t)
 	for i := range 3 {
-		cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("e%d", i), State: stateEntries(2, fmt.Sprintf("s%d", i))}
+		cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("e%d", i), State: stateEntries(2, fmt.Sprintf("s%d", i)), Audit: []*modelv1alpha1.AuditEntry{auditEntry(fmt.Sprintf("r%d", i))}}
 		if head, _ := src.Head(ctx); !head.IsZero() {
 			cs.BaseRecordedAt = timestamppb.New(head)
 		}
@@ -250,6 +265,10 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 	}
 	backup := buf.Bytes()
 	want, _ := src.Head(ctx)
+	wantAudit, _ := src.AuditLog().Head(ctx)
+	if wantAudit.Seq != 3 {
+		t.Fatalf("source audit head is %+v, want 3 records", wantAudit)
+	}
 
 	dst, _ := graphStoreAt(t)
 	counter := &faultPool{}
@@ -271,6 +290,9 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 		}
 		if got, _ := fresh.Head(ctx); !got.Equal(want) {
 			t.Fatalf("statement %d: got head %v, want %v", at, got, want)
+		}
+		if got, err := fresh.AuditLog().Head(ctx); err != nil || got.Seq != wantAudit.Seq || !bytes.Equal(got.Hash, wantAudit.Hash) {
+			t.Fatalf("statement %d: got audit head %+v, %v, want %+v", at, got, err, wantAudit)
 		}
 	}
 }
@@ -405,5 +427,14 @@ func TestACommitWhoseAnswerWasLostIsNotAppliedTwice(t *testing.T) {
 	}
 	if got, _ := s.Head(ctx); !got.Equal(res.RecordedAt) {
 		t.Fatalf("got head %v, want the original apply's %v", got, res.RecordedAt)
+	}
+}
+
+// auditEntry is a valid audit entry that names an alias.
+func auditEntry(alias string) *modelv1alpha1.AuditEntry {
+	return &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/" + alias},
 	}
 }

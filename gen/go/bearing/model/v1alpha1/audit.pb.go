@@ -532,10 +532,10 @@ func (x *AuditEntry) GetAfter() *anypb.Any {
 type AuditRecord struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The record's position in the log, increasing by one from record to
-	// record. A gap is tampering, except where a retention cut removed the
-	// oldest records and wrote a checkpoint there.
+	// record. A gap is tampering. (Retention will add a signed marker on the
+	// checkpoint at a cut; until then the log starts at 1.)
 	Seq uint64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
-	// The record time of the apply that wrote it.
+	// The record time of the apply that wrote it, in whole microseconds.
 	RecordedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=recorded_at,json=recordedAt,proto3" json:"recorded_at,omitempty"`
 	// The event whose apply wrote it. Links the log, the graph and the
 	// change journal.
@@ -550,8 +550,9 @@ type AuditRecord struct {
 	Entry *AuditEntry `protobuf:"bytes,6,opt,name=entry,proto3" json:"entry,omitempty"`
 	// The previous record's hash; empty for the first record.
 	PrevHash []byte `protobuf:"bytes,7,opt,name=prev_hash,json=prevHash,proto3" json:"prev_hash,omitempty"`
-	// SHA-256 of prev_hash and this record without its hash. The AuditLog
-	// contract fixes the exact bytes that are hashed.
+	// SHA-256 over a domain prefix and the canonical encoding of the record
+	// without this field (prev_hash included). docs/spec/contracts.md, "The
+	// chain", fixes the exact bytes.
 	Hash          []byte `protobuf:"bytes,8,opt,name=hash,proto3" json:"hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -655,8 +656,9 @@ type AuditCheckpoint struct {
 	Time *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=time,proto3" json:"time,omitempty"`
 	// The signing key's ID, when a key is configured.
 	KeyId string `protobuf:"bytes,4,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	// The signature over seq, head_hash and time, when a key is configured. The
-	// algorithm and key trust model are fixed with the AuditLog contract (#60).
+	// The Ed25519 signature over a domain prefix and the canonical encoding of
+	// the checkpoint without this field (so seq, head_hash, time and key_id),
+	// when a key is configured (docs/spec/contracts.md, "Checkpoints").
 	Signature     []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

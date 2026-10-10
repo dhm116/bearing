@@ -291,8 +291,8 @@ func (s *Store) replay(ctx context.Context, e *modelv1alpha1.JournalEntry, taken
 
 // truncate empties the graph.
 func truncate(ctx context.Context, q querier) error {
-	_, err := q.Exec(ctx, `TRUNCATE subject, merge_record, unmerge_record, component, series, series_subject, version, journal;
-UPDATE meta SET head = 0, last_id = '', merges = 0, unmerges = 0, journal = 0`)
+	_, err := q.Exec(ctx, `TRUNCATE subject, merge_record, unmerge_record, component, series, series_subject, version, journal, audit_record;
+UPDATE meta SET head = 0, last_id = '', merges = 0, unmerges = 0, journal = 0, audit_seq = 0, audit_hash = ''::bytea, audit_time = 0`)
 	return err
 }
 

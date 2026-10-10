@@ -47,6 +47,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.unmerges`, `graph.supports`, `graph.as_of`, `graph.changes`, `graph.conflicts`, `graph.data_quality`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
+| `audit.<operation>` | client | any `AuditLog` wrapped by `instrument.AuditLog`: `audit.query`, `audit.head` | `db.system.name`, `db.operation.name`; `bearing.results.count` on query |
 | `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` (`vector.repoint` after a merge) | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
 | `eventlog.<operation>` | client | any `EventLog` wrapped by `instrument.EventLog`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release |
 
@@ -72,6 +73,8 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.graph.applies` | counter | {apply} | `db.system.name`, `bearing.result` (`applied`, `duplicate`, `stale`, `error`) | Apply throughput; many `stale` results mean writers contend for the apply clock, many `duplicate` mean redelivery |
 | `bearing.graph.subjects.minted` | counter | {subject} | `bearing.rule` (`observation`, `reference`, `split`) | Identity growth; a burst of `reference` mints is often a misspelled key |
 | `bearing.graph.subjects.merged` | counter | {merge} | `bearing.rule` (merge rule) | How identities converge, and by which evidence |
+| `bearing.audit.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Audit log read latency per operation. A filter outside the contract is not an error |
+| `bearing.audit.records` | counter | {record} | `db.system.name`, `bearing.audit.action` | Audit records written by applied ChangeSets, by action: the log's growth, and a burst of one action is worth a look |
 | `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
 | `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
 | `bearing.eventlog.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Event log latency per operation. A failing `append` is the one to alert on: ingest cannot acknowledge webhooks while it fails |

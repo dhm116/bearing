@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 )
@@ -28,9 +30,40 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("got %v, %v", hits, err)
 	}
+	applyAudited(t, s, "audited")
 	got, err := s.Events.Append(ctx, []contracts.Event{{ID: "github-acme/d1", Partition: "github-acme", Type: "dev.bearing.webhook_received.v1", Time: time.Unix(1, 0), Data: []byte("{}")}})
 	if err != nil || len(got) != 1 || got[0].Offset != 1 {
 		t.Fatalf("Append through the store = %+v, %v, want offset 1", got, err)
+	}
+}
+
+// applyAudited applies an event with one audit entry through the store's
+// graph store and checks the record shows in its audit log.
+func applyAudited(t *testing.T, s *Store, event string) {
+	t.Helper()
+	ctx := context.Background()
+	entry := &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/a"},
+	}
+	head, err := s.Graph.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := &modelv1alpha1.ChangeSet{EventId: event, Audit: []*modelv1alpha1.AuditEntry{entry}}
+	if !head.IsZero() {
+		cs.BaseRecordedAt = timestamppb.New(head)
+	}
+	if _, err := s.Graph.Apply(ctx, cs); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := s.Audit.Query(ctx, contracts.AuditFilter{Limit: 10})
+	if err != nil || len(recs) != 1 || recs[0].GetEventId() != event {
+		t.Fatalf("got %v, %v, want the one record of event %s", recs, err, event)
+	}
+	if h, err := s.Audit.Head(ctx); err != nil || h.Seq != 1 {
+		t.Fatalf("got head %+v, %v, want record 1", h, err)
 	}
 }
 

@@ -80,6 +80,9 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 		}
 		return result(s.journal[i], true), nil
 	}
+	if err := contracts.CheckTraceID(in.GetTraceId()); err != nil {
+		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
+	}
 	if err := checkAudit(in.GetAudit()); err != nil {
 		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
 	}
@@ -234,9 +237,14 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if n := protowire.SizeTag(2) + protowire.SizeBytes(len(b)); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes as recorded, over the %d-byte limit", cs.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
+	records, auditHead, err := s.writeAudit(cs)
+	if err != nil {
+		return res, fmt.Errorf("event %s: %w", cs.GetEventId(), err)
+	}
 	// Nothing after this can fail, so it needs no undo.
 	s.head, s.events[cs.GetEventId()] = r, len(s.journal)
 	s.journal = append(s.journal, entry)
+	s.audit, s.auditHead = append(s.audit, records...), auditHead
 	return result(entry, false), nil
 }
 
@@ -466,6 +474,9 @@ func (s *Store) recordTime(cs *modelv1alpha1.ChangeSet, replay bool) (time.Time,
 			return time.Time{}, fmt.Errorf("event %s: no recorded_at", cs.GetEventId())
 		}
 		r := cs.GetRecordedAt().AsTime()
+		if r.Nanosecond()%1000 != 0 {
+			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is not a whole number of microseconds", cs.GetEventId(), r)
+		}
 		if !r.After(s.head) {
 			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is not after %s", cs.GetEventId(), r, s.head)
 		}

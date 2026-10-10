@@ -1240,8 +1240,10 @@ applies.
 A record is an `AuditRecord` (`model/v1alpha1/audit.proto`): the log's `seq`,
 the apply's `recorded_at`, the `event_id` and the entry's `ordinal` within
 it (from 1, in the order the apply produces them; `event_id` and `ordinal`
-are unique together), the `trace_id` when there was one, the hash-chain fields of
-[ADR 8](../adr/0008-audit-log.md), and an `AuditEntry` that the writer
+are unique together), the `trace_id` when there was one (`ChangeSet.trace_id`),
+the hash-chain fields of [ADR 8](../adr/0008-audit-log.md) (how they are
+computed, and what a checkpoint is, is in
+[`AuditLog`](contracts.md#auditlog)), and an `AuditEntry` that the writer
 produces:
 `action`, `actor`, `target`, the `rule` that decided it (short form),
 `confidence_ppm` when scored, `rejection_code`, `reason`, and `before` and

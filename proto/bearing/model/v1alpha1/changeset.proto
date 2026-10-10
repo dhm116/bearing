@@ -67,6 +67,12 @@ message ChangeSet {
   // per-side score and review status of a merge record. Applied after the
   // merges and un-merges.
   repeated MergeReviewWrite merge_reviews = 14;
+  // The W3C trace ID (32 lowercase hex digits, not all zero) of the work that
+  // produced this ChangeSet, or empty when there was none. The audit log
+  // copies it into each record this apply writes, and the change journal keeps
+  // it, so a restore rebuilds the same records. The audit log never depends on
+  // telemetry: an empty trace ID is as valid as any.
+  string trace_id = 15;
 }
 
 // Mint creates a subject (docs/spec/data-model.md, "Minting").
