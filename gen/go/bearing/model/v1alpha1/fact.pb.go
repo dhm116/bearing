@@ -679,8 +679,12 @@ type FactChange struct {
 	Precision *Precision `protobuf:"bytes,7,opt,name=precision,proto3" json:"precision,omitempty"`
 	// Sources whose supports changed between the points.
 	SupportsChanged []string `protobuf:"bytes,8,rep,name=supports_changed,json=supportsChanged,proto3" json:"supports_changed,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// When the fact took the status and confidence it has at the later point:
+	// the latest instant in the window at which its answer on the window's
+	// axis differs from the instant before. Always present in outputs.
+	ChangedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=changed_at,json=changedAt,proto3" json:"changed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FactChange) Reset() {
@@ -765,6 +769,13 @@ func (x *FactChange) GetPrecision() *Precision {
 func (x *FactChange) GetSupportsChanged() []string {
 	if x != nil {
 		return x.SupportsChanged
+	}
+	return nil
+}
+
+func (x *FactChange) GetChangedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ChangedAt
 	}
 	return nil
 }
@@ -1157,7 +1168,7 @@ const file_bearing_model_v1alpha1_fact_proto_rawDesc = "" +
 	"\tFactPoint\x12:\n" +
 	"\x06status\x18\x01 \x01(\x0e2\".bearing.model.v1alpha1.FactStatusR\x06status\x12*\n" +
 	"\x0econfidence_ppm\x18\x02 \x01(\rH\x00R\rconfidencePpm\x88\x01\x01B\x11\n" +
-	"\x0f_confidence_ppm\"\xf4\x02\n" +
+	"\x0f_confidence_ppm\"\xaf\x03\n" +
 	"\n" +
 	"FactChange\x12\x17\n" +
 	"\afact_id\x18\x01 \x01(\tR\x06factId\x12\x1d\n" +
@@ -1168,7 +1179,9 @@ const file_bearing_model_v1alpha1_fact_proto_rawDesc = "" +
 	"\x04from\x18\x05 \x01(\v2!.bearing.model.v1alpha1.FactPointR\x04from\x121\n" +
 	"\x02to\x18\x06 \x01(\v2!.bearing.model.v1alpha1.FactPointR\x02to\x12?\n" +
 	"\tprecision\x18\a \x01(\v2!.bearing.model.v1alpha1.PrecisionR\tprecision\x12)\n" +
-	"\x10supports_changed\x18\b \x03(\tR\x0fsupportsChanged\"\xb6\x01\n" +
+	"\x10supports_changed\x18\b \x03(\tR\x0fsupportsChanged\x129\n" +
+	"\n" +
+	"changed_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tchangedAt\"\xb6\x01\n" +
 	"\x10ConflictPosition\x12#\n" +
 	"\rsource_system\x18\x01 \x01(\tR\fsourceSystem\x12?\n" +
 	"\tauthority\x18\x02 \x01(\v2!.bearing.model.v1alpha1.AuthorityR\tauthority\x12<\n" +
@@ -1268,24 +1281,25 @@ var file_bearing_model_v1alpha1_fact_proto_depIdxs = []int32{
 	6,  // 25: bearing.model.v1alpha1.FactChange.from:type_name -> bearing.model.v1alpha1.FactPoint
 	6,  // 26: bearing.model.v1alpha1.FactChange.to:type_name -> bearing.model.v1alpha1.FactPoint
 	4,  // 27: bearing.model.v1alpha1.FactChange.precision:type_name -> bearing.model.v1alpha1.Precision
-	21, // 28: bearing.model.v1alpha1.ConflictPosition.authority:type_name -> bearing.model.v1alpha1.Authority
-	0,  // 29: bearing.model.v1alpha1.ConflictPosition.objects:type_name -> bearing.model.v1alpha1.FactObject
-	14, // 30: bearing.model.v1alpha1.Conflict.valid_from:type_name -> google.protobuf.Timestamp
-	14, // 31: bearing.model.v1alpha1.Conflict.valid_to:type_name -> google.protobuf.Timestamp
-	8,  // 32: bearing.model.v1alpha1.Conflict.positions:type_name -> bearing.model.v1alpha1.ConflictPosition
-	22, // 33: bearing.model.v1alpha1.Conflict.resolution:type_name -> bearing.model.v1alpha1.ConflictResolution
-	23, // 34: bearing.model.v1alpha1.DataQualityIssue.issue:type_name -> bearing.model.v1alpha1.IssueType
-	3,  // 35: bearing.model.v1alpha1.DataQualityIssue.supports:type_name -> bearing.model.v1alpha1.Support
-	14, // 36: bearing.model.v1alpha1.CompactionSummary.period_start:type_name -> google.protobuf.Timestamp
-	14, // 37: bearing.model.v1alpha1.CompactionSummary.period_end:type_name -> google.protobuf.Timestamp
-	0,  // 38: bearing.model.v1alpha1.CompactionSummary.value_at_end:type_name -> bearing.model.v1alpha1.FactObject
-	0,  // 39: bearing.model.v1alpha1.CompactionSummary.distinct_values:type_name -> bearing.model.v1alpha1.FactObject
-	14, // 40: bearing.model.v1alpha1.CompactionSummary.compacted_at:type_name -> google.protobuf.Timestamp
-	41, // [41:41] is the sub-list for method output_type
-	41, // [41:41] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	14, // 28: bearing.model.v1alpha1.FactChange.changed_at:type_name -> google.protobuf.Timestamp
+	21, // 29: bearing.model.v1alpha1.ConflictPosition.authority:type_name -> bearing.model.v1alpha1.Authority
+	0,  // 30: bearing.model.v1alpha1.ConflictPosition.objects:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 31: bearing.model.v1alpha1.Conflict.valid_from:type_name -> google.protobuf.Timestamp
+	14, // 32: bearing.model.v1alpha1.Conflict.valid_to:type_name -> google.protobuf.Timestamp
+	8,  // 33: bearing.model.v1alpha1.Conflict.positions:type_name -> bearing.model.v1alpha1.ConflictPosition
+	22, // 34: bearing.model.v1alpha1.Conflict.resolution:type_name -> bearing.model.v1alpha1.ConflictResolution
+	23, // 35: bearing.model.v1alpha1.DataQualityIssue.issue:type_name -> bearing.model.v1alpha1.IssueType
+	3,  // 36: bearing.model.v1alpha1.DataQualityIssue.supports:type_name -> bearing.model.v1alpha1.Support
+	14, // 37: bearing.model.v1alpha1.CompactionSummary.period_start:type_name -> google.protobuf.Timestamp
+	14, // 38: bearing.model.v1alpha1.CompactionSummary.period_end:type_name -> google.protobuf.Timestamp
+	0,  // 39: bearing.model.v1alpha1.CompactionSummary.value_at_end:type_name -> bearing.model.v1alpha1.FactObject
+	0,  // 40: bearing.model.v1alpha1.CompactionSummary.distinct_values:type_name -> bearing.model.v1alpha1.FactObject
+	14, // 41: bearing.model.v1alpha1.CompactionSummary.compacted_at:type_name -> google.protobuf.Timestamp
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_fact_proto_init() }

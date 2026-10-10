@@ -359,60 +359,6 @@ func factLess(a, b factLike) bool {
 	return a.GetFactId() < b.GetFactId()
 }
 
-// Changes implements contracts.GraphStore.
-func (s *Store) Changes(_ context.Context, f contracts.FactFilter, t1, t2 time.Time, axis contracts.Axis) ([]*modelv1alpha1.FactChange, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var v1, v2, r1, r2 time.Time
-	switch axis {
-	case contracts.AxisValid:
-		v1, r1 = s.times(t1, time.Time{})
-		v2, r2 = s.times(t2, time.Time{})
-	case contracts.AxisRecord:
-		_, r1 = s.times(time.Time{}, t1)
-		_, r2 = s.times(time.Time{}, t2)
-		v1, v2 = r1, r2
-	default:
-		return nil, fmt.Errorf("changes: unknown axis %d", axis)
-	}
-	first, second := v1, v2
-	if axis == contracts.AxisRecord {
-		first, second = r1, r2
-	}
-	if first.After(second) {
-		return nil, errors.New("changes: t1 is after t2")
-	}
-	match, ok, err := s.matcher(f, v2, r2)
-	if err != nil {
-		return nil, fmt.Errorf("changes: %w", err)
-	}
-	if !ok {
-		return nil, nil
-	}
-	before, after := s.factsAt(v1, r1, r2), s.factsAt(v2, r2, r2)
-	supBefore, supAfter := s.supportsAt(v1, r1, r2), s.supportsAt(v2, r2, r2)
-	ids := map[string]*modelv1alpha1.Fact{}
-	for id, fa := range before {
-		ids[id] = fa.fact
-	}
-	for id, fa := range after {
-		ids[id] = fa.fact
-	}
-	var out []*modelv1alpha1.FactChange
-	for id, fact := range ids {
-		from, to := factPoint(before[id].span), factPoint(after[id].span)
-		if !match(fact) || proto.Equal(from, to) {
-			continue
-		}
-		out = append(out, &modelv1alpha1.FactChange{
-			FactId: id, SubjectId: fact.GetSubjectId(), Predicate: fact.GetPredicate(), Object: fact.GetObject(),
-			From: from, To: to, Precision: full(), SupportsChanged: changedSources(supBefore[id], supAfter[id]),
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return factLess(out[i], out[j]) })
-	return out, nil
-}
-
 func factPoint(sp *modelv1alpha1.FactSpan) *modelv1alpha1.FactPoint {
 	if sp == nil {
 		return &modelv1alpha1.FactPoint{Status: modelv1alpha1.FactStatus_FACT_STATUS_NONE, ConfidencePpm: proto.Uint32(0)}

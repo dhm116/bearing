@@ -612,7 +612,14 @@ Assets: A3, A5, A4, A7.
   test fails if a method has no entry, so new methods are denied until
   classified.
 - **C-API-6** Per-caller rate limits, page size limits, query timeouts and a
-  cap on traversal depth and vector `k`.
+  cap on traversal depth and vector `k`. A "what changed" page and a last
+  change each cost a scan of the fact rows (C-STORE-9), so they also get a
+  per-request deadline and a per-caller cap on reads in flight. A page token
+  carries the window and a cursor (a time and a fact ID) and is not signed:
+  the server treats it as input, bounds its length, checks the filter, window
+  and cursor against the caller's role on every page and never on the
+  strength of an earlier page, and takes from it nothing the request could
+  not have asked for.
 - **C-API-7** Errors return a code, a message written for the caller and a
   request ID. Details go to logs, not responses.
 - **C-MCP-1** MCP is read-only. It exposes only query tools that need the
@@ -807,6 +814,27 @@ reach, so they are retired and their numbers are not reused.
   loads the whole history of each series it touches, and an unfiltered
   `Supports`, `AsOf`, `Changes` or `DataQuality` loads every series of its
   table. That stays until a series can be loaded as of one record time.
+  `ChangesPage` and `LastChange` are the way out for changes across the whole
+  graph (a filter that names no subject, key or object that points at one):
+  memory is a page, a held list of candidate timelines (32,768 by default,
+  about 100 bytes of key and bound each, up to twice that many while a scan
+  trims) and one batch, however many facts
+  changed (#167). The work is not bounded the same way. Each call reads every
+  fact row of the graph once, plus one more time for each held block of
+  timelines that the page needs; facts that changed at one instant, as in an
+  import, can only be told apart by loading all of them, so a page of such
+  facts costs a scan per block. A filter that matches few facts, or none,
+  cannot fill a page, so the call loads every candidate in the window, at a
+  few statements each. A batch also loads the series that could
+  canonicalize to its facts, and no others: those with the same predicate
+  whose subject is in the merge component of a candidate's subject and whose
+  object is in that of its object. A subject that thousands of facts point at,
+  such as an organization that owns every repository, is not loaded for the
+  facts about one repository; what a batch holds grows with the number of
+  values one subject has for one predicate. A
+  cursor is untrusted input: it narrows nothing, since any change newer than
+  it must still be found. An index on when facts changed would remove the scan
+  (#167 follow-ups). `Changes` itself still loads every match.
   Components have no size cap either: an operation that names one member of
   a very large component loads every merge record of it, and a merge that
   joins two components rewrites the labels of the larger. A cap with a clear

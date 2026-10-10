@@ -147,6 +147,10 @@ message FactChange {
   Precision precision = 7;
   // Sources whose supports changed between the points.
   repeated string supports_changed = 8;
+  // When the fact took the status and confidence it has at the later point:
+  // the latest instant in the window at which its answer on the window's
+  // axis differs from the instant before. Always present in outputs.
+  google.protobuf.Timestamp changed_at = 9;
 }
 
 // ConflictPosition is one source system's side of a conflict.

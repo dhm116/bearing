@@ -450,9 +450,21 @@ func TestAStoreMidRestoreRefusesEverythingButRestore(t *testing.T) {
 	}
 	other := reopen(t, o, clk) // a restarted process
 	for name, err := range map[string]error{
-		"Head":       func() error { _, err := other.Head(ctx); return err }(),
-		"State":      func() error { _, err := other.State(ctx, []string{"s0-00000"}, time.Time{}); return err }(),
-		"Apply":      func() error { _, err := other.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "late"}); return err }(),
+		"Head":  func() error { _, err := other.Head(ctx); return err }(),
+		"State": func() error { _, err := other.State(ctx, []string{"s0-00000"}, time.Time{}); return err }(),
+		"Apply": func() error { _, err := other.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "late"}); return err }(),
+		"Changes of the whole graph": func() error {
+			_, err := other.ChangesPage(ctx, contracts.ChangesRequest{T1: clk.Now().Add(-time.Hour), T2: clk.Now()})
+			return err
+		}(),
+		"Last change of the whole graph": func() error {
+			_, err := other.LastChange(ctx, contracts.FactFilter{}, clk.Now(), contracts.AxisValid)
+			return err
+		}(),
+		"Changes of a subject": func() error {
+			_, err := other.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{SubjectID: "x"}, T1: clk.Now().Add(-time.Hour), T2: clk.Now()})
+			return err
+		}(),
 		"Backup":     other.Backup(ctx, &bytes.Buffer{}),
 		"Audit Head": func() error { _, err := other.AuditLog().Head(ctx); return err }(),
 		"Audit Query": func() error {

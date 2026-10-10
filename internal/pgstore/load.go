@@ -61,6 +61,9 @@ type scope struct {
 	ClaimSubjects      []string
 	ClaimsFromBindings bool
 	Predicate          string
+	// Kids are claim series to load by identifier, beside those named in
+	// Keys, for a reader that has already found which series it needs.
+	Kids map[memstore.Table][][]byte
 }
 
 // loaded is a consistent view of the rows a scope asked for, in a scratch
@@ -375,7 +378,7 @@ func load(ctx context.Context, q querier, meta metaRow, sc scope) (*loaded, erro
 		if t == memstore.TableBindings {
 			continue
 		}
-		f := seriesFilter{kids: kidsOf(sc.Keys[t])}
+		f := seriesFilter{kids: append(kidsOf(sc.Keys[t]), sc.Kids[t]...)}
 		claims := slices.Contains(sc.Claims, t)
 		switch {
 		case claims && bySubject:
