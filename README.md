@@ -37,6 +37,7 @@ keeps the adapters that fetch it small.
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
 | [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
 | [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, claims, supports and status |
+| [`pkg/audit`](pkg/audit) | The audit log's hash chain, signed checkpoints and verifier |
 | [`pkg/query`](pkg/query) | Answers questions from a graph store: get, owner, related and changes, each with its sources, events, confidence and observed times |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |

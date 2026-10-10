@@ -45,7 +45,7 @@
         },
         "signature": {
           "default": null,
-          "description": "The signature over seq, head_hash and time, when a key is configured. The\n algorithm and key trust model are fixed with the AuditLog contract (#60).",
+          "description": "The Ed25519 signature over a domain prefix and the canonical encoding of\n the checkpoint without this field (so seq, head_hash, time and key_id),\n when a key is configured (docs/spec/contracts.md, \"Checkpoints\").",
           "pattern": "^[A-Za-z0-9+/]*={0,2}$",
           "type": "string"
         },

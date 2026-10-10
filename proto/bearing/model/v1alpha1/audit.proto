@@ -151,10 +151,10 @@ message AuditEntry {
 // AuditRecord is one entry of the audit log's hash chain.
 message AuditRecord {
   // The record's position in the log, increasing by one from record to
-  // record. A gap is tampering, except where a retention cut removed the
-  // oldest records and wrote a checkpoint there.
+  // record. A gap is tampering. (Retention will add a signed marker on the
+  // checkpoint at a cut; until then the log starts at 1.)
   uint64 seq = 1;
-  // The record time of the apply that wrote it.
+  // The record time of the apply that wrote it, in whole microseconds.
   google.protobuf.Timestamp recorded_at = 2;
   // The event whose apply wrote it. Links the log, the graph and the
   // change journal.
@@ -169,8 +169,9 @@ message AuditRecord {
   AuditEntry entry = 6;
   // The previous record's hash; empty for the first record.
   bytes prev_hash = 7;
-  // SHA-256 of prev_hash and this record without its hash. The AuditLog
-  // contract fixes the exact bytes that are hashed.
+  // SHA-256 over a domain prefix and the canonical encoding of the record
+  // without this field (prev_hash included). docs/spec/contracts.md, "The
+  // chain", fixes the exact bytes.
   bytes hash = 8;
 }
 
@@ -185,7 +186,8 @@ message AuditCheckpoint {
   google.protobuf.Timestamp time = 3;
   // The signing key's ID, when a key is configured.
   string key_id = 4;
-  // The signature over seq, head_hash and time, when a key is configured. The
-  // algorithm and key trust model are fixed with the AuditLog contract (#60).
+  // The Ed25519 signature over a domain prefix and the canonical encoding of
+  // the checkpoint without this field (so seq, head_hash, time and key_id),
+  // when a key is configured (docs/spec/contracts.md, "Checkpoints").
   bytes signature = 5;
 }
