@@ -15,6 +15,7 @@ import (
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/pgstore"
+	"bearing.example/pkg/contracts"
 )
 
 func TestPostgresURLsBecomeOptions(t *testing.T) {
@@ -63,6 +64,10 @@ func TestPostgresURLsBecomeOptions(t *testing.T) {
 			pgstore.Options{Host: "db.example.com", Database: "bearing", User: "b", SSLMode: "require", Password: "from-env"},
 		},
 		{
+			"vector index", "postgres://b@127.0.0.1/bearing?vector_dimensions=384",
+			pgstore.Options{Host: "127.0.0.1", Database: "bearing", User: "b", SSLMode: "prefer", VectorDimensions: 384, Password: "from-env"},
+		},
+		{
 			"superuser allowed by name", "postgres://postgres@127.0.0.1/bearing?insecure_store_superuser=true",
 			pgstore.Options{Host: "127.0.0.1", Database: "bearing", User: "postgres", SSLMode: "prefer", AllowSuperuser: true, Password: "from-env"},
 		},
@@ -106,6 +111,9 @@ func TestPostgresURLsAreChecked(t *testing.T) {
 		{"host twice", "postgres://b@db.example.com/bearing?host=/run", "not both"},
 		{"hosts in the URL", "postgres://b@localhost,db.example.com/bearing?sslmode=disable", "more than one server"},
 		{"hosts in ?host=", "postgres://b@/bearing?host=/tmp,db.example.com&sslmode=disable", "more than one server"},
+		{"vector dimensions not a number", "postgres://b@127.0.0.1/bearing?vector_dimensions=many", "vector_dimensions is a number"},
+		{"vector dimensions zero", "postgres://b@127.0.0.1/bearing?vector_dimensions=0", "vector_dimensions is a number"},
+		{"vector dimensions too many", "postgres://b@127.0.0.1/bearing?vector_dimensions=2001", "vector_dimensions is a number"},
 		{"bad port", "postgres://b@db.example.com:0/bearing", "not a port number"},
 		{"unknown sslmode", "postgres://b@db.example.com/bearing?sslmode=sometimes", "sslmode is not one of"},
 		{"remote without verify-full", "postgres://b@db.example.com/bearing?sslmode=require", "verify-full"},
@@ -160,7 +168,7 @@ func TestPostgresErrorsNeverRepeatPasswordsOrUsers(t *testing.T) {
 	}
 }
 
-func TestPostgresServesTheGraphOnly(t *testing.T) {
+func TestPostgresServesTheGraphWithoutVectorDimensions(t *testing.T) {
 	t.Parallel()
 	raw := os.Getenv("BEARING_TEST_POSTGRES")
 	if raw == "" {
@@ -187,7 +195,7 @@ func TestPostgresServesTheGraphOnly(t *testing.T) {
 	defer closeStore(t, s)
 	t.Cleanup(func() { dropTestSchema(t, u, schema) })
 	if s.Vectors != nil {
-		t.Fatal("a Postgres graph store is not a vector index yet")
+		t.Fatal("a Postgres store without vector_dimensions has no vector index")
 	}
 	res, err := s.Graph.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "store-open", Mints: []*modelv1alpha1.Mint{{Ref: "new:t", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}}})
 	if err != nil {
@@ -196,7 +204,8 @@ func TestPostgresServesTheGraphOnly(t *testing.T) {
 	if head, err := s.Graph.Head(ctx); err != nil || !head.Equal(res.RecordedAt) {
 		t.Fatalf("got head %v, %v, want %v", head, err, res.RecordedAt)
 	}
-	// Asking for it as the vector index is an error that says so.
+	// Asking for it as the vector index without dimensions is an error that
+	// says so.
 	_, err = Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})
 	if err == nil || !strings.Contains(err.Error(), "can't be a vector index") {
 		t.Fatalf("got %v, want a refusal to use Postgres as a vector index", err)
@@ -224,5 +233,79 @@ func dropTestSchema(t *testing.T, raw *url.URL, schema string) {
 	defer func() { _ = conn.Close(ctx) }()
 	if _, err := conn.Exec(ctx, fmt.Sprintf(`DROP SCHEMA IF EXISTS %q CASCADE`, schema)); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestPostgresServesVectorsWhenAskedForDimensions(t *testing.T) {
+	t.Parallel()
+	raw := os.Getenv("BEARING_TEST_POSTGRES")
+	if raw == "" {
+		t.Skip("set BEARING_TEST_POSTGRES")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := fmt.Sprintf("store_vec_%d", os.Getpid())
+	u.RawQuery = url.Values{"schema": {schema}, "insecure_store_superuser": {"true"}, "sslmode": {"disable"}, "vector_dimensions": {"3"}}.Encode()
+	getenv := func(k string) string {
+		if k == PasswordEnv {
+			return os.Getenv("BEARING_TEST_POSTGRES_PASSWORD")
+		}
+		return ""
+	}
+	ctx := context.Background()
+	runAsAdmin(t, u, `SELECT pg_advisory_xact_lock(42); CREATE EXTENSION IF NOT EXISTS vector`)
+	s, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	t.Cleanup(func() { dropTestSchema(t, u, schema) })
+	if s.Vectors == nil {
+		t.Fatal("no vector index although vector_dimensions is set")
+	}
+	if err := s.Vectors.Upsert(ctx, []contracts.VectorPoint{{ID: "a", SubjectID: "s", Vector: []float32{1, 0, 0}}, {ID: "b", SubjectID: "s", Vector: []float32{0, 1, 0}}}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 0.1, 0}, Limit: 1})
+	if err != nil || len(hits) != 1 || hits[0].Point.ID != "a" {
+		t.Fatalf("got %v, %v, want the nearer point", hits, err)
+	}
+	// The same URL as both stores is one store: the vector index is the graph
+	// store's.
+	both, err := Open(ctx, Config{Graph: u.String(), Vectors: u.String(), Getenv: getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeStore(t, both)
+}
+
+// runAsAdmin runs a statement on the database u names, as its user.
+func runAsAdmin(t *testing.T, raw *url.URL, sql string) {
+	t.Helper()
+	ctx := context.Background()
+	admin := *raw
+	admin.RawQuery = "sslmode=disable"
+	if pass := os.Getenv("BEARING_TEST_POSTGRES_PASSWORD"); pass != "" {
+		admin.User = url.UserPassword(raw.User.Username(), pass)
+	}
+	conn, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, stmt := range strings.Split(sql, ";") {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

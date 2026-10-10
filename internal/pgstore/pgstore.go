@@ -40,6 +40,8 @@ type Store struct {
 	IDs memstore.IDSource
 
 	db pool
+	// vec is set when Options.VectorDimensions is, and serves VectorIndex.
+	vec *vectorConfig
 }
 
 var _ contracts.GraphStore = (*Store)(nil)
@@ -78,6 +80,11 @@ type Options struct {
 	// AllowSuperuser lets Open connect as a role that is a superuser or
 	// can create roles or databases (C-STORE-2). Set only for development.
 	AllowSuperuser bool
+	// VectorDimensions turns the vector index on: the number of dimensions of
+	// every vector (1 to MaxVectorDimensions), fixed when the table is made.
+	// Zero leaves the VectorIndex methods returning ErrNoVectorIndex. The
+	// pgvector extension must be installed.
+	VectorDimensions int
 	// Getenv reads the process environment for the PGSERVICE check; nil
 	// means os.Getenv.
 	Getenv func(string) string
@@ -141,7 +148,14 @@ func New(ctx context.Context, db pool, role string, o Options) (*Store, error) {
 	if err := migrate(ctx, db, schema); err != nil {
 		return nil, fmt.Errorf("pgstore: migrate: %w", err)
 	}
-	return &Store{db: db, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader)}, nil
+	s := &Store{db: db, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader)}
+	if o.VectorDimensions != 0 {
+		var err error
+		if s.vec, err = setupVectors(ctx, db, schema, o.VectorDimensions); err != nil {
+			return nil, fmt.Errorf("pgstore: vector index: %w", err)
+		}
+	}
+	return s, nil
 }
 
 // Close closes the connections.

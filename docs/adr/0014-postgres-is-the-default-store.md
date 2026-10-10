@@ -142,6 +142,12 @@ Options considered:
   migration that creates the vector table uses it. Changing it means
   re-indexing from the graph, as before. HNSW indexes `vector` columns of
   up to 2,000 dimensions; a larger model needs `halfvec`.
+  As built, the dimension is the `vector_dimensions` URL parameter (1 to
+  2,000), stored in the schema when the vector table is made; opening the
+  schema with another number is refused. Cosine distance on one HNSW index;
+  a search with a kind filter asks for as many hits as the index can give
+  (pgvector 0.8's iterative scan) and a search the index cannot bound
+  (no limit, or one past 1,000) scans exactly.
 - **The threat model's store section is rewritten for PostgreSQL** in the
   change that adds `pgstore`. Boundary B6 and T-STORE-1 name PostgreSQL.
   Each control changes as follows:

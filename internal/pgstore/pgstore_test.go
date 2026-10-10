@@ -64,6 +64,12 @@ func openTestStore(t testing.TB) (*Store, Options) { return openTestStoreAs(t, s
 // openTestStoreAs opens a store on a schema of its own, as a role that
 // Provision made or as the administrator.
 func openTestStoreAs(t testing.TB, scoped bool) (*Store, Options) {
+	return openTestStoreWith(t, scoped, nil)
+}
+
+// openTestStoreWith is openTestStoreAs with a change to the options before the
+// store opens.
+func openTestStoreWith(t testing.TB, scoped bool, mod func(*Options)) (*Store, Options) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -76,6 +82,9 @@ func openTestStoreAs(t testing.TB, scoped bool) (*Store, Options) {
 		if err := Provision(ctx, ProvisionOptions{Admin: admin, Role: name, Password: o.Password, Schema: name}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if mod != nil {
+		mod(&o)
 	}
 	s, err := Open(ctx, o)
 	if err != nil {
@@ -125,4 +134,46 @@ func TestPostgresGraphConformance(t *testing.T) {
 		s.Now, s.IDs = clk.Now, ids
 		return s, clk, ids
 	})
+}
+
+// ensureVectorExtension installs pgvector in the test database, as an
+// administrator would. The suites for the vector index need a server that has
+// it (the pgvector/pgvector image does). Test processes share the database,
+// so the statement runs under a lock.
+func ensureVectorExtension(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+	cfg, err := poolConfig(adminOptions(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	p, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(tx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(42)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		t.Fatalf("the vector index suites need a server with pgvector (the pgvector/pgvector image): %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// openVectorStore opens a store with a vector index of dims dimensions on a
+// schema of its own.
+func openVectorStore(t testing.TB, dims int) *Store {
+	t.Helper()
+	ensureVectorExtension(t)
+	s, _ := openTestStoreWith(t, scopedTests(), func(o *Options) { o.VectorDimensions = dims })
+	return s
 }
