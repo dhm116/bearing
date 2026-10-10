@@ -715,7 +715,10 @@ reach, so they are retired and their numbers are not reused.
   `sslmode`. A loopback or socket
   connection defaults to `sslmode=prefer`. The driver's minimum protocol
   version is pinned to 3.0 and `target_session_attrs=read-write` keeps the
-  pool off a read-only replica.
+  pool off a read-only replica. The store benchmark (`cmd/bearing-bench`, a
+  developer tool that is not shipped) opens `pkg/store` first, so these
+  checks apply to it, and then a second direct connection for sizes, plans
+  and `VACUUM`; it reads the password only from the same variable.
 - **C-STORE-7** Operator docs state that exports contain organization data
   and audit records, and must be stored encrypted. Exports never contain
   secrets (C-SECRET-2).

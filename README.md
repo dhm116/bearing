@@ -49,6 +49,7 @@ keeps the adapters that fetch it small.
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, and reads the store with `get`, `owner`, `related` and `changes` |
+| [`cmd/bearing-bench`](cmd/bearing-bench) | Store benchmark: a generated org loaded up to about 10 million facts, with the numbers in [`docs/benchmarks`](docs/benchmarks) |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
@@ -61,7 +62,7 @@ make check         # everything CI runs: generated code is current, lint, tests 
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
 make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=...   # also run the PostgreSQL suites
-make build         # builds bin/bearing and bin/bearing-adapter-github
+make build         # builds bin/bearing, bin/bearing-adapter-github and bin/bearing-bench
 
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github
