@@ -69,9 +69,19 @@ No params. Returns what the adapter is, what it needs and what it emits.
   ],
   "config_schema": { "type": "object", "required": ["org"], "properties": { "...": {} } },
   "access": ["repository metadata: read", "repository contents: read", "organization members: read"],
-  "webhooks": true
+  "webhooks": true,
+  "webhook_signature": { "scheme": "hmac_sha256", "signature_header": "X-Hub-Signature-256",
+                         "signature_prefix": "sha256=", "delivery_id_header": "X-GitHub-Delivery" }
 }
 ```
+
+`webhook_signature` (the declaration's `webhook`,
+[data model](data-model.md#declarations)) says how the source signs its
+deliveries, so the host can verify one before it is logged: the scheme, the
+header that carries the signature, the text before the digest and the header
+with the sender's delivery ID. It never holds a secret; the source's
+configuration supplies the key by reference. An adapter whose source does not
+sign leaves it out, and such a source cannot receive pushed events.
 
 `issuer_type` is the kind of identifier issuer the adapter reads; it is the
 default `namespace` of a source using the adapter.
@@ -168,13 +178,13 @@ Result:
 { "observations": [ { "...": "..." } ] }
 ```
 
-- The adapter MUST verify the delivery's signature when the source signs
-  webhooks. It knows the source's signing scheme; the core does not.
-  (Under [ADR 9](../adr/0009-wasm-adapters.md) A6 and A15 the host
-  verifies every delivery before it is logged; ingest stays off until that
-  verifier ships with the first ingest transport, and until then this
-  check is the only one. This spec changes when the host verifier ships,
-  or with the move to WASM adapters at the latest.)
+- The host verifies the delivery's signature from the adapter's
+  `webhook_signature` declaration before it is logged ([ADR 9](../adr/0009-wasm-adapters.md)
+  A6 and A15), so `bearing.handle` receives only deliveries that passed.
+  An adapter running as a local process MAY verify again as defense in
+  depth. Until the server's ingest listener ships (issue #139), no delivery
+  reaches the adapter through the core, and an adapter that is handed one
+  directly MUST verify it itself.
 - Events the adapter doesn't understand return an empty list, not an error.
 - One invalid observation in a delivery's result fails the call: a delivery
   is one event, not a sweep.

@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.EventDeadLettered.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n so it outlives the retention window (docs/spec/contracts.md, \"Dead\n letters\"). The worker audits the event, marks it applied and commits past\n it, so one bad event cannot hold the log.",
+      "patternProperties": {
+        "^(dataBytes)$": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The size of the event's data in bytes."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The ID of the event that could not be applied.",
+          "type": "string"
+        },
+        "^(eventTime)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Its time."
+        }
+      },
+      "properties": {
+        "attempts": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "How many times the group tried."
+        },
+        "data": {
+          "default": null,
+          "description": "The event's data, unchanged. Absent when it is over 4 MiB, so the record\n stays within the log's limit; the sync that produced it can be run again.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "data_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The size of the event's data in bytes."
+        },
+        "error": {
+          "default": "",
+          "description": "The last error, cut short, with no secrets in it.",
+          "type": "string"
+        },
+        "event_id": {
+          "default": "",
+          "description": "The ID of the event that could not be applied.",
+          "type": "string"
+        },
+        "event_time": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Its time."
+        },
+        "group": {
+          "default": "",
+          "description": "The consumer group that gave up on it.",
+          "type": "string"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "^-?[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Its offset in that partition."
+        },
+        "partition": {
+          "default": "",
+          "description": "Its partition.",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "description": "Its CloudEvents type.",
+          "type": "string"
+        }
+      },
+      "title": "Event Dead Lettered",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.EventDeadLettered.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.EventDeadLettered.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

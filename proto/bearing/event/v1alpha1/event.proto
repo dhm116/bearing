@@ -284,6 +284,35 @@ message ConfigApplied {
   repeated ConfigChange changes = 3;
 }
 
+// EventDeadLettered is the record of an event a worker gave up on after
+// repeated failures, appended to the core/dead_letter partition with Retain
+// so it outlives the retention window (docs/spec/contracts.md, "Dead
+// letters"). The worker audits the event, marks it applied and commits past
+// it, so one bad event cannot hold the log.
+message EventDeadLettered {
+  // The ID of the event that could not be applied.
+  string event_id = 1;
+  // Its partition.
+  string partition = 2;
+  // Its offset in that partition.
+  int64 offset = 3;
+  // Its CloudEvents type.
+  string type = 4;
+  // Its time.
+  google.protobuf.Timestamp event_time = 5;
+  // The consumer group that gave up on it.
+  string group = 6;
+  // How many times the group tried.
+  uint32 attempts = 7;
+  // The last error, cut short, with no secrets in it.
+  string error = 8;
+  // The size of the event's data in bytes.
+  uint64 data_bytes = 9;
+  // The event's data, unchanged. Absent when it is over 4 MiB, so the record
+  // stays within the log's limit; the sync that produced it can be run again.
+  bytes data = 10;
+}
+
 // ConfigChange is one resource set or deleted.
 message ConfigChange {
   // What the change does.

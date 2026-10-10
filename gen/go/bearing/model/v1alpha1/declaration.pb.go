@@ -81,7 +81,10 @@ type AdapterDeclaration struct {
 	// of a source using it.
 	IssuerType string `protobuf:"bytes,2,opt,name=issuer_type,json=issuerType,proto3" json:"issuer_type,omitempty"`
 	// Every kind the adapter emits.
-	Kinds         []*KindDeclaration `protobuf:"bytes,3,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	Kinds []*KindDeclaration `protobuf:"bytes,3,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	// How the source signs its webhook deliveries; absent when the adapter
+	// takes no webhooks or the source does not sign them.
+	Webhook       *WebhookSignature `protobuf:"bytes,4,opt,name=webhook,proto3" json:"webhook,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -137,6 +140,92 @@ func (x *AdapterDeclaration) GetKinds() []*KindDeclaration {
 	return nil
 }
 
+func (x *AdapterDeclaration) GetWebhook() *WebhookSignature {
+	if x != nil {
+		return x.Webhook
+	}
+	return nil
+}
+
+// WebhookSignature declares how a source signs its deliveries
+// (docs/spec/adapter-protocol.md, "bearing.describe"). It never holds a
+// secret: the Source supplies that by reference.
+type WebhookSignature struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The signature scheme. Required.
+	Scheme WebhookScheme `protobuf:"varint,1,opt,name=scheme,proto3,enum=bearing.model.v1alpha1.WebhookScheme" json:"scheme,omitempty"`
+	// The request header that carries the signature, for example
+	// "X-Hub-Signature-256". Required.
+	SignatureHeader string `protobuf:"bytes,2,opt,name=signature_header,json=signatureHeader,proto3" json:"signature_header,omitempty"`
+	// Text before the hex digest in the header, for example "sha256=" or
+	// "v1=". Empty when the header holds the bare digest.
+	SignaturePrefix string `protobuf:"bytes,3,opt,name=signature_prefix,json=signaturePrefix,proto3" json:"signature_prefix,omitempty"`
+	// The header that carries the sender's delivery ID, for example
+	// "X-GitHub-Delivery". Empty when the sender gives none; the host then
+	// names a delivery by the hash of its body.
+	DeliveryIdHeader string `protobuf:"bytes,4,opt,name=delivery_id_header,json=deliveryIdHeader,proto3" json:"delivery_id_header,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *WebhookSignature) Reset() {
+	*x = WebhookSignature{}
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WebhookSignature) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WebhookSignature) ProtoMessage() {}
+
+func (x *WebhookSignature) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WebhookSignature.ProtoReflect.Descriptor instead.
+func (*WebhookSignature) Descriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *WebhookSignature) GetScheme() WebhookScheme {
+	if x != nil {
+		return x.Scheme
+	}
+	return WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED
+}
+
+func (x *WebhookSignature) GetSignatureHeader() string {
+	if x != nil {
+		return x.SignatureHeader
+	}
+	return ""
+}
+
+func (x *WebhookSignature) GetSignaturePrefix() string {
+	if x != nil {
+		return x.SignaturePrefix
+	}
+	return ""
+}
+
+func (x *WebhookSignature) GetDeliveryIdHeader() string {
+	if x != nil {
+		return x.DeliveryIdHeader
+	}
+	return ""
+}
+
 // KindDeclaration declares one registered kind an adapter emits.
 type KindDeclaration struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -154,7 +243,7 @@ type KindDeclaration struct {
 
 func (x *KindDeclaration) Reset() {
 	*x = KindDeclaration{}
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[2]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -166,7 +255,7 @@ func (x *KindDeclaration) String() string {
 func (*KindDeclaration) ProtoMessage() {}
 
 func (x *KindDeclaration) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[2]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -179,7 +268,7 @@ func (x *KindDeclaration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KindDeclaration.ProtoReflect.Descriptor instead.
 func (*KindDeclaration) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{2}
+	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *KindDeclaration) GetKind() string {
@@ -231,7 +320,7 @@ type KeyTypeDeclaration struct {
 
 func (x *KeyTypeDeclaration) Reset() {
 	*x = KeyTypeDeclaration{}
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[3]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -243,7 +332,7 @@ func (x *KeyTypeDeclaration) String() string {
 func (*KeyTypeDeclaration) ProtoMessage() {}
 
 func (x *KeyTypeDeclaration) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[3]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -256,7 +345,7 @@ func (x *KeyTypeDeclaration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyTypeDeclaration.ProtoReflect.Descriptor instead.
 func (*KeyTypeDeclaration) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{3}
+	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *KeyTypeDeclaration) GetIssuerType() string {
@@ -322,7 +411,7 @@ type FieldDeclaration struct {
 
 func (x *FieldDeclaration) Reset() {
 	*x = FieldDeclaration{}
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[4]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +423,7 @@ func (x *FieldDeclaration) String() string {
 func (*FieldDeclaration) ProtoMessage() {}
 
 func (x *FieldDeclaration) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[4]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +436,7 @@ func (x *FieldDeclaration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldDeclaration.ProtoReflect.Descriptor instead.
 func (*FieldDeclaration) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{4}
+	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FieldDeclaration) GetPredicate() string {
@@ -408,7 +497,7 @@ type LinkDeclaration struct {
 
 func (x *LinkDeclaration) Reset() {
 	*x = LinkDeclaration{}
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[5]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -420,7 +509,7 @@ func (x *LinkDeclaration) String() string {
 func (*LinkDeclaration) ProtoMessage() {}
 
 func (x *LinkDeclaration) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[5]
+	mi := &file_bearing_model_v1alpha1_declaration_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -433,7 +522,7 @@ func (x *LinkDeclaration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinkDeclaration.ProtoReflect.Descriptor instead.
 func (*LinkDeclaration) Descriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{5}
+	return file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LinkDeclaration) GetIssuerType() string {
@@ -463,12 +552,18 @@ const file_bearing_model_v1alpha1_declaration_proto_rawDesc = "" +
 	"\n" +
 	"(bearing/model/v1alpha1/declaration.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/enums.proto\"1\n" +
 	"\tAuthority\x12$\n" +
-	"\rauthoritative\x18\x01 \x01(\bR\rauthoritative\"\x88\x01\n" +
+	"\rauthoritative\x18\x01 \x01(\bR\rauthoritative\"\xcc\x01\n" +
 	"\x12AdapterDeclaration\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vissuer_type\x18\x02 \x01(\tR\n" +
 	"issuerType\x12=\n" +
-	"\x05kinds\x18\x03 \x03(\v2'.bearing.model.v1alpha1.KindDeclarationR\x05kinds\"\xe6\x01\n" +
+	"\x05kinds\x18\x03 \x03(\v2'.bearing.model.v1alpha1.KindDeclarationR\x05kinds\x12B\n" +
+	"\awebhook\x18\x04 \x01(\v2(.bearing.model.v1alpha1.WebhookSignatureR\awebhook\"\xd5\x01\n" +
+	"\x10WebhookSignature\x12=\n" +
+	"\x06scheme\x18\x01 \x01(\x0e2%.bearing.model.v1alpha1.WebhookSchemeR\x06scheme\x12)\n" +
+	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +
+	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\x12,\n" +
+	"\x12delivery_id_header\x18\x04 \x01(\tR\x10deliveryIdHeader\"\xe6\x01\n" +
 	"\x0fKindDeclaration\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12>\n" +
 	"\x04keys\x18\x02 \x03(\v2*.bearing.model.v1alpha1.KeyTypeDeclarationR\x04keys\x12@\n" +
@@ -508,41 +603,45 @@ func file_bearing_model_v1alpha1_declaration_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_declaration_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_declaration_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_bearing_model_v1alpha1_declaration_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_bearing_model_v1alpha1_declaration_proto_goTypes = []any{
 	(*Authority)(nil),          // 0: bearing.model.v1alpha1.Authority
 	(*AdapterDeclaration)(nil), // 1: bearing.model.v1alpha1.AdapterDeclaration
-	(*KindDeclaration)(nil),    // 2: bearing.model.v1alpha1.KindDeclaration
-	(*KeyTypeDeclaration)(nil), // 3: bearing.model.v1alpha1.KeyTypeDeclaration
-	(*FieldDeclaration)(nil),   // 4: bearing.model.v1alpha1.FieldDeclaration
-	(*LinkDeclaration)(nil),    // 5: bearing.model.v1alpha1.LinkDeclaration
-	(KeyClass)(0),              // 6: bearing.model.v1alpha1.KeyClass
-	(PerSubject)(0),            // 7: bearing.model.v1alpha1.PerSubject
-	(KeyCase)(0),               // 8: bearing.model.v1alpha1.KeyCase
-	(Direction)(0),             // 9: bearing.model.v1alpha1.Direction
-	(MatchMethod)(0),           // 10: bearing.model.v1alpha1.MatchMethod
-	(ValueType)(0),             // 11: bearing.model.v1alpha1.ValueType
-	(Cardinality)(0),           // 12: bearing.model.v1alpha1.Cardinality
+	(*WebhookSignature)(nil),   // 2: bearing.model.v1alpha1.WebhookSignature
+	(*KindDeclaration)(nil),    // 3: bearing.model.v1alpha1.KindDeclaration
+	(*KeyTypeDeclaration)(nil), // 4: bearing.model.v1alpha1.KeyTypeDeclaration
+	(*FieldDeclaration)(nil),   // 5: bearing.model.v1alpha1.FieldDeclaration
+	(*LinkDeclaration)(nil),    // 6: bearing.model.v1alpha1.LinkDeclaration
+	(WebhookScheme)(0),         // 7: bearing.model.v1alpha1.WebhookScheme
+	(KeyClass)(0),              // 8: bearing.model.v1alpha1.KeyClass
+	(PerSubject)(0),            // 9: bearing.model.v1alpha1.PerSubject
+	(KeyCase)(0),               // 10: bearing.model.v1alpha1.KeyCase
+	(Direction)(0),             // 11: bearing.model.v1alpha1.Direction
+	(MatchMethod)(0),           // 12: bearing.model.v1alpha1.MatchMethod
+	(ValueType)(0),             // 13: bearing.model.v1alpha1.ValueType
+	(Cardinality)(0),           // 14: bearing.model.v1alpha1.Cardinality
 }
 var file_bearing_model_v1alpha1_declaration_proto_depIdxs = []int32{
-	2,  // 0: bearing.model.v1alpha1.AdapterDeclaration.kinds:type_name -> bearing.model.v1alpha1.KindDeclaration
-	3,  // 1: bearing.model.v1alpha1.KindDeclaration.keys:type_name -> bearing.model.v1alpha1.KeyTypeDeclaration
-	4,  // 2: bearing.model.v1alpha1.KindDeclaration.fields:type_name -> bearing.model.v1alpha1.FieldDeclaration
-	5,  // 3: bearing.model.v1alpha1.KindDeclaration.links:type_name -> bearing.model.v1alpha1.LinkDeclaration
-	6,  // 4: bearing.model.v1alpha1.KeyTypeDeclaration.class:type_name -> bearing.model.v1alpha1.KeyClass
-	7,  // 5: bearing.model.v1alpha1.KeyTypeDeclaration.per_subject:type_name -> bearing.model.v1alpha1.PerSubject
-	8,  // 6: bearing.model.v1alpha1.KeyTypeDeclaration.case:type_name -> bearing.model.v1alpha1.KeyCase
-	9,  // 7: bearing.model.v1alpha1.FieldDeclaration.direction:type_name -> bearing.model.v1alpha1.Direction
-	10, // 8: bearing.model.v1alpha1.FieldDeclaration.match:type_name -> bearing.model.v1alpha1.MatchMethod
-	0,  // 9: bearing.model.v1alpha1.FieldDeclaration.authority:type_name -> bearing.model.v1alpha1.Authority
-	11, // 10: bearing.model.v1alpha1.FieldDeclaration.type:type_name -> bearing.model.v1alpha1.ValueType
-	12, // 11: bearing.model.v1alpha1.FieldDeclaration.cardinality:type_name -> bearing.model.v1alpha1.Cardinality
-	0,  // 12: bearing.model.v1alpha1.LinkDeclaration.authority:type_name -> bearing.model.v1alpha1.Authority
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	3,  // 0: bearing.model.v1alpha1.AdapterDeclaration.kinds:type_name -> bearing.model.v1alpha1.KindDeclaration
+	2,  // 1: bearing.model.v1alpha1.AdapterDeclaration.webhook:type_name -> bearing.model.v1alpha1.WebhookSignature
+	7,  // 2: bearing.model.v1alpha1.WebhookSignature.scheme:type_name -> bearing.model.v1alpha1.WebhookScheme
+	4,  // 3: bearing.model.v1alpha1.KindDeclaration.keys:type_name -> bearing.model.v1alpha1.KeyTypeDeclaration
+	5,  // 4: bearing.model.v1alpha1.KindDeclaration.fields:type_name -> bearing.model.v1alpha1.FieldDeclaration
+	6,  // 5: bearing.model.v1alpha1.KindDeclaration.links:type_name -> bearing.model.v1alpha1.LinkDeclaration
+	8,  // 6: bearing.model.v1alpha1.KeyTypeDeclaration.class:type_name -> bearing.model.v1alpha1.KeyClass
+	9,  // 7: bearing.model.v1alpha1.KeyTypeDeclaration.per_subject:type_name -> bearing.model.v1alpha1.PerSubject
+	10, // 8: bearing.model.v1alpha1.KeyTypeDeclaration.case:type_name -> bearing.model.v1alpha1.KeyCase
+	11, // 9: bearing.model.v1alpha1.FieldDeclaration.direction:type_name -> bearing.model.v1alpha1.Direction
+	12, // 10: bearing.model.v1alpha1.FieldDeclaration.match:type_name -> bearing.model.v1alpha1.MatchMethod
+	0,  // 11: bearing.model.v1alpha1.FieldDeclaration.authority:type_name -> bearing.model.v1alpha1.Authority
+	13, // 12: bearing.model.v1alpha1.FieldDeclaration.type:type_name -> bearing.model.v1alpha1.ValueType
+	14, // 13: bearing.model.v1alpha1.FieldDeclaration.cardinality:type_name -> bearing.model.v1alpha1.Cardinality
+	0,  // 14: bearing.model.v1alpha1.LinkDeclaration.authority:type_name -> bearing.model.v1alpha1.Authority
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_bearing_model_v1alpha1_declaration_proto_init() }
@@ -557,7 +656,7 @@ func file_bearing_model_v1alpha1_declaration_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_declaration_proto_rawDesc), len(file_bearing_model_v1alpha1_declaration_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

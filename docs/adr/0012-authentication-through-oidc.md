@@ -47,8 +47,8 @@ the MVP plan already rely on.
   that mapping (C-API-4).
 - **An `Authorizer` contract decides every request.** It takes the verified
   caller (issuer, subject or client ID, groups), the method and, where it
-  applies, the Source, and returns allow or deny with a reason. This is the intended shape; the
-  contract PR settles it. Each API
+  applies, the Source, and returns allow or deny with a reason
+  ([contracts](../spec/contracts.md#authorizer)). Each API
   method declares its required role in one table, and a method with no
   entry is denied (C-API-5). The default backend is the group-to-role
   mapping above. Relationship-based backends such as OpenFGA or SpiceDB can
@@ -73,7 +73,8 @@ the MVP plan already rely on.
   records name callers by stable identity provider IDs (C-AUDIT-6).
 - Roles are only as good as the identity provider's groups. Changing
   who is an administrator is done there, not in Bearing.
-- Follow-up work: the `Authorizer` interface and its conformance suite land
-  in `pkg/contracts` in their own PR before any code that depends on them,
-  and the API and MCP servers arrive with M3 (durable, always-on core). The spec's
-  [contracts page](../spec/contracts.md) lists `Authorizer` as planned.
+- The `Authorizer` interface and its conformance suite are in
+  `pkg/contracts`, with the default group-to-role backend in `pkg/auth`. The
+  token verification and the API servers arrive with M3 (durable, always-on
+  core), and the status above flips to accepted in the change that makes the
+  server enforce them.

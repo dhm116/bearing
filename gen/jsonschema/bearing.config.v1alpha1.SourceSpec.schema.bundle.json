@@ -185,6 +185,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "description": "SourceSpec is a Source's content.",
+      "patternProperties": {
+        "^(webhookSecret)$": {
+          "default": "",
+          "description": "Secret reference (\"env:NAME\", \"file:/path\") for the key the source signs\n its webhook deliveries with. Empty: the source cannot push events, and\n its webhooks are refused. Ignored when the adapter declares no webhook.",
+          "type": "string"
+        }
+      },
       "properties": {
         "adapter": {
           "default": "",
@@ -242,6 +249,11 @@
         "settings": {
           "$ref": "#/$defs/google.protobuf.Struct.schema.json",
           "description": "Its settings, checked against the adapter's declared settings."
+        },
+        "webhook_secret": {
+          "default": "",
+          "description": "Secret reference (\"env:NAME\", \"file:/path\") for the key the source signs\n its webhook deliveries with. Empty: the source cannot push events, and\n its webhooks are refused. Ignored when the adapter declares no webhook.",
+          "type": "string"
         }
       },
       "title": "Source Spec",

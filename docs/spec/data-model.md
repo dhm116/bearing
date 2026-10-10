@@ -275,6 +275,17 @@ declares, per kind it emits:
 | `fields` | Every predicate it claims with this kind as the observed entity: `predicate`, optional `direction` (`in` for relations given with `from`; default `out`), `match` (`exact`, `email`, `name` or `members`, if the field is [identity evidence](#matching)) and `authority` (`{ "authoritative": true }`; default not authoritative). An unregistered attribute also gives `type` (`string`, `float`, `bool`, `time`, `json`) and `cardinality`; it is stored as `<namespace>.<attribute>`. |
 | `links` | Key types of other systems that this system records for the entity (`linked_ids`), with `authority`. |
 
+An adapter that takes webhooks also declares, once for the adapter, how its
+source signs them (`webhook`): the `scheme` (`hmac_sha256`: HMAC-SHA256 over
+the raw body, hex), the `signature_header` that carries it, the
+`signature_prefix` before the digest (`sha256=` for GitHub, `v1=` for
+PagerDuty) and the `delivery_id_header` with the sender's delivery ID, when
+there is one. The declaration never holds a secret: the source supplies that
+by reference (`webhook_secret`), and the host verifies each delivery before
+it is logged ([ADR 7](../adr/0007-durable-event-log.md)). A header may carry
+several signatures separated by commas, and a delivery passes when one
+matches.
+
 A **field** is `(source, kind, predicate, direction)`. A support's
 **authority** is evaluated at read time `r` from the declarations and
 `authority` overrides in force at `r`; it is not stored on the claim. A
@@ -1323,6 +1334,7 @@ target or in `before` and `after`, and the store replaces it
 | `rejection` | the event; `reason` names the scope | | `rejection_code` and `reason` |
 | `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
 | `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |
+| `event_dead_lettered` | the event | `attempts_exhausted` | `reason` is the last error, cut short |
 
 The resolver writes these entries as `system:resolver`, in an order a caller
 can rely on: rejections first, then mints, bindings and merges, then for each
@@ -1377,7 +1389,7 @@ document read the configuration in force at record time `r`.
 | `kind` | Holds | Read by |
 | --- | --- | --- |
 | `Adapter` | The module's digest, the capabilities and secret names it declares, default settings | The adapter host |
-| `Source` | Its adapter, `namespace`, `issues`, `links`, `authority` overrides, settings, secret references, `schedule`, narrowed capabilities | [Keys and namespaces](#keys-and-namespaces) |
+| `Source` | Its adapter, `namespace`, `issues`, `links`, `authority` overrides, settings, secret references, `schedule`, narrowed capabilities, `webhook_secret` (a reference to the key that signs its webhooks) | [Keys and namespaces](#keys-and-namespaces) |
 | `Assertion` | The `threshold_ppm` of every predicate (900000 when 0), `confidence_groups`, per-predicate `precedence` | [Confidence](#confidence), [Status](#status), [Conflicts](#conflicts) |
 | `MatchWeights` | Weights in ppm per kind and method or `link`, with per-source, per-predicate overrides | [Matching](#matching) |
 | `MergePolicies` | The merge policy per kind, with `threshold_ppm` for `score` | [Merge policy](#merge-policy) |
@@ -1499,6 +1511,7 @@ not events; they are written to the `AuditLog`.
 | `ConflictOpened`, `ConflictResolved`, `OverrideStale` | the core, as outputs of an apply | [Conflicts](#conflicts) |
 | `CompactionRequested` | the scheduler or a person | [Retention and compaction](#retention-and-compaction) |
 | `DeclarationChanged` | the core, when a source's adapter is upgraded | [Declarations](#declarations) |
+| `EventDeadLettered` | a worker, when it gives up on an event | [Dead letters](contracts.md#dead-letters) |
 | `ConfigApplied` | a person or automation through the CLI or API; the loader at start-up | [Configuration](#configuration) |
 
 ## Worked examples

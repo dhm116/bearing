@@ -45,6 +45,36 @@ type DescribeResult struct {
 	// in that system's own terms, so operators can grant exactly these.
 	Access   []string `json:"access"`
 	Webhooks bool     `json:"webhooks"`
+	// WebhookSignature says how the source signs its deliveries, so the
+	// host can verify one before it is logged. Absent when the source does
+	// not sign them.
+	WebhookSignature *WebhookSignature `json:"webhook_signature,omitempty"`
+}
+
+// WebhookSignature is the JSON form of the declaration's WebhookSignature
+// message (docs/spec/adapter-protocol.md, "bearing.describe"), with the
+// scheme by its ProtoJSON name. It never holds a secret.
+type WebhookSignature struct {
+	Scheme           string `json:"scheme"`
+	SignatureHeader  string `json:"signature_header"`
+	SignaturePrefix  string `json:"signature_prefix,omitempty"`
+	DeliveryIDHeader string `json:"delivery_id_header,omitempty"`
+}
+
+// Declaration returns the declaration message, or an error for a scheme the
+// host does not know. It does not check the other fields; that is
+// model.ValidateDeclaration's job.
+func (w WebhookSignature) Declaration() (*modelv1alpha1.WebhookSignature, error) {
+	scheme, ok := modelv1alpha1.WebhookScheme_value[w.Scheme]
+	if !ok || scheme == int32(modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED) {
+		return nil, fmt.Errorf("unknown webhook scheme %q", model.Clip(w.Scheme))
+	}
+	return &modelv1alpha1.WebhookSignature{
+		Scheme:           modelv1alpha1.WebhookScheme(scheme),
+		SignatureHeader:  w.SignatureHeader,
+		SignaturePrefix:  w.SignaturePrefix,
+		DeliveryIdHeader: w.DeliveryIDHeader,
+	}, nil
 }
 
 // SyncParams asks for one page of observations.

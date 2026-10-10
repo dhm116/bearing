@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/fakes"
+	"bearing.example/pkg/model"
 )
 
 func TestParseCodeowners(t *testing.T) {
@@ -108,6 +110,18 @@ func TestDescribeAndConfigDefaults(t *testing.T) {
 	d, err := (&Adapter{}).Describe(t.Context())
 	if err != nil || d.Name != "github" || d.Version != Version || !d.Webhooks || len(d.Emits) != 3 {
 		t.Fatalf("Describe = %+v, %v", d, err)
+	}
+	// The host verifies deliveries from this declaration, so it must be one
+	// the model accepts and the header the adapter itself checks.
+	w, err := d.WebhookSignature.Declaration()
+	if err != nil {
+		t.Fatalf("webhook signature: %v", err)
+	}
+	if err := model.ValidateDeclaration(&modelv1alpha1.AdapterDeclaration{Name: "github", IssuerType: "github", Webhook: w}); err != nil {
+		t.Errorf("declared webhook is invalid: %v", err)
+	}
+	if w.GetSignatureHeader() != "X-Hub-Signature-256" || w.GetSignaturePrefix() != "sha256=" || w.GetDeliveryIdHeader() != "X-GitHub-Delivery" {
+		t.Errorf("webhook = %v", w)
 	}
 	if !strings.Contains(string(d.ConfigSchema), `"namespace"`) {
 		t.Errorf("config schema lacks namespace: %s", d.ConfigSchema)

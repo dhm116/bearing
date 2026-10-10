@@ -560,7 +560,11 @@ type SourceSpec struct {
 	// Empty: webhooks and manual syncs only.
 	Schedule string `protobuf:"bytes,8,opt,name=schedule,proto3" json:"schedule,omitempty"`
 	// Narrows the adapter's capabilities; never widens them.
-	Capabilities  []*CapabilityGrant `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Capabilities []*CapabilityGrant `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// Secret reference ("env:NAME", "file:/path") for the key the source signs
+	// its webhook deliveries with. Empty: the source cannot push events, and
+	// its webhooks are refused. Ignored when the adapter declares no webhook.
+	WebhookSecret string `protobuf:"bytes,10,opt,name=webhook_secret,json=webhookSecret,proto3" json:"webhook_secret,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -656,6 +660,13 @@ func (x *SourceSpec) GetCapabilities() []*CapabilityGrant {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *SourceSpec) GetWebhookSecret() string {
+	if x != nil {
+		return x.WebhookSecret
+	}
+	return ""
 }
 
 // NamespaceUse is a namespace a source issues or links, with its issuer type
@@ -2113,7 +2124,7 @@ const file_bearing_config_v1alpha1_resources_proto_rawDesc = "" +
 	"apiVersion\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12=\n" +
 	"\bmetadata\x18\x03 \x01(\v2!.bearing.config.v1alpha1.MetadataR\bmetadata\x127\n" +
-	"\x04spec\x18\x04 \x01(\v2#.bearing.config.v1alpha1.SourceSpecR\x04spec\"\xb1\x04\n" +
+	"\x04spec\x18\x04 \x01(\v2#.bearing.config.v1alpha1.SourceSpecR\x04spec\"\xd8\x04\n" +
 	"\n" +
 	"SourceSpec\x12\x18\n" +
 	"\aadapter\x18\x01 \x01(\tR\aadapter\x12\x1c\n" +
@@ -2124,7 +2135,9 @@ const file_bearing_config_v1alpha1_resources_proto_rawDesc = "" +
 	"\bsettings\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bsettings\x12J\n" +
 	"\asecrets\x18\a \x03(\v20.bearing.config.v1alpha1.SourceSpec.SecretsEntryR\asecrets\x12\x1a\n" +
 	"\bschedule\x18\b \x01(\tR\bschedule\x12L\n" +
-	"\fcapabilities\x18\t \x03(\v2(.bearing.config.v1alpha1.CapabilityGrantR\fcapabilities\x1a:\n" +
+	"\fcapabilities\x18\t \x03(\v2(.bearing.config.v1alpha1.CapabilityGrantR\fcapabilities\x12%\n" +
+	"\x0ewebhook_secret\x18\n" +
+	" \x01(\tR\rwebhookSecret\x1a:\n" +
 	"\fSecretsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x86\x02\n" +

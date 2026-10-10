@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
@@ -50,7 +52,36 @@ func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 			c.keyTypeName(lp+".key_type", l.GetKeyType())
 		}
 	}
+	if w := d.GetWebhook(); w != nil {
+		c.webhook("webhook", w)
+	}
 	return c.err()
+}
+
+// headerName is an HTTP field name: the token characters of RFC 9110.
+var headerName = regexp.MustCompile("^[0-9A-Za-z!#$%&'*+.^_`|~-]{1,128}$")
+
+// MaxSignaturePrefixBytes bounds a declared signature prefix.
+const MaxSignaturePrefixBytes = 32
+
+func (c *checker) webhook(path string, w *modelv1alpha1.WebhookSignature) {
+	if w.GetScheme() == modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED {
+		c.add(codeMalformed, path+".scheme", "is required")
+	}
+	if !headerName.MatchString(w.GetSignatureHeader()) {
+		c.add(codeMalformed, path+".signature_header", "is required and must be an HTTP header name")
+	}
+	if p := w.GetSignaturePrefix(); len(p) > MaxSignaturePrefixBytes || strings.ContainsFunc(p, func(r rune) bool { return r <= ' ' || r >= 0x7f || r == ',' }) {
+		c.add(codeMalformed, path+".signature_prefix", "must be at most %d printable ASCII characters without spaces or commas", MaxSignaturePrefixBytes)
+	}
+	if h := w.GetDeliveryIdHeader(); h != "" {
+		switch {
+		case !headerName.MatchString(h):
+			c.add(codeMalformed, path+".delivery_id_header", "must be an HTTP header name")
+		case strings.EqualFold(h, w.GetSignatureHeader()):
+			c.add(codeMalformed, path+".delivery_id_header", "must differ from the signature header")
+		}
+	}
 }
 
 func direction(f *modelv1alpha1.FieldDeclaration) modelv1alpha1.Direction {

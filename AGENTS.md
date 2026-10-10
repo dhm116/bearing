@@ -66,6 +66,7 @@ minimal.
 | `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventLog`, `Judge`, …). |
 | `pkg/contracts/conformance` | Test suites every backend must pass. |
 | `pkg/audit` | What makes the audit log tamper evident: the bytes of a record that are hashed, `Seal` for the chain, checkpoints and their Ed25519 signatures, and `Verify` (behind `bearing audit verify`). The `AuditLog` interface is in `pkg/contracts`. |
+| `pkg/auth` | Who may call Bearing ([ADR 12](docs/adr/0012-authentication-through-oidc.md)): the default `Authorizer`, which maps IdP groups and client IDs to roles. Token verification is added with the server. |
 | `pkg/query` | The CLI's query layer: `get`, `owner`, `related` and `changes` over a `GraphStore`, each answer with its sources, events, confidence and observed times. `cmd/bearing` reads the graph only through it. Not a stable API yet; M3's server will answer the same questions. |
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
 | `pkg/store` | Opens graph store, audit log, vector index and event log from URLs (`mem://`, `postgres://`); the audit log is the graph backend's. |

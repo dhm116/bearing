@@ -306,3 +306,15 @@ enum MergeReviewStatus {
   // by itself.
   MERGE_REVIEW_STATUS_NEEDS_REVIEW = 2;
 }
+
+// WebhookScheme is how a source signs its webhook deliveries, so the host
+// can check one before anything is stored (ADR 7, ADR 9 A6). The host has
+// one verifier per scheme; a scheme it has no verifier for cannot be
+// declared.
+enum WebhookScheme {
+  // Not set. Rejected in a declaration that has a webhook.
+  WEBHOOK_SCHEME_UNSPECIFIED = 0;
+  // HMAC-SHA256 over the raw request body, as GitHub's
+  // X-Hub-Signature-256 and PagerDuty's X-PagerDuty-Signature do.
+  WEBHOOK_SCHEME_HMAC_SHA256 = 1;
+}
