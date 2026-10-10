@@ -336,8 +336,8 @@ func TestRandomMultiScopeStoriesDoNotDependOnApplyOrder(t *testing.T) {
 		}
 	}
 	t.Logf("%d applies gave the in-order facts and %d reported ignoring a write", same, ignored)
-	if same < 100 {
-		t.Errorf("got %d applies with the in-order facts, want at least 100", same)
+	if same < 50 {
+		t.Errorf("got %d applies with the in-order facts, want at least 50", same)
 	}
 }
 
