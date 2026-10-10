@@ -27,6 +27,7 @@ compatible with it.
 | 0.3 | Tiered **compaction** with a precision marker on answers. | History can't grow without bound. |
 | 0.3 | Protobuf is the only source of truth; core-closed lists are proto enums. | No hand-kept copies. |
 | 0.3 | `linked_ids` completeness is explicit: `linked_ids_complete`. An unflagged list only adds evidence. | "Read, and there are none" must be sayable; a partial list must not end evidence. |
+| 0.3 | **Confirmations** extend a record's ordering key (last verified) and add no record; a write applied after the last of a run of confirmations that it falls among is dropped and audited. Guarantee 1 gains that exception. | State grows with changes, not syncs; an always-on core would otherwise stop at the ChangeSet limit ([issue #77](https://github.com/dhm116/bearing/issues/77)). |
 | 0.3 | The log's remaining **event types** (compaction, declaration change, configuration apply), the **audit record** and the **configuration resources** are defined in Protobuf, and this document gives their rules. | The event log, the audit log and configuration apply need one shape to build on. |
 
 ## Terms
@@ -83,12 +84,54 @@ Guarantees:
    implementations produce the same valid-time state: supports, fact
    statuses, confidence and conflicts at every valid time not yet
    [compacted](#retention-and-compaction), **regardless of the order** the
-   events are applied in. (The event log orders events only within a
-   partition.)
+   events are applied in, except that a write is dropped when it is applied
+   after the last of a run of [confirmations](#confirmations) that it falls
+   among and says something else. (The event log orders events only within
+   a partition.)
 2. Applying the same events in the same order from the same identity store,
    they make the same identity decisions, up to a one-to-one renaming of
    newly minted subject IDs.
 3. `recorded_at`/`retracted_at` values may differ between implementations.
+
+#### Confirmations
+
+A **confirmation** is a write by a source that repeats what its earlier write
+already said: the same state, confidence and qualifiers for a fact, the same
+name bound to the same subject for a binding. A source that syncs again and
+again sends nothing but confirmations until something changes. An
+implementation MUST NOT keep a record per confirmation (scope watermarks
+excepted until [issue #77](https://github.com/dhm116/bearing/issues/77) is
+done), so that what it remembers grows with the changes sources report and
+not with the syncs they make. It keeps the first confirmation's content, and
+moves the record's ordering key to the latest confirmation's: the **last
+verified** key. A fact's support then has one version, as always, whose
+`last_confirmed_at` is that key's `observed_at`.
+
+The cost is the one write the run can no longer place. A write **of the same
+source** whose ordering key falls between the first and the latest
+confirmation of a run, that says something else (another state for the fact,
+a deletion, a snapshot that leaves the fact out), and that is applied after
+the latest confirmation, is **dropped**: it has no effect, as a late write
+into a compacted period has none, and it is audited the same way
+(`compacted_write_dropped`, whose `reason` names the run). For a binding,
+the write is one of any source that binds another name to the subject the run
+binds, or the run's name to another subject, because a source's names share
+the namespace's other sources. Applied in order, the same write would have
+decided the valid time before the latest confirmation's claim takes effect,
+and only there: the answers can differ from key-ordered application at valid
+times before the later of the latest confirmation's observation time and its
+claim's `valid_from`, never at or after it. Writes of `manual` and `core/…`
+sources are never dropped: a manual event is not a confirmation, and derived
+supports follow their inputs. Nothing else is lost:
+
+- Writes applied in ordering-key order are never dropped.
+- A write with a key before the first or after the latest confirmation is
+  placed as if the run were one write, which is what it is.
+- A change keeps its own records. A run ends at the first write that says
+  something else, so the order-independence of guarantee 1 holds for changes
+  until the [tiers](#retention-and-compaction) roll the period up.
+- Confirmations are not joined while a watermark with a key among them would
+  still tell them apart (the source's snapshot between them left the fact out).
 
 **Apply and isolation.**
 
@@ -785,9 +828,10 @@ versions**:
 - `reason`: `assert`, `end`, `snapshot`, `deleted`, `withdrawn`, `merge`,
   `unmerge`, `derived`.
 - A materialized store MUST keep the ordering key per valid-time segment. A
-  **confirming** claim (same state, confidence and qualifier set, later key) replaces the keys on
-  `[observed_at, ∞)` only, and creates no new support version.
-  `last_confirmed_at` is informational.
+  **confirming** claim (same state, confidence and qualifier set, later key)
+  moves the key of the segment it extends to its own and creates no new
+  support version ([Confirmations](#confirmations)). `last_confirmed_at` is
+  informational.
 
 Both forms give the same answers to every query here.
 
@@ -1227,7 +1271,7 @@ reference in the resource.
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
-| `compacted_write_dropped` | the `(subject, predicate)` | | `reason` names the period |
+| `compacted_write_dropped` | the `(subject, predicate)`; the alias for a binding or a deletion of a name | `confirmations` for a run of confirmations | `reason` names the period, or the run and the write |
 | `rejection` | the event; `reason` names the scope | | `rejection_code` and `reason` |
 | `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
 | `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |
@@ -1588,8 +1632,10 @@ yet:
 - Ending an `id_conflict` issue when the clashing aliases change, the
   `ConflictOpened` and `ConflictResolved` events and their audit records, and
   sync-completeness deletions.
-- Compaction and the `Retention` tiers, including bounding the state the
-  resolver keeps for every write (issue #77).
+- Compaction and the `Retention` tiers.
+- Bounding the scope watermarks the resolver keeps for every sync of a
+  snapshot scope (issue #77); the support and binding state is bounded by
+  [confirmations](#confirmations).
 - The durable event log (issue #137), replacing the `EventBus` contract,
   and the audit log (issue #138). Their message types, and the types of the
   compaction, declaration-change and configuration-apply events, are in

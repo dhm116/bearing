@@ -22,6 +22,9 @@ type write struct {
 	// subject is the subject as written.
 	subject   string
 	tentative bool
+	// first is the key of the first of the confirmations the write joins, or
+	// nil if it joins none (see [engine.joinConfirmations]).
+	first *resolverv1alpha1.OrderingKey
 }
 
 // nameWrites is every write to one name alias.

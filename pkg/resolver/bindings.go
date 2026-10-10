@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
@@ -15,6 +17,9 @@ import (
 // plus what this ChangeSet changes in them.
 type nameState struct {
 	nameWrites
+	// family is the namespace and key type, whose names compete for a
+	// subject.
+	family string
 	// loaded holds the subjects whose state entry exists.
 	loaded map[string]bool
 	// dirty holds the subjects whose entry this ChangeSet rewrites.
@@ -24,6 +29,9 @@ type nameState struct {
 	tentativeBefore []write
 	// hadObserved is true if the name had an observed write before.
 	hadObserved bool
+	// ignored are the writes of this ChangeSet that a joined write
+	// outranks although their key falls among the confirmations it joins.
+	ignored []ignoredWrite
 }
 
 // engine computes alias binding timelines from the remembered writes. It
@@ -168,6 +176,7 @@ func (e *engine) name(ctx context.Context, k keyRef) (*nameState, error) {
 	}
 	n := &nameState{
 		nameWrites: nameWrites{alias: k.key, ns: k.ns, perSubject: k.typ.perSubject, redirects: k.typ.redirects},
+		family:     k.groupKey(),
 		loaded:     map[string]bool{}, dirty: map[string]bool{},
 	}
 	for _, key := range keys {
@@ -211,9 +220,80 @@ func (e *engine) name(ctx context.Context, k keyRef) (*nameState, error) {
 func (n *nameState) add(w write) {
 	next, changed := addWrite(n.writes, w)
 	if !changed {
+		for _, o := range n.writes {
+			if !w.tentative && !o.tentative && o.joinedAround(w) && !o.from.After(w.from) && o.subject != w.subject {
+				n.ignored = append(n.ignored, ignoredWrite{w, o})
+				break
+			}
+		}
 		return
 	}
 	n.setWrites(next)
+}
+
+// ignoredWrite is a write that the joined write `by` outranks.
+type ignoredWrite struct{ write, by write }
+
+// joinedAround reports whether w has a key among the confirmations the write
+// joins: after the first and before the last.
+func (j write) joinedAround(w write) bool {
+	return j.first != nil && model.CompareOrderingKeys(j.first, w.key) < 0 && model.CompareOrderingKeys(w.key, j.key) < 0
+}
+
+// noteDropped records, for the observation whose ordering key is key, what
+// its writes and deletions lose to a joined write: a write that
+// addWrite ignored, a write to another name of the family that holds the
+// same subject, and a deletion of the subject, each with a key among the
+// confirmations the joined write stands for.
+func (e *engine) noteDropped(ctx context.Context, key *resolverv1alpha1.OrderingKey) []DroppedWrite {
+	var out []DroppedWrite
+	seen := map[string]bool{}
+	note := func(alias model.Key, subject string, j write) {
+		if k := string(alias) + "\x00" + subject; !seen[k] {
+			seen[k] = true
+			out = append(out, DroppedWrite{Subject: subject, Alias: alias, Key: key, First: j.first, Last: j.key})
+		}
+	}
+	names := slices.Sorted(maps.Keys(e.names))
+	for _, alias := range names {
+		n := e.names[alias]
+		for _, ig := range n.ignored {
+			note(n.alias, ig.write.subject, ig.by)
+		}
+		for _, l := range n.writes {
+			if l.tentative || model.CompareOrderingKeys(l.key, key) != 0 {
+				continue
+			}
+			for _, other := range names {
+				m := e.names[other]
+				if m == n || m.family != n.family || !n.perSubject {
+					continue
+				}
+				for _, j := range m.writes {
+					if !j.tentative && j.joinedAround(l) && e.g.mustCanon(ctx, j.subject) == e.g.mustCanon(ctx, l.subject) {
+						note(n.alias, l.subject, j)
+					}
+				}
+			}
+		}
+	}
+	for id, m := range e.marks {
+		for _, d := range m.list {
+			if model.CompareOrderingKeys(d.key, key) != 0 {
+				continue
+			}
+			for _, alias := range names {
+				n := e.names[alias]
+				for _, j := range n.writes {
+					if !j.tentative && n.ns == id.ns && j.first != nil && model.CompareOrderingKeys(j.first, d.key) < 0 &&
+						model.CompareOrderingKeys(d.key, j.key) < 0 && e.g.mustCanon(ctx, j.subject) == id.subject {
+						note(n.alias, id.subject, j)
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // setWrites replaces the name's writes, marking every entry that differs.
@@ -228,7 +308,8 @@ func (n *nameState) setWrites(next []write) {
 
 func sameWrite(a, b write) bool {
 	return a.tentative == b.tentative && a.subject == b.subject && a.from.Equal(b.from) &&
-		model.CompareOrderingKeys(a.key, b.key) == 0
+		model.CompareOrderingKeys(a.key, b.key) == 0 && (a.first == nil) == (b.first == nil) &&
+		(a.first == nil || model.CompareOrderingKeys(a.first, b.first) == 0)
 }
 
 func subjectsOf(a, b []write) []string {
@@ -405,6 +486,90 @@ func (e *engine) changed(ctx context.Context, rows map[model.Key][]*modelv1alpha
 		}
 	}
 	return out, nil
+}
+
+// joinConfirmations joins the writes of each entry the ChangeSet rewrites
+// that confirm one another: a write to a subject that the name's next
+// observed write to the same subject repeats, with a greater key, becomes one
+// write that starts where the first did and has the later key. A source that
+// sees a name on every sync then leaves one write, not one per sync, and the
+// timelines are unchanged. A write that arrives later with a key between the
+// two loses to the joined write where it would have decided the first's
+// stretch (see [series.settled] for the same rule on support state).
+//
+// Nothing is joined that something else could still tell apart: another
+// write of the name, or of a name of the family bound to the same subject,
+// or a deletion of the subject, with a key from the first's to the second's.
+func (e *engine) joinConfirmations(ctx context.Context) {
+	for _, alias := range slices.Sorted(maps.Keys(e.names)) {
+		n := e.names[alias]
+		for _, s := range slices.Sorted(maps.Keys(n.dirty)) {
+			var observed, rest []write
+			for _, w := range n.writes {
+				switch {
+				case w.subject != s:
+					rest = append(rest, w)
+				case w.tentative:
+					rest = append(rest, w)
+				default:
+					observed = append(observed, w)
+				}
+			}
+			slices.SortStableFunc(observed, writeCmp)
+			var joined []write
+			for _, w := range observed {
+				if i := len(joined) - 1; i >= 0 && joined[i].from.Before(w.from) && model.CompareOrderingKeys(joined[i].key, w.key) < 0 &&
+					sourceOf(joined[i].key) != "" && sourceOf(joined[i].key) == sourceOf(w.key) && !e.tellsApart(ctx, n, s, joined[i], w) {
+					if joined[i].first == nil {
+						joined[i].first = joined[i].key
+					}
+					joined[i].key = w.key
+					continue
+				}
+				joined = append(joined, w)
+			}
+			if len(joined) < len(observed) {
+				n.setWrites(append(rest, joined...))
+			}
+		}
+	}
+}
+
+// sourceOf returns the source an ordering key's event came from: the event ID
+// starts with the source and a slash. A confirmation is one source's, so only
+// writes of one source are joined.
+func sourceOf(k *resolverv1alpha1.OrderingKey) string {
+	source, _, _ := strings.Cut(k.GetEventId(), "/")
+	return source
+}
+
+// tellsApart reports whether something besides a and b, writes of the name
+// n to subject s, has a say in the stretch of a: a write, or a deletion of
+// the subject, with a key from a's to b's.
+func (e *engine) tellsApart(ctx context.Context, n *nameState, s string, a, b write) bool {
+	inRange := func(k *resolverv1alpha1.OrderingKey) bool {
+		return model.CompareOrderingKeys(a.key, k) <= 0 && model.CompareOrderingKeys(k, b.key) <= 0
+	}
+	canon := e.g.mustCanon(ctx, s)
+	for _, alias := range slices.Sorted(maps.Keys(e.names)) {
+		m := e.names[alias]
+		if m.family != n.family {
+			continue
+		}
+		for _, o := range m.writes {
+			if o.tentative || m == n && o.subject == s || m != n && e.g.mustCanon(ctx, o.subject) != canon {
+				continue
+			}
+			if inRange(o.key) {
+				return true
+			}
+		}
+	}
+	marks, ok := e.marks[markID{n.ns, canon}]
+	if !ok {
+		return true
+	}
+	return slices.ContainsFunc(marks.list, func(m mark) bool { return inRange(m.key) })
 }
 
 // stateEntries returns the entries of every name and deletion mark the

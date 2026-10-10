@@ -85,6 +85,9 @@ type factRun struct {
 	touched map[string]affected
 	// out are the support timelines to write, by source and fact ID.
 	out map[string]*modelv1alpha1.SupportTimeline
+	// claimed are the live writes the observation's own claims make, by source
+	// and fact ID: they outrank its own watermarks where they cover.
+	claimed map[string][]seg
 	// retired are the support timelines, as written, that move to another
 	// key: they are written empty.
 	retired map[string]*modelv1alpha1.SupportTimeline
@@ -99,7 +102,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 	return &factRun{
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
 		series: map[string]*seriesEntry{}, marks: map[string]*wmEntry{}, touched: map[string]affected{},
-		out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
+		claimed: map[string][]seg{}, out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
 		groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
 	}
@@ -292,8 +295,20 @@ func (r *factRun) claim(ctx context.Context, claims []*claim) error {
 		}
 		sup := r.supportOf(c)
 		for _, w := range c.writes(r.at, r.p.key, sup) {
+			if first, last, ok := e.s.dropped(w); ok {
+				r.noteDropped(droppedFact(r.p.ev.Source, c.fact, r.p.key, first, last))
+			}
 			e.s = e.s.overlay(w)
+			if w.live {
+				k := r.p.ev.Source + "\x00" + c.fact.id()
+				r.claimed[k] = append(r.claimed[k], w)
+			}
 		}
+		wms, err := r.watermarksFor(ctx, r.p.ev.Source, c.fact)
+		if err != nil {
+			return err
+		}
+		e.s = e.s.settled(wms)
 		e.dirty = true
 		r.touch(r.p.ev.Source, c.fact)
 	}
@@ -356,6 +371,7 @@ func (r *factRun) recompute(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		r.noteDroppedByWatermarks(t, e.s, wms)
 		var versions []*modelv1alpha1.Support
 		for _, v := range e.s.effective(wms).versions() {
 			versions = append(versions, v.support())
@@ -363,6 +379,59 @@ func (r *factRun) recompute(ctx context.Context) error {
 		r.setSupport(t.source, t.f, versions)
 	}
 	return nil
+}
+
+// noteDropped records a dropped write once: a claim with an end is two writes
+// of the one fact.
+func (r *factRun) noteDropped(d DroppedWrite) {
+	if !slices.ContainsFunc(r.u.dropped, func(o DroppedWrite) bool {
+		return o.Source == d.Source && o.Subject == d.Subject && o.Predicate == d.Predicate && o.Object == d.Object && o.Alias == d.Alias
+	}) {
+		r.u.dropped = append(r.u.dropped, d)
+	}
+}
+
+// noteDroppedByWatermarks records the facts this observation's watermarks fail
+// to end where they should have: a segment that joins confirmations made on
+// both sides of the watermark's key keeps the later key (see
+// [series.settled]). A claim of the observation that covers the stretch
+// leaves nothing to report, because [series.dropped] skips segments whose
+// key is not past the watermark's.
+func (r *factRun) noteDroppedByWatermarks(t affected, s series, wms []watermark) {
+	for _, w := range wms {
+		if model.CompareOrderingKeys(w.key, r.p.key) != 0 {
+			continue
+		}
+		// Where the observation claims the fact itself, its claim outranks its
+		// watermark, so only the stretches no claim covers are the watermark's.
+		pieces := []seg{ending(w.at, w.key, w.reason)}
+		for _, c := range r.claimed[t.source+"\x00"+t.f.id()] {
+			var next []seg
+			for _, p := range pieces {
+				if c.to <= p.from || c.from >= p.to {
+					next = append(next, p)
+					continue
+				}
+				if p.from < c.from {
+					l := p
+					l.to = c.from
+					next = append(next, l)
+				}
+				if c.to < p.to {
+					rr := p
+					rr.from = c.to
+					next = append(next, rr)
+				}
+			}
+			pieces = next
+		}
+		for _, p := range pieces {
+			if first, last, ok := s.dropped(p); ok {
+				r.noteDropped(droppedFact(t.source, t.f, r.p.key, first, last))
+				return
+			}
+		}
+	}
 }
 
 // setSupport records the support versions a source has for a fact.

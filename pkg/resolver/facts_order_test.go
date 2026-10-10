@@ -127,14 +127,38 @@ func TestClaimsDoNotDependOnApplyOrder(t *testing.T) {
 		t.Fatalf("the scenario shows no asserted and conflicted facts:\n%s", want)
 	}
 	rng := rand.New(rand.NewSource(3)) //nolint:gosec // G404: a seeded shuffle, not security
+	same, ignored := 0, 0
 	for range 200 {
 		order := rng.Perm(len(events))
 		e := newEnv(t)
 		for _, j := range order {
 			e.apply(events[j])
 		}
-		if got := factsOverTime(t, e); got != want {
+		got := factsOverTime(t, e)
+		ok, failed := e.sameOrDropped(got, want, sampleTimes())
+		if failed {
 			t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
+		}
+		if ok {
+			same++
+		} else {
+			ignored++
+		}
+	}
+	if same == 0 {
+		t.Fatalf("no order gave the facts of the in-order apply; %d ignored a claim", ignored)
+	}
+
+	// With each source's events in key order no claim is ignored, so the facts
+	// are the same whatever the interleaving.
+	for range 200 {
+		order := sourceOrderShuffle(rng, events)
+		e := newEnv(t)
+		for _, j := range order {
+			e.apply(events[j])
+		}
+		if got := factsOverTime(t, e); got != want || e.dropped != 0 {
+			t.Fatalf("order %v (%d claims ignored) differs from time order:\n%s", order, e.dropped, lineDiff(want, got))
 		}
 	}
 }

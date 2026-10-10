@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
@@ -38,6 +39,58 @@ type Result struct {
 	ChangeSet *modelv1alpha1.ChangeSet
 	// Rejections are the refusals to audit.
 	Rejections []Rejection
+	// Dropped are the writes the ChangeSet ignores because a source's
+	// confirmations on both sides of their key were joined into one. The
+	// ChangeSet audits each.
+	Dropped []DroppedWrite
+}
+
+// DroppedWrite is a claim, binding or deletion of the observation that the
+// resolver's state ignored: the source had confirmed the same state before
+// and after its ordering key, the resolver keeps only the last confirmation,
+// and the write says something else (docs/spec/data-model.md,
+// "Confirmations"). Applied in key order it would have decided the stretch of
+// valid time before the later confirmation, so the answer differs from the
+// one an in-order apply gives. The ChangeSet audits each as
+// compacted_write_dropped.
+type DroppedWrite struct {
+	// Source is the source whose state ignored the write.
+	Source string
+	// Subject, Predicate and Object name the fact a claim wrote or a
+	// watermark should have ended: the subject ID, the predicate, and the
+	// object's subject ID or "=" and the fact ID of a value. For a dropped
+	// binding, Subject is the subject written and Alias the name.
+	Subject, Predicate, Object string
+	Alias                      model.Key
+	// Key is the ordering key of the dropped write.
+	Key *resolverv1alpha1.OrderingKey
+	// First and Last are the keys of the first and the last confirmation
+	// the write fell among.
+	First, Last *resolverv1alpha1.OrderingKey
+}
+
+func droppedFact(source string, f fact, key, first, last *resolverv1alpha1.OrderingKey) DroppedWrite {
+	return DroppedWrite{Source: source, Subject: f.subject, Predicate: f.pred, Object: f.token, Key: key, First: first, Last: last}
+}
+
+// audit returns the audit entry for the dropped write: the (subject,
+// predicate) of a fact, or the alias of a binding, with the fact's object or
+// the subject written, and the run, in the reason.
+func (d DroppedWrite) audit() *modelv1alpha1.AuditEntry {
+	target := &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, Id: d.Subject + "/" + d.Predicate}
+	what := fmt.Sprintf("%s %s -> %s", d.Subject, d.Predicate, d.Object)
+	if d.Alias != "" {
+		target = &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: string(d.Alias)}
+		what = fmt.Sprintf("alias %s -> %s", d.Alias, d.Subject)
+	}
+	return &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"},
+		Target: target,
+		Rule:   "confirmations",
+		Reason: model.Clip(fmt.Sprintf("observation %q falls among the confirmations of %s by source %s, from %q to %q",
+			d.Key.GetObservationId(), what, d.Source, d.First.GetObservationId(), d.Last.GetObservationId())),
+	}
 }
 
 // Resolve computes the ChangeSet for ev against the store's current head.
@@ -72,13 +125,20 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		}
 	}
 	rejs = append(rejs, more...)
+	var dropped []DroppedWrite
+	if u != nil {
+		dropped = u.dropped
+	}
+	for _, d := range dropped {
+		cs.Audit = append(cs.Audit, d.audit())
+	}
 	if rej := tooLarge(cs); rej != nil {
 		// An error would make the host retry the event forever, so the event
 		// is recorded as processed and changes nothing.
 		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt()}
 		return &Result{ChangeSet: empty, Rejections: append(rejs, *rej)}, nil
 	}
-	return &Result{ChangeSet: cs, Rejections: rejs}, nil
+	return &Result{ChangeSet: cs, Rejections: rejs, Dropped: dropped}, nil
 }
 
 // tooLarge reports the store limit cs is over, as the rejection of the whole
@@ -101,6 +161,9 @@ type Applied struct {
 	contracts.ApplyResult
 	// Rejections are the refusals to audit. They are empty for a duplicate.
 	Rejections []Rejection
+	// Dropped are the claims the applied ChangeSet ignores (see
+	// [DroppedWrite]). They are empty for a duplicate.
+	Dropped []DroppedWrite
 }
 
 // maxStale is how often Apply recomputes after losing a race.
@@ -124,9 +187,9 @@ func (r *Resolver) Apply(ctx context.Context, ev Event) (Applied, error) {
 		if err != nil {
 			return Applied{}, fmt.Errorf("resolver: apply event %s: %w", ev.ID, err)
 		}
-		out := Applied{ApplyResult: got, Rejections: res.Rejections}
+		out := Applied{ApplyResult: got, Rejections: res.Rejections, Dropped: res.Dropped}
 		if got.Duplicate {
-			out.Rejections = nil
+			out.Rejections, out.Dropped = nil, nil
 		}
 		return out, nil
 	}

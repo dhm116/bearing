@@ -174,6 +174,76 @@ func sameSeg(a, b seg) bool {
 		(a.sup == b.sup || proto.Equal(a.sup, b.sup))
 }
 
+// settled joins each live segment with the one after it when the two say the
+// same (one state, confidence and qualifier set) and the later was written
+// with a greater key: the result keeps the first's content and takes the later
+// key and end, so a source that confirms a fact on every sync keeps one
+// segment whose key is the last confirmation, and the series grows with the
+// number of changes, not the number of syncs. A join gives up the order of
+// writes whose key falls between the two keys: one that arrives afterwards and
+// says something else loses to the joined segment, where kept apart it would
+// have won the stretch of the first (see [series.dropped]).
+//
+// The join is also refused when a watermark in wms would still tell the two
+// apart: one with a key above the first's and no more than the later's that
+// starts before the first ends ends part of the first and not of the later
+// (the fact was missing from a sync between the two).
+func (s series) settled(wms []watermark) series {
+	out := make(series, 0, len(s))
+	for _, e := range s {
+		if n := len(out); n > 0 && out[n-1].confirmedBy(e) && !splitByWatermark(out[n-1], e, wms) {
+			out[n-1].to = e.to
+			out[n-1].key = e.key
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// confirmedBy reports whether the later segment b, adjacent to e, confirms
+// it: both live with one state and b has the greater key. Ended segments are
+// left alone.
+func (e seg) confirmedBy(b seg) bool {
+	return e.live && b.live && e.to == b.from && model.CompareOrderingKeys(e.key, b.key) < 0 &&
+		sameState(e.sup, b.sup)
+}
+
+// splitByWatermark reports whether some watermark treats a and b differently
+// as the series stands: one that beats a (a greater key than a's, no greater
+// than b's) from a time inside a's stretch.
+func splitByWatermark(a, b seg, wms []watermark) bool {
+	return slices.ContainsFunc(wms, func(w watermark) bool {
+		return w.at < a.to && model.CompareOrderingKeys(a.key, w.key) < 0 && model.CompareOrderingKeys(w.key, b.key) <= 0
+	})
+}
+
+// dropped reports whether the write w loses to a segment that joins
+// confirmations made on both sides of w's key and says something else, so
+// the series, which would have ordered w in between them had it kept the
+// confirmations apart, ignores it. It returns the keys of the first and the
+// last confirmation the segment joins.
+func (s series) dropped(w seg) (first, last *resolverv1alpha1.OrderingKey, ok bool) {
+	for _, e := range s {
+		if e.to <= w.from || e.from >= w.to || !e.live || model.CompareOrderingKeys(e.key, w.key) <= 0 {
+			continue
+		}
+		// Joined segments keep the first confirmation's claim, so its key is
+		// the support's own. A write after it and before e's key was made
+		// between two of the confirmations.
+		// The support carries no content hash, so compare without the write's.
+		if p := provenanceKey(e.sup); model.CompareOrderingKeys(p, withoutHash(w.key)) < 0 && (!w.live || !sameState(e.sup, w.sup)) {
+			return p, e.key, true
+		}
+	}
+	return nil, nil, false
+}
+
+// withoutHash returns the key without its content hash.
+func withoutHash(k *resolverv1alpha1.OrderingKey) *resolverv1alpha1.OrderingKey {
+	return &resolverv1alpha1.OrderingKey{ObservedAt: k.GetObservedAt(), ObservationId: k.GetObservationId(), EventId: k.GetEventId()}
+}
+
 // ending is the segment a watermark writes: the fact is ended from `at` on.
 func ending(at int64, key *resolverv1alpha1.OrderingKey, reason modelv1alpha1.SupportReason) seg {
 	return seg{from: at, to: posInf, key: key, reason: reason}
@@ -202,8 +272,9 @@ func (s series) effective(wms []watermark) series {
 // one set of qualifiers that join up, as one row.
 type coalesced struct {
 	from, to int64
-	// first is the segment with the least key: the claim whose identity the
-	// version keeps; later confirming claims only move last_confirmed_at.
+	// first is the segment whose claim has the least key: the claim whose
+	// identity the version keeps; later confirming claims only move
+	// last_confirmed_at.
 	first seg
 	last  time.Time
 }
@@ -219,20 +290,25 @@ func (s series) versions() []*coalesced {
 		if n := len(out); n > 0 && out[n-1].to == e.from && sameState(out[n-1].first.sup, e.sup) {
 			c := out[n-1]
 			c.to = e.to
-			if model.CompareOrderingKeys(e.key, c.first.key) < 0 {
+			if provenanceCmp(e.sup, c.first.sup) < 0 {
 				c.first = e
 			}
-			c.last = laterOf(c.last, e.sup)
+			c.last = laterOf(c.last, e)
 			continue
 		}
-		out = append(out, &coalesced{from: e.from, to: e.to, first: e, last: laterOf(time.Time{}, e.sup)})
+		out = append(out, &coalesced{from: e.from, to: e.to, first: e, last: laterOf(time.Time{}, e)})
 	}
 	return out
 }
 
-func laterOf(t time.Time, s *modelv1alpha1.Support) time.Time {
-	if o := s.GetObservedAt().AsTime(); o.After(t) {
-		return o
+// laterOf returns the later of t and the time the segment was last
+// confirmed: the observed_at of its key, which a join advances past the
+// claim's own.
+func laterOf(t time.Time, e seg) time.Time {
+	for _, o := range []time.Time{e.sup.GetObservedAt().AsTime(), e.key.GetObservedAt().AsTime()} {
+		if o.After(t) {
+			t = o
+		}
 	}
 	return t
 }

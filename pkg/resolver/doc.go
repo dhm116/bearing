@@ -78,9 +78,10 @@
 // events and their audit records; manual overrides, precedence and same_as facts; scored matching (names,
 // emails, member overlap); non-authoritative links and the evidence state
 // that ending a link needs; authority overrides; manual operations;
-// sync-completeness deletions; compaction; and bounding the state that grows
-// with every write (issue #77). A merged subject's support series that hold
-// only endings aren't found when it merges (issue #86's family).
+// sync-completeness deletions; compaction; and bounding the scope watermarks,
+// which still grow with every sync of a snapshot scope (issue #77). A merged
+// subject's support series that hold only endings aren't found when it merges
+// (issue #86's family).
 //
 // Identity decisions may depend on apply order (docs/spec/data-model.md,
 // "State, determinism and apply"), for example a reference resolves to a
@@ -115,6 +116,19 @@
 // has built doesn't depend on the order its observations arrived in. A
 // predicate with one value is ended from the earliest valid time its
 // snapshot claims, so a backdated value replaces the old one from then on.
+//
+// A re-observation that says what the state already says, a confirmation,
+// adds no record (docs/spec/data-model.md, "Confirmations"). A live segment
+// that the next one repeats (one state, confidence and qualifier set, a
+// greater key) is extended to its end and takes its key, the last verified,
+// and keeps the first claim's support; a name's binding write that the next
+// observation to the same subject repeats is joined the same way and names the
+// first key. So the state of a fact or name that syncs without change stays as
+// small as after the first sync. Nothing is joined that a watermark, another
+// write or a deletion with a key among the confirmations could still tell
+// apart. What cannot be kept is the order of a write that falls among the
+// confirmations, says something else and arrives after the last of them: the
+// ChangeSet audits it as compacted_write_dropped and [Result.Dropped] lists it.
 //
 // Source-supplied text in a key is percent-encoded for "%", "/" and ":", so
 // only the subject segment can be a ref. A merged subject's deletions move

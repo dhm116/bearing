@@ -5,6 +5,10 @@
       "additionalProperties": false,
       "description": "BindingWrite is one observed write to an alias: a binding of the name to\n a subject from valid_from on, or its release.",
       "patternProperties": {
+        "^(firstKey)$": {
+          "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
+          "description": "The key of the first confirmation, when the write joins several: the\n same name bound to the same subject by observations with greater keys.\n Absent for a write that joins none."
+        },
         "^(subjectId)$": {
           "default": "",
           "description": "The subject as written, or empty for a release without a redirect. The\n store does not look inside a state value, so it can't replace a ref here:\n an entry for a subject its ChangeSet creates names the subject in its\n key (docs/spec/contracts.md, \"State keys\") and leaves this empty.",
@@ -16,9 +20,13 @@
         }
       },
       "properties": {
+        "first_key": {
+          "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
+          "description": "The key of the first confirmation, when the write joins several: the\n same name bound to the same subject by observations with greater keys.\n Absent for a write that joins none."
+        },
         "key": {
           "$ref": "#/$defs/bearing.resolver.v1alpha1.OrderingKey.schema.json",
-          "description": "The write's ordering key."
+          "description": "The write's ordering key; for a joined write, that of the last\n confirmation."
         },
         "released": {
           "default": false,
@@ -46,7 +54,7 @@
     "bearing.resolver.v1alpha1.BindingWrites.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "BindingWrites is every write to one alias, in no particular order. The\n binding timeline in the graph is computed from it. It gains a write for each\n sync that mentions the alias.",
+      "description": "BindingWrites is every write to one alias, in no particular order. The\n binding timeline in the graph is computed from it. It gains a write when a\n sync binds the alias to a subject differently from before.",
       "properties": {
         "writes": {
           "description": "The writes.",

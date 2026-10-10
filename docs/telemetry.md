@@ -72,7 +72,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
 | `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
 | `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.namespace` (a configured namespace, else `other`) | High miss rates mean identity resolution is falling behind |
-| `bearing.graph.state_entry.bytes` | histogram | By | `bearing.state.prefix` (`bind`, `del`, `sup`, `wm`, else `other`) | Payload bytes of each state entry in an applied ChangeSet (a rejected `too_large` observation never reaches the store, so it shows only in the rejection audit). Entries are rewritten whole and grow with every re-observation, so a rising tail here is the state growth of [#77](https://github.com/dhm116/bearing/issues/77) |
+| `bearing.graph.state_entry.bytes` | histogram | By | `bearing.state.prefix` (`bind`, `del`, `sup`, `wm`, else `other`) | Payload bytes of each state entry in an applied ChangeSet (a rejected `too_large` observation never reaches the store, so it shows only in the rejection audit). Entries are rewritten whole. `sup` and `bind` entries stay flat across repeated syncs, and `wm` entries grow by a watermark per sync of a scope, so a rising tail of anything but `wm` is the state growth of [#77](https://github.com/dhm116/bearing/issues/77) |
 
 Attributes are deliberately low-cardinality: no subject IDs, keys or
 repository names on metrics. Those belong on spans and logs.

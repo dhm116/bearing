@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
-
-	"bearing.example/pkg/contracts"
 )
 
 // growthSample is what one sync of the same observation wrote.
@@ -59,27 +57,26 @@ func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 	return out
 }
 
-// Resolver state grows with every re-observation of the same facts (issue
-// #77, docs/spec/contracts.md "State keys", Known limit). The bounds are
-// generous ceilings of what was measured, about 200 bytes per sync for a
-// binding or a scope's watermarks and about 420 for a fact's support segments.
-// The test also pins the rate: whoever fixes #77 updates the ceilings and the
-// window below. It extrapolates when a 500-fact observation reaches
-// contracts.MaxChangeSetBytes, where the source's observations would be
-// rejected as too_large.
-func TestRepeatedSyncsGrowStateWithinMeasuredBounds(t *testing.T) {
-	const facts, syncs = 50, 40
+// A source that syncs the same facts again and again leaves the support and
+// binding state of each fact as small as after the first sync: a confirmation
+// extends the existing record (issue #77, docs/spec/data-model.md "State,
+// determinism and apply"). The scope's watermarks are the one entry that still
+// gets a record per sync, which this test pins so that the fix for them has a
+// number to beat.
+func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
+	t.Parallel()
+	const facts, syncs = 5, 1000
 	got := repeatSyncs(t, facts, syncs)
 
-	// Bytes per sync, with a fixed allowance for the first write.
-	ceiling := map[string]int{"bind": 400, "wm": 400, "sup": 700}
-	for prefix, perSync := range ceiling {
-		for i, s := range got {
-			if s.entries[prefix] == 0 {
-				t.Fatalf("sync %d: no %s/ entry in the ChangeSet, so the test measures nothing", i+1, prefix)
-			}
-			if limit := 2048 + perSync*(i+1); s.entry[prefix] > limit {
-				t.Errorf("sync %d: %s/ entry is %d bytes, want at most %d (%d per sync)", i+1, prefix, s.entry[prefix], limit, perSync)
+	for _, prefix := range []string{"bind", "sup"} {
+		first := got[1].entry[prefix]
+		if first == 0 {
+			t.Fatalf("no %s/ entry in the second sync's ChangeSet, so the test measures nothing", prefix)
+		}
+		for i, s := range got[1:] {
+			// The joined record also names the key of its first confirmation.
+			if limit := first + 256; s.entry[prefix] > limit {
+				t.Fatalf("sync %d: %s/ entry is %d bytes, want at most %d (the second sync's %d)", i+2, prefix, s.entry[prefix], limit, first)
 			}
 		}
 	}
@@ -87,19 +84,30 @@ func TestRepeatedSyncsGrowStateWithinMeasuredBounds(t *testing.T) {
 		t.Errorf("got %d sup/ entries, want one per fact (%d) at least", n, facts)
 	}
 
-	// The ChangeSet grows linearly in syncs and in facts: fit size(k) = facts
-	// * (a + b*k) from sync 2, which no longer mints the 50 teams, and the last.
-	b := float64(got[syncs-1].changeSet-got[1].changeSet) / float64((syncs-2)*facts)
-	a := float64(got[1].changeSet)/facts - 2*b
-	if b <= 0 || b > 1000 {
-		t.Fatalf("got %.0f bytes per fact per sync, want between 0 and 1000", b)
+	// Only the scope's watermarks grow, about 200 bytes per sync, so a
+	// ChangeSet grows by that and not with the number of facts.
+	perSync := float64(got[syncs-1].changeSet-got[1].changeSet) / float64(syncs-2)
+	t.Logf("ChangeSet of %d facts grows %.0f bytes per sync (%d bytes at sync 2, %d at sync %d)", facts, perSync, got[1].changeSet, got[syncs-1].changeSet, syncs)
+	if perSync > 300 {
+		t.Errorf("got %.0f bytes per sync, want at most 300: the scope's watermark entry alone", perSync)
 	}
-	const bigFacts = 500
-	cliff := (float64(contracts.MaxChangeSetBytes)/bigFacts - a) / b
-	t.Logf("ChangeSet grows %.0f bytes per fact per sync (%d bytes at sync 2, %d at sync %d for %d facts); %d facts reach MaxChangeSetBytes after about %.0f syncs",
-		b, got[1].changeSet, got[syncs-1].changeSet, syncs, facts, bigFacts, cliff)
-	// The planning estimate is about 80 syncs, three days of hourly syncs.
-	if cliff < 40 || cliff > 160 {
-		t.Errorf("got %.0f syncs to the ChangeSet limit for %d facts, want between 40 and 160", cliff, bigFacts)
+	if limit := 400 * syncs; got[syncs-1].entry["wm"] > limit {
+		t.Errorf("wm/ entry is %d bytes after %d syncs, want at most %d", got[syncs-1].entry["wm"], syncs, limit)
+	}
+}
+
+// How many facts a sync lists doesn't change how the ChangeSet grows: after
+// the first syncs it grows by the scope's watermarks only, where it used to
+// grow by about 440 bytes per fact per sync and reach the limit for 500 facts
+// after about 73 syncs.
+func TestRepeatedSyncsOfManyFactsDoNotGrowTheChangeSet(t *testing.T) {
+	t.Parallel()
+	const facts, syncs = 100, 30
+	got := repeatSyncs(t, facts, syncs)
+	from := syncs / 2
+	growth := got[syncs-1].changeSet - got[from].changeSet
+	t.Logf("%d facts: ChangeSet is %d bytes at sync %d and %d at sync %d", facts, got[from].changeSet, from+1, got[syncs-1].changeSet, syncs)
+	if want := 300 * (syncs - 1 - from); growth > want {
+		t.Errorf("ChangeSet grew %d bytes over %d syncs of %d facts, want at most %d: the scope's watermarks only", growth, syncs-1-from, facts, want)
 	}
 }
