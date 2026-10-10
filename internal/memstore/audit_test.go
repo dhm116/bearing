@@ -8,7 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -135,5 +139,131 @@ func TestSubjectsInCollectsSubjectAuditTargets(t *testing.T) {
 	}}
 	if got, want := SubjectsIn(cs), []string{"a", "b"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// SubjectsIn also reads the first part of a subject_predicate target and the
+// messages an entry embeds, so a scratch store holds every subject the
+// entry names. A message it cannot unpack names nothing, and the apply
+// refuses the entry.
+func TestSubjectsInCollectsPredicateTargetsAndEmbeddedMessages(t *testing.T) {
+	pred, fact := modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_FACT
+	embed := func(m proto.Message) *anypb.Any {
+		a, err := anypb.New(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	cs := &modelv1alpha1.ChangeSet{Audit: []*modelv1alpha1.AuditEntry{
+		{Target: &modelv1alpha1.AuditTarget{Kind: pred, Id: "c/owned_by"}},
+		{Target: &modelv1alpha1.AuditTarget{Kind: pred, Id: "new:x/owned_by"}},
+		// A fact ID is a hash, not a subject.
+		{Target: &modelv1alpha1.AuditTarget{Kind: fact, Id: "d/owned_by"}},
+		{
+			Target: &modelv1alpha1.AuditTarget{Kind: fact, Id: "f"},
+			Before: embed(&modelv1alpha1.MergeRecord{SurvivorId: "e", MergedId: "g"}),
+			After:  embed(&modelv1alpha1.DataQualityIssue{SubjectIds: []string{"h", "new:y"}}),
+		},
+		{Target: &modelv1alpha1.AuditTarget{Kind: fact, Id: "f"}, After: &anypb.Any{TypeUrl: "type.googleapis.com/no.such.Message", Value: []byte("i")}},
+	}}
+	if got, want := SubjectsIn(cs), []string{"c", "e", "g", "h"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// An audit entry that embeds a message the store cannot read is refused,
+// since a ref inside it could not be found and would be chained as written.
+func TestApplyRefusesAnEmbeddedMessageOfAnUnknownType(t *testing.T) {
+	s, _ := newTestStore()
+	cs := &modelv1alpha1.ChangeSet{EventId: "e1", Audit: []*modelv1alpha1.AuditEntry{{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/svc"},
+		After:  &anypb.Any{TypeUrl: "type.googleapis.com/no.such.Message", Value: []byte("new:x")},
+	}}}
+	if _, err := s.Apply(context.Background(), cs); err == nil {
+		t.Fatal("got no error, want the unknown message type refused")
+	}
+	if head, _ := s.Head(context.Background()); !head.IsZero() {
+		t.Fatalf("got head %s, want an empty store", head)
+	}
+}
+
+// A message that names no ref keeps the bytes it came with, so a writer that
+// encodes in its own way is not rewritten for nothing.
+func TestApplyKeepsAnEmbeddedMessageThatHoldsNoRef(t *testing.T) {
+	s, _ := newTestStore()
+	res, err := s.Apply(context.Background(), &modelv1alpha1.ChangeSet{
+		EventId: "e1", Mints: []*modelv1alpha1.Mint{{Ref: "new:a", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.Minted[0].GetSubjectId()
+	// Fields in descending order are valid protobuf that a deterministic
+	// encoder would not write.
+	value := append(protowire.AppendTag(nil, 2, protowire.BytesType), protowire.AppendString(nil, "owned_by")...)
+	value = append(value, protowire.AppendTag(nil, 1, protowire.BytesType)...)
+	value = protowire.AppendString(value, id)
+	embedded := &anypb.Any{TypeUrl: "type.googleapis.com/bearing.model.v1alpha1.Conflict", Value: value}
+	head, _ := s.Head(context.Background())
+	res, err = s.Apply(context.Background(), &modelv1alpha1.ChangeSet{
+		EventId: "e2", BaseRecordedAt: timestamppb.New(head),
+		Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED,
+			Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"},
+			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, Id: id + "/owned_by"},
+			After:  embedded,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Audit[0].GetAfter().GetValue(); !bytes.Equal(got, value) {
+		t.Fatalf("got %x, want the bytes as given, %x", got, value)
+	}
+}
+
+// The store reads subject IDs through nested and repeated messages, not
+// through map values (docs/spec/contracts.md, "Audit entries"). This fails
+// when a message of the model or config package gains a map whose values hold
+// a subject ID, which a ref could hide in.
+func TestNoSubjectIDHidesInAMapValue(t *testing.T) {
+	var holds func(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) bool
+	holds = func(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) bool {
+		if seen[md.FullName()] || md.FullName().Parent() == "google.protobuf" {
+			return false
+		}
+		seen[md.FullName()] = true
+		for i := range md.Fields().Len() {
+			fd := md.Fields().Get(i)
+			if isSubjectField(fd) || (fd.Message() != nil && !fd.IsMap() && holds(fd.Message(), seen)) {
+				return true
+			}
+		}
+		return false
+	}
+	checked := 0
+	protoregistry.GlobalFiles.RangeFiles(func(f protoreflect.FileDescriptor) bool {
+		if p := f.Package(); p != "bearing.model.v1alpha1" && p != "bearing.config.v1alpha1" {
+			return true
+		}
+		for i := range f.Messages().Len() {
+			md := f.Messages().Get(i)
+			for j := range md.Fields().Len() {
+				fd := md.Fields().Get(j)
+				if fd.IsMap() && fd.MapValue().Message() != nil {
+					checked++
+					if holds(fd.MapValue().Message(), map[protoreflect.FullName]bool{}) {
+						t.Errorf("%s: the values of the map hold a subject ID, which the store does not read", fd.FullName())
+					}
+				}
+			}
+		}
+		return true
+	})
+	if checked == 0 {
+		t.Fatal("found no map of messages to check; the walk is broken")
 	}
 }

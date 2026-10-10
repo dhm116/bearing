@@ -221,10 +221,14 @@ const (
 	AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT AuditTargetKind = 1
 	// An alias: its key, <namespace>:<key_type>/<external_id>.
 	AuditTargetKind_AUDIT_TARGET_KIND_ALIAS AuditTargetKind = 2
-	// A fact: its fact_id.
+	// A fact: its fact_id, a hash the store does not read. Facts of subjects
+	// minted in the same ChangeSet use SUBJECT_PREDICATE.
 	AuditTargetKind_AUDIT_TARGET_KIND_FACT AuditTargetKind = 3
 	// A (subject, predicate): "<subject_id>/<predicate>". Conflicts,
-	// overrides and compaction summaries target one.
+	// overrides and compaction summaries target one, and so does the status
+	// change of a fact of a subject the same ChangeSet mints, whose fact_id
+	// can't be known before the apply. In a ChangeSet's entry the subject
+	// may be a ref ("new:<label>"), which the store replaces.
 	AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE AuditTargetKind = 4
 	// A configured source: its name.
 	AuditTargetKind_AUDIT_TARGET_KIND_SOURCE AuditTargetKind = 5
@@ -419,8 +423,11 @@ type AuditEntry struct {
 	RejectionCode RejectionCode `protobuf:"varint,6,opt,name=rejection_code,json=rejectionCode,proto3,enum=bearing.model.v1alpha1.RejectionCode" json:"rejection_code,omitempty"`
 	// Why: a person's reason, or a rejection's message.
 	Reason string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	// What the target was before, as a model message (a Binding, a
-	// FactTimeline, a MergeRecord, ...); absent when it did not exist.
+	// What the target was before, as a message of the model or config package
+	// (a Binding, a FactTimeline, a MergeRecord, a config Resource, ...);
+	// absent when it did not exist. Subject IDs inside it may be refs in a
+	// ChangeSet's entry; the store replaces them (docs/spec/contracts.md,
+	// "Audit entries").
 	Before *anypb.Any `protobuf:"bytes,8,opt,name=before,proto3" json:"before,omitempty"`
 	// What it is after; absent when it no longer exists.
 	After         *anypb.Any `protobuf:"bytes,9,opt,name=after,proto3" json:"after,omitempty"`
