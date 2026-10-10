@@ -3,7 +3,9 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
@@ -19,7 +21,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -563,5 +567,100 @@ func TestCheckpointSignatureIsFixed(t *testing.T) {
 	const want = "0c6c7d19733f44d279013bd3b77f28ffd16a1de5b5c727f64d7975f857ca2ef425620d3d9112a0579c14c7e8414d727e6d30ba36182ed622ad0e77b005dd0d0a"
 	if got := hex.EncodeToString(cp.GetSignature()); got != want {
 		t.Fatalf("got signature %s, want %s", got, want)
+	}
+}
+
+// errLog fails to read, and misLog returns records out of order.
+type errLog struct{ fakeLog }
+
+func (*errLog) Query(context.Context, contracts.AuditFilter) ([]*modelv1alpha1.AuditRecord, error) {
+	return nil, errors.New("disk on fire")
+}
+
+type stuckLog struct{ fakeLog }
+
+func (l *stuckLog) Query(_ context.Context, f contracts.AuditFilter) ([]*modelv1alpha1.AuditRecord, error) {
+	return l.recs[:1], nil // the same record however far the caller has read
+}
+
+func TestVerifyFailsWhenTheLogCannotBeRead(t *testing.T) {
+	if _, err := Verify(context.Background(), &errLog{}, nil, Options{}); err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("got %v, want the read error", err)
+	}
+	l := &stuckLog{*chain(t, 3)}
+	if _, err := Verify(context.Background(), l, nil, Options{}); err == nil || !strings.Contains(err.Error(), "after record") {
+		t.Fatalf("got %v, want an error for a log that does not move forward", err)
+	}
+}
+
+func TestVerifyReportsFailuresInSequenceOrder(t *testing.T) {
+	l := chain(t, 5)
+	l.recs[1].Entry.Reason = "edited"
+	// The checkpoint is judged first, but its failure is for a later record.
+	bad := &modelv1alpha1.AuditCheckpoint{Seq: 9, HeadHash: bytes.Repeat([]byte{1}, HashSize), KeyId: "nobody", Signature: []byte{1}}
+	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{bad}, Options{})
+	if len(rep.Failures) != 2 || rep.Failures[0].Seq != 2 || rep.Failures[1].Seq != 9 {
+		t.Fatalf("got %+v, want failures at records 2 and 9 in that order", rep.Failures)
+	}
+	if got := rep.Failures[0].Error(); !strings.HasPrefix(got, "record 2: ") {
+		t.Fatalf("got %q, want it to name record 2", got)
+	}
+}
+
+func TestVerifyCheckpointRefusesWhatCannotBeChecked(t *testing.T) {
+	_, pub := signer(t, "a")
+	hash := bytes.Repeat([]byte{1}, HashSize)
+	for name, tc := range map[string]struct {
+		cp   *modelv1alpha1.AuditCheckpoint
+		keys map[string]ed25519.PublicKey
+	}{
+		"no sequence number":              {&modelv1alpha1.AuditCheckpoint{HeadHash: hash}, nil},
+		"a trusted key of the wrong size": {&modelv1alpha1.AuditCheckpoint{Seq: 1, HeadHash: hash, KeyId: "a", Signature: []byte{1}}, map[string]ed25519.PublicKey{"a": pub[:5]}},
+	} {
+		if err := VerifyCheckpoint(tc.cp, tc.keys); err == nil {
+			t.Errorf("%s: got no error", name)
+		}
+	}
+}
+
+func TestKeysOfAnotherAlgorithmAreRefused(t *testing.T) {
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privDER, _ := x509.MarshalPKCS8PrivateKey(ec)
+	pubDER, _ := x509.MarshalPKIXPublicKey(&ec.PublicKey)
+	if _, err := ParsePrivateKey(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})); err == nil {
+		t.Error("took an ECDSA private key")
+	}
+	if _, err := ParsePublicKey(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})); err == nil {
+		t.Error("took an ECDSA public key")
+	}
+}
+
+func TestSealRefusesARecordItCannotHash(t *testing.T) {
+	rec := record(1)
+	rec.ProtoReflect().SetUnknown(protoRaw(99, 1))
+	if _, err := Seal(contracts.AuditHead{}, rec); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("got %v, want ErrUnsupported", err)
+	}
+}
+
+// The encoder handles the kinds the audit messages use; a message of another
+// shape fails, so a field added later can't be skipped silently.
+func TestEncoderHandlesBoolsAndRefusesWhatItDoesNotKnow(t *testing.T) {
+	b, err := appendMessage(nil, wrapperspb.Bool(true).ProtoReflect(), "")
+	if err != nil || !bytes.Equal(b, []byte{0x08, 0x01}) {
+		t.Fatalf("got %x, %v, want 0801", b, err)
+	}
+	list, _ := structpb.NewList([]any{"x"})
+	for name, m := range map[string]proto.Message{
+		"a double": wrapperspb.Double(1.5),
+		"a list":   list,
+		"a map":    &structpb.Struct{Fields: map[string]*structpb.Value{"a": structpb.NewNullValue()}},
+	} {
+		if _, err := appendMessage(nil, m.ProtoReflect(), ""); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("%s: got %v, want ErrUnsupported", name, err)
+		}
 	}
 }
