@@ -188,6 +188,40 @@ func (g *suite) auditRefs(t *testing.T) {
 		}}})
 		failIf(t, !proto.Equal(res.Audit[0].GetAfter(), resource), "got %v, want the resource as given", res.Audit[0].GetAfter())
 	})
+	t.Run("an un-merge record names its target by the ref", func(t *testing.T) {
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:u", "Team")}, Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_UNMERGE, Actor: auditActor(), Target: auditTarget(subject, p),
+			After: embed(t, &modelv1alpha1.UnmergeRecord{SubjectId: p, TargetId: "new:u", Split: true}),
+		}}})
+		var rec modelv1alpha1.UnmergeRecord
+		failIf(t, res.Audit[0].GetAfter().UnmarshalTo(&rec) != nil || rec.GetTargetId() != string(res.Subjects["new:u"]), "got %v, want the target %s", &rec, res.Subjects["new:u"])
+	})
+	t.Run("a type URL and an empty list entry are kept as given", func(t *testing.T) {
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		given := embed(t, &modelv1alpha1.DataQualityIssue{SubjectIds: []string{"new:a", ""}})
+		given.TypeUrl = "example.com/bearing.model.v1alpha1.DataQualityIssue"
+		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, Actor: auditActor(), Target: auditTarget(subject, p), After: given,
+		}}})
+		var issue modelv1alpha1.DataQualityIssue
+		failIf(t, res.Audit[0].GetAfter().UnmarshalTo(&issue) != nil || len(issue.GetSubjectIds()) != 2 || issue.GetSubjectIds()[0] != string(res.Subjects["new:a"]) || issue.GetSubjectIds()[1] != "",
+			"got %v, want the minted subject and an empty entry", &issue)
+		failIf(t, res.Audit[0].GetAfter().GetTypeUrl() != given.GetTypeUrl(), "got type URL %q, want %q", res.Audit[0].GetAfter().GetTypeUrl(), given.GetTypeUrl())
+	})
+	t.Run("a nested Any is refused", func(t *testing.T) {
+		// An audit entry in the embedded message holds a ref in an Any the
+		// store would not read, so it is refused instead of chained as given.
+		s, _ := g.store(t)
+		_, p, _ := seed(t, s)
+		inner := &modelv1alpha1.AuditEntry{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, After: embed(t, &modelv1alpha1.Conflict{SubjectId: "new:a"})}
+		_, err := tryApply(s, &modelv1alpha1.ChangeSet{EventId: "e1", Mints: []*modelv1alpha1.Mint{mint("new:a", "Team")}, Audit: []*modelv1alpha1.AuditEntry{{
+			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, Actor: auditActor(), Target: auditTarget(subject, p), After: embed(t, inner),
+		}}})
+		failIf(t, err == nil, "got no error, want a nested Any refused")
+	})
 	t.Run("a message the store cannot read is refused", func(t *testing.T) {
 		s, _ := g.store(t)
 		head, _ := s.Head(ctx)

@@ -217,12 +217,13 @@ checks each entry's shape and refuses the `ChangeSet` if one fails:
   - the part of a target of kind `subject_predicate` before its first `/`.
     The target needs both parts, and a ref used there MUST NOT contain `/`
     (the rule for [State keys](#state-keys)), or it names no mint;
-  - the `subject_id`, `subject_ids`, `survivor_id`, `merged_id` and
-    `merged_into` fields of the messages in `before` and `after`, at any
-    depth: the store walks nested and repeated messages (a `BindingTimeline`
-    holds its `subject_id` in `bindings`, a `FactTimeline` in `object`). It
-    does not read map values, fields of `google.protobuf` types, or a nested
-    `Any`.
+  - the `subject_id`, `subject_ids`, `survivor_id`, `merged_id`,
+    `merged_into` and `target_id` fields of the messages in `before` and
+    `after`, at any depth: the store walks nested and repeated messages (a
+    `BindingTimeline` holds its `subject_id` in `bindings`, a `FactTimeline`
+    in `object`, an `UnmergeRecord` its `target_id`). It does not read map
+    values or fields of `google.protobuf` types, and it refuses a nested
+    `Any`, which it could not read.
 
   The store checks each one, and refuses the `ChangeSet` for a ref no mint or
   un-merge declares (so no subject ID leaves the store as a ref) and for a

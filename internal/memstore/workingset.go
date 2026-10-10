@@ -175,7 +175,7 @@ func isSubjectField(fd protoreflect.FieldDescriptor) bool {
 		return false
 	}
 	switch fd.Name() {
-	case "subject_id", "survivor_id", "merged_id", "merged_into":
+	case "subject_id", "survivor_id", "merged_id", "merged_into", "target_id":
 		return !fd.IsList()
 	case "subject_ids":
 		return fd.IsList()

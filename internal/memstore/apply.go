@@ -276,6 +276,11 @@ func checkAudit(entries []*modelv1alpha1.AuditEntry) error {
 // Targets of the other kinds hold no subject IDs and are kept as given.
 func (s *Store) resolveAuditRefs(entries []*modelv1alpha1.AuditEntry, refs map[string]string) error {
 	subject := func(id string) (string, error) {
+		if id == "" {
+			// An empty ID in a list is for the entry's writer to explain, as in
+			// resolveRefs; singular fields that are empty are never visited.
+			return id, nil
+		}
 		if strings.HasPrefix(id, refPrefix) {
 			sub, ok := refs[id]
 			if !ok {
@@ -354,11 +359,14 @@ func resolveAny(a *anypb.Any, subject func(string) (string, error)) (*anypb.Any,
 	if err := anypb.MarshalFrom(out, m, proto.MarshalOptions{Deterministic: true}); err != nil {
 		return nil, fmt.Errorf("embedded %s: %w", a.GetTypeUrl(), err)
 	}
+	out.TypeUrl = a.GetTypeUrl()
 	return out, nil
 }
 
 // rewriteSubjects replaces, in place, every subject ID in m and the messages
-// under it with fix(id). It skips the well-known types.
+// under it with fix(id). It skips the well-known types, except that a nested
+// Any is refused: the store can't tell what it holds without reading it, and
+// no ref may leave the store unreplaced.
 func rewriteSubjects(m protoreflect.Message, fix func(string) (string, error)) (err error) {
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
@@ -376,6 +384,8 @@ func rewriteSubjects(m protoreflect.Message, fix func(string) (string, error)) (
 				return false
 			}
 			m.Set(fd, protoreflect.ValueOfString(id))
+		case fd.Message() != nil && fd.Message().FullName() == "google.protobuf.Any":
+			err = fmt.Errorf("field %s: a nested Any is not read, so a ref inside it could not be found", fd.FullName())
 		case fd.Message() == nil || fd.IsMap() || fd.Message().FullName().Parent() == "google.protobuf":
 		case fd.IsList():
 			for i := range v.List().Len() {
