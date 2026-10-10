@@ -24,13 +24,19 @@ func poolConfig(o Options) (*pgxpool.Config, error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
+	// pgx reads the real environment whatever Getenv says, so look there too.
 	for _, name := range []string{"PGSERVICE", "PGSERVICEFILE"} {
-		if getenv(name) != "" {
+		if getenv(name) != "" || os.Getenv(name) != "" {
 			return nil, fmt.Errorf("pgstore: %s is set; Bearing does not read PostgreSQL service files, so unset it", name)
 		}
 	}
 	if o.Host == "" || o.Database == "" || o.User == "" {
 		return nil, errors.New("pgstore: a host, a database and a user are required")
+	}
+	// A comma makes pgx try each host in turn with the same sslmode, which
+	// would send the password to a server the TLS rule never saw.
+	if strings.Contains(o.Host, ",") {
+		return nil, errors.New("pgstore: the host names one server; a list of hosts is not supported")
 	}
 	schema := o.Schema
 	if schema == "" {
@@ -121,10 +127,20 @@ func cleanError(err error) error {
 		}
 		return errors.New("invalid settings")
 	}
+	// The server's message for a wrong role or database quotes the name.
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		switch {
+		case pg.Code == "3D000":
+			return errors.New("the server has no such database (SQLSTATE 3D000)")
+		case strings.HasPrefix(pg.Code, "28"):
+			return errors.New("the server refused the role or its password (SQLSTATE " + pg.Code + ")")
+		}
+	}
 	var ce *pgconn.ConnectError
 	if errors.As(err, &ce) {
 		if inner := errors.Unwrap(ce); inner != nil {
-			return inner
+			return cleanError(inner)
 		}
 	}
 	return err
@@ -153,7 +169,7 @@ func checkRole(ctx context.Context, db pool, role string, allow bool) error {
 		}
 	}
 	if len(can) > 0 && !allow {
-		return fmt.Errorf("pgstore: role %q has %s; connect as the role that owns Bearing's schema (see Provision), or set insecure_store_superuser for development", role, strings.Join(can, ", "))
+		return fmt.Errorf("pgstore: the connecting role has %s; connect as the role that owns Bearing's schema (see Provision), or set insecure_store_superuser for development", strings.Join(can, ", "))
 	}
 	return nil
 }

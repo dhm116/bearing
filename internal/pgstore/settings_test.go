@@ -97,6 +97,42 @@ func TestErrorsNeverRepeatThePasswordOrTheUser(t *testing.T) {
 	}
 }
 
+func TestOpenRefusesAListOfHosts(t *testing.T) {
+	t.Parallel()
+	for _, host := range []string{"/tmp,db.example.com", "localhost,db.example.com"} {
+		_, err := Open(context.Background(), Options{Host: host, Database: "d", User: "u", SSLMode: "disable", Getenv: func(string) string { return "" }})
+		if err == nil || !strings.Contains(err.Error(), "list of hosts") {
+			t.Errorf("host %q: got %v, want a refusal of the list", host, err)
+		}
+	}
+}
+
+// The server's messages for a wrong role or database quote the name.
+func TestServerRefusalsDoNotQuoteTheRoleOrDatabase(t *testing.T) {
+	ctx := context.Background()
+	o := adminOptions(t)
+	o.ConnectTimeout = 5 * time.Second
+	for name, mod := range map[string]func(*Options){
+		"role":     func(o *Options) { o.User = "nosuchrole_private" },
+		"database": func(o *Options) { o.Database = "nosuchdb_private" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := o
+			mod(&bad)
+			_, err := Open(ctx, bad)
+			if err == nil {
+				t.Fatal("opened a store with a role or database that does not exist")
+			}
+			if strings.Contains(err.Error(), "_private") {
+				t.Fatalf("the error quotes the name: %v", err)
+			}
+			if !strings.Contains(err.Error(), "SQLSTATE") {
+				t.Fatalf("got %v, want the SQLSTATE kept", err)
+			}
+		})
+	}
+}
+
 func TestOpenRefusesAnAdministratorRole(t *testing.T) {
 	ctx := context.Background()
 	o := adminOptions(t)
@@ -105,6 +141,9 @@ func TestOpenRefusesAnAdministratorRole(t *testing.T) {
 	_, err := Open(ctx, o)
 	if err == nil || !strings.Contains(err.Error(), "SUPERUSER") {
 		t.Fatalf("got %v, want a refusal naming SUPERUSER", err)
+	}
+	if strings.Contains(err.Error(), o.User) {
+		t.Fatalf("the refusal names the role: %v", err)
 	}
 }
 

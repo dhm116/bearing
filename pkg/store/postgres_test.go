@@ -104,6 +104,8 @@ func TestPostgresURLsAreChecked(t *testing.T) {
 		{"no host", "postgres://b@/bearing", "names no server host"},
 		{"socket must be a path", "postgres://b@/bearing?host=relative", "names no server host"},
 		{"host twice", "postgres://b@db.example.com/bearing?host=/run", "not both"},
+		{"hosts in the URL", "postgres://b@localhost,db.example.com/bearing?sslmode=disable", "more than one server"},
+		{"hosts in ?host=", "postgres://b@/bearing?host=/tmp,db.example.com&sslmode=disable", "more than one server"},
 		{"bad port", "postgres://b@db.example.com:0/bearing", "not a port number"},
 		{"unknown sslmode", "postgres://b@db.example.com/bearing?sslmode=sometimes", "sslmode is not one of"},
 		{"remote without verify-full", "postgres://b@db.example.com/bearing?sslmode=require", "verify-full"},

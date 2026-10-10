@@ -31,6 +31,7 @@ var errInjected = errors.New("injected failure")
 type faultPool struct {
 	pool
 	failAt, calls int
+	lostAck       bool // the failAt-th statement, a Commit, lands and then reports err
 	err           error
 	before        func(ctx context.Context, sql string, tx pgx.Tx)
 }
@@ -95,6 +96,14 @@ func (t *faultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func (t *faultTx) Commit(ctx context.Context) error {
+	if t.p.lostAck && t.p.failAt != 0 && t.p.calls+1 == t.p.failAt {
+		// The commit lands and the caller is told it failed.
+		t.p.calls++
+		if err := t.Tx.Commit(ctx); err != nil {
+			return err
+		}
+		return t.p.err
+	}
 	if err := t.p.fail(); err != nil {
 		_ = t.Rollback(ctx)
 		return err
@@ -367,5 +376,34 @@ func TestAChangedVersionThatIsMissingFailsTheApply(t *testing.T) {
 	}
 	if got, _ := s.Head(ctx); !got.Equal(head) {
 		t.Fatalf("the failed apply moved the head to %v", got)
+	}
+}
+
+// A commit that landed but whose acknowledgement was lost is not applied
+// twice: the retry finds the event and returns the original result.
+func TestACommitWhoseAnswerWasLostIsNotAppliedTwice(t *testing.T) {
+	ctx := context.Background()
+	s, _ := graphStoreAt(t)
+	first := &modelv1alpha1.ChangeSet{EventId: "lost-ack", State: stateEntries(2, "k")}
+	// Count the statements of a clean apply to learn which one is the commit.
+	counter := &faultPool{}
+	if _, err := withPool(s, counter).Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "probe", State: stateEntries(1, "probe")}); err != nil {
+		t.Fatal(err)
+	}
+	head, _ := s.Head(ctx)
+	first.BaseRecordedAt = timestamppb.New(head)
+	f := &faultPool{failAt: counter.calls, lostAck: true, err: &pgconn.PgError{Code: "08006", Message: "connection failure"}}
+	res, err := withPool(s, f).Apply(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Duplicate {
+		t.Fatal("the retry after the lost answer did not find the landed apply")
+	}
+	if n := count(t, s, `SELECT count(*) FROM journal WHERE event = 'lost-ack'`); n != 1 {
+		t.Fatalf("got %d journal entries for the event, want 1", n)
+	}
+	if got, _ := s.Head(ctx); !got.Equal(res.RecordedAt) {
+		t.Fatalf("got head %v, want the original apply's %v", got, res.RecordedAt)
 	}
 }

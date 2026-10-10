@@ -217,8 +217,8 @@ func (f seriesFilter) where(t memstore.Table) (string, []any) {
 		clause += " AND (" + strings.Join(conds, " OR ") + ")"
 	}
 	if f.predicate != nil {
-		args = append(args, f.predicate)
-		clause += fmt.Sprintf(" AND s.predicate = $%d", len(args))
+		args = append(args, kidOf(string(f.predicate)))
+		clause += fmt.Sprintf(" AND sha256(s.predicate) = $%d", len(args))
 	}
 	return clause, args
 }

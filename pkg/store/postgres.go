@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bearing.example/internal/pgstore"
+	"bearing.example/pkg/telemetry"
 )
 
 // postgresParams are the query parameters a postgres:// URL accepts. The
@@ -58,6 +59,9 @@ func postgresOptions(u *url.URL, getenv func(string) string) (pgstore.Options, e
 	}
 	if o.Host != "" && q.Has("host") {
 		return fail("give the server as the URL's host or as ?host=, not both")
+	}
+	if strings.Contains(u.Host, ",") || strings.Contains(q.Get("host"), ",") {
+		return fail("names more than one server; give one host")
 	}
 	if o.Host == "" {
 		o.Host = q.Get("host")
@@ -141,6 +145,13 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	o, err := postgresOptions(u, getenv)
 	if err != nil {
 		return backend{}, err
+	}
+	log := telemetry.Logger("bearing.example/pkg/store")
+	if o.AllowSuperuser {
+		log.WarnContext(ctx, "insecure_store_superuser is set: the store may connect as a role that administers the server", "store", safeName(u))
+	}
+	if !isLoopback(o.Host) && !strings.HasPrefix(o.Host, "/") && o.SSLMode != "verify-full" {
+		log.WarnContext(ctx, "insecure_store_plaintext is set: the store connection does not verify the server's certificate", "store", safeName(u))
 	}
 	st, err := pgstore.Open(ctx, o)
 	if err != nil {

@@ -62,7 +62,10 @@ type Config struct {
 // Store is an open graph store and vector index. Both are instrumented with
 // OpenTelemetry.
 type Store struct {
-	Graph   contracts.GraphStore
+	Graph contracts.GraphStore
+	// Vectors is nil when the graph backend does not serve vectors (a
+	// PostgreSQL graph store, until its pgvector index lands) and no vector
+	// URL was given; check before use.
 	Vectors contracts.VectorIndex
 	closers []func(context.Context) error
 }

@@ -52,7 +52,10 @@ func (e *busyError) ErrorType() string { return "busy" }
 // Apply implements contracts.GraphStore. It takes the head row's lock, loads
 // the rows the ChangeSet touches, decides the apply in a scratch
 // memstore.Store (the reference rules), and writes the outcome in the same
-// transaction.
+// transaction. When the database fails a transaction in a way another try may
+// get through, it tries again. If a commit had landed but its acknowledgement
+// was lost, the retry finds the event and returns the original result with
+// Duplicate set, so a caller can see Duplicate for its own first apply.
 func (s *Store) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contracts.ApplyResult, error) {
 	if cs.GetEventId() == "" {
 		return contracts.ApplyResult{}, errors.New("change set: event_id is required")
@@ -254,7 +257,7 @@ func applyScope(cs *modelv1alpha1.ChangeSet) scope {
 // processed returns the result of an event already applied.
 func processed(ctx context.Context, q querier, event string) (contracts.ApplyResult, bool, error) {
 	var data []byte
-	err := q.QueryRow(ctx, `SELECT data FROM journal WHERE event = $1`, event).Scan(&data)
+	err := q.QueryRow(ctx, `SELECT data FROM journal WHERE event_kid = $1 AND event = $2`, kidOf(event), event).Scan(&data)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return contracts.ApplyResult{}, false, nil
 	}
@@ -413,7 +416,7 @@ ON CONFLICT (seq) DO UPDATE SET data = EXCLUDED.data`,
 		}
 	}
 	seq := ld.journal + 1
-	if _, err := tx.Exec(ctx, `INSERT INTO journal (seq, event, data) VALUES ($1, $2, $3)`, seq, cs.GetEventId(), entryBytes); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO journal (seq, event, event_kid, data) VALUES ($1, $2, $3, $4)`, seq, cs.GetEventId(), kidOf(cs.GetEventId()), entryBytes); err != nil {
 		return fail("write journal", err)
 	}
 	tag, err := tx.Exec(ctx, `UPDATE meta SET head = $1, last_id = $2, merges = $3, unmerges = $4, journal = $5 WHERE head = $6 AND journal = $7`,

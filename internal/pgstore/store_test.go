@@ -542,3 +542,61 @@ func mustExec(t testing.TB, s *Store, sql string, args ...any) {
 		t.Fatal(err)
 	}
 }
+
+// The contract bounds neither an event ID nor a predicate, and the reference
+// store takes any length; PostgreSQL refuses an index entry over about 2.7 KB,
+// so both are indexed by hash.
+func TestLongEventIDsAndPredicatesBehaveAsInTheReference(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	sclk, mclk := testkit.NewClock(start), testkit.NewClock(start)
+	s := newTestStore(t)
+	s.Now, s.IDs = sclk.Now, testkit.NewUUIDv7s(sclk.Now)
+	m := memstore.New()
+	m.Now, m.IDs = mclk.Now, testkit.NewUUIDv7s(mclk.Now)
+
+	event := strings.Repeat("e", 4000)
+	predicate := strings.Repeat("p", 4000)
+	object := &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewStringValue("v")}
+	cs := func() *modelv1alpha1.ChangeSet {
+		return &modelv1alpha1.ChangeSet{
+			EventId: event,
+			Mints:   []*modelv1alpha1.Mint{{Ref: "new:r", Kind: "Repository", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}},
+			Supports: []*modelv1alpha1.SupportTimeline{{
+				Source: "github-acme", SubjectId: "new:r", Predicate: predicate, Object: object,
+				Versions: []*modelv1alpha1.Support{{Source: "github-acme", ConfidencePpm: proto.Uint32(1_000_000), Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT, EventId: event, ObservedAt: timestamppb.New(start)}},
+			}},
+			Facts: []*modelv1alpha1.FactTimeline{{
+				SubjectId: "new:r", Predicate: predicate, Object: object,
+				Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: 1_000_000}},
+			}},
+		}
+	}
+	want, err := m.Apply(ctx, cs())
+	if err != nil {
+		t.Fatalf("the reference refuses the ChangeSet: %v", err)
+	}
+	got, err := s.Apply(ctx, cs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Duplicate || len(got.Subjects) != len(want.Subjects) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	again, err := s.Apply(ctx, cs())
+	if err != nil || !again.Duplicate {
+		t.Fatalf("got %+v, %v, want a duplicate", again, err)
+	}
+	id := got.Subjects["new:r"]
+	sup, err := s.Supports(ctx, contracts.SupportFilter{SubjectID: id, Predicate: predicate}, time.Time{})
+	if err != nil || len(sup) != 1 {
+		t.Fatalf("got %d supports, %v, want 1", len(sup), err)
+	}
+	facts, err := s.AsOf(ctx, contracts.FactFilter{Predicate: predicate}, time.Time{}, time.Time{})
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("got %d facts by predicate, %v, want 1", len(facts), err)
+	}
+	if other, err := s.AsOf(ctx, contracts.FactFilter{Predicate: predicate[1:]}, time.Time{}, time.Time{}); err != nil || len(other) != 0 {
+		t.Fatalf("got %d facts for another predicate, %v, want none", len(other), err)
+	}
+}

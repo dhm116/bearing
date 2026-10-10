@@ -24,7 +24,9 @@ var migrations = []migration{
 	// bytea, not text, because a key can hold a NUL byte (a support's key is
 	// its source and its fact key, separated by one) and can be long, and
 	// each series is found by kid, the SHA-256 of its key, so no index entry
-	// is large.
+	// is large. Other values the caller chooses are indexed by their hash too
+	// (journal.event_kid, series.predicate): an index entry over about 2.7 KB
+	// is refused, and the contract bounds neither.
 	//
 	//   meta             one row: the head (µs since the epoch, 0 when empty),
 	//                    the last minted subject ID, the merge, un-merge and
@@ -43,8 +45,8 @@ var migrations = []migration{
 	//   series_subject   which subjects a series names, to find series by
 	//                    subject
 	//   version          the rows of a series: tbl, kid and n
-	//   journal          one per apply, by its sequence number; event is
-	//                    unique, which is what makes Apply idempotent
+	//   journal          one per apply, by its sequence number; the hash of
+	//                    event is unique, which is what makes Apply idempotent
 	{1, "graph store", `
 CREATE TABLE meta (
 	id        boolean PRIMARY KEY DEFAULT true CHECK (id),
@@ -94,7 +96,7 @@ CREATE TABLE series (
 	head      bytea    NOT NULL,
 	PRIMARY KEY (tbl, kid)
 );
-CREATE INDEX series_predicate ON series (tbl, predicate);
+CREATE INDEX series_predicate ON series (tbl, sha256(predicate));
 
 CREATE TABLE series_subject (
 	tbl     smallint NOT NULL,
@@ -114,9 +116,10 @@ CREATE TABLE version (
 );
 
 CREATE TABLE journal (
-	seq   bigint PRIMARY KEY,
-	event text   NOT NULL UNIQUE,
-	data  bytea  NOT NULL
+	seq       bigint PRIMARY KEY,
+	event     text   NOT NULL,
+	event_kid bytea  NOT NULL UNIQUE,
+	data      bytea  NOT NULL
 );`},
 }
 

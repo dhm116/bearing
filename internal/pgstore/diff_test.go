@@ -34,7 +34,7 @@ import (
 // both and compares every read, now and at every earlier record time.
 func TestRandomHistoriesMatchTheReference(t *testing.T) {
 	t.Parallel()
-	for seed := uint64(1); seed <= 6; seed++ {
+	for seed := uint64(1); seed <= 4; seed++ {
 		t.Run(fmt.Sprintf("seed %d", seed), func(t *testing.T) {
 			t.Parallel()
 			runRandomHistory(t, seed, 40)

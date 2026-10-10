@@ -674,16 +674,21 @@ reach, so they are retired and their numbers are not reused.
   set because a service file cannot be overridden. Store errors name a
   server only by host and port (or "the Unix socket in <directory>"), never
   the user, the database, the path or the query, and the driver's errors,
-  which quote the connection string, are reduced to their cause.
+  which quote the connection string, are reduced to their cause, and the
+  server's refusal of a role or database (which quotes the name) to its
+  SQLSTATE.
 - **C-STORE-2** Bearing connects as a login role that owns its schema and
   nothing else: not a superuser, not `CREATEROLE`, not `CREATEDB`. `Open`
-  checks the role and refuses one that can administer the server, unless
-  `insecure_store_superuser=true` (C-GEN-1), so a development setup that
-  connects as `postgres` is visible in config. `pgstore.Provision` creates
+  checks those three attributes and refuses a role that has one, unless
+  `insecure_store_superuser=true` (C-GEN-1), and logs a warning when it is
+  set. The check does not look at REPLICATION, BYPASSRLS or membership of
+  the `pg_*_server_*` roles, so the operator's own review of the role
+  still matters. `pgstore.Provision` creates
   such a role and a schema it owns, and CI runs the PostgreSQL suites as
   that role. The connection's `search_path` is Bearing's schema alone.
-  pgvector is the only extension, and an administrator installs it; the
-  migrations check that it exists and never create it. A role that cannot
+  pgvector is the only extension, and an administrator installs it. **Planned,
+  with the vector index:** the migrations check that it exists and never
+  create it. A role that cannot
   create its own schema is told to have an administrator create it.
 - **C-STORE-3** The compose deployment generates a random PostgreSQL
   password on first start into a secrets file (mode 0600), passes it as a
@@ -700,8 +705,11 @@ reach, so they are retired and their numbers are not reused.
 - **C-STORE-6** Store connections use TLS with the server's certificate
   verified: `pkg/store` requires `sslmode=verify-full` for a host that is
   not loopback or a Unix socket, and `insecure_store_plaintext=true` is the
-  only way around it. Compose sets it for its internal network, with no
-  published port, so `bearing status` shows it. A loopback or socket
+  only way around it. Compose will set it for its internal network, with no
+  published port; `pkg/store` logs a warning when it is in effect, and
+  `bearing status` will show it. A URL names one host: a comma-separated
+  list is refused, because the driver would try each host with the same
+  `sslmode`. A loopback or socket
   connection defaults to `sslmode=prefer`. The driver's minimum protocol
   version is pinned to 3.0 and `target_session_attrs=read-write` keeps the
   pool off a read-only replica.
@@ -758,6 +766,10 @@ reach, so they are retired and their numbers are not reused.
   loads the whole history of each series it touches, and an unfiltered
   `Supports`, `AsOf`, `Changes` or `DataQuality` loads every series of its
   table. That stays until a series can be loaded as of one record time.
+  Components have no size cap either: an operation that names one member of
+  a very large component loads every merge record of it, and a merge that
+  joins two components rewrites the labels of the larger. A cap with a clear
+  error is a follow-up.
   Retries are bounded: an Apply that the database keeps failing (a
   deadlock, a serialization failure, a lost connection) gives up after six
   attempts with `ErrBusy`, having written nothing visible; the event's
