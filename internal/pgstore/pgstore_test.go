@@ -161,7 +161,7 @@ func ensureVectorExtension(t testing.TB) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(42)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+	if _, err := tx.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector SCHEMA public`); err != nil {
 		t.Fatalf("the vector index suites need a server with pgvector (the pgvector/pgvector image): %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

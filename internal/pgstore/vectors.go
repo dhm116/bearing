@@ -145,29 +145,29 @@ func compareVersions(a, b [3]int) int {
 }
 
 // vectorText is a vector as pgvector reads it: "[1,0.5]". The elements must
-// be finite and not all zero, for which cosine distance is undefined.
+// be finite and have a norm pgvector can compute, which it does in float32:
+// all zeros, or numbers so small or large that their squares underflow or
+// overflow, have no cosine distance there.
 func (c *vectorConfig) vectorText(v []float32) (string, error) {
 	if len(v) != c.dims {
 		return "", fmt.Errorf("vector has %d dimensions, want %d", len(v), c.dims)
 	}
 	var b strings.Builder
 	b.WriteByte('[')
-	zero := true
+	var norm float32
 	for i, x := range v {
 		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
 			return "", errors.New("vector has an element that is not a finite number")
 		}
-		if x != 0 {
-			zero = false
-		}
+		norm += x * x
 		if i > 0 {
 			b.WriteByte(',')
 		}
 		b.WriteString(strconv.FormatFloat(float64(x), 'g', -1, 32))
 	}
 	b.WriteByte(']')
-	if zero {
-		return "", errors.New("vector is all zeros and has no direction")
+	if norm == 0 || math.IsInf(float64(norm), 0) {
+		return "", errors.New("vector is all zeros, or its elements are too small or too large to give it a length")
 	}
 	return b.String(), nil
 }
@@ -199,6 +199,7 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 	}
 	// The last of two points with one ID wins, as in the reference store.
 	last := make(map[string]int, len(points))
+	vecs := make([]string, len(points))
 	for i, p := range points {
 		if p.ID == "" || p.SubjectID == "" {
 			return errors.New("vector point needs an id and a subject id")
@@ -206,6 +207,11 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 		if strings.IndexByte(p.ID, 0) >= 0 || strings.IndexByte(string(p.SubjectID), 0) >= 0 || strings.IndexByte(p.Text, 0) >= 0 {
 			return errors.New("vector point has a NUL byte in a text field")
 		}
+		vec, err := s.vec.vectorText(p.Vector)
+		if err != nil {
+			return fmt.Errorf("point %s: %w", clip(p.ID), err)
+		}
+		vecs[i] = vec
 		last[p.ID] = i
 	}
 	type row struct {
@@ -218,11 +224,7 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 		if last[p.ID] != i {
 			continue
 		}
-		vec, err := s.vec.vectorText(p.Vector)
-		if err != nil {
-			return fmt.Errorf("point %s: %w", clip(p.ID), err)
-		}
-		r := row{kid: kidOf(p.ID), id: p.ID, subject: string(p.SubjectID), text: p.Text, vec: vec}
+		r := row{kid: kidOf(p.ID), id: p.ID, subject: string(p.SubjectID), text: p.Text, vec: vecs[i]}
 		r.kind, _ = p.Payload["kind"].(string)
 		if p.Payload != nil {
 			b, err := json.Marshal(p.Payload)
@@ -240,10 +242,13 @@ func (s *Store) Upsert(ctx context.Context, points []contracts.VectorPoint) erro
 	defer rollback(tx)
 	stmt := fmt.Sprintf(`
 INSERT INTO vector_point (id_kid, id, subject_id, kind, text, payload, vec)
-SELECT a, b, c, d, e, f::jsonb, g::%s.vector
+SELECT a, b, c, d, e, f::jsonb, g::%[1]s.vector
 FROM unnest($1::bytea[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[]) AS t(a, b, c, d, e, f, g)
 ON CONFLICT (id_kid) DO UPDATE SET id = EXCLUDED.id, subject_id = EXCLUDED.subject_id, kind = EXCLUDED.kind,
-	text = EXCLUDED.text, payload = EXCLUDED.payload, vec = EXCLUDED.vec`, s.vec.ext)
+	text = EXCLUDED.text, payload = EXCLUDED.payload, vec = EXCLUDED.vec
+WHERE (vector_point.id, vector_point.subject_id, vector_point.kind, vector_point.text, vector_point.payload)
+	IS DISTINCT FROM (EXCLUDED.id, EXCLUDED.subject_id, EXCLUDED.kind, EXCLUDED.text, EXCLUDED.payload)
+	OR NOT (vector_point.vec OPERATOR(%[1]s.=) EXCLUDED.vec)`, s.vec.ext)
 	for i := 0; i < len(rows); i += pointChunk {
 		chunk := rows[i:min(i+pointChunk, len(rows))]
 		var kids [][]byte
@@ -272,9 +277,15 @@ func clip(s string) string {
 }
 
 // Search implements contracts.VectorIndex. Scores are cosine similarity, so
-// higher is closer. The HNSW index answers a search for up to 1,000 hits; an
-// unlimited search, a larger one, and a search with a kind filter on pgvector
-// before 0.8 scan every point instead, which is exact.
+// higher is closer, and equal scores come back in ID order (which of several
+// equal scores reach the limit is up to the index). The HNSW index answers a
+// search for up to 1,000 hits. An unlimited search, a larger one, and a
+// search the index answers with fewer hits than asked for scan every point
+// instead, which is exact. That last case is the index's own blind spot: it
+// holds on to the entries of rows that were replaced or deleted until
+// vacuum, and they use up the candidates a search is allowed to look at, and
+// pgvector stops an iterative scan after hnsw.max_scan_tuples (20,000) rows.
+// A search for a rare kind in a very large index may therefore scan exactly.
 func (s *Store) Search(ctx context.Context, q contracts.VectorQuery) ([]contracts.VectorHit, error) {
 	if s.vec == nil {
 		return nil, ErrNoVectorIndex
@@ -283,45 +294,57 @@ func (s *Store) Search(ctx context.Context, q contracts.VectorQuery) ([]contract
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	var kinds []string
-	for _, k := range q.Kinds {
-		kinds = append(kinds, string(k))
+	var kinds any
+	if len(q.Kinds) > 0 {
+		names := make([]string, len(q.Kinds))
+		for i, k := range q.Kinds {
+			names[i] = string(k)
+		}
+		kinds = names
 	}
-	exact := q.Limit <= 0 || q.Limit > maxEfSearch || (len(kinds) > 0 && !s.vec.iterative)
 	var limit any
 	if q.Limit > 0 {
 		limit = q.Limit
 	}
-	order := "ORDER BY vec OPERATOR(%[1]s.<=>) $1::%[1]s.vector"
-	if exact {
+	if q.Limit > 0 && q.Limit <= maxEfSearch {
+		hits, err := s.search(ctx, qv, kinds, limit, q.Limit)
+		if err != nil || len(hits) == q.Limit {
+			return hits, err
+		}
+	}
+	return s.search(ctx, qv, kinds, limit, 0)
+}
+
+// search runs one search: through the HNSW index with ef_search sized for
+// the limit when approx is its limit, or exactly when approx is 0.
+func (s *Store) search(ctx context.Context, qv string, kinds, limit any, approx int) ([]contracts.VectorHit, error) {
+	order := "vec OPERATOR(%[1]s.<=>) $1::%[1]s.vector"
+	if approx == 0 {
 		order += ", id"
 	}
-	stmt := fmt.Sprintf(`SELECT id, subject_id, text, payload, vec::text, 1 - (vec OPERATOR(%[1]s.<=>) $1::%[1]s.vector)
-FROM vector_point WHERE ($2::text[] IS NULL OR kind = ANY($2)) `+order+` LIMIT $3`, s.vec.ext)
-
+	// The outer query puts equal scores in ID order whichever way the inner
+	// one found them.
+	stmt := fmt.Sprintf(`SELECT id, subject_id, text, payload, vec::text, 1 - dist FROM (
+SELECT id, subject_id, text, payload, vec, vec OPERATOR(%[1]s.<=>) $1::%[1]s.vector AS dist
+FROM vector_point WHERE ($2::text[] IS NULL OR kind = ANY($2)) ORDER BY `+order+` LIMIT $3) found ORDER BY dist, id`, s.vec.ext)
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, fmt.Errorf("begin: %w", cleanError(err))
 	}
 	defer rollback(tx)
-	switch {
-	case exact:
+	if approx == 0 {
 		_, err = tx.Exec(ctx, `SELECT set_config('enable_indexscan', 'off', true)`)
-	default:
-		// The index returns at most hnsw.ef_search rows, 40 by default.
-		_, err = tx.Exec(ctx, `SELECT set_config('hnsw.ef_search', $1, true)`, strconv.Itoa(min(max(q.Limit, 40), maxEfSearch)))
-		if err == nil && len(kinds) > 0 {
+	} else {
+		// The index returns at most hnsw.ef_search candidates, 40 by default.
+		_, err = tx.Exec(ctx, `SELECT set_config('hnsw.ef_search', $1, true)`, strconv.Itoa(min(max(2*approx, 40), maxEfSearch)))
+		if err == nil && s.vec.iterative {
 			_, err = tx.Exec(ctx, `SELECT set_config('hnsw.iterative_scan', 'strict_order', true)`)
 		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("set up the search: %w", err)
 	}
-	var kindArg any
-	if len(kinds) > 0 {
-		kindArg = kinds
-	}
-	rows, err := tx.Query(ctx, stmt, qv, kindArg, limit)
+	rows, err := tx.Query(ctx, stmt, qv, kinds, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}

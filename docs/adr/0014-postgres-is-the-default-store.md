@@ -144,10 +144,13 @@ Options considered:
   up to 2,000 dimensions; a larger model needs `halfvec`.
   As built, the dimension is the `vector_dimensions` URL parameter (1 to
   2,000), stored in the schema when the vector table is made; opening the
-  schema with another number is refused. Cosine distance on one HNSW index;
-  a search with a kind filter asks for as many hits as the index can give
-  (pgvector 0.8's iterative scan) and a search the index cannot bound
-  (no limit, or one past 1,000) scans exactly.
+  schema with another number is refused. Cosine distance on one HNSW index
+  (pgvector's default build parameters). A search asks the index for its
+  hits (with pgvector 0.8's iterative scan, so a kind filter does not lose
+  hits), and scans exactly when the index cannot bound the result (no limit,
+  or one past 1,000) or comes back with fewer hits than asked for. The
+  index keeps the entries of replaced and deleted rows until vacuum, and they
+  use up its candidates, so a short answer from it is not trusted.
 - **The threat model's store section is rewritten for PostgreSQL** in the
   change that adds `pgstore`. Boundary B6 and T-STORE-1 name PostgreSQL.
   Each control changes as follows:

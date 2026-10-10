@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"testing"
@@ -57,6 +58,8 @@ func TestUpsertRefusesVectorsTheIndexCannotHold(t *testing.T) {
 		"NaN":         point("a", "s", model.KindTeam, 1, float32(math.NaN()), 3),
 		"infinite":    point("a", "s", model.KindTeam, 1, float32(math.Inf(1)), 3),
 		"all zeros":   point("a", "s", model.KindTeam, 0, 0, 0),
+		"underflows":  point("a", "s", model.KindTeam, 1e-30, 1e-30, 1e-30),
+		"overflows":   point("a", "s", model.KindTeam, 1e30, 1e30, 1e30),
 		"no ID":       point("", "s", model.KindTeam, 1, 2, 3),
 		"no subject":  point("a", "", model.KindTeam, 1, 2, 3),
 		"NUL in text": {ID: "a", SubjectID: "s", Vector: []float32{1, 2, 3}, Text: "a\x00b"},
@@ -70,7 +73,7 @@ func TestUpsertRefusesVectorsTheIndexCannotHold(t *testing.T) {
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("got %d hits, %v, want none", len(hits), err)
 	}
-	for name, q := range map[string][]float32{"short": {1, 2}, "zero": {0, 0, 0}, "NaN": {float32(math.NaN()), 1, 1}} {
+	for name, q := range map[string][]float32{"short": {1, 2}, "zero": {0, 0, 0}, "tiny": {1e-30, 1e-30, 1e-30}, "huge": {1e30, 1e30, 1e30}, "NaN": {float32(math.NaN()), 1, 1}} {
 		if _, err := s.Search(ctx, contracts.VectorQuery{Vector: q}); err == nil {
 			t.Errorf("%s query: searched", name)
 		}
@@ -330,5 +333,126 @@ func TestEveryVectorStatementMayFailWithoutHarmingTheIndex(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// randomPoints makes n points on n subjects with vectors of dims dimensions.
+func randomPoints(rng *rand.Rand, n, dims int, kind model.Kind) []contracts.VectorPoint {
+	points := make([]contracts.VectorPoint, n)
+	for i := range points {
+		v := make([]float32, dims)
+		for j := range v {
+			v[j] = rng.Float32()*2 - 1
+		}
+		points[i] = point(fmt.Sprintf("p%05d", i), fmt.Sprintf("s%05d", i), kind, v...)
+	}
+	return points
+}
+
+// The HNSW index keeps the entries of replaced and deleted rows until
+// vacuum, and they count against a search's candidates. Re-indexing every
+// point must not make a search come back short.
+func TestSearchAfterEveryPointIsReplacedStillFindsEnough(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openVectorStore(t, 4)
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: seeded test data
+	if err := s.Upsert(ctx, randomPoints(rng, 2000, 4, model.KindTeam)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Upsert(ctx, randomPoints(rng, 2000, 4, model.KindTeam)); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []contracts.VectorQuery{
+		{Vector: []float32{1, 0, 0, 0}, Limit: 10},
+		{Vector: []float32{0, 1, 1, 0}, Limit: 10, Kinds: []model.Kind{model.KindTeam}},
+		{Vector: []float32{0, 0, 1, 1}, Limit: 300},
+	} {
+		hits, err := s.Search(ctx, q)
+		if err != nil || len(hits) != q.Limit {
+			t.Fatalf("got %d hits, %v, want %d", len(hits), err, q.Limit)
+		}
+	}
+}
+
+// The approximate search finds nearly what the exact one does.
+func TestSearchRecallAgainstTheExactScan(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openVectorStore(t, 16)
+	rng := rand.New(rand.NewPCG(3, 4)) //nolint:gosec // G404: seeded test data
+	if err := s.Upsert(ctx, randomPoints(rng, 3000, 16, model.KindTeam)); err != nil {
+		t.Fatal(err)
+	}
+	found, total := 0, 0
+	for range 20 {
+		q := make([]float32, 16)
+		for j := range q {
+			q[j] = rng.Float32()*2 - 1
+		}
+		approx, err := s.Search(ctx, contracts.VectorQuery{Vector: q, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exact, err := s.Search(ctx, contracts.VectorQuery{Vector: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]bool{}
+		for _, h := range exact[:10] {
+			want[h.Point.ID] = true
+		}
+		for _, h := range approx {
+			if want[h.Point.ID] {
+				found++
+			}
+		}
+		total += 10
+	}
+	if recall := float64(found) / float64(total); recall < 0.9 {
+		t.Fatalf("got recall@10 of %.2f, want at least 0.9", recall)
+	}
+}
+
+// Equal scores come back in ID order, through the index or not, and a point written again unchanged is not rewritten.
+func TestEqualScoresComeBackInIDOrderAndUnchangedPointsAreNotRewritten(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openVectorStore(t, 2)
+	var points []contracts.VectorPoint
+	for _, id := range []string{"d", "b", "e", "a", "c"} {
+		points = append(points, point(id, "s-"+id, model.KindTeam, 1, 1))
+	}
+	if err := s.Upsert(ctx, points); err != nil {
+		t.Fatal(err)
+	}
+	for _, limit := range []int{3, 0} {
+		hits, err := s.Search(ctx, contracts.VectorQuery{Vector: []float32{1, 1}, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, h := range hits {
+			ids = append(ids, h.Point.ID)
+		}
+		// Which of equal scores reach a limit is up to the index; the hits
+		// that do come back are in ID order.
+		if len(hits) != map[int]int{3: 3, 0: 5}[limit] || !slices.IsSorted(ids) {
+			t.Fatalf("limit %d: got %v, want that many hits in ID order", limit, ids)
+		}
+	}
+	before := count(t, s, `SELECT sum(xmin::text::bigint) FROM vector_point`)
+	if err := s.Upsert(ctx, points); err != nil {
+		t.Fatal(err)
+	}
+	if after := count(t, s, `SELECT sum(xmin::text::bigint) FROM vector_point`); after != before {
+		t.Fatal("writing the same points again rewrote their rows")
+	}
+	changed := point("c", "s-c", model.KindTeam, 1, 2)
+	if err := s.Upsert(ctx, []contracts.VectorPoint{changed}); err != nil {
+		t.Fatal(err)
+	}
+	if after := count(t, s, `SELECT sum(xmin::text::bigint) FROM vector_point`); after == before {
+		t.Fatal("a changed point was not rewritten")
 	}
 }

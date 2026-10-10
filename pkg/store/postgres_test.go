@@ -255,7 +255,7 @@ func TestPostgresServesVectorsWhenAskedForDimensions(t *testing.T) {
 		return ""
 	}
 	ctx := context.Background()
-	runAsAdmin(t, u, `SELECT pg_advisory_xact_lock(42); CREATE EXTENSION IF NOT EXISTS vector`)
+	runAsAdmin(t, u, `SELECT pg_advisory_xact_lock(42); CREATE EXTENSION IF NOT EXISTS vector SCHEMA public`)
 	s, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
 	if err != nil {
 		t.Fatal(err)
