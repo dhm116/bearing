@@ -86,7 +86,10 @@ type factRun struct {
 	// key: they are written empty.
 	retired map[string]*modelv1alpha1.SupportTimeline
 	groups  map[string]map[string]*groupFact
-	stored  map[string][]*modelv1alpha1.SupportTimeline
+	// before holds the groups as the store has them, for the audit entries of
+	// status changes.
+	prior  map[string]map[string]*groupFact
+	stored map[string][]*modelv1alpha1.SupportTimeline
 	// existsChanged are the subjects whose live exists times the ChangeSet
 	// changes: their unobserved_object issues are recomputed.
 	existsChanged map[string]bool
@@ -97,7 +100,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
 		series: map[string]*seriesEntry{}, marks: map[string]*scopeMarks{}, touched: map[string]affected{},
 		claimed: map[string][]seg{}, out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
-		groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
+		groups: map[string]map[string]*groupFact{}, prior: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
 	}
 }
@@ -571,6 +574,63 @@ func (r *factRun) group(ctx context.Context, subject, pred string) (map[string]*
 			delete(gf.bySource, st.GetSource())
 		} else {
 			gf.bySource[st.GetSource()] = st.GetVersions()
+		}
+	}
+	return g, nil
+}
+
+// beforeGroup is group as the store holds it, before the ChangeSet: the
+// stored supports of the subject and of the subjects the ChangeSet merges into
+// it, with their ends followed through the planned merges, so a fact a merge
+// only moves is the same fact before and after.
+func (r *factRun) beforeGroup(ctx context.Context, subject, pred string) (map[string]*groupFact, error) {
+	key := groupKey(subject, pred)
+	if g, ok := r.prior[key]; ok {
+		return g, nil
+	}
+	g := map[string]*groupFact{}
+	r.prior[key] = g
+	if isRef(subject) {
+		return g, nil
+	}
+	members := []string{subject}
+	for _, m := range slices.Sorted(maps.Keys(r.g.merged)) {
+		if !isRef(m) && r.g.mustCanon(ctx, m) == subject {
+			members = append(members, m)
+		}
+	}
+	seen := map[string]bool{}
+	for _, m := range members {
+		tls, err := r.supportsOf(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		for _, st := range tls {
+			if st.GetPredicate() != pred {
+				continue
+			}
+			w, err := written(st)
+			if err != nil {
+				return nil, err
+			}
+			k := retiredKey(st.GetSource(), w)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			f, err := r.canonicalFact(ctx, st)
+			if err != nil {
+				return nil, err
+			}
+			if f.subject != subject {
+				continue
+			}
+			gf := g[f.id()]
+			if gf == nil {
+				gf = &groupFact{f: f, bySource: map[string][]*modelv1alpha1.Support{}}
+				g[f.id()] = gf
+			}
+			gf.bySource[st.GetSource()] = append(gf.bySource[st.GetSource()], st.GetVersions()...)
 		}
 	}
 	return g, nil

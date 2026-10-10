@@ -97,6 +97,12 @@ func (d DroppedWrite) audit() *modelv1alpha1.AuditEntry {
 // It reads the store and writes nothing. If another apply lands before the
 // ChangeSet does, Apply fails with contracts.ErrStale; use [Resolver.Apply] to
 // retry.
+//
+// The ChangeSet carries the audit entries for what the resolver decided, in
+// this order: a rejection for each refusal, then the mints, binding changes
+// and merges, the facts whose status changed and the conflicts that opened and
+// closed, and the writes it dropped. An event that changes nothing and refuses
+// nothing has none, so a repeated sync adds no audit records.
 func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 	head, err := r.store.Head(ctx)
 	if err != nil {
@@ -111,6 +117,7 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		return nil, err
 	}
 	if p == nil {
+		cs.Audit = rejectionEntries(ev.ID, rejs)
 		return &Result{ChangeSet: cs, Rejections: rejs}, nil
 	}
 	rejs = append(rejs, p.rejections...)
@@ -120,25 +127,40 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
 	}
 	if u != nil {
+		if u.audit, err = u.identityAudit(); err != nil {
+			return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
+		}
 		if err := u.facts(ctx); err != nil {
 			return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
 		}
 	}
 	rejs = append(rejs, more...)
 	var dropped []DroppedWrite
+	var audit []*modelv1alpha1.AuditEntry
 	if u != nil {
-		dropped = u.dropped
+		dropped, audit = u.dropped, u.audit
 	}
+	cs.Audit = append(rejectionEntries(ev.ID, rejs), audit...)
 	for _, d := range dropped {
 		cs.Audit = append(cs.Audit, d.audit())
 	}
 	if rej := tooLarge(cs); rej != nil {
 		// An error would make the host retry the event forever, so the event
 		// is recorded as processed and changes nothing.
-		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt()}
-		return &Result{ChangeSet: empty, Rejections: append(rejs, *rej)}, nil
+		rejs = append(rejs, *rej)
+		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt(), Audit: rejectionEntries(ev.ID, rejs)}
+		return &Result{ChangeSet: empty, Rejections: rejs}, nil
 	}
 	return &Result{ChangeSet: cs, Rejections: rejs, Dropped: dropped}, nil
+}
+
+// rejectionEntries returns the audit entry of each rejection.
+func rejectionEntries(eventID string, rejs []Rejection) []*modelv1alpha1.AuditEntry {
+	out := make([]*modelv1alpha1.AuditEntry, 0, len(rejs))
+	for _, rj := range rejs {
+		out = append(out, rejectionEntry(eventID, rj))
+	}
+	return out
 }
 
 // tooLarge reports the store limit cs is over, as the rejection of the whole

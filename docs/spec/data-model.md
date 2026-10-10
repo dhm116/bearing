@@ -1324,6 +1324,17 @@ target or in `before` and `after`, and the store replaces it
 | `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
 | `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |
 
+The resolver writes these entries as `system:resolver`, in an order a caller
+can rely on: rejections first, then mints, bindings and merges, then for each
+`(subject, predicate)` the claims withdrawn, the status changes and the
+conflicts, then dropped writes. A claim is withdrawn when a source's support for
+a fact stops being open-ended; a conflict closes when it ends or shrinks, with
+`evidence_changed` as its rule unless a decision closed it. A `before` or
+`after` that holds a stored row leaves out the store's fields (`recorded_at`,
+`retracted_at`, a support's `fact_id`), so a replay of the same event against
+the same state writes the same entries. An event that changes nothing audits
+nothing.
+
 | Code | Scope | Raised by |
 | --- | --- | --- |
 | `kind_mismatch` | observation | [Resolution](#resolution), rule 1; an entity key whose key type is declared for another kind |
