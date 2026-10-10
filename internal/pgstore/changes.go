@@ -39,7 +39,7 @@ const (
 	// defaultChangesBatch is how many timelines are loaded at once.
 	defaultChangesBatch = 128
 	// defaultChangesHeld is how many candidate timelines a scan holds.
-	defaultChangesHeld = 4096
+	defaultChangesHeld = 32768
 )
 
 func (s *Store) batchSize() int {
@@ -56,9 +56,11 @@ func (s *Store) heldSize() int {
 	return defaultChangesHeld
 }
 
-// wholeGraph says whether f can match any fact in the graph.
+// wholeGraph says whether f can match any fact in the graph: it names no
+// subject, no key and no object that points at one. An object that holds only
+// attributes narrows nothing the store can look up, so it does not count.
 func wholeGraph(f contracts.FactFilter) bool {
-	return f.SubjectID == "" && f.Key == "" && f.Object == nil
+	return f.SubjectID == "" && f.Key == "" && (f.Object == nil || len(memstore.SubjectsIn(f.Object)) == 0)
 }
 
 // A candidate is a fact timeline that may have changed, with the newest
@@ -110,20 +112,25 @@ func (s *Store) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (co
 		if err != nil {
 			return err
 		}
-		pred := contracts.FactFilter{Predicate: r.Filter.Predicate}
+		page.T1, page.T2 = w1, w2
+		// Every change in the window is newer than a cursor at or before its
+		// start, so nothing follows it.
+		if r.After != nil && !r.After.ChangedAt.After(w1) {
+			return nil
+		}
 		need := r.PageSize() + 1
 		var found []*modelv1alpha1.FactChange // the newest need changes after the cursor
-		err = s.visit(ctx, q, pred.Predicate, r.Axis, w1, w2, func(batch []candidate) (bool, error) {
+		err = s.visit(ctx, q, r.Filter.Predicate, r.Axis, w1, w2, func(batch []candidate) (bool, error) {
 			// Nothing unvisited can beat the page once it holds need changes
 			// newer than the best bound that is left.
 			if len(found) >= need && found[need-1].GetChangedAt().AsTime().After(batch[0].bound) {
 				return true, nil
 			}
-			m, err := s.loadBatch(ctx, q, meta, pred.Predicate, batch)
+			m, err := s.loadBatch(ctx, q, meta, r.Filter.Predicate, batch)
 			if err != nil {
 				return false, err
 			}
-			got, err := m.Changes(ctx, pred, w1, w2, r.Axis)
+			got, err := m.Changes(ctx, r.Filter, w1, w2, r.Axis)
 			if err != nil {
 				return false, err
 			}
@@ -141,7 +148,6 @@ func (s *Store) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (co
 		}
 		r.After = nil // found holds only what follows it
 		page.Changes, page.Next = contracts.PageChanges(found, r)
-		page.T1, page.T2 = w1, w2
 		return nil
 	})
 	return page, err
@@ -169,16 +175,15 @@ func (s *Store) LastChange(ctx context.Context, f contracts.FactFilter, t time.T
 		if err != nil {
 			return err
 		}
-		pred := contracts.FactFilter{Predicate: f.Predicate}
-		return s.visit(ctx, q, pred.Predicate, axis, time.Time{}, hi, func(batch []candidate) (bool, error) {
+		return s.visit(ctx, q, f.Predicate, axis, time.Time{}, hi, func(batch []candidate) (bool, error) {
 			if !best.IsZero() && !batch[0].bound.After(best) {
 				return true, nil
 			}
-			m, err := s.loadBatch(ctx, q, meta, pred.Predicate, batch)
+			m, err := s.loadBatch(ctx, q, meta, f.Predicate, batch)
 			if err != nil {
 				return false, err
 			}
-			at, err := m.LastChange(ctx, pred, hi, axis)
+			at, err := m.LastChange(ctx, f, hi, axis)
 			switch {
 			case errors.Is(err, contracts.ErrNotFound):
 			case err != nil:

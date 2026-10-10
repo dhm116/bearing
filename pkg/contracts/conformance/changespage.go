@@ -103,6 +103,30 @@ func (g *suite) changesPage(t *testing.T) {
 		t.Fatalf("newest change at %v, want %v", got, base.Add(299*time.Hour))
 	}
 
+	// A filter whose object holds only attributes, or whose key is bound to
+	// nothing, lists what Changes does too.
+	for name, f := range map[string]contracts.FactFilter{
+		"an attribute object":               {Object: str("team-007")},
+		"an attribute object and predicate": {Object: str("go"), Predicate: "topics"},
+		"an attribute object nothing holds": {Object: str("no such value")},
+		"a key bound to nothing":            {Key: "github:repo_node/NOPE"},
+	} {
+		req := window
+		req.Filter = f
+		want, err := s.Changes(ctx, f, window.T1, window.T2, window.Axis)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.SortFunc(want, contracts.CompareChanges)
+		page, err := s.ChangesPage(ctx, req)
+		if err != nil || !slices.Equal(factIDs(page.Changes), factIDs(want)) {
+			t.Errorf("%s: got %v, %v, want %v", name, factIDs(page.Changes), err, factIDs(want))
+		}
+	}
+	if page, _ := s.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{Object: str("team-007")}, T1: window.T1, T2: window.T2}); len(page.Changes) != 1 {
+		t.Errorf("an attribute object: got %d changes, want the one team name", len(page.Changes))
+	}
+
 	// Pages of any size list exactly what Changes does, in the same order.
 	for _, limit := range []int{0, 7, 100, 303, 304, contracts.MaxChangesLimit} {
 		req := window
@@ -315,6 +339,17 @@ func (g *suite) lastChange(t *testing.T) {
 	}
 	if got := last(contracts.FactFilter{Key: "github:repo_node/R_1", Predicate: "owned_by"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "2026-09-20T00:00:00Z" {
 		t.Errorf("a key: got %s, want 2026-09-20", got)
+	}
+	if got := last(contracts.FactFilter{Key: "github:repo_node/NOPE"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "none" {
+		t.Errorf("a key bound to nothing: got %s, want none", got)
+	}
+	// An object of attributes only matches the facts that hold it, with or
+	// without a predicate to narrow the search.
+	if got := last(contracts.FactFilter{Object: str("Go")}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "2026-09-05T00:00:00Z" {
+		t.Errorf("an attribute object: got %s, want 2026-09-05", got)
+	}
+	if got := last(contracts.FactFilter{Object: str("Go"), Predicate: "owned_by"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "none" {
+		t.Errorf("an attribute object under another predicate: got %s, want none", got)
 	}
 	// Zero is now: the clock is at the end of September.
 	if got := last(everything, "", contracts.AxisValid); got != "2026-09-20T00:00:00Z" {
