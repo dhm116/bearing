@@ -20,7 +20,7 @@ import (
 var postgresParams = []string{
 	"sslmode", "sslrootcert", "sslcert", "sslkey", "connect_timeout",
 	"application_name", "schema", "pool_max_conns", "host",
-	"insecure_store_plaintext", "insecure_store_superuser",
+	"insecure_store_plaintext", "insecure_store_superuser", "vector_dimensions",
 }
 
 // secretParams are parameters that carry or point to a secret; the message
@@ -112,6 +112,13 @@ func postgresOptions(u *url.URL, getenv func(string) string) (pgstore.Options, e
 		}
 		o.MaxConns = int32(n) //nolint:gosec // G109: n is from 2 to 100
 	}
+	if v := q.Get("vector_dimensions"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > pgstore.MaxVectorDimensions {
+			return fail("vector_dimensions is a number from 1 to %d", pgstore.MaxVectorDimensions)
+		}
+		o.VectorDimensions = n
+	}
 	if len(o.ApplicationName) > 63 {
 		return fail("application_name is longer than 63 bytes")
 	}
@@ -157,5 +164,9 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	if err != nil {
 		return backend{}, fmt.Errorf("store: %w", err)
 	}
-	return backend{name: "postgresql", graph: st, close: st.Close}, nil
+	b := backend{name: "postgresql", graph: st, close: st.Close}
+	if o.VectorDimensions > 0 {
+		b.vector = st
+	}
+	return b, nil
 }

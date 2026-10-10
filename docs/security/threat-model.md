@@ -639,7 +639,7 @@ Assets: caller identity, role mapping, A7 (API availability).
 
 The store holds everything except secrets. Whoever controls it controls
 Bearing's answers. The default backend is PostgreSQL with pgvector (ADR 14);
-`internal/pgstore` is its graph half. The SurrealDB backend stays in the tree
+`internal/pgstore` serves both halves. The SurrealDB backend stays in the tree
 until the change that removes it (#134) and is not a supported
 configuration: its controls (a database-scoped user from
 `surrealstore.Provision`, `wss`, a server started with `--deny-net
@@ -686,10 +686,12 @@ reach, so they are retired and their numbers are not reused.
   still matters. `pgstore.Provision` creates
   such a role and a schema it owns, and CI runs the PostgreSQL suites as
   that role. The connection's `search_path` is Bearing's schema alone.
-  pgvector is the only extension, and an administrator installs it. **Planned,
-  with the vector index:** the migrations check that it exists and never
-  create it. A role that cannot
-  create its own schema is told to have an administrator create it.
+  pgvector is the only extension, and an administrator installs it: opening
+  with `vector_dimensions` checks that it exists (version 0.5 or later) and
+  never creates it, and the vector type and operators are named with the
+  schema the extension lives in because the `search_path` holds Bearing's
+  schema alone. A role that cannot create its own schema is told to have an
+  administrator create it.
 - **C-STORE-3** The compose deployment generates a random PostgreSQL
   password on first start into a secrets file (mode 0600), passes it as a
   Docker secret, and does not publish the PostgreSQL port. The store secret
@@ -702,6 +704,12 @@ reach, so they are retired and their numbers are not reused.
   with `%I`; escaping alone is not enough), and a password is quoted by the
   server (`%L`). A name that does not match is refused without being
   repeated in the error.
+  Vectors bind as text cast to the column type, after the store has checked
+  their length and that every number is finite and that the squares of
+  the elements sum, in float32 as pgvector computes them, to a finite number
+  of at least 1e-30. The extension's schema, the one name in a vector statement that is
+  not fixed, comes from the server's catalog and is quoted by the server
+  (`%I`); nothing in the URL or a point reaches it.
 - **C-STORE-6** Store connections use TLS with the server's certificate
   verified: `pkg/store` requires `sslmode=verify-full` for a host that is
   not loopback or a Unix socket, and `insecure_store_plaintext=true` is the

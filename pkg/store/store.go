@@ -11,7 +11,7 @@
 //	surrealdb+mem://                       Embedded SurrealDB in memory (surrealembed builds)
 //	surrealkv:///var/lib/bearing           Embedded SurrealDB on disk (surrealembed builds)
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
-//	postgres://user@host/db                PostgreSQL server (graph only; the vector index follows)
+//	postgres://user@host/db                PostgreSQL server (graph; add ?vector_dimensions=N for pgvector)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main)
 // and ?auth=database, which signs in as a database-scoped user of that
@@ -19,8 +19,10 @@
 // database and user must exist; surrealstore.Provision creates them.
 // PostgreSQL URLs (postgres:// or postgresql://) take ?schema=<name> (default
 // bearing), sslmode, sslrootcert, sslcert, sslkey, connect_timeout,
-// application_name, pool_max_conns and host=<socket directory>, and refuse
-// every other parameter. A connection to a host other than the local machine
+// application_name, pool_max_conns, host=<socket directory> and
+// vector_dimensions=<1 to 2000>, which turns on the pgvector index (the
+// extension must be installed by an administrator and the number fixed for the
+// schema), and refuse every other parameter. A connection to a host other than the local machine
 // requires sslmode=verify-full unless insecure_store_plaintext=true
 // (C-STORE-6), and a role that can create roles or databases is refused
 // unless insecure_store_superuser=true (C-STORE-2); pgstore.Provision makes a
@@ -64,8 +66,8 @@ type Config struct {
 type Store struct {
 	Graph contracts.GraphStore
 	// Vectors is nil when the graph backend does not serve vectors (a
-	// PostgreSQL graph store, until its pgvector index lands) and no vector
-	// URL was given; check before use.
+	// PostgreSQL graph store without vector_dimensions) and no vector URL
+	// was given; check before use.
 	Vectors contracts.VectorIndex
 	closers []func(context.Context) error
 }

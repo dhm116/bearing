@@ -115,7 +115,7 @@ func (t *faultTx) Commit(ctx context.Context) error {
 // and IDs, so an operation through it continues the same history.
 func withPool(s *Store, p *faultPool) *Store {
 	p.pool = s.db
-	return &Store{db: p, Now: s.Now, IDs: s.IDs}
+	return &Store{db: p, Now: s.Now, IDs: s.IDs, vec: s.vec}
 }
 
 // Whatever statement fails, an operation reports an error rather than a

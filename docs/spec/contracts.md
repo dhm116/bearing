@@ -26,6 +26,7 @@ none with an embedded build ([ADR 5](../adr/0005-one-store-to-start.md)).
 | URL | Backend | Needs |
 | --- | --- | --- |
 | `mem://` | In-memory reference store | Nothing; data is lost on exit |
+| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
 | `surrealdb+ws://user@host:8000?ns=bearing&db=main` | SurrealDB server (also `wss`, `http`, `https`) | A running `surreal start` |
 | `surrealdb+mem://` | Embedded SurrealDB in memory | A `-tags surrealembed` build (CGO) |
 | `surrealkv:///var/lib/bearing` | Embedded SurrealDB on disk | A `-tags surrealembed` build (CGO) |
