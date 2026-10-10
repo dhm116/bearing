@@ -447,7 +447,7 @@ does), and offsets are not comparable across partitions.
 | `Commit(group, partition, offset)` | Records that the group has processed the partition up to `offset`. A commit never moves a group back: a lower or equal offset changes nothing. A bad name or negative offset is `ErrInvalidRequest`; then an unknown partition is `ErrNotFound`; then an offset beyond the partition's head is `ErrInvalidRequest`. |
 | `Committed(group, partition)` | The group's offset, or 0. A bad name is `ErrInvalidRequest`. |
 | `Partitions()` | Every partition with its `Head` (latest offset) and `Trimmed` (highest offset `Trim` removed). A partition whose entries were all trimmed is still listed, with its `Head` intact, and offsets are never reused. |
-| `Trim(before, groups)` | Removes the entries appended before `before` that aren't retained and that every group in `groups` has committed past, and returns the count. A zero `before`, a bad group name or more than 64 groups is `ErrInvalidRequest`. See [Retention](#retention). |
+| `Trim(before, groups)` | Removes the entries appended before `before` that aren't retained and that every group in `groups` has processed (its committed offset in the partition, 0 if none, is at or above the entry's), and returns the count. A zero `before`, an empty `groups`, a bad group name or more than 64 groups (duplicates count) is `ErrInvalidRequest`. See [Retention](#retention). |
 | `Release(ids)` | Clears `Retain` on those events. Unknown IDs and an empty list are ignored; more than 1,000 IDs or an ID out of bounds is `ErrInvalidEvent`. |
 
 `Append` fails with `ErrInvalidEvent` when the batch or an event breaks the
@@ -492,18 +492,21 @@ not the event's `Time`.
 The window counts applied events. `Trim` takes the **required groups**, the
 consumer groups whose work must not be lost (the server passes the groups
 that apply events to the graph), and keeps an entry until every one of them
-has committed past it in that partition. A required group that has never
-committed in a partition holds back everything there, since nothing was
-applied. A group not named holds nothing back, so a stray reader (a debugging
-tool, an old experiment) cannot pin the log, and a caller that passes no groups
-removes by age alone. This is what makes the at-least-once delivery above
-hold after a long outage: an event the log acknowledged to a sender is not
-deleted before it was applied. The cost is that a consumer that stops
-makes the log grow until it recovers; keeping that visible and bounded (a gauge
-for the age of the oldest unapplied event, a dead-letter record for events
-a worker cannot apply) belongs to the server, not to the log. A group that is
-not required and lags behind the window loses events, which `Partitions`
-shows as `Trimmed` above its offset.
+has processed it: an entry goes only when each required group's committed
+offset in that partition is at or above the entry's offset. A required group
+that has never committed in a partition holds back everything there, since
+nothing was applied, so a required group is expected to read every partition.
+A group not named holds nothing back, so a stray reader (a debugging tool, an
+old experiment) cannot pin the log. `Trim` refuses an empty list, so a
+configuration slip cannot turn the window back into deletion by age alone.
+This is what makes the at-least-once delivery above hold after a long outage:
+an event the log acknowledged to a sender is not deleted before it was
+applied. The cost is that a consumer that stops makes the log grow until it
+recovers; keeping that visible and bounded (a gauge for the age of the oldest
+unapplied event, a dead-letter record for events a worker cannot apply)
+belongs to the server, not to the log. A group that is not required and lags
+behind the window loses events, which `Partitions` shows as `Trimmed` above
+its offset.
 
 Manual events are exempt for as long as their effects are live
 ([ADR 11](../adr/0011-identity-store-is-primary-state.md)). The log refuses

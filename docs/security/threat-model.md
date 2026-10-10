@@ -212,7 +212,10 @@ Assets: A1, A7, the event log.
   An unknown route and a failed check get the same response.
 - **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
   sent only after the event is appended to the log (ADR 7); if the log is
-  unavailable, ingest returns 503 so the sender retries.
+  unavailable, ingest returns 503 so the sender retries. Retention then
+  keeps the event until the apply workers have processed it (`Trim` takes
+  the required groups, [contracts](../spec/contracts.md#retention)), so an
+  acknowledged event is not deleted unapplied.
 - **C-INGEST-9** The body is parsed only after authentication succeeds, into
   a fixed Protobuf or JSON type, with depth and size limits.
 - **C-INGEST-10** Forwarded headers are ignored unless the peer is in
