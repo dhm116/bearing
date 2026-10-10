@@ -149,7 +149,15 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
-  log must start at record 1. The verifier reads the log without a filter.
+  log must start at record 1. `--max-age` finds withheld newest checkpoints
+  (and one dated ahead of the clock); a `--checkpoints` file that holds none
+  fails the run, so emptying it does not turn verify into a chain-only check.
+  `bearing audit checkpoint` is an operator-run command that holds the signing
+  key: it takes the key from a bare environment variable name (not the
+  `env:NAME` form of C-SECRET-1, and never as a value), and it refuses to
+  sign a head that the newest record does not carry. It writes a plain file,
+  so making that file append-only, or shipping it, is the operator's job. The
+  verifier reads the log without a filter.
   The PostgreSQL store's filtered `Query` also looks at columns outside the
   hash (event, time, action, actor, target); it refuses a row whose number
   differs from its record's, but an edit to the other columns can hide a

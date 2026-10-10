@@ -31,6 +31,11 @@ type Options struct {
 type Failure struct {
 	Seq    uint64
 	Reason string
+	// Checkpoint is true when the failure is a checkpoint that can't be
+	// trusted (unsigned, an unknown key, a bad signature): it says nothing
+	// against the chain. A checkpoint that disagrees with a record is not
+	// one, since the chain and the checkpoint cannot both be right.
+	Checkpoint bool
 }
 
 // Error implements error.
@@ -44,6 +49,11 @@ type Report struct {
 	First, Last uint64
 	// Checkpoints is how many checkpoints agreed with the chain.
 	Checkpoints int
+	// Newest is the agreeing checkpoint with the highest sequence number (the
+	// later one of two for the same record), or nil if none agreed. It is the
+	// point up to which the log is pinned from outside the store, so its time
+	// is how stale that protection is.
+	Newest *modelv1alpha1.AuditCheckpoint
 	// Failures are sorted by sequence number. The first is the first bad
 	// record.
 	Failures []Failure
@@ -78,7 +88,7 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 	var maxSeq uint64
 	for _, cp := range checkpoints {
 		if err := checkpointOK(cp, opts); err != nil {
-			rep.Failures = append(rep.Failures, Failure{Seq: cp.GetSeq(), Reason: fmt.Sprintf("checkpoint written %s cannot be trusted: %v", cp.GetTime().AsTime().Format("2006-01-02T15:04:05Z"), err)})
+			rep.Failures = append(rep.Failures, Failure{Seq: cp.GetSeq(), Checkpoint: true, Reason: fmt.Sprintf("checkpoint written %s cannot be trusted: %v", cp.GetTime().AsTime().Format("2006-01-02T15:04:05Z"), err)})
 			continue
 		}
 		bySeq[cp.GetSeq()] = append(bySeq[cp.GetSeq()], cp)
@@ -138,6 +148,9 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			for _, cp := range bySeq[rec.GetSeq()] {
 				if bytes.Equal(cp.GetHeadHash(), rec.GetHash()) {
 					rep.Checkpoints++
+					if n := rep.Newest; n == nil || cp.GetSeq() > n.GetSeq() || (cp.GetSeq() == n.GetSeq() && cp.GetTime().AsTime().After(n.GetTime().AsTime())) {
+						rep.Newest = cp
+					}
 				} else {
 					fail(rec.GetSeq(), "differs from the checkpoint written %s, which holds a different hash for it", cp.GetTime().AsTime().Format("2006-01-02T15:04:05Z"))
 				}

@@ -664,3 +664,86 @@ func TestEncoderHandlesBoolsAndRefusesWhatItDoesNotKnow(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckpointFilesRoundTrip(t *testing.T) {
+	l := chain(t, 3)
+	s, pub := signer(t, "audit-1")
+	var file bytes.Buffer
+	var want []*modelv1alpha1.AuditCheckpoint
+	for _, seq := range []uint64{1, 3} {
+		cp := l.checkpoint(t, seq, s)
+		line, err := MarshalCheckpoint(cp)
+		if err != nil || bytes.Contains(line, []byte("\n")) {
+			t.Fatalf("got %q, %v, want one line", line, err)
+		}
+		file.Write(line)
+		file.WriteString("\n\n") // blank lines are ignored
+		want = append(want, cp)
+	}
+	got, err := ReadCheckpoints(&file)
+	if err != nil || len(got) != 2 || !proto.Equal(got[0], want[0]) || !proto.Equal(got[1], want[1]) {
+		t.Fatalf("got %v, %v, want the two checkpoints back", got, err)
+	}
+	// What was read verifies the log, signature included.
+	rep := verify(t, l, got, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}})
+	if !rep.OK() || rep.Checkpoints != 2 {
+		t.Fatalf("got %+v, want both checkpoints to agree", rep)
+	}
+}
+
+func TestReadCheckpointsNamesTheBadLine(t *testing.T) {
+	good := `{"seq":"1","head_hash":"` + strings.Repeat("A", 43) + `=","time":"2026-10-09T22:35:00Z"}`
+	for name, file := range map[string]string{
+		"not JSON":      good + "\nnope\n",
+		"unknown field": good + "\n" + `{"seq":"2","surprise":true}` + "\n",
+		"too long":      good + "\n" + strings.Repeat("x", MaxCheckpointLineBytes+1) + "\n",
+	} {
+		_, err := ReadCheckpoints(strings.NewReader(file))
+		if err == nil || (name != "too long" && !strings.Contains(err.Error(), "line 2")) {
+			t.Errorf("%s: got %v, want an error naming line 2", name, err)
+		}
+	}
+	if got, err := ReadCheckpoints(strings.NewReader("")); err != nil || len(got) != 0 {
+		t.Errorf("got %v, %v, want no checkpoints from an empty file", got, err)
+	}
+}
+
+func TestVerifyReportsTheNewestAgreeingCheckpoint(t *testing.T) {
+	l := chain(t, 5)
+	s, pub := signer(t, "audit-1")
+	older, newer := l.checkpoint(t, 2, s), l.checkpoint(t, 4, s)
+	// A later checkpoint of the same record wins; one that disagrees does not
+	// count, however new.
+	again, err := NewCheckpoint(contracts.AuditHead{Seq: 4, Hash: l.recs[3].GetHash()}, t0.Add(2*time.Hour), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged, err := NewCheckpoint(contracts.AuditHead{Seq: 5, Hash: bytes.Repeat([]byte{9}, HashSize)}, t0.Add(3*time.Hour), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{newer, older, again, forged}, Options{Keys: map[string]ed25519.PublicKey{"audit-1": pub}})
+	if rep.OK() || rep.Newest == nil || rep.Newest.GetSeq() != 4 || !rep.Newest.GetTime().AsTime().Equal(t0.Add(2*time.Hour)) || rep.Checkpoints != 3 {
+		t.Fatalf("got %+v, want the later checkpoint of record 4 as the newest of 3 that agree", rep)
+	}
+	if rep := verify(t, l, nil, Options{}); rep.Newest != nil {
+		t.Fatalf("got %v, want no newest checkpoint without any", rep.Newest)
+	}
+}
+
+// endless is a reader of newlines that never ends.
+type endless struct{}
+
+func (endless) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = '\n'
+	}
+	return len(p), nil
+}
+
+func TestReadCheckpointsStopsAtTheFileLimit(t *testing.T) {
+	t.Parallel()
+	if _, err := ReadCheckpoints(endless{}); err == nil || !strings.Contains(err.Error(), "over") {
+		t.Fatalf("got %v, want the file refused as too big", err)
+	}
+}

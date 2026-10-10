@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -23,9 +24,12 @@ import (
 type queryEnv struct {
 	// Open connects to the graph store at a URL, reading its password
 	// variable through getenv, and returns it with a close function.
-	Open   func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error)
-	Getenv func(string) string
-	// Now is the time durations such as --since 72h count back from.
+	Open func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error)
+	// OpenAudit does the same for the audit log of the graph store at a URL.
+	OpenAudit func(ctx context.Context, url string, getenv func(string) string) (contracts.AuditLog, func(context.Context) error, error)
+	Getenv    func(string) string
+	// Now is the time durations such as --since 72h count back from, and the
+	// time of a checkpoint it writes.
 	Now func() time.Time
 }
 
@@ -38,6 +42,13 @@ func defaultQueryEnv() queryEnv {
 				return nil, nil, err
 			}
 			return s.Graph, s.Close, nil
+		},
+		OpenAudit: func(ctx context.Context, url string, getenv func(string) string) (contracts.AuditLog, func(context.Context) error, error) {
+			s, err := store.Open(ctx, store.Config{Graph: url, Getenv: getenv})
+			if err != nil {
+				return nil, nil, err
+			}
+			return s.Audit, s.Close, nil
 		},
 		Getenv: os.Getenv,
 		Now:    time.Now,
@@ -217,6 +228,15 @@ func parseTime(s string, now func() time.Time) (time.Time, error) {
 	if t, err := time.Parse(time.DateOnly, s); err == nil {
 		return t, nil
 	}
+	dur, err := parseAge(s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%q is not an RFC 3339 time, a date (2026-10-01) or a duration back from now (72h, 7d)", s)
+	}
+	return now().Add(-dur).UTC(), nil
+}
+
+// parseAge reads a length of time: a Go duration such as 72h, or days as 7d.
+func parseAge(s string) (time.Duration, error) {
 	d := s
 	days := strings.HasSuffix(s, "d")
 	if days {
@@ -224,10 +244,13 @@ func parseTime(s string, now func() time.Time) (time.Time, error) {
 	}
 	dur, err := time.ParseDuration(d)
 	if err != nil || dur < 0 {
-		return time.Time{}, fmt.Errorf("%q is not an RFC 3339 time, a date (2026-10-01) or a duration back from now (72h, 7d)", s)
+		return 0, fmt.Errorf("%q is not a duration such as 24h or 7d", s)
 	}
 	if days {
+		if dur > math.MaxInt64/24 {
+			return 0, fmt.Errorf("%q is too long a duration", s)
+		}
 		dur *= 24
 	}
-	return now().Add(-dur).UTC(), nil
+	return dur, nil
 }
