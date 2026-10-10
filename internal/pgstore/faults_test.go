@@ -115,7 +115,7 @@ func (t *faultTx) Commit(ctx context.Context) error {
 // and IDs, so an operation through it continues the same history.
 func withPool(s *Store, p *faultPool) *Store {
 	p.pool = s.db
-	return &Store{db: p, Now: s.Now, IDs: s.IDs, vec: s.vec}
+	return &Store{db: p, Now: s.Now, IDs: s.IDs, vec: s.vec, changesBatch: s.changesBatch, changesHeld: s.changesHeld}
 }
 
 // Whatever statement fails, an operation reports an error rather than a
@@ -137,7 +137,7 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 		}},
 		Facts: []*modelv1alpha1.FactTimeline{{
 			SubjectId: "new:r", Predicate: "name", Object: object,
-			Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: 1_000_000}},
+			Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: 1_000_000, ValidFrom: timestamppb.New(clk.Now().Add(-time.Hour))}},
 		}},
 		State: stateEntries(2, "cursor"),
 	}
@@ -192,6 +192,25 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 		}},
 		{"Changes", func(ctx context.Context, s *Store) error {
 			_, err := s.Changes(ctx, contracts.FactFilter{SubjectID: id}, time.Time{}, clk.Now().Add(time.Hour), contracts.AxisRecord)
+			return err
+		}},
+		{"ChangesPage of the whole graph", func(ctx context.Context, s *Store) error {
+			page, err := s.ChangesPage(ctx, contracts.ChangesRequest{T1: clk.Now().Add(-48 * time.Hour), T2: clk.Now(), Axis: contracts.AxisValid})
+			if err == nil && len(page.Changes) != 1 {
+				err = fmt.Errorf("got %d changes, want 1", len(page.Changes))
+			}
+			return err
+		}},
+		{"ChangesPage of a subject", func(ctx context.Context, s *Store) error {
+			_, err := s.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{SubjectID: id}, T1: clk.Now().Add(-48 * time.Hour), T2: clk.Now(), Axis: contracts.AxisValid})
+			return err
+		}},
+		{"LastChange of the whole graph", func(ctx context.Context, s *Store) error {
+			_, err := s.LastChange(ctx, contracts.FactFilter{}, clk.Now(), contracts.AxisValid)
+			return err
+		}},
+		{"LastChange of a subject", func(ctx context.Context, s *Store) error {
+			_, err := s.LastChange(ctx, contracts.FactFilter{SubjectID: id}, clk.Now(), contracts.AxisValid)
 			return err
 		}},
 		{"Conflicts", func(ctx context.Context, s *Store) error {

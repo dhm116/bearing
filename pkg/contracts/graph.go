@@ -141,8 +141,23 @@ type GraphStore interface {
 	// Changes returns the facts matching f whose status or confidence
 	// differs between the two points of axis (docs/spec/data-model.md,
 	// "What changed"). A zero t1 or t2 is now. t1 must not be after t2.
-	// An unknown axis or an invalid filter object is an error.
+	// An unknown axis or an invalid filter object is an error. It returns
+	// every match, ordered as AsOf is, and sets changed_at on each. A
+	// filter that names no subject, key or object can match the whole
+	// graph, so callers that cannot bound it use ChangesPage.
 	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
+	// ChangesPage returns one page of the changes Changes would return,
+	// newest changed_at first, then by fact ID (docs/spec/contracts.md,
+	// "Reads"). A store need not load the facts that did not change, so a
+	// window the whole graph changed in is paged in memory bounded by the page;
+	// how long that takes is up to the store. The same errors as Changes, and
+	// an error for a limit out of range.
+	ChangesPage(ctx context.Context, r ChangesRequest) (ChangesPage, error)
+	// LastChange returns the changed_at of the newest change at or before t
+	// among the facts matching f: the latest instant, on axis, at which a
+	// matching fact's status or confidence differs from the instant before.
+	// It fails with ErrNotFound if there is none. A zero t is now.
+	LastChange(ctx context.Context, f FactFilter, t time.Time, axis Axis) (time.Time, error)
 	// Conflicts returns the conflicts on (subject, predicate) at validAt as
 	// recorded at recordedAt. An empty subject or predicate matches anything;
 	// a zero time is now.

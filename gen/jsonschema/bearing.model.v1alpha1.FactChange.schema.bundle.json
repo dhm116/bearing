@@ -5,6 +5,10 @@
       "additionalProperties": false,
       "description": "FactChange is one changes result: a fact whose status or confidence\n differs between two points.",
       "patternProperties": {
+        "^(changedAt)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the fact took the status and confidence it has at the later point:\n the latest instant in the window at which its answer on the window's\n axis differs from the instant before. Always present in outputs."
+        },
         "^(factId)$": {
           "default": "",
           "description": "The fact.",
@@ -24,6 +28,10 @@
         }
       },
       "properties": {
+        "changed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "When the fact took the status and confidence it has at the later point:\n the latest instant in the window at which its answer on the window's\n axis differs from the instant before. Always present in outputs."
+        },
         "fact_id": {
           "default": "",
           "description": "The fact.",
