@@ -474,6 +474,9 @@ func (s *Store) recordTime(cs *modelv1alpha1.ChangeSet, replay bool) (time.Time,
 			return time.Time{}, fmt.Errorf("event %s: no recorded_at", cs.GetEventId())
 		}
 		r := cs.GetRecordedAt().AsTime()
+		if r.Nanosecond()%1000 != 0 {
+			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is not a whole number of microseconds", cs.GetEventId(), r)
+		}
 		if !r.After(s.head) {
 			return time.Time{}, fmt.Errorf("event %s: recorded_at %s is not after %s", cs.GetEventId(), r, s.head)
 		}
