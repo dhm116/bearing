@@ -65,6 +65,12 @@ the graph quietly.
   days) for replay and debugging. Facts and their history are kept
   indefinitely, and the graph can be rebuilt from a full resync plus the
   retained window.
+  *Amended 2026-10-10: the window counts applied events. `Trim` takes the
+  consumer groups that must apply every event (the server's apply workers)
+  and keeps an entry until each of them has committed past it, so an event the
+  log acknowledged to a sender is never deleted before it was applied. A group
+  that is not named holds nothing back. A later setting may cap the log by age
+  or size and discard unapplied events anyway; it is off by default.*
 
 ## Shape
 

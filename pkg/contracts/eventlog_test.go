@@ -145,17 +145,20 @@ func TestCheckRequestsRefuseOutOfRangeArguments(t *testing.T) {
 		"commit no group":      CheckCommit("", "p", 1),
 		"commit no partition":  CheckCommit("g", "", 1),
 		"commit negative":      CheckCommit("g", "p", -1),
-		"trim zero":            CheckTrim(time.Time{}),
+		"trim zero":            CheckTrim(time.Time{}, nil),
+		"trim bad group":       CheckTrim(time.Unix(1, 0), []string{"resolver", ""}),
+		"trim too many groups": CheckTrim(time.Unix(1, 0), make([]string, MaxTrimGroups+1)),
 	} {
 		if !errors.Is(err, ErrInvalidRequest) {
 			t.Errorf("%s: got %v, want ErrInvalidRequest", name, err)
 		}
 	}
 	for name, err := range map[string]error{
-		"read":    CheckRead("p", 0, MaxReadEntries),
-		"commit":  CheckCommit("g", "p", 0),
-		"trim":    CheckTrim(time.Unix(1, 0)),
-		"release": CheckRelease(nil),
+		"read":           CheckRead("p", 0, MaxReadEntries),
+		"commit":         CheckCommit("g", "p", 0),
+		"trim":           CheckTrim(time.Unix(1, 0), []string{"resolver", "audit"}),
+		"trim no groups": CheckTrim(time.Unix(1, 0), nil),
+		"release":        CheckRelease(nil),
 	} {
 		if err != nil {
 			t.Errorf("%s: got %v, want nil", name, err)

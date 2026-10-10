@@ -43,6 +43,8 @@ const (
 	// it, but always returns at least one entry.
 	MaxReadEntries = 1000
 	MaxReadBytes   = 32 << 20
+	// MaxTrimGroups bounds the groups one Trim is told to wait for.
+	MaxTrimGroups = 64
 )
 
 // Partition is a unit of order on the event log: events in one partition are
@@ -180,12 +182,20 @@ type EventLog interface {
 	Partitions(ctx context.Context) ([]PartitionInfo, error)
 
 	// Trim removes the entries appended before the cutoff that are not
-	// Retained, and returns how many. This is the retention window the data
-	// model refers to ("event log retention", docs/spec/data-model.md): the
-	// caller passes now minus the configured window. It does not look at
-	// what groups have committed. It fails with ErrInvalidRequest for a zero
-	// cutoff (CheckTrim).
-	Trim(ctx context.Context, before time.Time) (int, error)
+	// Retained and that every group in groups has committed past, and
+	// returns how many. This is the retention window the data model refers
+	// to ("event log retention", docs/spec/data-model.md): the caller passes
+	// now minus the configured window, so the window is how long applied
+	// events are kept. groups are the required groups, the ones whose work
+	// must not be lost; the server passes the groups that apply events to
+	// the graph. An entry stays while any of them has not committed its
+	// offset in that partition, and a required group that has never
+	// committed there holds back every entry. A group not named holds
+	// nothing back, so a stray reader cannot pin the log, and an empty
+	// groups removes by age alone. It fails with ErrInvalidRequest for a
+	// zero cutoff, a bad group name or more than MaxTrimGroups groups
+	// (CheckTrim).
+	Trim(ctx context.Context, before time.Time, groups []string) (int, error)
 	// Release clears Retain on the events with these IDs, so a later Trim
 	// can remove them. An ID the log doesn't hold, because it was never
 	// appended or was already trimmed, is ignored, and an empty list does
@@ -309,11 +319,19 @@ func CheckCommit(group string, partition Partition, offset Offset) error {
 	return nil
 }
 
-// CheckTrim reports whether the cutoff of Trim is usable, as an error
+// CheckTrim reports whether the arguments of Trim are usable, as an error
 // wrapping ErrInvalidRequest.
-func CheckTrim(before time.Time) error {
+func CheckTrim(before time.Time, groups []string) error {
 	if before.IsZero() {
 		return fmt.Errorf("%w: the cutoff is zero", ErrInvalidRequest)
+	}
+	if len(groups) > MaxTrimGroups {
+		return fmt.Errorf("%w: %d groups, more than %d", ErrInvalidRequest, len(groups), MaxTrimGroups)
+	}
+	for _, g := range groups {
+		if err := CheckGroup(g); err != nil {
+			return err
+		}
 	}
 	return nil
 }
