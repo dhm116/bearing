@@ -146,8 +146,9 @@ func compareVersions(a, b [3]int) int {
 
 // vectorText is a vector as pgvector reads it: "[1,0.5]". The elements must
 // be finite and have a norm pgvector can compute, which it does in float32:
-// all zeros, or numbers so small or large that their squares underflow or
-// overflow, have no cosine distance there.
+// all zeros, or numbers so small or large that their squares underflow,
+// lose precision (a sum of squares under 1e-30) or overflow, have no cosine
+// distance there.
 func (c *vectorConfig) vectorText(v []float32) (string, error) {
 	if len(v) != c.dims {
 		return "", fmt.Errorf("vector has %d dimensions, want %d", len(v), c.dims)
@@ -166,7 +167,7 @@ func (c *vectorConfig) vectorText(v []float32) (string, error) {
 		b.WriteString(strconv.FormatFloat(float64(x), 'g', -1, 32))
 	}
 	b.WriteByte(']')
-	if norm == 0 || math.IsInf(float64(norm), 0) {
+	if norm < 1e-30 || math.IsInf(float64(norm), 0) {
 		return "", errors.New("vector is all zeros, or its elements are too small or too large to give it a length")
 	}
 	return b.String(), nil

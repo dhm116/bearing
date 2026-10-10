@@ -53,16 +53,17 @@ func TestUpsertRefusesVectorsTheIndexCannotHold(t *testing.T) {
 	s := openVectorStore(t, 3)
 	good := point("good", "s", model.KindTeam, 1, 2, 3)
 	for name, bad := range map[string]contracts.VectorPoint{
-		"too short":   point("a", "s", model.KindTeam, 1, 2),
-		"too long":    point("a", "s", model.KindTeam, 1, 2, 3, 4),
-		"NaN":         point("a", "s", model.KindTeam, 1, float32(math.NaN()), 3),
-		"infinite":    point("a", "s", model.KindTeam, 1, float32(math.Inf(1)), 3),
-		"all zeros":   point("a", "s", model.KindTeam, 0, 0, 0),
-		"underflows":  point("a", "s", model.KindTeam, 1e-30, 1e-30, 1e-30),
-		"overflows":   point("a", "s", model.KindTeam, 1e30, 1e30, 1e30),
-		"no ID":       point("", "s", model.KindTeam, 1, 2, 3),
-		"no subject":  point("a", "", model.KindTeam, 1, 2, 3),
-		"NUL in text": {ID: "a", SubjectID: "s", Vector: []float32{1, 2, 3}, Text: "a\x00b"},
+		"too short":       point("a", "s", model.KindTeam, 1, 2),
+		"too long":        point("a", "s", model.KindTeam, 1, 2, 3, 4),
+		"NaN":             point("a", "s", model.KindTeam, 1, float32(math.NaN()), 3),
+		"infinite":        point("a", "s", model.KindTeam, 1, float32(math.Inf(1)), 3),
+		"all zeros":       point("a", "s", model.KindTeam, 0, 0, 0),
+		"underflows":      point("a", "s", model.KindTeam, 1e-30, 1e-30, 1e-30),
+		"denormal square": point("a", "s", model.KindTeam, 1e-20, 0, 0),
+		"overflows":       point("a", "s", model.KindTeam, 1e30, 1e30, 1e30),
+		"no ID":           point("", "s", model.KindTeam, 1, 2, 3),
+		"no subject":      point("a", "", model.KindTeam, 1, 2, 3),
+		"NUL in text":     {ID: "a", SubjectID: "s", Vector: []float32{1, 2, 3}, Text: "a\x00b"},
 	} {
 		if err := s.Upsert(ctx, []contracts.VectorPoint{good, bad}); err == nil {
 			t.Errorf("%s: stored the batch", name)
@@ -73,7 +74,7 @@ func TestUpsertRefusesVectorsTheIndexCannotHold(t *testing.T) {
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("got %d hits, %v, want none", len(hits), err)
 	}
-	for name, q := range map[string][]float32{"short": {1, 2}, "zero": {0, 0, 0}, "tiny": {1e-30, 1e-30, 1e-30}, "huge": {1e30, 1e30, 1e30}, "NaN": {float32(math.NaN()), 1, 1}} {
+	for name, q := range map[string][]float32{"short": {1, 2}, "zero": {0, 0, 0}, "tiny": {1e-30, 1e-30, 1e-30}, "denormal": {1e-20, 0, 0}, "huge": {1e30, 1e30, 1e30}, "NaN": {float32(math.NaN()), 1, 1}} {
 		if _, err := s.Search(ctx, contracts.VectorQuery{Vector: q}); err == nil {
 			t.Errorf("%s query: searched", name)
 		}
@@ -351,26 +352,40 @@ func randomPoints(rng *rand.Rand, n, dims int, kind model.Kind) []contracts.Vect
 
 // The HNSW index keeps the entries of replaced and deleted rows until
 // vacuum, and they count against a search's candidates. Re-indexing every
-// point must not make a search come back short.
-func TestSearchAfterEveryPointIsReplacedStillFindsEnough(t *testing.T) {
+// point must not make a search come back short, with or without a filter.
+// (Sized so that pgvector before 0.8 returns a short answer from the index
+// alone, which the search then repeats exactly; the test fails without that.)
+func TestSearchAfterPointsAreReplacedStillFindsEnough(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openVectorStore(t, 4)
+	s := openVectorStore(t, 16)
 	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: seeded test data
-	if err := s.Upsert(ctx, randomPoints(rng, 2000, 4, model.KindTeam)); err != nil {
-		t.Fatal(err)
+	const n = 3000
+	for range 4 {
+		points := randomPoints(rng, n, 16, model.KindComponent)
+		for i := 0; i < n; i += 100 {
+			points[i].Payload = map[string]any{"kind": string(model.KindTeam)}
+		}
+		if err := s.Upsert(ctx, points); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := s.Upsert(ctx, randomPoints(rng, 2000, 4, model.KindTeam)); err != nil {
-		t.Fatal(err)
+	query := make([]float32, 16)
+	for i := range query {
+		query[i] = rng.Float32()*2 - 1
 	}
 	for _, q := range []contracts.VectorQuery{
-		{Vector: []float32{1, 0, 0, 0}, Limit: 10},
-		{Vector: []float32{0, 1, 1, 0}, Limit: 10, Kinds: []model.Kind{model.KindTeam}},
-		{Vector: []float32{0, 0, 1, 1}, Limit: 300},
+		{Vector: query, Limit: 10},
+		{Vector: query, Limit: 300},
+		{Vector: query, Limit: 999},
+		{Vector: query, Limit: maxEfSearch},
+		// 30 teams among 3,000 points, far from the query's neighbours.
+		{Vector: query, Limit: 10, Kinds: []model.Kind{model.KindTeam}},
+		{Vector: query, Limit: 30, Kinds: []model.Kind{model.KindTeam}},
 	} {
 		hits, err := s.Search(ctx, q)
 		if err != nil || len(hits) != q.Limit {
-			t.Fatalf("got %d hits, %v, want %d", len(hits), err, q.Limit)
+			t.Fatalf("limit %d, kinds %v: got %d hits, %v, want %d", q.Limit, q.Kinds, len(hits), err, q.Limit)
 		}
 	}
 }
