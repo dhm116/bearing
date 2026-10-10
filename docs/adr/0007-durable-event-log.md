@@ -44,6 +44,13 @@ the graph quietly.
   `Append`, `Read(from offset)` for a consumer group, `Commit`.
   Partitions are keyed by source entity key, so events about one entity stay
   in order.
+  *Amended 2026-10-10: a partition is the configured source an event is
+  about (`manual` and `core/<name>` for events that belong to none), so the
+  events of one source stay in order and the log needs no key extraction.
+  `Read` takes a partition and an offset and `Commit` and `Committed` keep a
+  group's offset; the log also has `Trim` and `Release` for the retention
+  window, and `Partitions`. The shape is in
+  [`docs/spec/contracts.md`](../spec/contracts.md#eventlog).*
 - **Idempotent, transactional apply.** Each event has a stable ID (the
   source's delivery ID when it has one, otherwise a hash of its content).
   `GraphStore` gains `Apply(ChangeSet)`, which writes the entities, facts and

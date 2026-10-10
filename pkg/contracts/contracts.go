@@ -8,7 +8,7 @@
 //	Interface      Default            Alternatives
 //	GraphStore     PostgreSQL         Neo4j, Apache AGE, Memgraph
 //	VectorIndex    PostgreSQL         Qdrant, OpenSearch, Weaviate
-//	EventBus       NATS JetStream     Kafka, SQS/SNS, Postgres queue
+//	EventLog       PostgreSQL         NATS JetStream, Kafka
 //	Extractor      self-hosted model  hosted models, only when an operator opts in
 //	Judge          Kev 4B             Jev hosted API
 //	PolicyDecider  OPA                Cedar
@@ -58,15 +58,6 @@ type VectorIndex interface {
 	// Repoint moves every point of subject from to subject to, after a
 	// merge (ApplyResult.Merges).
 	Repoint(ctx context.Context, from, to SubjectID) error
-}
-
-// EventBus carries observations and change events between components as
-// CloudEvents. Delivery is at least once; handlers must be idempotent.
-type EventBus interface {
-	Publish(ctx context.Context, topic string, event []byte) error
-	// Subscribe calls handle for each event until ctx is cancelled. Returning
-	// an error from handle asks for redelivery.
-	Subscribe(ctx context.Context, topic, group string, handle func(context.Context, []byte) error) error
 }
 
 // Document is unstructured text for candidate extraction.
