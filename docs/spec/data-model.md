@@ -1235,6 +1235,19 @@ at or before `t` for the facts matching the filter, or nothing if there is
 none. It is how a caller says "nothing changed in the last day; the most
 recent change was on 3 October" without reading further back than that.
 
+**Asking a question about it.** The CLI and the server put a question around
+these calls. A question that names neither end is about the last 24 hours,
+newest first, 100 to a page; a question that names a window or a subject is
+paged the same way. A page that is not the last carries an opaque **page
+token** that holds the whole question (the axis, the resolved window, the
+subject and the cursor), so every page is read on the first page's window and
+a caller gives nothing else with it. The token is not signed: a server that
+accepts one MUST authorize the question it decodes to as it would the same
+question without a token, and refuses a token that is too long, of an unknown
+version or incomplete. When a page has no changes and no token was given, the
+answer says when the newest change before the window happened, from
+`last_change`, or that none has ever been recorded.
+
 ### Data quality
 
 `data_quality(filter, valid_at, recorded_at)` lists issues. The filter

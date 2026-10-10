@@ -346,11 +346,11 @@ func (w *world) readOps(rs *readSet) []opSpec {
 			return err
 		}, maxCalls: 3, onlyOne: true},
 		{name: "bearing changes --since 1 day <repository>", fn: func(ctx context.Context, rng *rand.Rand) error {
-			_, err := q.Changes(ctx, one(rs.repoAlias, rng), rs.lastDay.AddDate(0, 0, -1), zero, query.AxisValid)
+			_, err := q.Changes(ctx, query.ChangesRequest{Ref: one(rs.repoAlias, rng), Since: rs.lastDay.AddDate(0, 0, -1)})
 			return err
 		}},
-		{name: "bearing changes --since 1 day (whole org)", fn: func(ctx context.Context, rng *rand.Rand) error {
-			_, err := q.Changes(ctx, "", rs.lastDay.AddDate(0, 0, -1), zero, query.AxisValid)
+		{name: "bearing changes --since 1 day (whole org, first page of 100)", fn: func(ctx context.Context, rng *rand.Rand) error {
+			_, err := q.Changes(ctx, query.ChangesRequest{Since: rs.lastDay.AddDate(0, 0, -1)})
 			return err
 		}, maxCalls: 2, onlyOne: true},
 	}

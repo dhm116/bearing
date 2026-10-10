@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -77,6 +78,11 @@ func TestQueryGoldens(t *testing.T) {
 
 		// legacy-ops is deleted.
 		{"legacy-ops-get-as-of-before", fakes.TeamDeletedAt, day(2026, 10, 6), []string{"get", "github:team/acme/legacy-ops", "--as-of", "2026-10-04T00:00:00Z"}},
+		// Without a window: the last day, newest first, a page at a time.
+		{"changes-last-day", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"changes"}},
+		{"changes-last-day-first-page", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"changes", "--limit", "3"}},
+		{"changes-nothing-in-the-last-day", fakes.Start, day(2026, 10, 5), []string{"changes"}},
+		{"changes-nothing-in-the-last-day-for-a-repo", fakes.Start, day(2026, 10, 5), []string{"changes", "github:repo/acme/payments-api"}},
 		{"legacy-ops-changes", fakes.TeamDeletedAt, day(2026, 10, 6), []string{"changes", "--since", "2026-10-05T00:00:00Z"}},
 		{"legacy-ops-changes-record-axis", fakes.TeamDeletedAt, day(2026, 10, 6), []string{"changes", "--axis", "record", "--since", "2026-10-05T00:00:00Z", "--as-of", "2026-10-05T16:00:00Z"}},
 		{"legacy-ops-related-as-of-before", fakes.TeamDeletedAt, day(2026, 10, 6), []string{"related", "github:team/acme/legacy-ops", "--as-of", "2026-10-04T00:00:00Z"}},
@@ -354,5 +360,97 @@ func TestEveryAnswerCarriesProvenance(t *testing.T) {
 		if len(ch.Before)+len(ch.After) == 0 {
 			t.Errorf("change %s %s %s has no supports on either side", ch.Subject, ch.Predicate, ch.Object)
 		}
+	}
+}
+
+// With nothing recorded yet, "what changed" says so and does not invent a date.
+func TestChangesOfAnEmptyStoreSayNoneWasRecorded(t *testing.T) {
+	w := newWorld(t)
+	w.at(day(2026, 10, 5))
+	got, err := w.cli("changes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "nothing changed within the last 24 hours; no change has been recorded") {
+		t.Errorf("got:\n%s\nwant it to say nothing changed and none has been recorded", got)
+	}
+}
+
+// A page that is not the last ends with a token, and the token reads the
+// next page of the same question, however much later it is asked.
+func TestChangesPagesFollowTheirToken(t *testing.T) {
+	w := newWorld(t)
+	w.play(fakes.CodeownersChangedAt)
+	w.at(day(2026, 10, 3))
+	var whole query.Changes
+	ask(t, w, &whole, "changes", "--limit", "1000")
+	if len(whole.Changes) < 4 || whole.NextPageToken != "" {
+		t.Fatalf("the whole answer: %d changes, token %q, want several and none", len(whole.Changes), whole.NextPageToken)
+	}
+	// The text form of a first page names the token to give.
+	text, err := w.cli("changes", "--limit", "2")
+	if err != nil || !strings.Contains(text, "For the next page, run bearing changes --page-token ") {
+		t.Errorf("text page: %v\n%s\nwant it to end with the token", err, text)
+	}
+	var (
+		got   []string
+		token string
+		args  = []string{"changes", "--limit", "2"}
+	)
+	for range len(whole.Changes) {
+		var page query.Changes
+		ask(t, w, &page, args...)
+		if !page.Since.Equal(whole.Since) || !page.Until.Equal(whole.Until) {
+			t.Errorf("page on %v to %v, want the first page's %v to %v", page.Since, page.Until, whole.Since, whole.Until)
+		}
+		for _, c := range page.Changes {
+			got = append(got, c.FactID)
+		}
+		if token = page.NextPageToken; token == "" {
+			break
+		}
+		// The next page is asked an hour later and still reads the same window.
+		w.at(w.clock.Now().Add(time.Hour))
+		args = []string{"changes", "--limit", "2", "--page-token", token}
+	}
+	if token != "" {
+		t.Fatal("paging does not end")
+	}
+	var want []string
+	for _, c := range whole.Changes {
+		want = append(want, c.FactID)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("pages hold %v, want %v", got, want)
+	}
+}
+
+// A page reached by a token that comes back empty says the changes ran out,
+// not that none were ever recorded.
+func TestChangesEmptyContinuationSaysTheyRanOut(t *testing.T) {
+	w := newWorld(t)
+	w.play(fakes.CodeownersChangedAt)
+	w.at(day(2026, 10, 3))
+	var first query.Changes
+	ask(t, w, &first, "changes", "--limit", "1")
+	if first.NextPageToken == "" {
+		t.Fatal("the first page has no token")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(first.NextPageToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tok map[string]any
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		t.Fatal(err)
+	}
+	// A cursor at the window's start has nothing after it.
+	tok["changed_at"] = first.Since.Format(time.RFC3339Nano)
+	if raw, err = json.Marshal(tok); err != nil {
+		t.Fatal(err)
+	}
+	got, err := w.cli("changes", "--page-token", base64.RawURLEncoding.EncodeToString(raw))
+	if err != nil || !strings.Contains(got, "no further changes in this window") || strings.Contains(got, "no change has been recorded") {
+		t.Errorf("got %v\n%s\nwant it to say the changes ran out", err, got)
 	}
 }

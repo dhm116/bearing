@@ -1,12 +1,12 @@
-$ bearing changes github:repo/acme/payments --axis record --since 2026-10-02T08:00:00Z --as-of 2026-10-02T09:00:00Z
+$ bearing changes --limit 3
 
-changes of payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] from 2026-10-02T08:00:00Z to 2026-10-02T09:00:00Z, record axis
+changes from 2026-10-02T00:00:00Z to 2026-10-03T00:00:00Z, valid axis
 
 payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] approves_changes Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
   asserted 100% to none 0%, changed 2026-10-02T08:30:00Z
   before
     github-acme: 100%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2 adapter github
-      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
+      valid 2026-09-28T01:30:00Z until 2026-10-02T08:30:00Z, recorded 2026-10-02T08:30:00Z
       evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
@@ -26,10 +26,4 @@ payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Platform [Te
       evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
-payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Payments [Team 01a0e5a2-15c1-7000-8000-000000000001]
-  asserted 95% to none 0%, changed 2026-10-02T08:30:00Z
-  before
-    core/derive/codeowners/github-acme: 95%, observed 2026-09-28T01:30:00Z, event github-acme/sync-1/2
-      valid from 2026-09-28T01:30:00Z, recorded 2026-09-28T01:30:00.001Z
-      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
-      qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
+3 changes shown, newest first. For the next page, run bearing changes --page-token eyJ2IjoxLCJheGlzIjoidmFsaWQiLCJzaW5jZSI6IjIwMjYtMTAtMDJUMDA6MDA6MDBaIiwidW50aWwiOiIyMDI2LTEwLTAzVDAwOjAwOjAwWiIsImRlZmF1bHQiOnRydWUsImNoYW5nZWRfYXQiOiIyMDI2LTEwLTAyVDA4OjMwOjAwWiIsImZhY3RfaWQiOiI4ODdhYTJmY2FjMmQ0YWNjNzQ0ODVlZTk5ODI3MzQzOGY2MThhNWUxZjQxM2I3NDBhNGIwMTgxZmU3NWVlYjQzIn0 with the same --store

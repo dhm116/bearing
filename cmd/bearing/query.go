@@ -94,15 +94,18 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var qf queryFlags
 	qf.register(fs, name)
-	var namespace, predicate, since, axis string
+	var namespace, predicate, since, axis, pageToken string
+	var limit int
 	switch name {
 	case "owner":
 		fs.StringVar(&namespace, "namespace", "github", "namespace of a repository given as <org>/<name>")
 	case "related":
 		fs.StringVar(&predicate, "predicate", "", "only this relation, for example member_of")
 	case "changes":
-		fs.StringVar(&since, "since", "", "start of the window (required): RFC 3339, a date, or a duration back from now")
-		fs.StringVar(&axis, "axis", string(query.AxisValid), "valid: what changed in the world, as known now; record: how Bearing's answers changed")
+		fs.StringVar(&since, "since", "", "start of the window: RFC 3339, a date, or a duration back from now (default 24h before the end)")
+		fs.StringVar(&axis, "axis", "", "valid (default): what changed in the world, as known now; record: how Bearing's answers changed")
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("changes per page, newest first (default %d, at most %d); each page asks for its own size", contracts.DefaultChangesLimit, contracts.MaxChangesLimit))
+		fs.StringVar(&pageToken, "page-token", "", "the token a page of changes ends with: reads the next page of the same question")
 	}
 	pos, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
@@ -115,8 +118,18 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	if want, ok := wantArgs[name]; ok && len(pos) != 1 {
 		return fmt.Errorf("%s takes %s: %w", name, want, errUsage)
 	}
-	if name == "changes" && len(pos) > 1 {
-		return fmt.Errorf("changes takes at most one subject: %w", errUsage)
+	if name == "changes" {
+		if len(pos) > 1 {
+			return fmt.Errorf("changes takes at most one subject: %w", errUsage)
+		}
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		if limit < 0 || limit > contracts.MaxChangesLimit || (set["limit"] && limit == 0) {
+			return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, contracts.MaxChangesLimit, errUsage)
+		}
+		if pageToken != "" && (len(pos) > 0 || set["since"] || set["as-of"] || set["axis"]) {
+			return fmt.Errorf("--page-token carries its question: give no subject, --since, --as-of or --axis with it: %w", errUsage)
+		}
 	}
 
 	url := cmp.Or(qf.store, env.Getenv(storeEnv))
@@ -136,7 +149,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		return err
 	}
 	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	q := &query.Querier{Graph: graph}
+	q := &query.Querier{Graph: graph, Now: env.Now}
 	p := query.Point{Valid: asOf, Recorded: recorded}
 
 	var answer any
@@ -158,20 +171,20 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 			answer, render = r, func(w io.Writer) error { return renderRelations(w, r) }
 		}
 	case "changes":
-		if since == "" {
-			return fmt.Errorf("changes needs --since: %w", errUsage)
-		}
 		var from time.Time
 		if from, err = parseTime(since, env.Now); err != nil {
 			return fmt.Errorf("--since: %w", err)
 		}
-		var ref string
+		req := query.ChangesRequest{Since: from, Until: asOf, Axis: query.Axis(axis), Limit: limit, PageToken: pageToken}
 		if len(pos) == 1 {
-			ref = pos[0]
+			req.Ref = pos[0]
 		}
 		var c *query.Changes
-		if c, err = q.Changes(ctx, ref, from, asOf, query.Axis(axis)); err == nil {
-			answer, render = c, func(w io.Writer) error { return renderChanges(w, c) }
+		if c, err = q.Changes(ctx, req); errors.Is(err, query.ErrBadPageToken) {
+			err = fmt.Errorf("%w: %w", err, errUsage)
+		}
+		if err == nil {
+			answer, render = c, func(w io.Writer) error { return renderChanges(w, c, pageToken != "") }
 		}
 	}
 	if err != nil {
