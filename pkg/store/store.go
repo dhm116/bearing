@@ -53,10 +53,13 @@ type Config struct {
 	Getenv func(string) string
 }
 
-// Store is an open graph store, vector index and event log, all
+// Store is an open graph store, audit log, vector index and event log, all
 // instrumented with OpenTelemetry.
 type Store struct {
 	Graph contracts.GraphStore
+	// Audit is the graph store's audit log, which the graph store writes
+	// itself inside Apply (ADR 8); this reads it.
+	Audit contracts.AuditLog
 	// Events is the durable event log (ADR 7).
 	Events contracts.EventLog
 	// Vectors is nil when the graph backend does not serve vectors (a
@@ -80,6 +83,7 @@ func (s *Store) Close(ctx context.Context) error {
 type backend struct {
 	name   string // for telemetry: "memory", "postgresql"
 	graph  contracts.GraphStore
+	audit  contracts.AuditLog
 	vector contracts.VectorIndex
 	events contracts.EventLog
 	close  func(context.Context) error
@@ -103,7 +107,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		return nil, err
 	}
 	s.closers = append(s.closers, g.close)
-	if g.graph == nil {
+	if g.graph == nil || g.audit == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
 	v := g
@@ -126,6 +130,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		s.closers = append(s.closers, e.close)
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
+	s.Audit = instrument.AuditLog(g.audit, g.name)
 	s.Events = instrument.EventLog(e.events, e.name)
 	if v.vector != nil {
 		s.Vectors = instrument.VectorIndex(v.vector, v.name)
@@ -141,7 +146,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	switch u.Scheme {
 	case "mem":
 		m := memstore.New()
-		return backend{name: "memory", graph: m, vector: m, events: m, close: func(context.Context) error { return nil }}, nil
+		return backend{name: "memory", graph: m, audit: m.AuditLog(), vector: m, events: m, close: func(context.Context) error { return nil }}, nil
 	case "postgres", "postgresql":
 		return openPostgres(ctx, u, getenv)
 	}

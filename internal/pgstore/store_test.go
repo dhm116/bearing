@@ -450,10 +450,15 @@ func TestAStoreMidRestoreRefusesEverythingButRestore(t *testing.T) {
 	}
 	other := reopen(t, o, clk) // a restarted process
 	for name, err := range map[string]error{
-		"Head":   func() error { _, err := other.Head(ctx); return err }(),
-		"State":  func() error { _, err := other.State(ctx, []string{"s0-00000"}, time.Time{}); return err }(),
-		"Apply":  func() error { _, err := other.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "late"}); return err }(),
-		"Backup": other.Backup(ctx, &bytes.Buffer{}),
+		"Head":       func() error { _, err := other.Head(ctx); return err }(),
+		"State":      func() error { _, err := other.State(ctx, []string{"s0-00000"}, time.Time{}); return err }(),
+		"Apply":      func() error { _, err := other.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "late"}); return err }(),
+		"Backup":     other.Backup(ctx, &bytes.Buffer{}),
+		"Audit Head": func() error { _, err := other.AuditLog().Head(ctx); return err }(),
+		"Audit Query": func() error {
+			_, err := other.AuditLog().Query(ctx, contracts.AuditFilter{Limit: 1})
+			return err
+		}(),
 	} {
 		if !errors.Is(err, ErrRestoring) {
 			t.Errorf("%s: got %v, want ErrRestoring", name, err)

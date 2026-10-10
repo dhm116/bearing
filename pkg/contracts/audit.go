@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
@@ -112,6 +113,9 @@ func CheckAuditFilter(f AuditFilter) error {
 		if len(s.v) > s.limit {
 			return fmt.Errorf("%w: %s is %d bytes, over the limit of %d", ErrInvalidAuditQuery, s.what, len(s.v), s.limit)
 		}
+	}
+	if !utf8.ValidString(f.EventID) || strings.ContainsRune(f.EventID, 0) {
+		return fmt.Errorf("%w: event ID is not text", ErrInvalidAuditQuery)
 	}
 	if _, known := modelv1alpha1.AuditTargetKind_name[int32(f.TargetKind)]; !known {
 		return fmt.Errorf("%w: target kind %d is not known", ErrInvalidAuditQuery, int32(f.TargetKind))

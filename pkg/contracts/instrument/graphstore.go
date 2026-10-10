@@ -40,6 +40,9 @@ var (
 	merged = must(meter.Int64Counter("bearing.graph.subjects.merged",
 		metric.WithDescription("Subjects merged into another, by rule."),
 		metric.WithUnit("{merge}")))
+	auditRecords = must(meter.Int64Counter("bearing.audit.records",
+		metric.WithDescription("Audit records written by applied ChangeSets, by action. The log only grows, so this is its growth."),
+		metric.WithUnit("{record}")))
 	keyLookups = must(meter.Int64Counter("bearing.graph.key.lookups",
 		metric.WithDescription("Keys resolved to subjects, by result (hit, miss). A high miss rate means identity resolution is behind."),
 		metric.WithUnit("{lookup}")))
@@ -56,6 +59,7 @@ const (
 	attrEvent     = attribute.Key("bearing.event.id")
 	attrResult    = attribute.Key("bearing.result")
 	attrRule      = attribute.Key("bearing.rule")
+	attrAction    = attribute.Key("bearing.audit.action")
 	attrCount     = attribute.Key("bearing.results.count")
 	attrNamespace = attribute.Key("bearing.key.namespace")
 	attrPrefix    = attribute.Key("bearing.state.prefix")
@@ -147,6 +151,9 @@ func (g *graphStore) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (re
 		}
 		for _, m := range res.Merges {
 			merged.Add(ctx, 1, metric.WithAttributes(attrRule.String(model.ShortName(m.GetRule()))))
+		}
+		for _, e := range res.Audit {
+			auditRecords.Add(ctx, 1, metric.WithAttributes(attrBackend.String(g.backend), attrAction.String(model.ShortName(e.GetAction()))))
 		}
 		for _, e := range cs.GetState() {
 			stateEntryBytes.Record(ctx, int64(len(e.GetValue().GetValue())), metric.WithAttributes(attrPrefix.String(statePrefix(e.GetKey()))))

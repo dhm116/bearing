@@ -164,7 +164,7 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	if err != nil {
 		return backend{}, fmt.Errorf("store: %w", err)
 	}
-	b := backend{name: "postgresql", graph: st, events: st, close: st.Close}
+	b := backend{name: "postgresql", graph: st, audit: st.AuditLog(), events: st, close: st.Close}
 	if o.VectorDimensions > 0 {
 		b.vector = st
 	}

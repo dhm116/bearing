@@ -267,3 +267,63 @@ func TestNoSubjectIDHidesInAMapValue(t *testing.T) {
 		t.Fatal("found no map of messages to check; the walk is broken")
 	}
 }
+
+func auditCS(event string, entries ...*modelv1alpha1.AuditEntry) *modelv1alpha1.ChangeSet {
+	return &modelv1alpha1.ChangeSet{EventId: event, Audit: entries}
+}
+
+func bindingEntry(alias string) *modelv1alpha1.AuditEntry {
+	return &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: alias},
+	}
+}
+
+func TestAuditReadsRefuseACanceledContext(t *testing.T) {
+	s, _ := newTestStore()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.AuditLog().Head(ctx); err == nil {
+		t.Error("Head answered a canceled context")
+	}
+	if _, err := s.AuditLog().Query(ctx, contracts.AuditFilter{Limit: 1}); err == nil {
+		t.Error("Query answered a canceled context")
+	}
+}
+
+// A backend that keeps the records itself runs each apply on a scratch store
+// that starts from the log's head.
+func TestAScratchStoreChainsFromTheHeadItIsGiven(t *testing.T) {
+	s, _ := newTestStore()
+	head := contracts.AuditHead{Seq: 41, Hash: bytes.Repeat([]byte{7}, 32), RecordedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}
+	s.LoadAuditHead(head)
+	if _, err := s.Apply(context.Background(), auditCS("e1", bindingEntry("github:repo/acme/a"), bindingEntry("github:repo/acme/b"))); err != nil {
+		t.Fatal(err)
+	}
+	recs := s.AuditRecords()
+	if len(recs) != 2 || recs[0].GetSeq() != 42 || !bytes.Equal(recs[0].GetPrevHash(), head.Hash) || recs[1].GetSeq() != 43 || !bytes.Equal(recs[1].GetPrevHash(), recs[0].GetHash()) {
+		t.Fatalf("got %v, want records 42 and 43 chained from the loaded head", recs)
+	}
+	pos := s.AuditPosition()
+	if pos.Seq != 43 || !bytes.Equal(pos.Hash, recs[1].GetHash()) || !pos.RecordedAt.Equal(recs[1].GetRecordedAt().AsTime()) {
+		t.Fatalf("got position %+v, want the second record", pos)
+	}
+	// What the caller gets back is a copy.
+	pos.Hash[0] ^= 0xff
+	if again := s.AuditPosition(); !bytes.Equal(again.Hash, recs[1].GetHash()) {
+		t.Fatal("a caller changed the store's head through AuditPosition")
+	}
+}
+
+// A journal entry whose record time is not a whole number of microseconds
+// can't be replayed: the PostgreSQL store keeps microseconds, so it would
+// restore a different time than the record hashed.
+func TestReplayRefusesASubMicrosecondRecordTime(t *testing.T) {
+	s := New()
+	at := time.Date(2026, 9, 28, 1, 30, 2, 1, time.UTC) // one nanosecond
+	e := &modelv1alpha1.JournalEntry{ChangeSet: &modelv1alpha1.ChangeSet{EventId: "e1", RecordedAt: timestamppb.New(at)}}
+	if _, err := s.Replay(e, at.Add(time.Hour)); err == nil {
+		t.Fatal("replayed a record time with nanoseconds")
+	}
+}

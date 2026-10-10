@@ -211,6 +211,7 @@ func TestPostgresServesTheGraphWithoutVectorDimensions(t *testing.T) {
 	if head, err := s.Graph.Head(ctx); err != nil || !head.Equal(res.RecordedAt) {
 		t.Fatalf("got head %v, %v, want %v", head, err, res.RecordedAt)
 	}
+	applyAudited(t, s, "store-audited")
 	// Asking for it as the vector index without dimensions is an error that
 	// says so.
 	_, err = Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})
