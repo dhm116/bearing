@@ -822,9 +822,13 @@ reach, so they are retired and their numbers are not reused.
   fact row of the graph once, plus one more time for each held block of
   timelines that the page needs; facts that changed at one instant, as in an
   import, can only be told apart by loading all of them, so a page of such
-  facts costs a scan per block. A batch also loads every series that names
-  the batch's subjects, so memory and time grow with the degree of the
-  busiest subject, such as an organization that owns every repository. A
+  facts costs a scan per block. A batch also loads the series that could
+  canonicalize to its facts, and no others: those with the same predicate
+  whose subject is in the merge component of a candidate's subject and whose
+  object is in that of its object. A subject that thousands of facts point at,
+  such as an organization that owns every repository, is not loaded for the
+  facts about one repository; what a batch holds grows with the number of
+  values one subject has for one predicate. A
   cursor is untrusted input: it narrows nothing, since any change newer than
   it must still be found. An index on when facts changed would remove the scan
   (#167 follow-ups). `Changes` itself still loads every match.

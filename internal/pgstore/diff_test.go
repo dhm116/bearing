@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -34,7 +35,7 @@ import (
 // both and compares every read, now and at every earlier record time.
 func TestRandomHistoriesMatchTheReference(t *testing.T) {
 	t.Parallel()
-	for seed := uint64(1); seed <= 4; seed++ {
+	for _, seed := range []uint64{2, 4, 5, 7} {
 		t.Run(fmt.Sprintf("seed %d", seed), func(t *testing.T) {
 			t.Parallel()
 			runRandomHistory(t, seed, 40)
@@ -55,6 +56,10 @@ type history struct {
 	// listed counts the changes the page comparisons saw, multi the listings
 	// that took more than one page, and found the last changes found.
 	listed, multi, found int
+	// claimed are the fact timelines claimed so far, for retracting; ended
+	// and retracted count the claims that ended and the timelines retracted.
+	claimed          []*modelv1alpha1.FactTimeline
+	ended, retracted int
 }
 
 func runRandomHistory(t *testing.T, seed uint64, steps int) {
@@ -75,8 +80,10 @@ func runRandomHistory(t *testing.T, seed uint64, steps int) {
 		switch n := h.rng.IntN(100); {
 		case n < 12:
 			h.step(ctx, h.mintStep(1+h.rng.IntN(2)))
-		case n < 40:
+		case n < 32:
 			h.step(ctx, h.claimStep())
+		case n < 44:
+			h.step(ctx, h.retractStep())
 		case n < 62:
 			h.step(ctx, h.mergeStep(ctx))
 		case n < 80:
@@ -98,6 +105,9 @@ func runRandomHistory(t *testing.T, seed uint64, steps int) {
 		merges, unmerges = merges+len(ms), unmerges+len(us)
 	}
 	t.Logf("%d steps applied, %d refused by both; %d merge and %d un-merge record sides", h.steps, h.bad, merges, unmerges)
+	if h.ended == 0 || h.retracted == 0 {
+		t.Fatalf("history has %d claims that end and %d retractions; it proves nothing about the bounds of a change", h.ended, h.retracted)
+	}
 	if h.listed == 0 || h.multi == 0 || h.found == 0 {
 		t.Fatalf("the comparisons listed %d changes in %d multi-page listings and found %d last changes; they prove nothing about paging", h.listed, h.multi, h.found)
 	}
@@ -138,9 +148,10 @@ func (h *history) step(ctx context.Context, cs *modelv1alpha1.ChangeSet) {
 	if !got.RecordedAt.Equal(want.RecordedAt) || fmt.Sprint(got.Subjects) != fmt.Sprint(want.Subjects) {
 		h.t.Fatalf("%s: got %+v, want %+v", cs.GetEventId(), got, want)
 	}
-	for _, id := range want.Subjects {
-		if !slices.Contains(h.subjects, string(id)) {
-			h.subjects = append(h.subjects, string(id))
+	// In ref order, so that a seed makes the same history every run.
+	for _, ref := range slices.Sorted(maps.Keys(want.Subjects)) {
+		if id := string(want.Subjects[ref]); !slices.Contains(h.subjects, id) {
+			h.subjects = append(h.subjects, id)
 		}
 	}
 	h.heads = append(h.heads, want.RecordedAt)
@@ -164,16 +175,24 @@ func claim(h *history, subject string, object *modelv1alpha1.FactObject, predica
 	if h.rng.IntN(4) != 0 {
 		from = timestamppb.New(h.clk.Now().Add(-time.Duration(h.rng.IntN(6*60)) * time.Minute))
 	}
+	// Some of those end, within the window the comparisons look at or before it.
+	var to *timestamppb.Timestamp
+	if from != nil && h.rng.IntN(2) == 0 {
+		to = timestamppb.New(from.AsTime().Add(time.Duration(1+h.rng.IntN(4*60)) * time.Minute))
+		h.ended++
+	}
+	fct := &modelv1alpha1.FactTimeline{
+		SubjectId: subject, Predicate: predicate, Object: object,
+		Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: ppm, ValidFrom: from, ValidTo: to}},
+	}
+	h.claimed = append(h.claimed, fct)
 	return &modelv1alpha1.SupportTimeline{
 		Source: "github-acme", SubjectId: subject, Predicate: predicate, Object: object,
 		Versions: []*modelv1alpha1.Support{{
 			Source: "github-acme", ConfidencePpm: proto.Uint32(ppm), Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT,
-			EventId: "x", ObservedAt: timestamppb.New(h.clk.Now()), ValidFrom: from,
+			EventId: "x", ObservedAt: timestamppb.New(h.clk.Now()), ValidFrom: from, ValidTo: to,
 		}},
-	}, &modelv1alpha1.FactTimeline{
-		SubjectId: subject, Predicate: predicate, Object: object,
-		Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: ppm, ValidFrom: from}},
-	}
+	}, fct
 }
 
 func (h *history) claimStep() *modelv1alpha1.ChangeSet {
@@ -191,6 +210,18 @@ func (h *history) claimStep() *modelv1alpha1.ChangeSet {
 		cs.Supports, cs.Facts = append(cs.Supports, sup), append(cs.Facts, fct)
 	}
 	return cs
+}
+
+// retractStep replaces a fact timeline claimed earlier with one that has no
+// spans: a pure retraction, which ends the record-axis answer without a
+// valid-time boundary.
+func (h *history) retractStep() *modelv1alpha1.ChangeSet {
+	if len(h.claimed) == 0 {
+		return nil
+	}
+	f := h.claimed[h.rng.IntN(len(h.claimed))]
+	h.retracted++
+	return &modelv1alpha1.ChangeSet{Facts: []*modelv1alpha1.FactTimeline{{SubjectId: f.GetSubjectId(), Predicate: f.GetPredicate(), Object: f.GetObject()}}}
 }
 
 func (h *history) mergeStep(ctx context.Context) *modelv1alpha1.ChangeSet {

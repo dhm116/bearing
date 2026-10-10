@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,17 +26,20 @@ import (
 //  1. Scan the fact rows once, keeping for each timeline the newest instant
 //     in the window at which one of its rows starts, ends, was recorded or
 //     was retracted: an upper bound on when its facts changed. Only the
-//     newest few thousand timelines are held; a read that needs more scans
-//     again from where the last scan ended.
-//  2. Load the newest of them a batch at a time, with every series that names
-//     the same subjects (so merges canonicalize as they do everywhere else),
-//     and run the reference store's own Changes or LastChange on the batch.
+//     newest 32,768 timelines are held; a read that needs more scans again
+//     from where the last scan ended.
+//  2. Load the newest of them a batch at a time, with the series that could
+//     canonicalize to the same facts (so merges resolve as they do everywhere
+//     else), and run the reference store's own Changes or LastChange on the
+//     batch.
 //  3. Stop at the first batch the answer cannot come from: when the page is
 //     full of changes newer than every bound still unvisited.
 //
 // What a read holds is a batch and a page, however many timelines the window
-// touches. The scan reads every fact row of the graph once; an index on the
-// instants would turn that into a lookup (#167).
+// touches. The scan reads every fact row of the graph once, and again for
+// each held block that the page needs, which facts that changed at one
+// instant can make many; an index on the instants would turn that into a
+// lookup (#167).
 const (
 	// defaultChangesBatch is how many timelines are loaded at once.
 	defaultChangesBatch = 128
@@ -126,7 +131,7 @@ func (s *Store) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (co
 			if len(found) >= need && found[need-1].GetChangedAt().AsTime().After(batch[0].bound) {
 				return true, nil
 			}
-			m, err := s.loadBatch(ctx, q, meta, r.Filter.Predicate, batch)
+			m, err := s.loadBatch(ctx, q, meta, batch)
 			if err != nil {
 				return false, err
 			}
@@ -179,7 +184,7 @@ func (s *Store) LastChange(ctx context.Context, f contracts.FactFilter, t time.T
 			if !best.IsZero() && !batch[0].bound.After(best) {
 				return true, nil
 			}
-			m, err := s.loadBatch(ctx, q, meta, f.Predicate, batch)
+			m, err := s.loadBatch(ctx, q, meta, batch)
 			if err != nil {
 				return false, err
 			}
@@ -303,24 +308,93 @@ func scan(ctx context.Context, q querier, predicate string, axis contracts.Axis,
 	return out, more, nil
 }
 
-// loadBatch loads the timelines of batch with everything that names their
-// subjects into a scratch store.
-func (s *Store) loadBatch(ctx context.Context, q querier, meta metaRow, predicate string, batch []candidate) (*memstore.Store, error) {
+// loadBatch loads the timelines of batch into a scratch store, with the
+// series that could canonicalize to the same facts and no others: those with
+// the same predicate whose subject is in the merge component of a
+// candidate's subject and whose object is in that of its object. A subject
+// that many facts point at, such as a team that owns every repository, is
+// not loaded for the facts about one of them.
+func (s *Store) loadBatch(ctx context.Context, q querier, meta metaRow, batch []candidate) (*memstore.Store, error) {
 	kids := make([][]byte, len(batch))
 	for i, c := range batch {
 		kids[i] = c.kid
 	}
-	rows, err := q.Query(ctx, `SELECT DISTINCT subject FROM series_subject WHERE tbl = $1 AND kid = ANY($2)`, tbl(memstore.TableFacts), kids)
+	rows, err := q.Query(ctx, `SELECT s.head FROM series s WHERE s.tbl = $1 AND s.kid = ANY($2)`, tbl(memstore.TableFacts), kids)
 	if err != nil {
-		return nil, fmt.Errorf("load subjects of fact timelines: %w", err)
+		return nil, fmt.Errorf("load heads of fact timelines: %w", err)
 	}
-	subjects, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	heads, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
-		return nil, fmt.Errorf("load subjects of fact timelines: %w", err)
+		return nil, fmt.Errorf("load heads of fact timelines: %w", err)
 	}
-	ld, err := load(ctx, q, meta, scope{
-		Claims: []memstore.Table{memstore.TableFacts, memstore.TableSupports}, ClaimSubjects: subjects, Predicate: predicate,
-	})
+	components := map[string][]string{} // a subject's merge component, by subject
+	component := func(ids []string) (string, []string, error) {
+		var out []string
+		for _, id := range ids {
+			if _, ok := components[id]; !ok {
+				c, err := expand(ctx, q, []string{id})
+				if err != nil {
+					return "", nil, err
+				}
+				components[id] = c
+			}
+			out = append(out, components[id]...)
+		}
+		slices.Sort(out)
+		out = slices.Compact(out)
+		return strings.Join(out, ","), out, nil
+	}
+	want := map[memstore.Table]map[string][]byte{memstore.TableFacts: {}, memstore.TableSupports: {}}
+	seen := map[string]bool{}
+	for _, h := range heads {
+		var ft modelv1alpha1.FactTimeline
+		if err := proto.Unmarshal(h, &ft); err != nil {
+			return nil, fmt.Errorf("fact timeline head: %w", err)
+		}
+		from, fromIDs, err := component([]string{ft.GetSubjectId()})
+		if err != nil {
+			return nil, err
+		}
+		to, toIDs, err := component(memstore.SubjectsIn(ft.GetObject()))
+		if err != nil {
+			return nil, err
+		}
+		id := from + "|" + to + "|" + ft.GetPredicate()
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		sql := `SELECT a.tbl, a.kid FROM series_subject a JOIN series s ON s.tbl = a.tbl AND s.kid = a.kid
+			WHERE a.tbl = ANY($1) AND a.subject = ANY($2) AND s.predicate = $3`
+		args := []any{[]int16{tbl(memstore.TableFacts), tbl(memstore.TableSupports)}, fromIDs, []byte(ft.GetPredicate())}
+		if len(toIDs) > 0 {
+			sql += ` AND EXISTS (SELECT 1 FROM series_subject b WHERE b.tbl = a.tbl AND b.kid = a.kid AND b.subject = ANY($4))`
+			args = append(args, toIDs)
+		}
+		rows, err := q.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, fmt.Errorf("load series of fact %s: %w", ft.GetPredicate(), err)
+		}
+		found, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (k struct {
+			tbl int16
+			kid []byte
+		}, err error,
+		) {
+			err = r.Scan(&k.tbl, &k.kid)
+			return k, err
+		})
+		if err != nil {
+			return nil, fmt.Errorf("load series of fact %s: %w", ft.GetPredicate(), err)
+		}
+		for _, f := range found {
+			want[memstore.Table(f.tbl)][string(f.kid)] = f.kid
+		}
+	}
+	sc := scope{Kids: map[memstore.Table][][]byte{}}
+	for t, m := range want {
+		sc.Kids[t] = slices.Collect(maps.Values(m))
+	}
+	ld, err := load(ctx, q, meta, sc)
 	if err != nil {
 		return nil, err
 	}

@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
 )
@@ -61,7 +63,7 @@ func TestChangesPageLoadsOnlyTheNewestCandidates(t *testing.T) {
 		switch {
 		case strings.HasPrefix(sql, "SELECT v.kid, v.rec, v.ret, v.data FROM version v"):
 			scans++
-		case strings.HasPrefix(sql, "SELECT DISTINCT subject FROM series_subject"):
+		case strings.HasPrefix(sql, "SELECT s.head FROM series s WHERE s.tbl = $1 AND s.kid = ANY"):
 			batches++
 		}
 	}})
@@ -114,7 +116,7 @@ func scanCounter(s *Store, scans, batches, everything *int) *Store {
 		switch {
 		case strings.HasPrefix(sql, "SELECT v.kid, v.rec, v.ret, v.data FROM version v"):
 			*scans++
-		case strings.HasPrefix(sql, "SELECT DISTINCT subject FROM series_subject"):
+		case strings.HasPrefix(sql, "SELECT s.head FROM series s WHERE s.tbl = $1 AND s.kid = ANY"):
 			*batches++
 		case strings.HasSuffix(sql, "FROM series s WHERE s.tbl = $1"):
 			*everything++
@@ -195,5 +197,221 @@ func TestChangesPageOfFactsChangedAtOneInstant(t *testing.T) {
 	page, err := counting.ChangesPage(ctx, r)
 	if err != nil || len(page.Changes) != 0 || page.Next != nil || scans != 0 || batches != 0 {
 		t.Errorf("a cursor at the window's start: got %d changes, %d scans, %d batches, %v; want an empty page for free", len(page.Changes), scans, batches, err)
+	}
+}
+
+// pair is a PostgreSQL store and the reference store given the same
+// history, with batches and scans small enough that a few facts span many.
+type pair struct {
+	t   *testing.T
+	pg  *Store
+	ref *memstore.Store
+	clk *testkit.FakeClock
+}
+
+func newPair(t *testing.T) *pair {
+	t.Helper()
+	pg, clk := graphStoreAt(t)
+	pg.changesBatch, pg.changesHeld = 2, 3
+	ref := memstore.New()
+	ref.Now, ref.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	return &pair{t, pg, ref, clk}
+}
+
+// apply gives both stores cs a minute later.
+func (p *pair) apply(cs *modelv1alpha1.ChangeSet) contracts.ApplyResult {
+	p.t.Helper()
+	ctx := context.Background()
+	if head, _ := p.ref.Head(ctx); !head.IsZero() {
+		cs.BaseRecordedAt = timestamppb.New(head)
+	}
+	p.clk.Advance(time.Minute)
+	res, err := p.ref.Apply(ctx, proto.CloneOf(cs))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	if _, err := p.pg.Apply(ctx, cs); err != nil {
+		p.t.Fatal(err)
+	}
+	return res
+}
+
+// teams mints n teams and returns their IDs.
+func (p *pair) teams(n int) []string {
+	cs := &modelv1alpha1.ChangeSet{EventId: "mint"}
+	for i := range n {
+		cs.Mints = append(cs.Mints, mint(fmt.Sprintf("new:t%d", i)))
+	}
+	res := p.apply(cs)
+	ids := make([]string, n)
+	for i := range ids {
+		ids[i] = string(res.Subjects[fmt.Sprintf("new:t%d", i)])
+	}
+	return ids
+}
+
+func mint(ref string) *modelv1alpha1.Mint {
+	return &modelv1alpha1.Mint{Ref: ref, Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}
+}
+
+// named is a team's name from from until to; a zero time is unbounded.
+func named(id, value string, from, to time.Time) *modelv1alpha1.FactTimeline {
+	sp := &modelv1alpha1.FactSpan{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: 1_000_000}
+	if !from.IsZero() {
+		sp.ValidFrom = timestamppb.New(from)
+	}
+	if !to.IsZero() {
+		sp.ValidTo = timestamppb.New(to)
+	}
+	return &modelv1alpha1.FactTimeline{
+		SubjectId: id, Predicate: "name", Spans: []*modelv1alpha1.FactSpan{sp},
+		Object: &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewStringValue(value)},
+	}
+}
+
+// same lists r page by page from both stores, fails unless they agree on
+// every page, and returns how many changes there were.
+func (p *pair) same(r contracts.ChangesRequest) int {
+	p.t.Helper()
+	ctx := context.Background()
+	pgReq, refReq := r, r
+	n := 0
+	for page := 1; page < 200; page++ {
+		want, err := p.ref.ChangesPage(ctx, refReq)
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		got, err := p.pg.ChangesPage(ctx, pgReq)
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		if !slices.Equal(factIDs(got.Changes), factIDs(want.Changes)) || fmt.Sprint(got.Next) != fmt.Sprint(want.Next) {
+			p.t.Fatalf("%+v page %d: got %v next %v, want %v next %v", r, page, factIDs(got.Changes), got.Next, factIDs(want.Changes), want.Next)
+		}
+		n += len(want.Changes)
+		if want.Next == nil {
+			return n
+		}
+		refReq.T1, refReq.T2, refReq.After = want.T1, want.T2, want.Next
+		pgReq.T1, pgReq.T2, pgReq.After = got.T1, got.T2, got.Next
+	}
+	p.t.Fatal("a listing never ends")
+	return n
+}
+
+func factIDs(cs []*modelv1alpha1.FactChange) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.GetFactId()
+	}
+	return out
+}
+
+// A fact whose only boundary in the window is its end is a candidate: it
+// stopped being true, which is the change a membership that ended is.
+func TestChangesPageListsFactsThatEndedInTheWindow(t *testing.T) {
+	p := newPair(t)
+	ids := p.teams(6)
+	cs := &modelv1alpha1.ChangeSet{EventId: "names", Facts: []*modelv1alpha1.FactTimeline{named(ids[0], "old", day(0), day(10))}}
+	for i := 1; i < 6; i++ {
+		cs.Facts = append(cs.Facts, named(ids[i], fmt.Sprint(i), day(11+i), time.Time{}))
+	}
+	p.apply(cs)
+	p.clk.Set(day(30))
+	if n := p.same(contracts.ChangesRequest{T1: day(5), T2: day(20), Axis: contracts.AxisValid, Limit: 2}); n != 6 {
+		t.Fatalf("listed %d changes, want the five starts and the one end", n)
+	}
+}
+
+// A timeline replaced by one with no spans is a change on the record axis
+// that no valid-time boundary marks.
+func TestChangesPageListsRetractionsOnTheRecordAxis(t *testing.T) {
+	ctx := context.Background()
+	p := newPair(t)
+	ids := p.teams(4)
+	cs := &modelv1alpha1.ChangeSet{EventId: "names"}
+	for i, id := range ids {
+		cs.Facts = append(cs.Facts, named(id, fmt.Sprint(i), day(0), time.Time{}))
+	}
+	p.apply(cs)
+	before, _ := p.ref.Head(ctx)
+	retraction := named(ids[0], "0", time.Time{}, time.Time{})
+	retraction.Spans = nil
+	p.apply(&modelv1alpha1.ChangeSet{EventId: "retract", Facts: []*modelv1alpha1.FactTimeline{retraction}})
+	after, _ := p.ref.Head(ctx)
+	p.clk.Set(day(30))
+	if n := p.same(contracts.ChangesRequest{T1: before, T2: after, Axis: contracts.AxisRecord, Limit: 2}); n != 1 {
+		t.Fatalf("listed %d changes, want the retraction", n)
+	}
+}
+
+// Facts that changed at one instant are listed in fact ID order with none
+// dropped at the edge of a page, whatever the page size.
+func TestChangesPageKeepsTiesAtThePageEdge(t *testing.T) {
+	p := newPair(t)
+	ids := p.teams(9)
+	cs := &modelv1alpha1.ChangeSet{EventId: "names"}
+	for i, id := range ids {
+		cs.Facts = append(cs.Facts, named(id, fmt.Sprint(i), day(10), time.Time{}))
+	}
+	p.apply(cs)
+	p.clk.Set(day(30))
+	for limit := 1; limit <= 5; limit++ {
+		if n := p.same(contracts.ChangesRequest{T1: day(5), T2: day(20), Axis: contracts.AxisValid, Limit: limit}); n != 9 {
+			t.Fatalf("limit %d: listed %d changes, want 9", limit, n)
+		}
+	}
+}
+
+// A subject that many facts point at is not loaded for the facts about one
+// of the things that point at it.
+func TestChangesPageBatchDoesNotLoadWhatPointsAtASharedSubject(t *testing.T) {
+	ctx := context.Background()
+	p := newPair(t)
+	ids := p.teams(41)
+	hub := ids[0]
+	cs := &modelv1alpha1.ChangeSet{EventId: "owners"}
+	for i := 1; i < 41; i++ {
+		ft := named(ids[i], "", day(i), time.Time{})
+		ft.Predicate, ft.Object = "owned_by", &modelv1alpha1.FactObject{SubjectId: hub}
+		cs.Facts = append(cs.Facts, ft)
+		cs.Supports = append(cs.Supports, &modelv1alpha1.SupportTimeline{
+			Source: "github-acme", SubjectId: ids[i], Predicate: "owned_by", Object: ft.Object,
+			Versions: []*modelv1alpha1.Support{{Source: "github-acme", ConfidencePpm: proto.Uint32(1_000_000), Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT, EventId: "x", ObservedAt: timestamppb.New(p.clk.Now()), ValidFrom: timestamppb.New(day(i))}},
+		})
+	}
+	p.apply(cs)
+	p.clk.Set(day(100))
+	if n := p.same(contracts.ChangesRequest{T1: day(0), T2: day(60), Axis: contracts.AxisValid, Limit: 7}); n != 40 {
+		t.Fatalf("listed %d changes, want 40", n)
+	}
+	// The batch for two of the owned teams holds their facts and no other.
+	var loaded int
+	err := p.pg.readTx(ctx, func(q querier) error {
+		meta, err := readMeta(ctx, q, false)
+		if err != nil {
+			return err
+		}
+		rows, err := q.Query(ctx, `SELECT kid FROM series WHERE tbl = $1 AND predicate = $2 ORDER BY key LIMIT 2`, tbl(memstore.TableFacts), []byte("owned_by"))
+		if err != nil {
+			return err
+		}
+		kids, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
+		if err != nil {
+			return err
+		}
+		m, err := p.pg.loadBatch(ctx, q, meta, []candidate{{kid: kids[0]}, {kid: kids[1]}})
+		if err != nil {
+			return err
+		}
+		states, err := m.AsOf(ctx, contracts.FactFilter{}, day(100), time.Time{})
+		loaded = len(states)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != 2 {
+		t.Errorf("a batch of 2 facts loaded %d facts, want 2: the shared subject drags in everything pointing at it", loaded)
 	}
 }
