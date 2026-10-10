@@ -3,6 +3,7 @@ package pgstore
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
@@ -83,7 +84,8 @@ func replayBackends() map[string]func(testing.TB) dumpable {
 // A graph built live from the log, and one built by replaying the log into an
 // empty store, are the same graph apart from what the clock and the ID source
 // decided. The replay reads ObservationsEmitted events only (the log also
-// holds the requests and deliveries they answer), applies them in its own
+// holds the requests and deliveries they answer, and the replay is given a
+// log without them), applies them in its own
 // store and so writes an audit chain of its own, and leaves the live chain
 // alone.
 func TestReplayingTheLogIntoAnEmptyStoreGivesTheSameGraph(t *testing.T) {
@@ -118,11 +120,20 @@ func TestReplayingTheLogIntoAnEmptyStoreGivesTheSameGraph(t *testing.T) {
 				t.Fatalf("the live run applied %d events for %d observations", len(want.Journal), observations)
 			}
 
+			// The replay's log holds nothing but the observations, so it cannot
+			// lean on any other event. It has the same partitions, in the same
+			// order, as the live log.
+			observationsOnly := memstore.New()
+			if _, err := observationsOnly.Append(ctx, slices.DeleteFunc(slices.Clone(events), func(e contracts.Event) bool {
+				return e.Type != "dev.bearing.observations_emitted.v1"
+			})); err != nil {
+				t.Fatal(err)
+			}
 			for replayName, openReplay := range replayBackends() {
 				t.Run("replay into "+replayName, func(t *testing.T) {
 					t.Parallel()
 					replay := openReplay(t)
-					rw := &worker{log: live, store: replay, resolver: storyResolver(t, replay)}
+					rw := &worker{log: observationsOnly, store: replay, resolver: storyResolver(t, replay)}
 					n, err := rw.drain(ctx)
 					if err != nil {
 						t.Fatal(err)

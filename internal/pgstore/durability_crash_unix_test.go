@@ -252,8 +252,31 @@ func mapKeys[K comparable, V any](m map[K]V) func(func(K) bool) {
 
 // child is a run of the test binary as the worker.
 type child struct {
-	cmd *exec.Cmd
-	out bytes.Buffer
+	cmd    *exec.Cmd
+	out    bytes.Buffer
+	secret string // the database password, which the output must not hold
+}
+
+// tail is the end of the child's output, enough to see why it failed.
+func (c *child) tail() string {
+	const limit = 8 << 10
+	s := c.out.String()
+	if len(s) > limit {
+		s = "..." + s[len(s)-limit:]
+	}
+	return s
+}
+
+// childEnviron is the environment a child gets: what a Go test binary needs
+// to run, and the configuration, but none of the parent's credentials.
+func childEnviron(config, password string) []string {
+	env := []string{childEnv + "=" + config, childAuthEnv + "=" + password}
+	for _, k := range []string{"PATH", "HOME", "TMPDIR", "GOCOVERDIR", "GOMAXPROCS"} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
 }
 
 func startChild(t testing.TB, cfg childConfig) *child {
@@ -266,13 +289,17 @@ func startChild(t testing.TB, cfg childConfig) *child {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &child{}
+	c := &child{secret: cfg.password}
 	c.cmd = exec.Command(exe, "-test.run=^TestDurabilityChild$", "-test.count=1", "-test.timeout=5m") //nolint:gosec // G204: the test binary running itself
-	c.cmd.Env = append(os.Environ(), childEnv+"="+string(b), childAuthEnv+"="+cfg.password)
+	c.cmd.Env = childEnviron(string(b), cfg.password)
 	c.cmd.Stdout, c.cmd.Stderr = &c.out, &c.out
 	if err := c.cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// A test that fails before it waits does not leave the worker running
+	// against a schema that is about to be dropped. Killing a process that
+	// has been waited for does nothing.
+	t.Cleanup(func() { _ = c.cmd.Process.Kill() })
 	return c
 }
 
@@ -281,6 +308,7 @@ func startChild(t testing.TB, cfg childConfig) *child {
 func (c *child) wait(t testing.TB) (killed bool) {
 	t.Helper()
 	err := c.cmd.Wait()
+	testkit.AssertNoLeaks(t, c.out.Bytes(), c.secret)
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
@@ -290,7 +318,7 @@ func (c *child) wait(t testing.TB) (killed bool) {
 			return true
 		}
 	}
-	t.Fatalf("child failed: %v\n%s", err, c.out.String())
+	t.Fatalf("child failed: %v\n%s", err, c.tail())
 	return false
 }
 
@@ -300,7 +328,7 @@ func runToEnd(t testing.TB, cfg childConfig) {
 	t.Helper()
 	cfg.Kill = nil
 	if c := startChild(t, cfg); c.wait(t) {
-		t.Fatalf("child was killed\n%s", c.out.String())
+		t.Fatalf("child was killed\n%s", c.tail())
 	}
 }
 
@@ -356,11 +384,13 @@ type failpoint struct {
 }
 
 // failpoints lists the places to kill the worker, from the reference run's
-// transcript. For a few applies that differ in what they write, it is the
-// steps that matter to an apply: before it begins, once it holds the head
-// row's lock, halfway through its writes, with COMMIT about to be sent and
-// with it acknowledged. For the first offset commit it is every step. With
-// all it is every step of every apply as well.
+// transcript. For a few applies that differ in what they write (the first,
+// the last, and the first to run each kind of statement), it is the steps
+// that matter to an apply: before it begins, once it holds the head row's
+// lock, halfway through its writes, with COMMIT about to be sent and with it
+// acknowledged. For the first offset commit it is every step. With all it is
+// every step of every apply. Only the client dies: the PostgreSQL server
+// keeps running, so what its own crash does to the WAL is not tested here.
 func failpoints(txs []txRecord, all bool) []failpoint {
 	var applies []txRecord
 	for _, tx := range txs {
@@ -377,7 +407,9 @@ func failpoints(txs []txRecord, all bool) []failpoint {
 				picks = append(picks, i)
 			}
 		} else {
-			picks = []int{stepBegin, 1, (n + 1) / 2}
+			// Step 1 is the statement that takes the head row's lock, so
+			// step 2 is the first with the lock held.
+			picks = []int{stepBegin, 2, (n + 1) / 2}
 		}
 		picks = append(slices.Compact(picks), stepCommit, stepCommitted)
 		var out []failpoint
@@ -415,16 +447,25 @@ func failpoints(txs []txRecord, all bool) []failpoint {
 			out = append(out, steps(tx, i+1, true)...)
 		}
 	} else {
-		// The first apply (an empty store), the first that merges, and the
-		// last (a sync that changes nothing).
-		firstMerge := slices.IndexFunc(applies, func(tx txRecord) bool {
-			return slices.ContainsFunc(tx.Statements, func(s string) bool { return strings.HasPrefix(s, "INSERT INTO merge_record") })
-		})
-		seen := map[int]bool{}
-		for _, i := range []int{0, firstMerge, len(applies) - 1} {
-			if i >= 0 && !seen[i] {
-				seen[i] = true
-				out = append(out, steps(applies[i], i+1, false)...)
+		// The first apply (an empty store), the last (a sync that changes
+		// nothing), and the first apply to run each kind of statement, so
+		// that every kind of write is cut off at least once: a merge record,
+		// a version closed by a later one, a component join and so on.
+		picked := map[int]bool{0: true, len(applies) - 1: true}
+		kinds := map[string]bool{}
+		for i, tx := range applies {
+			for _, s := range tx.Statements {
+				k := strings.Join(strings.Fields(s), " ")
+				k = k[:min(len(k), 30)]
+				if !kinds[k] {
+					kinds[k] = true
+					picked[i] = true
+				}
+			}
+		}
+		for i, tx := range applies {
+			if picked[i] {
+				out = append(out, steps(tx, i+1, false)...)
 			}
 		}
 	}
@@ -478,7 +519,7 @@ func TestKillingTheWorkerAtAnyApplyFailpointLosesNothing(t *testing.T) {
 			cfg.Kill = &fp.kill
 			c := startChild(t, cfg)
 			if !c.wait(t) {
-				t.Fatalf("the worker finished instead of dying at %+v\n%s", fp.kill, c.out.String())
+				t.Fatalf("the worker finished instead of dying at %+v\n%s", fp.kill, c.tail())
 			}
 
 			// What a crash leaves: whole applies only.
@@ -534,17 +575,21 @@ func TestKillingTheWorkerAtRandomMomentsAgainAndAgainLosesNothing(t *testing.T) 
 	events := storyEvents(t)
 
 	ref := newCrashRun(t, events)
+	started := time.Now()
 	runToEnd(t, ref.fixed())
+	uninterrupted := time.Since(started)
 	want := canonicalDump(ctx, t, ref.store, dumpExact)
 
 	run := newCrashRun(t, events)
 	rng := rand.New(rand.NewPCG(140, 140)) //nolint:gosec // G404: a seeded generator makes the schedule of kills repeatable
-	kills := 0
-	// Each run gets less time to finish than the story needs, but the
-	// worker resumes where the log left off, so the runs add up.
+	kills, midway := 0, 0
+	// Each run gets between a twentieth and a quarter of the time an
+	// uninterrupted run took, but the worker resumes where the log left off,
+	// so the runs add up.
 	for range 6 {
 		c := startChild(t, run.fixed())
-		timer := time.AfterFunc(time.Duration(150+rng.IntN(600))*time.Millisecond, func() { _ = c.cmd.Process.Kill() })
+		window := uninterrupted/20 + time.Duration(rng.Int64N(int64(uninterrupted/5)))
+		timer := time.AfterFunc(window, func() { _ = c.cmd.Process.Kill() })
 		killed := c.wait(t)
 		timer.Stop()
 		if !killed {
@@ -555,12 +600,15 @@ func TestKillingTheWorkerAtRandomMomentsAgainAndAgainLosesNothing(t *testing.T) 
 		if len(got.Journal) > len(want.Journal) || !slices.Equal(got.Journal, want.Journal[:len(got.Journal)]) {
 			t.Fatalf("after kill %d the journal is not a prefix of the uninterrupted run's:\n%s", kills, firstDifference(want.String(), got.String()))
 		}
+		if n := len(got.Journal); n > 0 && n < len(want.Journal) {
+			midway++
+		}
 		verifyAuditChain(ctx, t, run.store)
 	}
-	if kills < 2 {
-		t.Fatalf("only %d runs were killed before they finished, so the test did not exercise recovery", kills)
+	if midway < 2 {
+		t.Fatalf("%d of %d killed runs stopped with the story partly applied, so the test did not exercise recovery", midway, kills)
 	}
-	t.Logf("%d runs were killed before one finished", kills)
+	t.Logf("%d runs were killed before one finished, %d of them with the story partly applied", kills, midway)
 
 	runToEnd(t, run.fixed())
 	final := canonicalDump(ctx, t, run.store, dumpExact)

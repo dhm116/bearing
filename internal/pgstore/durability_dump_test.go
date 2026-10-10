@@ -74,9 +74,8 @@ const (
 	// inputs that the clock and the ID source touched: record times, the
 	// audit hashes (which cover them), and the times inside subject IDs.
 	// Each subject ID is replaced by its number in order of appearance in the
-	// journal, and each 64-digit hash that is not part of an event ID (a
-	// fact's ID is the hash of its subject's ID, and so differs with it) by
-	// "hash".
+	// journal, and so is each fact ID (the hash of its subject's ID, so it
+	// differs with it). Hashes of the inputs stay.
 	dumpCanonical
 )
 
@@ -96,7 +95,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 	var journal []string
 	var audited []int
 	var subjects, stateKeys []string
-	stable := map[string]bool{} // the hashes in event IDs, which come from the inputs
 	for {
 		rec, err := br.Next()
 		if errors.Is(err, io.EOF) {
@@ -111,11 +109,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 		}
 		journal = append(journal, jsonText(t, mode, e))
 		audited = append(audited, len(e.GetChangeSet().GetAudit()))
-		for _, part := range strings.Split(e.GetChangeSet().GetEventId(), "/") {
-			if len(part) == 64 {
-				stable[part] = true
-			}
-		}
 		for _, m := range e.GetMinted() {
 			subjects = append(subjects, m.GetSubjectId())
 		}
@@ -203,7 +196,17 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 	// The subject IDs get their numbers from the journal, then the rest is
 	// numbered the same way; the state entries are sorted once numbered,
 	// because their keys hold subject IDs.
-	n := newNumbering(mode == dumpCanonical, stable)
+	n := newNumbering(mode == dumpCanonical)
+	for _, texts := range [][]string{journal, rest, state} {
+		for _, s := range texts {
+			n.learn(s)
+		}
+	}
+	for _, g := range groups {
+		for _, s := range g.items {
+			n.learn(s)
+		}
+	}
 	for i := range journal {
 		journal[i] = n.apply(journal[i])
 	}
@@ -215,15 +218,23 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 			g.items[i] = n.apply(g.name + " " + g.items[i])
 		}
 		if !g.ordered && mode == dumpCanonical {
-			slices.Sort(g.items)
+			n.sort(g.items)
 		}
 		rest = append(rest, g.items...)
 	}
 	for i := range state {
 		state[i] = n.apply(state[i])
 	}
-	slices.Sort(state)
-	return graphDump{Journal: journal, Rest: append(rest, state...), AuditRecords: records, Audited: audited}
+	n.sort(state)
+	rest = append(rest, state...)
+	// Fact IDs are numbered last, in the order the dump now reads, because
+	// the order of the items of an unordered read depends on them.
+	for _, lines := range [][]string{journal, rest} {
+		for i := range lines {
+			lines[i] = n.number(lines[i])
+		}
+	}
+	return graphDump{Journal: journal, Rest: rest, AuditRecords: records, Audited: audited}
 }
 
 func check(t testing.TB, what string, err error) {
@@ -300,44 +311,91 @@ func withoutRecordTimes(v any) any {
 	return v
 }
 
-// numbering gives each subject ID its number in order of first appearance
-// and replaces each hash that is not one of the stable ones. Switched off,
-// it changes nothing.
+// numbering gives each subject ID and each fact ID its number in order of
+// first appearance. Every other hash (an observation's content hash, the
+// tails of support keys) comes from the inputs and stays as it is, so a wrong
+// one is a difference. Switched off, it changes nothing.
 type numbering struct {
-	on     bool
-	seen   map[string]string
-	stable map[string]bool
+	on            bool
+	subjects      map[string]string
+	facts         map[string]string // the fact IDs found, and their numbers once given
+	numberedFacts int
 }
 
-func newNumbering(on bool, stable map[string]bool) *numbering {
-	return &numbering{on: on, seen: map[string]string{}, stable: stable}
+func newNumbering(on bool) *numbering {
+	return &numbering{on: on, subjects: map[string]string{}, facts: map[string]string{}}
 }
 
-// ids matches a subject ID and a 64-digit hash: the two things that carry the
-// time or the random bits of the run that made them (a fact's ID is the hash
-// of its subject's ID).
+// factIDs finds the fact IDs a ProtoJSON text names: a fact's ID is the hash
+// of its subject's ID, so it carries the random bits of the run that minted
+// the subject.
+var factIDs = regexp.MustCompile(`"fact_id":\s*"([0-9a-f]{64})"`)
+
+// ids matches a subject ID and a 64-digit hash.
 var ids = regexp.MustCompile(uuidV7.String() + `|[0-9a-f]{64}`)
 
-// apply replaces each subject ID in s by "subject-N" and each hash by "hash",
-// except the stable ones.
+// learn notes the fact IDs in s, so that number finds them wherever they
+// appear (a state key may hold one).
+func (n *numbering) learn(s string) {
+	for _, m := range factIDs.FindAllStringSubmatch(s, -1) {
+		n.facts[m[1]] = ""
+	}
+}
+
+// apply replaces each subject ID in s by "subject-N".
 func (n *numbering) apply(s string) string {
 	if !n.on {
 		return s
 	}
 	return ids.ReplaceAllStringFunc(s, func(id string) string {
 		if len(id) == 64 {
-			if n.stable[id] {
-				return id
-			}
-			return "hash"
+			return id
 		}
-		if num, ok := n.seen[id]; ok {
-			return num
+		num, ok := n.subjects[id]
+		if !ok {
+			num = fmt.Sprintf("subject-%d", len(n.subjects)+1)
+			n.subjects[id] = num
 		}
-		num := fmt.Sprintf("subject-%d", len(n.seen)+1)
-		n.seen[id] = num
 		return num
 	})
+}
+
+// number replaces each fact ID in s by "fact-N", numbering new ones as it
+// meets them.
+func (n *numbering) number(s string) string {
+	if !n.on {
+		return s
+	}
+	return ids.ReplaceAllStringFunc(s, func(id string) string {
+		num, ok := n.facts[id]
+		if !ok {
+			return id
+		}
+		if num == "" {
+			n.numberedFacts++
+			num = fmt.Sprintf("fact-%d", n.numberedFacts)
+			n.facts[id] = num
+		}
+		return num
+	})
+}
+
+// sort puts items in an order that does not depend on their fact IDs, or
+// plainly in order when fact IDs are not numbered.
+func (n *numbering) sort(items []string) {
+	if !n.on {
+		slices.Sort(items)
+		return
+	}
+	mask := func(s string) string {
+		return ids.ReplaceAllStringFunc(s, func(id string) string {
+			if _, ok := n.facts[id]; ok {
+				return "fact"
+			}
+			return id
+		})
+	}
+	slices.SortStableFunc(items, func(a, b string) int { return strings.Compare(mask(a), mask(b)) })
 }
 
 // firstDifference describes where two dumps differ, for a failure message.
@@ -362,6 +420,15 @@ func verifyAuditChain(ctx context.Context, t testing.TB, s dumpable) audit.Repor
 	}
 	if !rep.OK() {
 		t.Fatalf("audit chain does not verify: %v", rep.Failures)
+	}
+	// The next record chains from the head the store keeps, so it must be the
+	// newest record that was verified.
+	head, err := s.AuditLog().Head(ctx)
+	if err != nil {
+		t.Fatalf("audit head: %v", err)
+	}
+	if head.Seq != rep.Last {
+		t.Fatalf("audit head is record %d, the chain verified up to %d", head.Seq, rep.Last)
 	}
 	return rep
 }
