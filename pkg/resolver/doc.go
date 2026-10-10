@@ -140,9 +140,9 @@
 // observed times), so a sync writes one small entry and rewrites none that
 // grows; a lookup reads the entry of the key's quarter hour and the ones after
 // it inside the blocks the head lists, so nothing is read by anything but its
-// key (marks.go). A watermark that
-// another with an earlier or equal start and a greater or equal key makes
-// redundant isn't kept, so a scope's watermarks rise in both.
+// key (marks.go). A watermark that another with an earlier or equal start and
+// a greater or equal key makes redundant isn't kept, so a scope's watermarks
+// rise in both.
 //
 // Source-supplied text in a key is percent-encoded for "%", "/" and ":", so
 // only the subject segment can be a ref. A merged subject's deletions move

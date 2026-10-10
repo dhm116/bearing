@@ -400,12 +400,15 @@ func TestMergedScopesDropOnlyWhatInOrderApplyDrops(t *testing.T) {
 		"in time order":            {a, c, merge, b, d},
 		"merge between the writes": {c, a, d, merge, b},
 	} {
-		e := newEnv(t)
-		for _, ev := range events {
-			e.apply(ev)
-		}
-		if e.dropped != 0 {
-			t.Errorf("%s: got %d dropped writes, want none", name, e.dropped)
-		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t)
+			for _, ev := range events {
+				e.apply(ev)
+			}
+			if e.dropped != 0 {
+				t.Errorf("got %d dropped writes, want none", e.dropped)
+			}
+		})
 	}
 }
