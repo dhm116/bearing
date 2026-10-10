@@ -736,12 +736,38 @@ what it finds, naming the first bad record by `seq`:
 - a checkpoint that is unsigned (unless allowed) or has a bad or untrusted
   signature, which is also not used to judge the chain.
 
-It stops reading at the first broken record. `bearing audit verify` runs it
-against a store, a checkpoint file and public keys, and exits non-zero when
-anything fails. What it can't find is a rewrite of records newer than the
+It stops reading at the first broken record. The report also names the
+newest checkpoint that agreed with the chain (`Report.Newest`), the point up
+to which the log is pinned from outside the store. What it can't find is a rewrite of records newer than the
 latest checkpoint it is given, so the interval bounds how much recent history
 someone with store access can change undetected, and a truncation back to the
 newest checkpoint still held if the newer ones were withheld.
+
+### The commands
+
+Both read the store given by `--store` or `$BEARING_STORE` and are for the
+operator, not for a caller of the API.
+
+`bearing audit checkpoint [--out FILE] [--key-id ID --key-env VAR]` writes
+a checkpoint of the newest record, at the current time. Without `--out` it
+prints the line; with it, it appends the line to the file (created mode 0600)
+and syncs it. The signing key is named by reference: `--key-env` names an
+environment variable that holds the PKCS #8 PEM, so the key is never an
+argument, never in a config file and never in the store (C-SECRET-1).
+`--key-id` is its label. Giving one flag without the other is an error, and
+giving neither writes an unsigned checkpoint. After a key rotation, run it
+once with the new ID at once. An empty log has nothing to checkpoint.
+
+`bearing audit verify [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned]
+[--max-age D] [--json]` runs `Verify` and prints the result: the records read,
+how many checkpoints agreed, and the newest one with its record, time and
+signing key. `--key` gives a trusted public key (PEM), once per key ID, and the
+keys of rotated-out signers stay. `--max-age` fails the run when the newest
+agreeing checkpoint is older than the duration (or none agrees), because the
+interval since the last checkpoint is how much history is not pinned. It
+exits non-zero when `Verify` found anything wrong or the checkpoint is stale,
+and says in its output when it was given no checkpoints, since then a log
+rewritten end to end would pass.
 
 ### Storage
 
@@ -775,7 +801,6 @@ role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
 ### Not implemented yet
 
-- `bearing audit verify` and `bearing audit checkpoint` (issue #138).
 - Retention. The contract has no delete. The cut that removes the oldest
   records comes with the server (issue #139), together with the signed marker
   on a checkpoint that says it was written at a cut; until then `Verify`

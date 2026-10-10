@@ -12,9 +12,14 @@
 //	bearing related <subject>
 //	bearing changes --since <time> [<subject>]
 //
-// Each takes --store (or $BEARING_STORE) and --as-of; run one with -h for its
-// flags. A subject is a subject ID or a key such as github:repo/acme/payments.
-// For changes, --since and --as-of are the two ends of the window, and the
+// and checks the audit log against checkpoints kept outside the store:
+//
+//	bearing audit verify --checkpoints cp.ndjson --key audit-1=audit-1.pub
+//	bearing audit checkpoint --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
+//
+// Each takes --store (or $BEARING_STORE); the queries also take --as-of. Run
+// one with -h for its flags. A subject is a subject ID or a key such as
+// github:repo/acme/payments. For changes, --since and --as-of are the two ends of the window, and the
 // default end is now.
 package main
 
@@ -43,6 +48,8 @@ const usage = `usage:
   bearing owner <repo> [--store URL] [--as-of T] [--recorded-at T] [--json]
   bearing related <subject> [--predicate P] [--store URL] [--as-of T] [--recorded-at T] [--json]
   bearing changes --since T [<subject>] [--axis valid|record] [--store URL] [--as-of T] [--json]
+  bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
+  bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
 `
 
 // version is the CLI version, set at build time with -ldflags.
@@ -89,8 +96,8 @@ var errUsage = errors.New("see usage below")
 // its subcommand. Arguments such as a subject never go in it.
 func spanName(args []string) string {
 	switch {
-	case len(args) >= 2 && args[0] == "adapter":
-		return "bearing adapter " + args[1]
+	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "audit"):
+		return "bearing " + args[0] + " " + args[1]
 	case len(args) >= 1 && isQueryCommand(args[0]):
 		return "bearing " + args[0]
 	}
@@ -109,6 +116,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return queryCmd(ctx, env, args[0], args[1:], stdout)
 	}
 	switch args[0] {
+	case "audit":
+		return auditCmd(ctx, env, args[1:], stdout)
 	case "adapter":
 		if len(args) < 2 {
 			return errUsage
