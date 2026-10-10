@@ -384,13 +384,16 @@ type failpoint struct {
 }
 
 // failpoints lists the places to kill the worker, from the reference run's
-// transcript. For a few applies that differ in what they write (the first,
-// the last, and the first to run each kind of statement), it is the steps
-// that matter to an apply: before it begins, once it holds the head row's
-// lock, halfway through its writes, with COMMIT about to be sent and with it
-// acknowledged. For the first offset commit it is every step. With all it is
-// every step of every apply. Only the client dies: the PostgreSQL server
-// keeps running, so what its own crash does to the WAL is not tested here.
+// transcript. A step is a point in a transaction: before BEGIN, before each
+// statement, before COMMIT is sent and after it is acknowledged. By default
+// the worker is killed with COMMIT about to be sent and with it acknowledged
+// in the first and last apply, before the first write of each kind that
+// any apply runs (so every kind of write is cut off with the writes before it
+// in the transaction, and a merge record, a closed version or a component
+// join is not left out because it first appears late), and at every step of
+// the first offset commit. With all it is every step of every apply as well.
+// Only the client dies: the PostgreSQL server keeps running, so what its own
+// crash does to the WAL is not tested here.
 func failpoints(txs []txRecord, all bool) []failpoint {
 	var applies []txRecord
 	for _, tx := range txs {
@@ -398,74 +401,70 @@ func failpoints(txs []txRecord, all bool) []failpoint {
 			applies = append(applies, tx)
 		}
 	}
-	steps := func(tx txRecord, pos int, every bool) []failpoint {
-		n := len(tx.Statements)
-		var picks []int
-		if every {
-			picks = []int{stepBegin}
-			for i := 1; i <= n; i++ {
-				picks = append(picks, i)
-			}
-		} else {
-			// Step 1 is the statement that takes the head row's lock, so
-			// step 2 is the first with the lock held.
-			picks = []int{stepBegin, 2, (n + 1) / 2}
+	var out []failpoint
+	seen := map[[2]int]bool{}
+	add := func(tx txRecord, pos, step int) {
+		if seen[[2]int{tx.N, step}] {
+			return
 		}
-		picks = append(slices.Compact(picks), stepCommit, stepCommitted)
-		var out []failpoint
-		for _, step := range picks {
-			sql := ""
-			if step > 0 {
-				sql = tx.Statements[step-1]
-			}
-			kp := killPoint{Tx: tx.N, Step: step, SQL: sql[:min(len(sql), 60)]}
-			label := fmt.Sprint("step ", step)
-			switch step {
-			case stepBegin:
-				label = "before begin"
-			case stepCommit:
-				label = "before commit"
-			case stepCommitted:
-				label = "after commit"
-			}
-			f := failpoint{name: fmt.Sprintf("%s %d %s", tx.kind(), pos, label), kill: kp}
-			for _, other := range applies {
-				if other.N < tx.N {
-					f.applied++
-				}
-			}
-			if tx.kind() == "apply" && step == stepCommitted {
+		seen[[2]int{tx.N, step}] = true
+		sql := ""
+		if step > 0 {
+			sql = tx.Statements[step-1]
+		}
+		label := fmt.Sprint("step ", step)
+		switch step {
+		case stepBegin:
+			label = "before begin"
+		case stepCommit:
+			label = "before commit"
+		case stepCommitted:
+			label = "after commit"
+		}
+		f := failpoint{
+			name: fmt.Sprintf("%s %d %s", tx.kind(), pos, label),
+			kill: killPoint{Tx: tx.N, Step: step, SQL: sql[:min(len(sql), 60)]},
+		}
+		for _, other := range applies {
+			if other.N < tx.N {
 				f.applied++
 			}
-			out = append(out, f)
 		}
-		return out
+		if tx.kind() == "apply" && step == stepCommitted {
+			f.applied++
+		}
+		out = append(out, f)
 	}
-	var out []failpoint
+	every := func(tx txRecord, pos int) {
+		add(tx, pos, stepBegin)
+		for i := range tx.Statements {
+			add(tx, pos, i+1)
+		}
+		add(tx, pos, stepCommit)
+		add(tx, pos, stepCommitted)
+	}
 	if all {
 		for i, tx := range applies {
-			out = append(out, steps(tx, i+1, true)...)
+			every(tx, i+1)
 		}
 	} else {
-		// The first apply (an empty store), the last (a sync that changes
-		// nothing), and the first apply to run each kind of statement, so
-		// that every kind of write is cut off at least once: a merge record,
-		// a version closed by a later one, a component join and so on.
-		picked := map[int]bool{0: true, len(applies) - 1: true}
+		last := len(applies) - 1
+		for _, i := range []int{0, last} {
+			add(applies[i], i+1, stepCommit)
+			add(applies[i], i+1, stepCommitted)
+		}
 		kinds := map[string]bool{}
 		for i, tx := range applies {
-			for _, s := range tx.Statements {
+			for j, s := range tx.Statements {
+				if strings.HasPrefix(s, "SELECT") {
+					continue // reads change nothing a kill could leave half done
+				}
 				k := strings.Join(strings.Fields(s), " ")
 				k = k[:min(len(k), 30)]
 				if !kinds[k] {
 					kinds[k] = true
-					picked[i] = true
+					add(tx, i+1, j+1)
 				}
-			}
-		}
-		for i, tx := range applies {
-			if picked[i] {
-				out = append(out, steps(tx, i+1, false)...)
 			}
 		}
 	}
@@ -473,7 +472,7 @@ func failpoints(txs []txRecord, all bool) []failpoint {
 	// applying an entry and telling the log.
 	for _, tx := range txs {
 		if tx.kind() == "offset" {
-			out = append(out, steps(tx, 1, true)...)
+			every(tx, 1)
 			break
 		}
 	}
