@@ -501,10 +501,10 @@ func (x *Watermark) GetReason() v1alpha1.SupportReason {
 // ScopeWatermarks that holds, sorted by key, the watermarks whose key's
 // observed_at falls in that quarter hour of the epoch (the bucket). A late
 // claim finds the first watermark with a greater key by reading its bucket
-// and the ones after it inside the head's blocks, so an entry is only ever read by
-// its key. A bucket is written when it gains or loses a watermark. A binary
-// from before the buckets reads a bucketed head as having no watermarks; the
-// format is unreleased, so nothing guards against it.
+// and the ones after it inside the head's blocks, so an entry is only ever
+// read by its key. A bucket is written when it gains or loses a watermark. A
+// binary from before the buckets reads a bucketed head as having no
+// watermarks; the format is unreleased, so nothing guards against it.
 type ScopeWatermarks struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The watermarks, in a head that is not bucketed and in a bucket's entry.

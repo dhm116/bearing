@@ -368,3 +368,44 @@ func TestWatermarksOfOtherScopesDoNotHideASplit(t *testing.T) {
 		t.Errorf("got %d dropped writes, want none", late.dropped)
 	}
 }
+
+// Snapshots of two repository ids that a merge at 0:04 joins. The survivor's
+// scope reads the merged id's watermarks too, and a watermark of one that the
+// other ends (starts no later, key no less) must not be used, as it was not in
+// the single list main kept after a merge. Used, it makes the write at 0:14
+// below look like one that falls among confirmations, and the resolver reports
+// it dropped, which applying everything in time order (and main) does not.
+// Only the dropped count differs; the facts are the same either way.
+func TestMergedScopesDropOnlyWhatInOrderApplyDrops(t *testing.T) {
+	t.Parallel()
+	const r1, r2 = "github:repo_node/R1", "github:repo_node/R2"
+	snap := func(minutes int, id, name string, teams ...string) Event {
+		o := obsAt(minuteStamp(minutes), "Repository", id)
+		for _, tm := range teams {
+			o = withRelation(o, "approves_changes", "github:team_node/"+tm)
+		}
+		o = withScope(o, false, "approves_changes")
+		o.Id += "-" + name
+		return event("github-acme", o)
+	}
+	a := snap(2, r2, "a", "T2")
+	c := snap(3, r1, "c")
+	b := snap(14, r2, "b")
+	d := snap(14, r2, "d", "T2")
+	m := obsAt(minuteStamp(4), "Repository", r1, r2)
+	m.Id += "-merge"
+	merge := event("github-acme", m)
+
+	for name, events := range map[string][]Event{
+		"in time order":            {a, c, merge, b, d},
+		"merge between the writes": {c, a, d, merge, b},
+	} {
+		e := newEnv(t)
+		for _, ev := range events {
+			e.apply(ev)
+		}
+		if e.dropped != 0 {
+			t.Errorf("%s: got %d dropped writes, want none", name, e.dropped)
+		}
+	}
+}

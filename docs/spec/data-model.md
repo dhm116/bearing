@@ -105,8 +105,8 @@ the syncs they make. The one record per sync it does keep is the
 [watermark](#snapshot-scopes) of a snapshot scope: a late claim can fall
 between any two syncs, and the watermarks tell where each one ends. It keeps
 the first confirmation's content, and moves the record's ordering key to the
-latest confirmation's: the **last verified** key. A fact's support then has one version, as always, whose
-`last_confirmed_at` is that key's `observed_at`.
+latest confirmation's: the **last verified** key. A fact's support then has
+one version, as always, whose `last_confirmed_at` is that key's `observed_at`.
 
 The cost is the one write the run can no longer place. A write **of the same
 source** whose ordering key falls between the first and the latest

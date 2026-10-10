@@ -70,9 +70,9 @@ func repeatSyncsEvery(t *testing.T, facts, syncs int, every time.Duration) []gro
 // first sync, and each sync writes as much as the one before: a confirmation
 // extends the existing record (issue #77, docs/spec/data-model.md "State,
 // determinism and apply"), and the scope's watermarks are one small entry per
-// quarter hour that is written once (issue #136). It used to be a record that grew by
-// about 200 bytes per sync and was written whole each time: 100 MB of journal
-// after 1,000 syncs.
+// quarter hour that is written once (issue #136). It used to be a record that
+// grew by about 200 bytes per sync and was written whole each time: 100 MB of
+// journal after 1,000 syncs.
 func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
 	t.Parallel()
 	const facts, syncs = 5, 1000
@@ -131,8 +131,9 @@ func TestRepeatedSyncsOfManyFactsDoNotGrowTheChangeSet(t *testing.T) {
 }
 
 // A scope synced more often than hourly rewrites its quarter hour's entry each
-// time, which holds the few watermarks of the quarter hour: the bytes a sync writes are
-// bounded by the syncs in a quarter hour, however long the scope has been synced.
+// time, which holds the few watermarks of the quarter hour: the bytes a sync
+// writes are bounded by the syncs in a quarter hour, however long the scope has
+// been synced.
 func TestRepeatedSyncsMoreOftenThanHourlyWriteABoundedEntry(t *testing.T) {
 	t.Parallel()
 	const syncs = 600

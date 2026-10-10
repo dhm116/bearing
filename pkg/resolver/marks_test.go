@@ -423,7 +423,7 @@ func TestScopeMarksSkipDecadesOfNothing(t *testing.T) {
 	store := &markStore{entries: map[string]*anypb.Any{}}
 	const key = "wm/src/subject/out/pred"
 	ctx := context.Background()
-	const early = -56 * 8766 // hours: about 56 years before the others
+	const early = -70 * 8766 // hours: about 70 years before the others, before the epoch
 	for _, h := range []float64{early, 0, 1} {
 		m := store.open(t, key)
 		if err := m.add(ctx, wmAt(h, orderKeyAt(h, "o"))); err != nil {
@@ -438,7 +438,7 @@ func TestScopeMarksSkipDecadesOfNothing(t *testing.T) {
 		t.Fatalf("got %v, %v, want the watermark of hour 0", w, err)
 	}
 	if store.keys > 2100 {
-		t.Errorf("a lookup across 56 years read %d keys in %d reads, want no more than two blocks", store.keys, store.reads)
+		t.Errorf("a lookup across 70 years read %d keys in %d reads, want no more than two blocks", store.keys, store.reads)
 	}
 	store.reads, store.keys = 0, 0
 	if w, err := m.prev(ctx, orderKeyAt(-10, "o")); err != nil || w == nil || w.at != wmAt(early, nil).at || store.keys > 2100 {

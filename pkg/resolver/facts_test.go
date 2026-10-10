@@ -692,6 +692,21 @@ func TestMergeMovesAllPredicateAndDeclaredAttributeSnapshots(t *testing.T) {
 // the subjects merged into it (issue #136).
 func TestMergeChainKeepsEverySnapshotWatermark(t *testing.T) {
 	t.Parallel()
+	// Merged in either order: the second merge then adds a scope that is
+	// itself linked to another, or the survivor of the first.
+	for name, pairs := range map[string][2][2]int{
+		"survivor first": {{0, 1}, {1, 2}},
+		"chain":          {{1, 2}, {0, 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testMergeChain(t, pairs)
+		})
+	}
+}
+
+func testMergeChain(t *testing.T, pairs [2][2]int) {
+	t.Helper()
 	ids := []string{"authentik:user/u1", "authentik-saml:name_id/jdoe", "authentik:user/u2"}
 	emails := []string{"a@acme.example", "b@acme.example", "c@acme.example"}
 	snapshots := func() []Event {
@@ -713,7 +728,7 @@ func TestMergeChainKeepsEverySnapshotWatermark(t *testing.T) {
 	laterSync := event("authentik-acme", withAttr(obsAt("2026-10-04T00:00:00Z", "Person", ids[0]), "email", []any{"d@acme.example"}))
 
 	e := newEnv(t)
-	for _, ev := range slices.Concat(snapshots(), []Event{merge(ids[0], ids[1], 2), merge(ids[1], ids[2], 3)}, late, []Event{laterSync}) {
+	for _, ev := range slices.Concat(snapshots(), []Event{merge(ids[pairs[0][0]], ids[pairs[0][1]], 2), merge(ids[pairs[1][0]], ids[pairs[1][1]], 3)}, late, []Event{laterSync}) {
 		e.apply(ev)
 	}
 	// A list of emails is a snapshot, so each late list holds from its own time

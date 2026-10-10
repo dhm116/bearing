@@ -139,7 +139,8 @@
 // own (the scope's head, and one entry per quarter hour of the watermarks'
 // observed times), so a sync writes one small entry and rewrites none that
 // grows; a lookup reads the entry of the key's quarter hour and the ones after
-// it, so nothing is read by anything but its key (marks.go). A watermark that
+// it inside the blocks the head lists, so nothing is read by anything but its
+// key (marks.go). A watermark that
 // another with an earlier or equal start and a greater or equal key makes
 // redundant isn't kept, so a scope's watermarks rise in both.
 //
