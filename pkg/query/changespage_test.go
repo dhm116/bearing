@@ -48,6 +48,11 @@ func TestChangesDefaultToTheLastDay(t *testing.T) {
 	if err != nil || own.DefaultWindow || len(own.Changes) <= len(got.Changes) {
 		t.Errorf("a named start: got %d changes (default %v), %v; want more than the default's %d", len(own.Changes), own.DefaultWindow, err, len(got.Changes))
 	}
+	// A named end with no start still looks back a day, but the question is not the default one.
+	ended, err := r.q.Changes(context.Background(), query.ChangesRequest{Until: now.Add(-time.Hour)})
+	if err != nil || ended.DefaultWindow {
+		t.Errorf("a named end: got default %v, %v; want a window that is not the default", ended.DefaultWindow, err)
+	}
 }
 
 // When nothing changed in the window, the answer says when the newest change
