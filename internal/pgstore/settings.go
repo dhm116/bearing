@@ -131,6 +131,8 @@ func cleanError(err error) error {
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
 		switch {
+		case pg.Code == "53300":
+			return errors.New("the server has no connection slots left for the role or database (SQLSTATE 53300)")
 		case pg.Code == "3D000":
 			return errors.New("the server has no such database (SQLSTATE 3D000)")
 		case strings.HasPrefix(pg.Code, "28"):

@@ -3,6 +3,8 @@ package pgstore
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -555,8 +557,16 @@ func TestLongEventIDsAndPredicatesBehaveAsInTheReference(t *testing.T) {
 	m := memstore.New()
 	m.Now, m.IDs = mclk.Now, testkit.NewUUIDv7s(mclk.Now)
 
-	event := strings.Repeat("e", 4000)
-	predicate := strings.Repeat("p", 4000)
+	// Random, because PostgreSQL compresses index entries and a run of one
+	// character would stay under the limit on the old layout too.
+	random := func() string {
+		b := make([]byte, 4000)
+		if _, err := cryptorand.Read(b); err != nil {
+			t.Fatal(err)
+		}
+		return hex.EncodeToString(b)
+	}
+	event, predicate := random(), random()
 	object := &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewStringValue("v")}
 	cs := func() *modelv1alpha1.ChangeSet {
 		return &modelv1alpha1.ChangeSet{
@@ -596,7 +606,7 @@ func TestLongEventIDsAndPredicatesBehaveAsInTheReference(t *testing.T) {
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("got %d facts by predicate, %v, want 1", len(facts), err)
 	}
-	if other, err := s.AsOf(ctx, contracts.FactFilter{Predicate: predicate[1:]}, time.Time{}, time.Time{}); err != nil || len(other) != 0 {
+	if other, err := s.AsOf(ctx, contracts.FactFilter{Predicate: predicate[2:]}, time.Time{}, time.Time{}); err != nil || len(other) != 0 {
 		t.Fatalf("got %d facts for another predicate, %v, want none", len(other), err)
 	}
 }
