@@ -9,7 +9,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
@@ -20,7 +19,8 @@ import (
 // State keys of the fact side (see doc.go):
 //
 //	sup/<source>/<subject>/<predicate>/<object>  SupportSegments: a source's writes about one fact
-//	wm/<source>/<subject>/<out|in>/<predicate>   ScopeWatermarks: the endings of a scope
+//	wm/<source>/<subject>/<out|in>/<predicate>   ScopeWatermarks: the head of a scope's endings
+//	wm/<source>/<subject>/<out|in>/<predicate>/<bucket>  ScopeWatermarks: those whose key falls in one quarter hour
 //
 // The object is the subject ID of a relation, or "=" and the fact ID of an
 // attribute's value. Source-supplied text is percent-encoded.
@@ -49,12 +49,6 @@ type seriesEntry struct {
 	dirty  bool
 }
 
-// wmEntry is the stored watermarks of one scope.
-type wmEntry struct {
-	list  []watermark
-	dirty bool
-}
-
 // affected names a source's support for a fact whose timeline the ChangeSet
 // rewrites.
 type affected struct {
@@ -80,7 +74,7 @@ type factRun struct {
 	at int64
 
 	series map[string]*seriesEntry
-	marks  map[string]*wmEntry
+	marks  map[string]*scopeMarks
 	// touched are the supports to recompute.
 	touched map[string]affected
 	// out are the support timelines to write, by source and fact ID.
@@ -101,7 +95,7 @@ type factRun struct {
 func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 	return &factRun{
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
-		series: map[string]*seriesEntry{}, marks: map[string]*wmEntry{}, touched: map[string]affected{},
+		series: map[string]*seriesEntry{}, marks: map[string]*scopeMarks{}, touched: map[string]affected{},
 		claimed: map[string][]seg{}, out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
 		groups: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
@@ -162,41 +156,42 @@ func (r *factRun) readSeries(ctx context.Context, source string, f fact) (*serie
 	return e, nil
 }
 
-// readMarks returns the stored watermarks of a scope.
-func (r *factRun) readMarks(ctx context.Context, key string, hasRef bool) (*wmEntry, error) {
-	if e, ok := r.marks[key]; ok {
-		return e, nil
+// readMarks returns the stored watermarks of a scope, whose head it reads.
+func (r *factRun) readMarks(ctx context.Context, key string, hasRef bool) (*scopeMarks, error) {
+	if m, ok := r.marks[key]; ok {
+		return m, nil
 	}
-	e := &wmEntry{}
-	r.marks[key] = e
-	if hasRef {
-		return e, nil
-	}
-	got, err := r.g.states(ctx, key)
-	if err != nil {
+	m := newScopeMarks(key, r.g.states, hasRef)
+	r.marks[key] = m
+	if err := m.load(ctx); err != nil {
 		return nil, err
 	}
-	if a := got[key]; a != nil {
-		if e.list, err = unpackWatermarks(a); err != nil {
-			return nil, err
-		}
-	}
-	return e, nil
+	return m, nil
 }
 
-// add adds w to a scope's watermarks unless another already ends
-// everything it would: one that starts no later and has a key no less.
-func (e *wmEntry) add(w watermark) {
-	for _, o := range e.list {
-		if o.at <= w.at && model.CompareOrderingKeys(o.key, w.key) >= 0 {
-			return
+// components returns a scope and the scopes linked to it, directly or not:
+// the watermarks that apply to its facts are theirs together.
+func (r *factRun) components(ctx context.Context, m *scopeMarks) ([]*scopeMarks, error) {
+	if m.closure != nil {
+		return m.closure, nil
+	}
+	out := []*scopeMarks{m}
+	seen := map[string]bool{m.key: true}
+	for i := 0; i < len(out); i++ {
+		for _, l := range out[i].linked {
+			if seen[l] {
+				continue
+			}
+			seen[l] = true
+			c, err := r.readMarks(ctx, l, false)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, c)
 		}
 	}
-	e.list = slices.DeleteFunc(e.list, func(o watermark) bool {
-		return w.at <= o.at && model.CompareOrderingKeys(w.key, o.key) >= 0
-	})
-	e.list = append(e.list, w)
-	e.dirty = true
+	m.closure = out
+	return out, nil
 }
 
 // scopes records the watermarks of the observation's scopes and marks the
@@ -210,7 +205,9 @@ func (r *factRun) scopes(ctx context.Context, entity string, scopes []scope) err
 		if err != nil {
 			return err
 		}
-		e.add(watermark{at: s.at, key: r.p.key, reason: s.reason})
+		if err := e.add(ctx, watermark{at: s.at, key: r.p.key, reason: s.reason}); err != nil {
+			return err
+		}
 	}
 	return r.discover(ctx, r.p.ev.Source, entity, scopes)
 }
@@ -304,7 +301,7 @@ func (r *factRun) claim(ctx context.Context, claims []*claim) error {
 				r.claimed[k] = append(r.claimed[k], w)
 			}
 		}
-		wms, err := r.watermarksFor(ctx, r.p.ev.Source, c.fact)
+		wms, err := r.watermarksFor(ctx, r.p.ev.Source, c.fact, e.s)
 		if err != nil {
 			return err
 		}
@@ -331,11 +328,14 @@ func (r *factRun) supportOf(c *claim) *modelv1alpha1.Support {
 	return s
 }
 
-// watermarksFor returns the watermarks that apply to a source's fact: those
-// of the scopes with its subject as the subject (out) and its object as the
-// object (in), for its predicate and for all predicates.
-func (r *factRun) watermarksFor(ctx context.Context, source string, f fact) ([]watermark, error) {
-	var out []watermark
+// watermarksFor returns the watermarks of the scopes of a source's fact (those
+// with its subject as the subject (out) and its object as the object (in), for
+// its predicate and for all predicates) that decide what becomes of the
+// series s. Each scope is read with the scopes linked to it, which together
+// are the list main kept after a merge copied the merged subject's watermarks
+// in, and the watermarks are chosen and pruned in each of those lists on its
+// own.
+func (r *factRun) watermarksFor(ctx context.Context, source string, f fact, s series) ([]watermark, error) {
 	scopes := []struct {
 		subject string
 		in      bool
@@ -346,13 +346,74 @@ func (r *factRun) watermarksFor(ctx context.Context, source string, f fact) ([]w
 			in      bool
 		}{f.objectSubject(), true})
 	}
+	keys := []*resolverv1alpha1.OrderingKey{r.p.key}
+	for _, e := range s {
+		if !slices.ContainsFunc(keys, func(k *resolverv1alpha1.OrderingKey) bool { return model.CompareOrderingKeys(k, e.key) == 0 }) {
+			keys = append(keys, e.key)
+		}
+	}
+	var out []watermark
 	for _, sc := range scopes {
 		for _, pred := range []string{f.pred, "*"} {
-			e, err := r.readMarks(ctx, wmKey(source, sc.subject, sc.in, pred), isRef(sc.subject))
+			m, err := r.readMarks(ctx, wmKey(source, sc.subject, sc.in, pred), isRef(sc.subject))
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, e.list...)
+			comps, err := r.components(ctx, m)
+			if err != nil {
+				return nil, err
+			}
+			ws, err := deciding(ctx, comps, keys)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ws...)
+		}
+	}
+	return out, nil
+}
+
+// deciding returns, from one scope's watermarks (spread over the scopes
+// merged into it), those that decide what becomes of the series s: for each
+// key, the first above it and the first at or above it. In a staircase the
+// first above a key has the earliest start of those above it, so the ones
+// between two confirmations decide nothing the first does not. No other
+// watermark of the scope changes s or what is built from it. A watermark that
+// another of the scope ends no later and above is left out, as it is in a
+// scope's own list.
+func deciding(ctx context.Context, comps []*scopeMarks, keys []*resolverv1alpha1.OrderingKey) ([]watermark, error) {
+	var cand []watermark
+	keep := func(w *watermark) {
+		if w != nil && !slices.ContainsFunc(cand, func(o watermark) bool { return o.at == w.at && model.CompareOrderingKeys(o.key, w.key) == 0 }) {
+			cand = append(cand, *w)
+		}
+	}
+	for _, c := range comps {
+		for _, k := range keys {
+			for _, orEqual := range []bool{true, false} {
+				w, err := c.next(ctx, k, orEqual)
+				if err != nil {
+					return nil, err
+				}
+				keep(w)
+			}
+		}
+	}
+	out := cand[:0]
+	for _, w := range cand {
+		dominated := false
+		for _, c := range comps {
+			o, err := c.next(ctx, w.key, true)
+			if err != nil {
+				return nil, err
+			}
+			if o != nil && o.at <= w.at && (o.at != w.at || model.CompareOrderingKeys(o.key, w.key) != 0) {
+				dominated = true
+				break
+			}
+		}
+		if !dominated {
+			out = append(out, w)
 		}
 	}
 	return out, nil
@@ -367,7 +428,7 @@ func (r *factRun) recompute(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		wms, err := r.watermarksFor(ctx, t.source, t.f)
+		wms, err := r.watermarksFor(ctx, t.source, t.f, e.s)
 		if err != nil {
 			return err
 		}
@@ -515,37 +576,6 @@ func (r *factRun) group(ctx context.Context, subject, pred string) (map[string]*
 	return g, nil
 }
 
-// unpackWatermarks decodes a scope's watermarks.
-func unpackWatermarks(a *anypb.Any) ([]watermark, error) {
-	msg := &resolverv1alpha1.ScopeWatermarks{}
-	if err := a.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("%w: watermarks: %w", ErrCorrupt, err)
-	}
-	out := make([]watermark, 0, len(msg.GetWatermarks()))
-	for _, w := range msg.GetWatermarks() {
-		if w.GetAt() == nil || w.GetKey() == nil || w.GetReason() == modelv1alpha1.SupportReason_SUPPORT_REASON_UNSPECIFIED {
-			return nil, fmt.Errorf("%w: a watermark without a time, key or reason", ErrCorrupt)
-		}
-		out = append(out, watermark{at: micros(w.GetAt().AsTime()), key: w.GetKey(), reason: w.GetReason()})
-	}
-	return out, nil
-}
-
-// packWatermarks encodes a scope's watermarks, sorted by start.
-func packWatermarks(list []watermark) (*anypb.Any, error) {
-	slices.SortFunc(list, func(a, b watermark) int {
-		if c := cmp.Compare(a.at, b.at); c != 0 {
-			return c
-		}
-		return model.CompareOrderingKeys(a.key, b.key)
-	})
-	msg := &resolverv1alpha1.ScopeWatermarks{}
-	for _, w := range list {
-		msg.Watermarks = append(msg.Watermarks, &resolverv1alpha1.Watermark{At: timestamppb.New(timeOf(w.at)), Key: w.key, Reason: w.reason})
-	}
-	return anypb.New(msg)
-}
-
 // stateEntries returns the state entries the run changed, sorted by key.
 func (r *factRun) stateEntries() ([]*modelv1alpha1.StateEntry, error) {
 	byKey := map[string]*modelv1alpha1.StateEntry{}
@@ -563,19 +593,14 @@ func (r *factRun) stateEntries() ([]*modelv1alpha1.StateEntry, error) {
 		}
 		byKey[k] = entry
 	}
-	for k, e := range r.marks {
-		if !e.dirty {
-			continue
+	for _, m := range r.marks {
+		es, err := m.entries()
+		if err != nil {
+			return nil, err
 		}
-		entry := &modelv1alpha1.StateEntry{Key: k}
-		if len(e.list) > 0 {
-			v, err := packWatermarks(e.list)
-			if err != nil {
-				return nil, fmt.Errorf("pack watermarks: %w", err)
-			}
-			entry.Value = v
+		for _, entry := range es {
+			byKey[entry.GetKey()] = entry
 		}
-		byKey[k] = entry
 	}
 	out := make([]*modelv1alpha1.StateEntry, 0, len(byKey))
 	for _, k := range slices.Sorted(maps.Keys(byKey)) {

@@ -92,7 +92,7 @@ func (r *factRun) moveSupports(ctx context.Context, m string) error {
 	return nil
 }
 
-// moveScopes moves the watermarks of the merged subject's scopes to the
+// moveScopes links the watermarks of the merged subject's scopes to the
 // survivor, and marks the survivor's facts they end for recomputing. A scope
 // can name any predicate a fact can have: "*", every registered predicate and
 // every attribute the source declares for any kind, in either direction.
@@ -117,17 +117,16 @@ func (r *factRun) moveScopes(ctx context.Context, m, to string) error {
 			if err != nil {
 				return err
 			}
-			if len(from.list) == 0 {
+			if !from.exists() {
 				continue
 			}
 			into, err := r.readMarks(ctx, wmKey(source, to, c.in, c.pred), isRef(to))
 			if err != nil {
 				return err
 			}
-			for _, w := range from.list {
-				into.add(w)
-			}
-			from.list, from.dirty = nil, true
+			// The merged subject's watermarks stay where they are: the survivor's
+			// scope answers for them too.
+			into.link(from.key)
 			moved = append(moved, c)
 		}
 		if len(moved) > 0 {

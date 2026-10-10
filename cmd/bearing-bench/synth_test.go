@@ -42,8 +42,10 @@ func TestSyntheticChangeMatchesResolver(t *testing.T) {
 	if _, err := r.Apply(ctx, s.personEvent(s.people[0], at.Add(-time.Hour))); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range []int{1, 42, 1_000_000} {
-		at = at.Add(time.Minute)
+	// The changes are in different quarter hours, which name a scope's watermark
+	// entries.
+	for i, n := range []int{1, 42, 1_000_000} {
+		at = at.Add([]time.Duration{time.Minute, 40 * time.Minute, 26 * time.Hour}[i])
 		ev := s.changeEvent(n, 0, at)
 		res, err := r.Resolve(ctx, ev)
 		if err != nil {

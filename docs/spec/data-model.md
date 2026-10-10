@@ -99,13 +99,14 @@ A **confirmation** is a write by a source that repeats what its earlier write
 already said: the same state, confidence and qualifiers for a fact, the same
 name bound to the same subject for a binding. A source that syncs again and
 again sends nothing but confirmations until something changes. An
-implementation MUST NOT keep a record per confirmation (scope watermarks
-excepted until [issue #77](https://github.com/dhm116/bearing/issues/77) is
-done), so that what it remembers grows with the changes sources report and
-not with the syncs they make. It keeps the first confirmation's content, and
-moves the record's ordering key to the latest confirmation's: the **last
-verified** key. A fact's support then has one version, as always, whose
-`last_confirmed_at` is that key's `observed_at`.
+implementation MUST NOT keep a record per confirmation of a fact or a name,
+so that what it remembers grows with the changes sources report and not with
+the syncs they make. The one record per sync it does keep is the
+[watermark](#snapshot-scopes) of a snapshot scope: a late claim can fall
+between any two syncs, and the watermarks tell where each one ends. It keeps
+the first confirmation's content, and moves the record's ordering key to the
+latest confirmation's: the **last verified** key. A fact's support then has
+one version, as always, whose `last_confirmed_at` is that key's `observed_at`.
 
 The cost is the one write the run can no longer place. A write **of the same
 source** whose ordering key falls between the first and the latest
@@ -1641,8 +1642,11 @@ yet:
   `ConflictOpened` and `ConflictResolved` events and their audit records, and
   sync-completeness deletions.
 - Compaction and the `Retention` tiers.
-- Bounding the scope watermarks the resolver keeps for every sync of a
-  snapshot scope (issue #77); the support and binding state is bounded by
+- Deleting the scope watermarks of periods that compaction rolls up (issue
+  #193), and storing a steady sync schedule's watermarks as a cadence (issue
+  #194). The resolver keeps one small record per sync of a snapshot scope
+  (issue #136), so a late claim ends exactly where applying everything in time
+  order would end it; the support and binding state is bounded by
   [confirmations](#confirmations).
 - The audit log (issue #138). Its message types, and the types of the
   compaction, declaration-change and configuration-apply events, are in

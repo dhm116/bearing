@@ -42,6 +42,31 @@ type changeTemplate struct {
 	person   string // the template person's subject ID
 	hashes   [2]string
 	contents string // the content hash of the template observation
+	bucket   string // the quarter hour of the template's time, which names a scope's watermark entries
+	block    string // the block of the head's list that quarter hour is in
+}
+
+// quarterHour is the number of the quarter hour of the epoch that t is in: the
+// bucket of the scope watermark entries the resolver writes for an observation
+// made at t. A test compares it with the resolver's.
+func quarterHour(t time.Time) string {
+	const span = 15 * 60 * 1e6
+	n := t.UnixMicro() / span
+	if t.UnixMicro()%span < 0 {
+		n--
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+// watermarkBlock is the block of 1,024 quarter hours that quarter hour is in,
+// as the head of a scope's watermarks lists it.
+func watermarkBlock(t time.Time) string {
+	n, _ := strconv.ParseInt(quarterHour(t), 10, 64)
+	blk := n / 1024
+	if n%1024 < 0 {
+		blk--
+	}
+	return strconv.FormatInt(blk, 10)
 }
 
 var hashKey = regexp.MustCompile(`/(at|url)/=([0-9a-f]{64})`)
@@ -80,7 +105,7 @@ func newChangeTemplate(ctx context.Context, cfg resolver.Config) (*changeTemplat
 	if err != nil {
 		return nil, err
 	}
-	t := &changeTemplate{text: string(b), person: person.GetSubjectId()}
+	t := &changeTemplate{text: string(b), person: person.GetSubjectId(), bucket: quarterHour(at), block: watermarkBlock(at)}
 	for _, m := range hashKey.FindAllStringSubmatch(t.text, -1) {
 		switch m[1] {
 		case "at":
@@ -120,7 +145,7 @@ func (t *changeTemplate) build(n int, at time.Time, personID, login string, data
 	}
 	r := strings.NewReplacer(
 		t.hashes[0], atHash, t.hashes[1], urlHash, t.contents, content,
-		t.person, personID, tokenLogin, login, tokenTimeUS, ts, tokenN, strconv.Itoa(n),
+		t.person, personID, tokenLogin, login, tokenTimeUS, ts, tokenN, strconv.Itoa(n), t.bucket, quarterHour(at), `"`+t.block+`"`, `"`+watermarkBlock(at)+`"`,
 	)
 	cs := &modelv1alpha1.ChangeSet{}
 	if err := protojson.Unmarshal([]byte(r.Replace(t.text)), cs); err != nil {

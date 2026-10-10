@@ -52,17 +52,72 @@
     "bearing.resolver.v1alpha1.ScopeWatermarks.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "ScopeWatermarks is every watermark of one scope (source, subject,\n direction and predicates, or the subject's identity evidence), sorted by\n `at`. A watermark is dropped once another with an earlier or equal `at`\n has a greater or equal key. In a wm/ entry each sync of the scope adds\n one, and watermarks at later times are not dropped.",
+      "description": "The `wm/` entries keep a scope's watermarks apart, so that a sync adds one\n small entry and rewrites none that grows. The entry at the scope's key is\n its head. A head written before issue #136 holds every watermark in\n `watermarks` and has `bucketed` unset; the first sync to change them moves\n them into entries of their own. A bucketed head holds no watermarks: they\n are in the entries at the head's key plus \"/\" and a bucket number, each a\n ScopeWatermarks that holds, sorted by key, the watermarks whose key's\n observed_at falls in that quarter hour of the epoch (the bucket). A late\n claim finds the first watermark with a greater key by reading its bucket\n and the ones after it inside the head's blocks, so an entry is only ever\n read by its key. A bucket is written when it gains or loses a watermark. A\n binary from before the buckets reads a bucketed head as having no\n watermarks; the format is unreleased, so nothing guards against it.",
+      "patternProperties": {
+        "^(lastBucket)$": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "^-?[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "In a bucketed head, the highest bucket that held a watermark, which is in\n the last block, so a lookup past the latest watermark reads nothing. It\n may stay after that watermark is gone."
+        }
+      },
       "properties": {
+        "blocks": {
+          "description": "In a bucketed head, the blocks of 1,024 buckets (block n covers buckets\n 1024n to 1024n+1023) that can hold a watermark of the scope itself, in\n increasing order. A lookup reads buckets only inside them, so a gap of\n years between watermarks costs no reads. A block may stay after its last\n watermark is gone.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "pattern": "^-?[0-9]+$",
+                "type": "string"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "bucketed": {
+          "default": false,
+          "description": "Set in a head whose watermarks are in buckets' entries.",
+          "type": "boolean"
+        },
+        "last_bucket": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "^-?[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "In a bucketed head, the highest bucket that held a watermark, which is in\n the last block, so a lookup past the latest watermark reads nothing. It\n may stay after that watermark is gone."
+        },
+        "linked": {
+          "description": "In a head, the keys of the heads of the scopes of subjects merged into\n this one's subject, whose watermarks also apply here. They are left where\n they are, not copied.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "watermarks": {
-          "description": "The watermarks.",
+          "description": "The watermarks, in a head that is not bucketed and in a bucket's entry.",
           "items": {
             "$ref": "#/$defs/bearing.resolver.v1alpha1.Watermark.schema.json"
           },
           "type": "array"
         }
       },
-      "title": "Scope Watermarks",
+      "title": "ScopeWatermarks is the watermarks of a scope (source, subject, direction and\n predicate, or the subject's identity evidence in a namespace), sorted by\n `at`. A watermark is dropped once another with an earlier or equal `at` has\n a greater or equal key, so the rest rise together: in order of key they are\n in order of `at`.",
       "type": "object"
     },
     "bearing.resolver.v1alpha1.Watermark.schema.json": {
