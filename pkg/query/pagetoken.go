@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -75,12 +76,15 @@ func decodePageToken(token string) (*changesState, error) {
 	if err := dec.Decode(&t); err != nil {
 		return nil, fmt.Errorf("%w: not a token", ErrBadPageToken)
 	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: not a token", ErrBadPageToken)
+	}
 	switch {
 	case t.V != tokenVersion:
 		return nil, fmt.Errorf("%w: version %d is not one this build reads", ErrBadPageToken, t.V)
 	case t.Axis != AxisValid && t.Axis != AxisRecord:
 		return nil, fmt.Errorf("%w: unknown axis", ErrBadPageToken)
-	case t.Since.After(t.Until) || t.Until.IsZero() || t.At.IsZero() || t.FactID == "":
+	case t.Since.IsZero() || t.Since.After(t.Until) || t.Until.IsZero() || t.At.IsZero() || t.FactID == "":
 		return nil, fmt.Errorf("%w: incomplete", ErrBadPageToken)
 	case len(t.Subject) > 128 || len(t.FactID) > 128:
 		return nil, fmt.Errorf("%w: a field is too long", ErrBadPageToken)
@@ -95,7 +99,7 @@ func decodePageToken(token string) (*changesState, error) {
 func (q *Querier) changesWindow(req ChangesRequest) (*changesState, error) {
 	if req.PageToken != "" {
 		if req.Ref != "" || !req.Since.IsZero() || !req.Until.IsZero() || req.Axis != "" {
-			return nil, errors.New("a page token carries its question: give no subject, window or axis with it")
+			return nil, fmt.Errorf("%w: it carries its question, so give no subject, window or axis with it", ErrBadPageToken)
 		}
 		return decodePageToken(req.PageToken)
 	}

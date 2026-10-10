@@ -104,7 +104,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	case "changes":
 		fs.StringVar(&since, "since", "", "start of the window: RFC 3339, a date, or a duration back from now (default 24h before the end)")
 		fs.StringVar(&axis, "axis", "", "valid (default): what changed in the world, as known now; record: how Bearing's answers changed")
-		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("changes per page, newest first (default %d, at most %d)", contracts.DefaultChangesLimit, contracts.MaxChangesLimit))
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("changes per page, newest first (default %d, at most %d); each page asks for its own size", contracts.DefaultChangesLimit, contracts.MaxChangesLimit))
 		fs.StringVar(&pageToken, "page-token", "", "the token a page of changes ends with: reads the next page of the same question")
 	}
 	pos, err := parseFlags(fs, args)
@@ -184,7 +184,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 			err = fmt.Errorf("%w: %w", err, errUsage)
 		}
 		if err == nil {
-			answer, render = c, func(w io.Writer) error { return renderChanges(w, c) }
+			answer, render = c, func(w io.Writer) error { return renderChanges(w, c, pageToken != "") }
 		}
 	}
 	if err != nil {

@@ -245,7 +245,7 @@ func renderRelations(w io.Writer, r *query.Relations) error {
 	return o.flush(w)
 }
 
-func renderChanges(w io.Writer, c *query.Changes) error {
+func renderChanges(w io.Writer, c *query.Changes, continued bool) error {
 	var o out
 	scope := ""
 	if c.Subject != nil {
@@ -254,7 +254,7 @@ func renderChanges(w io.Writer, c *query.Changes) error {
 	o.line(0, "changes%s from %s to %s, %s axis", scope, stamp(c.Since), stamp(c.Until), c.Axis)
 	if len(c.Changes) == 0 {
 		o.line(0, "")
-		o.line(0, "%s", nothingChanged(c))
+		o.line(0, "%s", nothingChanged(c, continued))
 	}
 	for _, ch := range c.Changes {
 		o.line(0, "")
@@ -271,14 +271,19 @@ func renderChanges(w io.Writer, c *query.Changes) error {
 	}
 	if c.NextPageToken != "" {
 		o.line(0, "")
-		o.line(0, "%d changes shown, newest first. For the next page: bearing changes --page-token %s", len(c.Changes), c.NextPageToken)
+		o.line(0, "%d changes shown, newest first. For the next page, run bearing changes --page-token %s with the same --store", len(c.Changes), c.NextPageToken)
 	}
 	return o.flush(w)
 }
 
 // nothingChanged says that a window held no changes and when the newest
-// change before it was, if there was one.
-func nothingChanged(c *query.Changes) string {
+// change before it was, if there was one. A page reached by a token that
+// comes back empty says only that the changes ran out.
+func nothingChanged(c *query.Changes, continued bool) string {
+	if continued {
+		// The question was answered on an earlier page; the rest of it ran out.
+		return "no further changes in this window"
+	}
 	within := "from " + stamp(c.Since) + " to " + stamp(c.Until)
 	then := " before then"
 	if c.DefaultWindow {

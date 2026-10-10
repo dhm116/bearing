@@ -3,13 +3,16 @@ package query_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
 )
 
@@ -191,14 +194,17 @@ func TestChangesRefuseBadTokensAndLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]string{
-		"not base64":       "not a token!",
-		"not JSON":         enc("hello"),
-		"too long":         strings.Repeat("A", 600),
+		"not base64": "not a token!",
+		"not JSON":   enc("hello"),
+		// A valid token padded with JSON whitespace: only its length is wrong.
+		"too long":         enc(string(valid) + strings.Repeat(" ", 512)),
+		"trailing data":    enc(string(valid) + "{}"),
+		"no start":         enc(regexp.MustCompile(`"since":"[^"]*"`).ReplaceAllString(string(valid), `"since":"0001-01-01T00:00:00Z"`)),
 		"another version":  enc(strings.Replace(string(valid), `"v":1`, `"v":2`, 1)),
 		"an unknown field": enc(strings.Replace(string(valid), `"v":1`, `"v":1,"extra":true`, 1)),
 		"no cursor":        enc(`{"v":1,"axis":"valid","since":"2026-01-01T00:00:00Z","until":"2026-01-02T00:00:00Z"}`),
 		"unknown axis":     enc(strings.Replace(string(valid), `"valid"`, `"sideways"`, 1)),
-		"a long subject":   enc(strings.Replace(string(valid), `"changed_at"`, `"subject":"`+strings.Repeat("x", 200)+`","changed_at"`, 1)),
+		"a long subject":   enc(strings.Replace(string(valid), `"changed_at"`, `"subject":"`+strings.Repeat("x", 130)+`","changed_at"`, 1)),
 	}
 	for name, token := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -210,16 +216,88 @@ func TestChangesRefuseBadTokensAndLimits(t *testing.T) {
 	// A token carries its question.
 	for name, req := range map[string]query.ChangesRequest{
 		"a subject": {PageToken: page.NextPageToken, Ref: "catalog:team/infra"},
-		"a start":   {PageToken: page.NextPageToken, Since: time.Now()},
+		"a start":   {PageToken: page.NextPageToken, Since: r.clock.Now()},
 		"an axis":   {PageToken: page.NextPageToken, Axis: query.AxisRecord},
 	} {
-		if _, err := r.q.Changes(context.Background(), req); err == nil || !strings.Contains(err.Error(), "page token") {
+		if _, err := r.q.Changes(context.Background(), req); !errors.Is(err, query.ErrBadPageToken) {
 			t.Errorf("a token with %s: got %v, want it refused", name, err)
 		}
 	}
+	// The querier refuses a limit itself, before it asks the store.
+	asked := &countingGraph{GraphStore: r.store}
+	q := &query.Querier{Graph: asked, Now: r.clock.Now}
 	for _, limit := range []int{-1, 1001} {
-		if _, err := r.q.Changes(context.Background(), query.ChangesRequest{Limit: limit}); err == nil || !strings.Contains(err.Error(), "limit") {
+		if _, err := q.Changes(context.Background(), query.ChangesRequest{Limit: limit}); err == nil || !strings.Contains(err.Error(), "limit") {
 			t.Errorf("limit %d: got %v, want an error", limit, err)
 		}
+	}
+	if asked.pages != 0 {
+		t.Errorf("the store was asked for %d pages, want none for a bad limit", asked.pages)
+	}
+}
+
+// countingGraph counts the pages asked of the store.
+type countingGraph struct {
+	contracts.GraphStore
+	pages int
+}
+
+func (g *countingGraph) ChangesPage(ctx context.Context, req contracts.ChangesRequest) (contracts.ChangesPage, error) {
+	g.pages++
+	return g.GraphStore.ChangesPage(ctx, req)
+}
+
+// A page reached by a token that comes back empty keeps the question's
+// default window and does not claim to name the newest change before it.
+func TestChangesEmptyContinuationKeepsTheQuestion(t *testing.T) {
+	r := newRig(t)
+	r.observe("catalog-acme", "Team", "catalog:team/old", nil, "Old")
+	r.clock.Advance(30 * time.Hour)
+	r.observe("catalog-acme", "Team", "catalog:team/platform", nil, "Platform")
+	r.observe("catalog-acme", "Team", "catalog:team/infra", nil, "Infra")
+	first, err := r.q.Changes(context.Background(), query.ChangesRequest{Limit: 1})
+	if err != nil || first.NextPageToken == "" || !first.DefaultWindow {
+		t.Fatalf("got %+v, %v, want a default-window first page with a token", first, err)
+	}
+	// A token whose cursor is at the window's start has nothing after it.
+	raw, err := base64.RawURLEncoding.DecodeString(first.NextPageToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tok map[string]any
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		t.Fatal(err)
+	}
+	tok["changed_at"] = first.Since.Format(time.RFC3339Nano)
+	raw, err = json.Marshal(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := r.q.Changes(context.Background(), query.ChangesRequest{PageToken: base64.RawURLEncoding.EncodeToString(raw)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Changes) != 0 || !next.DefaultWindow || next.MostRecentChange != nil || next.NextPageToken != "" {
+		t.Errorf("got %d changes, default %v, most recent %v, token %q; want an empty page that keeps the default window and names no most recent change",
+			len(next.Changes), next.DefaultWindow, next.MostRecentChange, next.NextPageToken)
+	}
+}
+
+// The largest token Changes issues stays well inside the bound it enforces:
+// a subject ID, the record axis, the default flag and nanosecond times.
+func TestChangesTheLargestTokenIsAccepted(t *testing.T) {
+	r := newRig(t)
+	r.observe("catalog-acme", "Team", "catalog:team/platform", nil, "Platform")
+	r.observe("catalog-acme", "Team", "catalog:team/infra", nil, "Infra")
+	r.clock.Advance(123456789 * time.Nanosecond)
+	first, err := r.q.Changes(context.Background(), query.ChangesRequest{Ref: "catalog:team/platform", Axis: query.AxisRecord, Limit: 1})
+	if err != nil || first.NextPageToken == "" {
+		t.Fatalf("got %+v, %v, want a token", first, err)
+	}
+	if n := len(first.NextPageToken); n > 400 {
+		t.Errorf("a token is %d bytes; the bound is 512, so a legitimate token should leave room to grow", n)
+	}
+	if _, err := r.q.Changes(context.Background(), query.ChangesRequest{PageToken: first.NextPageToken}); err != nil {
+		t.Errorf("the token Changes issued was refused: %v", err)
 	}
 }

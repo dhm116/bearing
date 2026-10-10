@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -388,7 +389,7 @@ func TestChangesPagesFollowTheirToken(t *testing.T) {
 	}
 	// The text form of a first page names the token to give.
 	text, err := w.cli("changes", "--limit", "2")
-	if err != nil || !strings.Contains(text, "For the next page: bearing changes --page-token ") {
+	if err != nil || !strings.Contains(text, "For the next page, run bearing changes --page-token ") {
 		t.Errorf("text page: %v\n%s\nwant it to end with the token", err, text)
 	}
 	var (
@@ -421,5 +422,35 @@ func TestChangesPagesFollowTheirToken(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("pages hold %v, want %v", got, want)
+	}
+}
+
+// A page reached by a token that comes back empty says the changes ran out,
+// not that none were ever recorded.
+func TestChangesEmptyContinuationSaysTheyRanOut(t *testing.T) {
+	w := newWorld(t)
+	w.play(fakes.CodeownersChangedAt)
+	w.at(day(2026, 10, 3))
+	var first query.Changes
+	ask(t, w, &first, "changes", "--limit", "1")
+	if first.NextPageToken == "" {
+		t.Fatal("the first page has no token")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(first.NextPageToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tok map[string]any
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		t.Fatal(err)
+	}
+	// A cursor at the window's start has nothing after it.
+	tok["changed_at"] = first.Since.Format(time.RFC3339Nano)
+	if raw, err = json.Marshal(tok); err != nil {
+		t.Fatal(err)
+	}
+	got, err := w.cli("changes", "--page-token", base64.RawURLEncoding.EncodeToString(raw))
+	if err != nil || !strings.Contains(got, "no further changes in this window") || strings.Contains(got, "no change has been recorded") {
+		t.Errorf("got %v\n%s\nwant it to say the changes ran out", err, got)
 	}
 }

@@ -26,4 +26,4 @@ payments [Repository 01a0e5a2-15c1-7000-8000-000000000000] owned_by Platform [Te
       evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
       qualifier {"file":".github/CODEOWNERS","line":2,"pattern":"*"}
 
-3 changes shown, newest first. For the next page: bearing changes --page-token eyJ2IjoxLCJheGlzIjoidmFsaWQiLCJzaW5jZSI6IjIwMjYtMTAtMDJUMDA6MDA6MDBaIiwidW50aWwiOiIyMDI2LTEwLTAzVDAwOjAwOjAwWiIsImRlZmF1bHQiOnRydWUsImNoYW5nZWRfYXQiOiIyMDI2LTEwLTAyVDA4OjMwOjAwWiIsImZhY3RfaWQiOiI4ODdhYTJmY2FjMmQ0YWNjNzQ0ODVlZTk5ODI3MzQzOGY2MThhNWUxZjQxM2I3NDBhNGIwMTgxZmU3NWVlYjQzIn0
+3 changes shown, newest first. For the next page, run bearing changes --page-token eyJ2IjoxLCJheGlzIjoidmFsaWQiLCJzaW5jZSI6IjIwMjYtMTAtMDJUMDA6MDA6MDBaIiwidW50aWwiOiIyMDI2LTEwLTAzVDAwOjAwOjAwWiIsImRlZmF1bHQiOnRydWUsImNoYW5nZWRfYXQiOiIyMDI2LTEwLTAyVDA4OjMwOjAwWiIsImZhY3RfaWQiOiI4ODdhYTJmY2FjMmQ0YWNjNzQ0ODVlZTk5ODI3MzQzOGY2MThhNWUxZjQxM2I3NDBhNGIwMTgxZmU3NWVlYjQzIn0 with the same --store
