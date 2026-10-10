@@ -445,10 +445,10 @@ does), and offsets are not comparable across partitions.
 | `Append(events)` | Writes the events atomically and in order, and returns each one's partition and offset. Events of one partition get increasing offsets in the order given. It returns only after the events are durable as the backend promises (`mem://` promises nothing past the process). A repeated ID writes nothing and returns the original position with `Duplicate` set; so does an ID repeated within one call. At most 1,000 events and 32 MiB per call. |
 | `Read(partition, after, limit)` | Returns the entries with an offset greater than `after`, oldest first: at most `limit` (1 to 1,000) and at most 32 MiB of data, but at least one if any qualify. It doesn't wait for new events; callers poll. An entry never becomes visible before the ones with lower offsets in its partition. A bad partition, offset or limit is `ErrInvalidRequest`. |
 | `Commit(group, partition, offset)` | Records that the group has processed the partition up to `offset`. A commit never moves a group back: a lower or equal offset changes nothing. A bad name or negative offset is `ErrInvalidRequest`; then an unknown partition is `ErrNotFound`; then an offset beyond the partition's head is `ErrInvalidRequest`. |
-| `Committed(group, partition)` | The group's offset, or 0. |
+| `Committed(group, partition)` | The group's offset, or 0. A bad name is `ErrInvalidRequest`. |
 | `Partitions()` | Every partition with its `Head` (latest offset) and `Trimmed` (highest offset `Trim` removed). A partition whose entries were all trimmed is still listed, with its `Head` intact, and offsets are never reused. |
 | `Trim(before)` | Removes the entries appended before `before` that aren't retained, and returns the count. A zero `before` is `ErrInvalidRequest`. |
-| `Release(ids)` | Clears `Retain` on those events. Unknown IDs and an empty list are ignored; more than 1,000 IDs or a malformed ID is `ErrInvalidEvent`. |
+| `Release(ids)` | Clears `Retain` on those events. Unknown IDs and an empty list are ignored; more than 1,000 IDs or an ID out of bounds is `ErrInvalidEvent`. |
 
 `Append` fails with `ErrInvalidEvent` when the batch or an event breaks the
 rules above, which `contracts.CheckEvents` checks so every backend refuses
@@ -463,9 +463,10 @@ at least once, and `GraphStore.Apply`'s processed-event mark makes a repeat
 harmless. The log doesn't assign partitions to consumers or lock them: two
 consumers of one group on one partition would process out of order, so the
 server runs one per partition and group, and until there is a lease that
-means one server instance (issue #139 settles it for replicas). A consumer
-whose offset is below `Trimmed` has lost events and reports that instead of
-reading on. Different groups read the same events independently.
+means one server instance (issue #139 settles it for replicas). A new group
+has no offset and starts at the oldest retained entry. A group that has
+committed before and sits below `Trimmed` has lost events and reports that
+instead of reading on. Different groups read the same events independently.
 
 Duplicates are found for as long as the original is retained. After `Trim`
 removes it, the same ID appends again as a new event; the processed-event
@@ -474,7 +475,11 @@ two events with one ID, since the ID is meant to name the content.
 
 Offsets are assigned in append order and never move, but a backend need not
 number them densely, and `Read` takes any `after`, so a consumer never
-computes an offset itself.
+computes an offset itself. A backend serializes appends to one partition
+until they commit (on PostgreSQL, a lock on the partition's head row, taken
+in partition order when a call spans partitions), which is what keeps a
+lower offset from becoming visible after a higher one; sequence gaps from
+rolled-back appends are then harmless.
 
 ### Retention
 
@@ -522,18 +527,21 @@ here and its type is `model.ObservationType`.
 
 The local part of an ID depends on where the event comes from:
 
-- A delivery from a source: the source's delivery ID, else a hash of the
-  authenticated body (C-INGEST-5).
+- A delivery from a source: the source's delivery ID, else the lower-case
+  hex SHA-256 of the authenticated body (C-INGEST-5). A delivery ID that
+  holds a slash is replaced by the hex SHA-256 of its bytes.
 - A request from a person, the scheduler or the CLI (`SyncRequested`,
   `CompactionRequested`, `ConfigApplied` and the manual operations): a fresh
   UUID, not a hash, so two identical requests are two events.
 - Adapter output: derived from the event it answers and the page number, so
-  a replayed run repeats its IDs.
+  a replayed run repeats its IDs. A derived local ID is the lower-case hex
+  SHA-256 of the causing event's ID, a NUL byte and a discriminator (the
+  page number), because the causing ID holds a slash.
 - Events the core reports after an apply (`ConflictOpened`,
   `ConflictResolved`, `OverrideStale`, `SubjectDeletionDerived`,
   `ValidTimeBoundaryReached`): derived from the event that caused them and
-  what they report, so the same replay appends the same events and they
-  dedupe. Whether the core appends them before or after the apply commits is
+  what they report, by the same hash, so the same replay appends the same
+  events and they dedupe. Whether the core appends them before or after the apply commits is
   the server's design (issue #139); the IDs make either order safe.
 
 ## Rules that apply to every component

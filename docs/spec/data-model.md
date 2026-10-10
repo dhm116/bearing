@@ -623,8 +623,9 @@ Example (CloudEvents envelope fields `specversion`, `type`,
 - Provenance comes from the configured source whose event carried the
   observation, never from the CloudEvents `source` field. The core sets it
   in the extension attribute `bearingsource`, and event IDs include it
-  (`<source>/<delivery or content id>`), so two sources' delivery IDs can't
-  collide.
+  (`<source>/<local ID>`, the local ID being the delivery ID or a content
+  hash and holding no slash), so two sources' delivery IDs can't collide
+  ([Event IDs](contracts.md#event-ids)).
 - Source names `manual` and anything starting `core/` are reserved.
 - Adapters MUST NOT send `exists` (every observation of an entity claims it
   implicitly) or `bearingsource`. Both are `malformed`.

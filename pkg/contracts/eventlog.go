@@ -133,9 +133,9 @@ type PartitionInfo struct {
 // and the consumer's own idempotency (GraphStore.Apply's processed-event
 // mark) makes a repeat harmless. The log does not hand partitions to
 // consumers or lock them: two consumers of one group on one partition would
-// process out of order, so the caller runs one. A consumer whose committed
-// offset is below a partition's Trimmed has lost events and says so instead of
-// reading on. Until there is a lease, one server instance consumes.
+// process out of order, so the caller runs one. A new group starts at
+// the oldest retained entry; a group that has committed and sits below a
+// partition's Trimmed has lost events and says so instead of reading on. Until there is a lease, one server instance consumes.
 type EventLog interface {
 	// Append writes events in one atomic step, in order: either all are
 	// visible to Read afterwards or none is. Events of one partition get
@@ -190,7 +190,7 @@ type EventLog interface {
 	// nothing. The caller releases an event only after the write that ends
 	// its effect has committed; a crash in between leaves it retained, which
 	// is harmless. It fails with ErrInvalidEvent for more than
-	// MaxAppendEvents IDs or an ID that breaks the ID rules (CheckRelease).
+	// MaxAppendEvents IDs or an ID out of bounds (CheckRelease).
 	Release(ctx context.Context, ids []string) error
 }
 
