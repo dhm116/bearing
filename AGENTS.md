@@ -34,11 +34,17 @@ Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
 | `make build` | Builds `bin/bearing` and `bin/bearing-adapter-github` |
 | `make fmt` | gofumpt and goimports via `golangci-lint fmt` |
+| `make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=<password>` | PostgreSQL suites against a running server (`docker run -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=<password> pgvector/pgvector:pg16`); the role must be able to create roles and schemas; add `POSTGRES_SCOPED=1` to run the stores as a role without administrator rights, as CI does |
 | `make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root` | SurrealDB suites against a running server (`surreal start --user root --pass root memory`) |
 | `make test-embedded SURREALDB_LIB=<dir>` | Same suites against embedded SurrealDB (CGO, needs `libsurrealdb_c.a`) |
 
 Run `make check` before every commit. A single package:
 `go test ./pkg/model/ -run TestInvalidObservations`.
+
+PostgreSQL tests skip unless `BEARING_TEST_POSTGRES` is set, so a green
+`make test` does not prove the PostgreSQL backend works either. If you touch
+`internal/pgstore`, run `make test-postgres` or say plainly that you could
+not.
 
 SurrealDB tests skip unless `BEARING_TEST_SURREALDB` is set or the binary is
 built with `-tags surrealembed`, so a green `make test` does not prove the
@@ -73,6 +79,7 @@ dependencies. Add dependencies with `go get <module>@<version>` and keep
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
 | `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
 | `internal/memstore` | In-memory reference backend for both contracts, and the rule engine other backends run their operations on (`surrealstore` loads rows into a scratch `memstore.Store`). Production code. |
+| `internal/pgstore` | PostgreSQL backend for `GraphStore` ([ADR 14](docs/adr/0014-postgres-is-the-default-store.md)): rows in `bearing`-schema tables, every operation run on a scratch `memstore.Store`, one transaction per apply under the head row's lock. Server only, pure Go (pgx). The vector index follows in its own change. |
 | `internal/surrealstore` | SurrealDB backend (server mode pure Go; embedded mode behind `surrealembed`). |
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |

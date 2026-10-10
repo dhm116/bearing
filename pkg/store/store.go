@@ -11,11 +11,21 @@
 //	surrealdb+mem://                       Embedded SurrealDB in memory (surrealembed builds)
 //	surrealkv:///var/lib/bearing           Embedded SurrealDB on disk (surrealembed builds)
 //	surrealdb+ws://user@host:8000          SurrealDB server over WebSocket (wss, http, https also work)
+//	postgres://user@host/db                PostgreSQL server (graph only; the vector index follows)
 //
 // SurrealDB URLs accept ?ns=<namespace>&db=<database> (default bearing/main)
 // and ?auth=database, which signs in as a database-scoped user of that
 // namespace and database instead of a root user (C-STORE-2). The namespace,
 // database and user must exist; surrealstore.Provision creates them.
+// PostgreSQL URLs (postgres:// or postgresql://) take ?schema=<name> (default
+// bearing), sslmode, sslrootcert, sslcert, sslkey, connect_timeout,
+// application_name, pool_max_conns and host=<socket directory>, and refuse
+// every other parameter. A connection to a host other than the local machine
+// requires sslmode=verify-full unless insecure_store_plaintext=true
+// (C-STORE-6), and a role that can create roles or databases is refused
+// unless insecure_store_superuser=true (C-STORE-2); pgstore.Provision makes a
+// role and schema that pass.
+//
 // The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
 // carries one, so it never ends up in config files, process lists or logs.
 package store
@@ -52,7 +62,10 @@ type Config struct {
 // Store is an open graph store and vector index. Both are instrumented with
 // OpenTelemetry.
 type Store struct {
-	Graph   contracts.GraphStore
+	Graph contracts.GraphStore
+	// Vectors is nil when the graph backend does not serve vectors (a
+	// PostgreSQL graph store, until its pgvector index lands) and no vector
+	// URL was given; check before use.
 	Vectors contracts.VectorIndex
 	closers []func(context.Context) error
 }
@@ -78,11 +91,12 @@ type backend struct {
 // Open connects to the backends in c.
 func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Graph == "" {
-		return nil, errors.New("store: a graph store URL is required, for example mem:// or surrealdb+ws://localhost:8000")
+		return nil, errors.New("store: a graph store URL is required, for example mem:// or postgres://bearing@localhost/bearing")
 	}
 	if c.Getenv == nil {
 		c.Getenv = os.Getenv
 	}
+	explicitVectors := c.Vectors != ""
 	if c.Vectors == "" {
 		c.Vectors = c.Graph
 	}
@@ -102,11 +116,15 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		}
 		s.closers = append(s.closers, v.close)
 	}
-	if v.vector == nil {
+	// A backend that serves only the graph leaves Vectors nil unless a
+	// vector index was asked for by its own URL.
+	if v.vector == nil && (c.Vectors != c.Graph || explicitVectors) {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
-	s.Vectors = instrument.VectorIndex(v.vector, v.name)
+	if v.vector != nil {
+		s.Vectors = instrument.VectorIndex(v.vector, v.name)
+	}
 	return s, nil
 }
 
@@ -114,6 +132,9 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	u, err := parseURL(raw)
 	if err != nil {
 		return backend{}, err
+	}
+	if u.Scheme == "postgres" || u.Scheme == "postgresql" {
+		return openPostgres(ctx, u, getenv)
 	}
 	ns, db := "bearing", "main"
 	if v := u.Query().Get("ns"); v != "" {
@@ -170,7 +191,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 		}
 		return surreal(st), nil
 	}
-	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://, surrealdb+ws://, surrealdb+mem:// or surrealkv://", u.Scheme)
+	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://, postgres://, surrealdb+ws://, surrealdb+mem:// or surrealkv://", u.Scheme)
 }
 
 // parseURL parses a store URL and rejects one with a password in it. Its
