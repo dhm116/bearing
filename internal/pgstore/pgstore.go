@@ -42,6 +42,10 @@ type Store struct {
 	db pool
 	// vec is set when Options.VectorDimensions is, and serves VectorIndex.
 	vec *vectorConfig
+	// changesBatch and changesHeld size the whole-graph change listings
+	// (changes.go); zero means the defaults, and tests set them small to
+	// make a few rows span several batches and scans.
+	changesBatch, changesHeld int
 }
 
 var _ contracts.GraphStore = (*Store)(nil)

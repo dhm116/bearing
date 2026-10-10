@@ -1187,9 +1187,9 @@ through merges recorded by `recorded_at`. Each result has the fact triple,
 
 ### What changed
 
-`changes(filter, t1, t2, axis)` is an **endpoint** diff: one entry per fact
-whose status or confidence differs between two points, without the steps in
-between.
+`changes(filter, t1, t2, axis, limit, after)` is an **endpoint** diff: one entry
+per fact whose status or confidence differs between two points, without the
+steps in between. The window is `(t1, t2]`.
 
 | `axis` | Compares | Answers |
 | --- | --- | --- |
@@ -1200,13 +1200,39 @@ Facts at both points are matched after canonicalizing subject IDs through
 merges as recorded at the later point. With `axis: record`, `from` is
 therefore the supports recorded by `t1`, combined under `t2`'s merges.
 
+Each entry says **when** the fact took the status and confidence it has at
+`t2`: `changed_at` is the latest instant in the window at which the fact's
+answer, on the window's axis, differs from the answer an instant before. A
+fact that fell in confidence twice has the time of the second fall; one that
+rose and fell back to where it began is not listed. On the `valid` axis the
+instants are those at which a span of the fact starts or ends in valid time;
+on the `record` axis they also include when a row of it was recorded or
+retracted.
+
 ```json
 { "fact_id": "041d6c02…", "subject_id": "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e",
   "predicate": "owned_by", "object": { "subject_id": "0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f" },
   "from": { "status": "asserted", "confidence_ppm": 950000 },
   "to": { "status": "none", "confidence_ppm": 0 }, "precision": { "detail": "full" },
-  "supports_changed": ["core/derive/codeowners/github-acme"] }
+  "supports_changed": ["core/derive/codeowners/github-acme"],
+  "changed_at": "2026-10-02T09:00:00Z" }
 ```
+
+**Paging.** A window can hold every fact in the graph (the first day after an
+import does), so `changes` returns one page: the `limit` newest by
+`changed_at`, ties by `fact_id`. `limit` is 100 when absent and at most 1000.
+The page ends in a cursor (the last entry's `changed_at` and `fact_id`) when
+more follow, and `after` takes that cursor to read the next page. A cursor
+is read on the window the first page resolved, whose `t1` and `t2` every
+page returns, so a zero `t2` (now) does not move between pages. Each page
+is read when asked, so a change recorded while a caller is paging can be
+missed or can show up on a later page; a listing read while the graph is
+quiet is exact.
+
+`last_change(filter, t, axis)` returns the `changed_at` of the newest change
+at or before `t` for the facts matching the filter, or nothing if there is
+none. It is how a caller says "nothing changed in the last day; the most
+recent change was on 3 October" without reading further back than that.
 
 ### Data quality
 

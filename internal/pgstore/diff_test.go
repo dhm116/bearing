@@ -52,6 +52,9 @@ type history struct {
 	nAlias     int
 	nEvent     int
 	steps, bad int
+	// listed counts the changes the page comparisons saw, multi the listings
+	// that took more than one page, and found the last changes found.
+	listed, multi, found int
 }
 
 func runRandomHistory(t *testing.T, seed uint64, steps int) {
@@ -60,6 +63,8 @@ func runRandomHistory(t *testing.T, seed uint64, steps int) {
 	clk := testkit.NewClock(start)
 	pg := newTestStore(t)
 	pg.Now, pg.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	// Small batches and scans, so that a few facts take several of each.
+	pg.changesBatch, pg.changesHeld = 2, 3
 	ref := memstore.New()
 	ref.Now, ref.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
 	h := &history{t: t, rng: rand.New(rand.NewPCG(seed, seed)), clk: clk, ref: ref, pg: pg} //nolint:gosec // G404: a seeded generator makes a failing history repeatable
@@ -93,6 +98,10 @@ func runRandomHistory(t *testing.T, seed uint64, steps int) {
 		merges, unmerges = merges+len(ms), unmerges+len(us)
 	}
 	t.Logf("%d steps applied, %d refused by both; %d merge and %d un-merge record sides", h.steps, h.bad, merges, unmerges)
+	if h.listed == 0 || h.multi == 0 || h.found == 0 {
+		t.Fatalf("the comparisons listed %d changes in %d multi-page listings and found %d last changes; they prove nothing about paging", h.listed, h.multi, h.found)
+	}
+	t.Logf("%d changes listed, %d listings over several pages, %d last changes found", h.listed, h.multi, h.found)
 	if merges == 0 || unmerges == 0 {
 		t.Fatalf("history has %d merge and %d un-merge records; it proves nothing about components", merges, unmerges)
 	}
@@ -150,15 +159,20 @@ func (h *history) mintStep(n int) *modelv1alpha1.ChangeSet {
 }
 
 func claim(h *history, subject string, object *modelv1alpha1.FactObject, predicate string, ppm uint32) (*modelv1alpha1.SupportTimeline, *modelv1alpha1.FactTimeline) {
+	// Most claims hold from a few hours back; some always did.
+	var from *timestamppb.Timestamp
+	if h.rng.IntN(4) != 0 {
+		from = timestamppb.New(h.clk.Now().Add(-time.Duration(h.rng.IntN(6*60)) * time.Minute))
+	}
 	return &modelv1alpha1.SupportTimeline{
 		Source: "github-acme", SubjectId: subject, Predicate: predicate, Object: object,
 		Versions: []*modelv1alpha1.Support{{
 			Source: "github-acme", ConfidencePpm: proto.Uint32(ppm), Reason: modelv1alpha1.SupportReason_SUPPORT_REASON_ASSERT,
-			EventId: "x", ObservedAt: timestamppb.New(h.clk.Now()),
+			EventId: "x", ObservedAt: timestamppb.New(h.clk.Now()), ValidFrom: from,
 		}},
 	}, &modelv1alpha1.FactTimeline{
 		SubjectId: subject, Predicate: predicate, Object: object,
-		Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: ppm}},
+		Spans: []*modelv1alpha1.FactSpan{{Status: modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, StatusReason: modelv1alpha1.StatusReason_STATUS_REASON_NONE, ConfidencePpm: ppm, ValidFrom: from}},
 	}
 }
 
@@ -282,6 +296,65 @@ func (h *history) compare(ctx context.Context) {
 		h.same("AsOf", r, "all", func(s contracts.GraphStore) (any, error) {
 			return s.AsOf(ctx, contracts.FactFilter{Predicate: "owned_by"}, time.Time{}, r)
 		})
+	}
+	h.comparePages(ctx)
+}
+
+// comparePages lists the changes of the whole graph, and of one predicate,
+// on both axes and in pages of several sizes, and finds the last change at a
+// few times, on both stores.
+func (h *history) comparePages(ctx context.Context) {
+	h.t.Helper()
+	now := h.clk.Now()
+	windows := map[contracts.Axis][2]time.Time{
+		contracts.AxisRecord: {h.heads[0].Add(-time.Hour), now.Add(time.Hour)},
+		contracts.AxisValid:  {now.Add(-8 * time.Hour), now},
+	}
+	for axis, w := range windows {
+		for _, pred := range []string{"", "owned_by"} {
+			f := contracts.FactFilter{Predicate: pred}
+			for _, limit := range []int{2, 0} {
+				h.samePages(ctx, contracts.ChangesRequest{Filter: f, T1: w[0], T2: w[1], Axis: axis, Limit: limit})
+			}
+			for _, at := range []time.Time{{}, h.heads[len(h.heads)/2]} {
+				h.same("LastChange", at, fmt.Sprintf("%s axis %d", pred, axis), func(s contracts.GraphStore) (any, error) {
+					got, err := s.LastChange(ctx, f, at, axis)
+					if err == nil {
+						h.found++
+					}
+					return got.UTC().Format(time.RFC3339Nano), err
+				})
+			}
+		}
+	}
+}
+
+// samePages reads every page of r from both stores and compares them one by one.
+func (h *history) samePages(ctx context.Context, r contracts.ChangesRequest) {
+	h.t.Helper()
+	pgReq, refReq := r, r
+	for page := 1; ; page++ {
+		want, wantErr := h.ref.ChangesPage(ctx, refReq)
+		got, gotErr := h.pg.ChangesPage(ctx, pgReq)
+		if (wantErr == nil) != (gotErr == nil) {
+			h.t.Fatalf("ChangesPage %+v page %d: reference err %v, pgstore err %v", r, page, wantErr, gotErr)
+		}
+		if wantErr != nil {
+			return
+		}
+		if text(want.Changes) != text(got.Changes) || fmt.Sprint(want.Next) != fmt.Sprint(got.Next) || !want.T1.Equal(got.T1) || !want.T2.Equal(got.T2) {
+			h.t.Fatalf("ChangesPage %+v page %d differs:\npgstore:   %s next %v window %v %v\nreference: %s next %v window %v %v",
+				r, page, text(got.Changes), got.Next, got.T1, got.T2, text(want.Changes), want.Next, want.T1, want.T2)
+		}
+		h.listed += len(want.Changes)
+		if page == 2 {
+			h.multi++
+		}
+		if want.Next == nil {
+			return
+		}
+		refReq.T1, refReq.T2, refReq.After = want.T1, want.T2, want.Next
+		pgReq.T1, pgReq.T2, pgReq.After = got.T1, got.T2, got.Next
 	}
 }
 

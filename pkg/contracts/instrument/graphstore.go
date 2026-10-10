@@ -269,6 +269,25 @@ func (g *graphStore) Changes(ctx context.Context, f contracts.FactFilter, t1, t2
 	return out, err
 }
 
+// ChangesPage implements contracts.GraphStore.
+func (g *graphStore) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (out contracts.ChangesPage, err error) {
+	err = g.observe(ctx, "changes_page", nil, func(ctx context.Context) error {
+		out, err = g.next.ChangesPage(ctx, r)
+		count(ctx, out.Changes)
+		return err
+	})
+	return out, err
+}
+
+// LastChange implements contracts.GraphStore.
+func (g *graphStore) LastChange(ctx context.Context, f contracts.FactFilter, t time.Time, axis contracts.Axis) (out time.Time, err error) {
+	err = g.observe(ctx, "last_change", nil, func(ctx context.Context) error {
+		out, err = g.next.LastChange(ctx, f, t, axis)
+		return err
+	})
+	return out, err
+}
+
 // subjectAttr tags a read with the subject it asks about, if any.
 func subjectAttr(id contracts.SubjectID) []attribute.KeyValue {
 	if id == "" {

@@ -383,6 +383,16 @@ every time and in every backend:
 - `AsOf` and `Changes` return facts ordered by canonical subject ID,
   predicate, then fact ID. A valid time that no span covers has no row, even
   for a `none` filter; only an explicit `none` span is returned.
+- `ChangesPage` returns the changes `Changes` would, newest `changed_at`
+  first, then by fact ID, one page at a time: at most
+  `contracts.MaxChangesLimit` (1000), and 100 when the request names no
+  limit. A page after a cursor continues the same listing on the window the
+  first page resolved. A store reads only as much of the graph as the page
+  needs, so that a filter naming no subject, key or object is answered
+  without loading the series of the facts that did not change in the
+  window. `LastChange` returns the newest `changed_at` at or before a time
+  among the facts matching a filter, or `ErrNotFound`. Both are add-only to
+  the contract; `Changes` is unchanged except that it sets `changed_at`.
 - `Supports` returns timelines ordered by canonical fact ID, then source,
   then the fact ID as written. Each timeline's versions are ordered by
   `valid_from` (unbounded first), then `valid_to` (unbounded last).

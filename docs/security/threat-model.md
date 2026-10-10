@@ -807,6 +807,9 @@ reach, so they are retired and their numbers are not reused.
   loads the whole history of each series it touches, and an unfiltered
   `Supports`, `AsOf`, `Changes` or `DataQuality` loads every series of its
   table. That stays until a series can be loaded as of one record time.
+  `ChangesPage` and `LastChange` are the way out for changes across the whole
+  graph: they hold a page and a batch of candidate series at a time, however
+  many facts changed (#167). `Changes` itself still loads every match.
   Components have no size cap either: an operation that names one member of
   a very large component loads every merge record of it, and a merge that
   joins two components rewrites the labels of the larger. A cap with a clear
