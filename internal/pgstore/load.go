@@ -378,7 +378,9 @@ func load(ctx context.Context, q querier, meta metaRow, sc scope) (*loaded, erro
 		case !claims && len(f.kids) == 0:
 			continue
 		}
-		if claims && !bySubject && sc.Predicate != "" && hasPredicate(t) {
+		if claims && sc.Predicate != "" && hasPredicate(t) {
+			// Also with ClaimSubjects: the series that name the subjects and
+			// have the predicate, which every reader that sets one filters by.
 			f.predicate = []byte(sc.Predicate)
 		}
 		if got[t], err = loadSeries(ctx, q, t, f); err != nil {

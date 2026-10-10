@@ -130,8 +130,14 @@ func claimScope(f contracts.FactFilter) scope {
 		// The filter's object canonicalizes like the facts' do.
 		sc.Subjects = memstore.SubjectsIn(f.Object)
 	}
-	if f.SubjectID != "" && f.Key == "" {
+	switch {
+	case f.SubjectID != "" && f.Key == "":
 		sc.ClaimSubjects = []string{string(f.SubjectID)}
+	case f.SubjectID == "" && f.Key == "" && len(sc.Subjects) > 0:
+		// A fact is linked to every subject it names, the object included,
+		// so the facts that point at a subject are found like the facts about
+		// it, instead of by loading every fact with the predicate.
+		sc.ClaimSubjects = sc.Subjects
 	}
 	if f.Key != "" {
 		// The key's subject is known only once its bindings are read.

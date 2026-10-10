@@ -32,7 +32,7 @@ Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 | `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
 | `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
-| `make build` | Builds `bin/bearing` and `bin/bearing-adapter-github` |
+| `make build` | Builds `bin/bearing`, `bin/bearing-adapter-github` and `bin/bearing-bench` |
 | `make fmt` | gofumpt and goimports via `golangci-lint fmt` |
 | `make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=<password>` | PostgreSQL suites against a running server (`docker run -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=<password> pgvector/pgvector:pg16`); the role must be able to create roles and schemas; add `POSTGRES_SCOPED=1` to run the stores as a role without administrator rights, as CI does |
 

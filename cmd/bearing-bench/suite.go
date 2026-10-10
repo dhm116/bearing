@@ -175,6 +175,28 @@ func (w *world) measure(label string, facts int64, o suiteOptions) error {
 	return nil
 }
 
+// measureReads runs the reads whose names contain match, for a rerun of the
+// reads a change affects.
+func (w *world) measureReads(label string, facts int64, match string, o suiteOptions) error {
+	rs, err := w.readSet(w.pastRecorded())
+	if err != nil {
+		return err
+	}
+	for _, op := range w.readOps(rs) {
+		if !strings.Contains(op.name, match) {
+			continue
+		}
+		for _, c := range o.Callers {
+			if op.onlyOne && c > 1 {
+				continue
+			}
+			w.logf("measure %s: %s x%d", label, op.name, c)
+			w.out.put("read", label, facts, w.runOp(op, c, o.Duration))
+		}
+	}
+	return nil
+}
+
 // measureResolve is the part of measure that times the resolver, for a store
 // that was measured before the resolver's database work was counted.
 func (w *world) measureResolve(label string, facts int64) error {
@@ -238,8 +260,11 @@ func (w *world) runMeasure(f flags) error {
 	if label == "" {
 		label = fmt.Sprintf("%d fact rows", facts)
 	}
-	if f.only == "resolve" {
+	switch {
+	case f.only == "resolve":
 		return w.measureResolve(label, facts)
+	case strings.HasPrefix(f.only, "reads:"):
+		return w.measureReads(label, facts, strings.TrimPrefix(f.only, "reads:"), defaultSuite(f.quick))
 	}
 	return w.measure(label, facts, defaultSuite(f.quick))
 }

@@ -80,7 +80,7 @@ func (f *flags) register(fs *flag.FlagSet) {
 	fs.Int64Var(&f.events, "events", 0, "stop after this many events of the stream (the only limit for a store that is not PostgreSQL)")
 	fs.StringVar(&f.checkpoints, "checkpoints", "100000,300000,1000000,3000000,10000000", "fact-row counts at which to measure")
 	fs.BoolVar(&f.quick, "quick", false, "run each measurement for a fraction of a second, to check the benchmark itself")
-	fs.StringVar(&f.only, "only", "", `measure: "resolve" runs only the resolver timings`)
+	fs.StringVar(&f.only, "only", "", `measure: "resolve" runs only the resolver timings, "reads:TEXT" only the reads whose name contains TEXT`)
 	fs.BoolVar(&f.flip, "flip", false, "history: change one repository at every read")
 	fs.IntVar(&f.bulkAfter, "bulk-after-day", 5, "simulated day from which Change events are applied without resolving them")
 	fs.Uint64Var(&f.org.Seed, "seed", d.Seed, "seed of the generated org")

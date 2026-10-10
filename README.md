@@ -62,7 +62,7 @@ make check         # everything CI runs: generated code is current, lint, tests 
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
 make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=...   # also run the PostgreSQL suites
-make build         # builds bin/bearing and bin/bearing-adapter-github
+make build         # builds bin/bearing, bin/bearing-adapter-github and bin/bearing-bench
 
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github
