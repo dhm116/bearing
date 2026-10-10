@@ -179,13 +179,19 @@ reports, not the syncs it makes: a re-observation that says what an entry
 already says moves the entry's ordering key to its own and adds no record
 ([Confirmations](data-model.md#confirmations)). A `sup/` entry (a fact's
 support segments) and a `bind/` entry (an alias's binding writes) are about 400
-bytes however many times a source syncs. The one exception is the `wm/` entry
-of a snapshot scope, which gets a watermark per sync (about 200 bytes) until
-[#77](https://github.com/dhm116/bearing/issues/77) bounds it. An entry is
-rewritten whole by each sync and the store keeps every version in the change
-journal, so the `wm/` entry's storage grows quadratically, and a `ChangeSet`
-that carries it reaches `MaxChangeSetBytes` only after tens of thousands of
-syncs. The `bearing.graph.state_entry.bytes` metric shows the sizes.
+bytes however many times a source syncs. The one exception is the watermarks
+of a snapshot scope, which gain one per sync, because a late claim can fall
+between any two syncs and has to end where the next sync that didn't list it
+ran. They are kept as `wm/` entries of their own, one per quarter hour of the
+watermarks' observed times under the scope's head entry, so a sync writes one
+entry of about 200 bytes (and the small head, when it starts a new quarter
+hour) and rewrites nothing that grows. A scope synced hourly adds about 1.8 MB
+of journal a year, and a scope synced more than four times an hour rewrites
+its current quarter hour's entry, which holds a few watermarks. A
+`ChangeSet` is the same size on the thousandth sync as on the tenth. The
+`bearing.graph.state_entry.bytes` metric shows the sizes. The entries of
+periods that compaction has rolled up can be deleted
+([#193](https://github.com/dhm116/bearing/issues/193)).
 
 #### Audit entries
 

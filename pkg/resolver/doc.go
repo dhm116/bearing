@@ -15,8 +15,9 @@
 // deletions that end what an observation no longer lists, per-source
 // supports with versions, noisy-OR confidence, and status (threshold,
 // unobserved objects, conflicts that authority resolves), recomputed for what
-// a ChangeSet touches. A merge moves the merged subject's supports and
-// watermarks to the survivor. Matching is exact.
+// a ChangeSet touches. A merge moves the merged subject's supports to the
+// survivor, which also answers for the merged subject's watermarks. Matching is
+// exact.
 //
 // # Derived ownership and links
 //
@@ -78,8 +79,8 @@
 // events and their audit records; manual overrides, precedence and same_as facts; scored matching (names,
 // emails, member overlap); non-authoritative links and the evidence state
 // that ending a link needs; authority overrides; manual operations;
-// sync-completeness deletions; compaction; and bounding the scope watermarks,
-// which still grow with every sync of a snapshot scope (issue #77). A merged
+// sync-completeness deletions; compaction, and with it deleting the scope
+// watermarks of the periods it rolls up (issue #193). A merged
 // subject's support series that hold only endings aren't found when it merges
 // (issue #86's family).
 //
@@ -105,7 +106,9 @@
 //	sup/<source>/<subject>/<predicate>/<object>
 //	                             SupportSegments: one source's writes about one fact
 //	wm/<source>/<subject>/<out|in>/<predicate|*>
-//	                             ScopeWatermarks: the endings its snapshots make
+//	                             ScopeWatermarks: the head of the endings its snapshots make
+//	wm/<source>/<subject>/<out|in>/<predicate|*>/<n>
+//	                             ScopeWatermarks: those whose key falls in the n-th quarter hour of the epoch
 //
 // A support's object is the object subject's ID, or "=" and the fact ID of a
 // value. A segment is a write of one observation over a stretch of valid
@@ -130,7 +133,18 @@
 // confirmations, says something else and arrives after the last of them: the
 // ChangeSet audits it as compacted_write_dropped and [Result.Dropped] lists it.
 //
+// A snapshot scope's watermarks are the one record a sync still adds, because
+// a claim that arrives late can fall between any two syncs and ends at the
+// first sync after it that didn't list it. They are kept in entries of their
+// own (the scope's head, and one entry per quarter hour of the watermarks'
+// observed times), so a sync writes one small entry and rewrites none that
+// grows; a lookup reads the entry of the key's quarter hour and the ones after
+// it, so nothing is read by anything but its key (marks.go). A watermark that
+// another with an earlier or equal start and a greater or equal key makes
+// redundant isn't kept, so a scope's watermarks rise in both.
+//
 // Source-supplied text in a key is percent-encoded for "%", "/" and ":", so
 // only the subject segment can be a ref. A merged subject's deletions move
-// to the survivor.
+// to the survivor. Its watermarks stay where they are: the survivor's head
+// links to the merged subject's, and the scope reads both.
 package resolver

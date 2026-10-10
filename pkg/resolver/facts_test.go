@@ -3,6 +3,8 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -680,6 +682,54 @@ func TestMergeMovesAllPredicateAndDeclaredAttributeSnapshots(t *testing.T) {
 					t.Errorf("the late claim survived the snapshot:\n%s", after)
 				}
 			})
+		}
+	}
+}
+
+// Snapshots made under three subjects that are later merged into one, one
+// after the other, end what they didn't list as they would have had the
+// subjects been one from the start: the survivor's scope answers for those of
+// the subjects merged into it (issue #136).
+func TestMergeChainKeepsEverySnapshotWatermark(t *testing.T) {
+	t.Parallel()
+	ids := []string{"authentik:user/u1", "authentik-saml:name_id/jdoe", "authentik:user/u2"}
+	emails := []string{"a@acme.example", "b@acme.example", "c@acme.example"}
+	snapshots := func() []Event {
+		var out []Event
+		for i, id := range ids {
+			at := fmt.Sprintf("2026-10-01T0%d:00:00Z", i+1)
+			out = append(out, event("authentik-acme", withAttr(obsAt(at, "Person", id), "email", []any{emails[i]})))
+		}
+		return out
+	}
+	late := []Event{
+		event("authentik-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Person", ids[0]), "email", []any{"old@acme.example"})),
+		event("authentik-acme", withAttr(obsAt("2026-10-01T01:30:00Z", "Person", ids[1]), "email", []any{"mid@acme.example"})),
+		event("authentik-acme", withAttr(obsAt("2026-10-01T02:30:00Z", "Person", ids[2]), "email", []any{"mid2@acme.example"})),
+	}
+	merge := func(a, b string, day int) Event {
+		return event("authentik-acme", obsAt(fmt.Sprintf("2026-10-%02dT00:00:00Z", day), "Person", a, b))
+	}
+	laterSync := event("authentik-acme", withAttr(obsAt("2026-10-04T00:00:00Z", "Person", ids[0]), "email", []any{"d@acme.example"}))
+
+	e := newEnv(t)
+	for _, ev := range slices.Concat(snapshots(), []Event{merge(ids[0], ids[1], 2), merge(ids[1], ids[2], 3)}, late, []Event{laterSync}) {
+		e.apply(ev)
+	}
+	// A list of emails is a snapshot, so each late list holds from its own time
+	// until the first snapshot after it that doesn't list it.
+	emailRE := regexp.MustCompile(`email -> \{"type":"VALUE_TYPE_STRING","value":"(\w+)@acme.example"\}`)
+	for v, want := range map[string]string{
+		"2026-10-01T00:30:00Z": "old", "2026-10-01T01:15:00Z": "a", "2026-10-01T01:45:00Z": "mid",
+		"2026-10-01T02:15:00Z": "b", "2026-10-01T02:45:00Z": "mid2", "2026-10-01T03:30:00Z": "c", "2026-10-05T00:00:00Z": "d",
+	} {
+		var got []string
+		for _, m := range emailRE.FindAllStringSubmatch(factsAt(t, e, ts(v)), -1) {
+			got = append(got, m[1])
+		}
+		slices.Sort(got)
+		if g := strings.Join(got, " "); g != want {
+			t.Errorf("at %s got emails %q, want %q", v, g, want)
 		}
 	}
 }

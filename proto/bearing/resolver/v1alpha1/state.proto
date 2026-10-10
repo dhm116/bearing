@@ -13,7 +13,11 @@
 // changes a source reports, not with its syncs. A write whose key falls
 // between a record's first and last confirmations is ignored when it is applied
 // after the last (docs/spec/data-model.md, "State, determinism and apply").
-// ScopeWatermarks still adds a record per sync of its scope (issue #77).
+// The one record a sync still adds is the watermark of its scope. A late
+// claim can fall between any two syncs, so every watermark is kept, but in
+// small entries of their own, not in one that is rewritten whole: a scope's
+// journal grows by the size of a watermark per sync, not by the size of all
+// of them (issue #136).
 
 syntax = "proto3";
 
@@ -122,12 +126,36 @@ message Watermark {
   bearing.model.v1alpha1.SupportReason reason = 3;
 }
 
-// ScopeWatermarks is every watermark of one scope (source, subject,
-// direction and predicates, or the subject's identity evidence), sorted by
-// `at`. A watermark is dropped once another with an earlier or equal `at`
-// has a greater or equal key. In a wm/ entry each sync of the scope adds
-// one, and watermarks at later times are not dropped.
+// ScopeWatermarks is the watermarks of a scope (source, subject, direction and
+// predicate, or the subject's identity evidence in a namespace), sorted by
+// `at`. A watermark is dropped once another with an earlier or equal `at` has
+// a greater or equal key, so the rest rise together: in order of key they are
+// in order of `at`.
+//
+// The `wm/` entries keep a scope's watermarks apart, so that a sync adds one
+// small entry and rewrites none that grows. The entry at the scope's key is
+// its head. A head written before issue #136 holds every watermark in
+// `watermarks` and has `bucketed` unset; the first sync to change them moves
+// them into entries of their own. A bucketed head holds no watermarks: they
+// are in the entries at the head's key plus "/" and a bucket number, each a
+// ScopeWatermarks that holds, sorted by key, the watermarks whose key's
+// observed_at falls in that quarter hour of the epoch (the bucket). A late
+// claim finds the first watermark with a greater key by reading its bucket
+// and the ones after it up to `last_bucket`, so an entry is only ever read by
+// its key. A bucket is written when it gains or loses a watermark.
 message ScopeWatermarks {
-  // The watermarks.
+  // The watermarks, in a head that is not bucketed and in a bucket's entry.
   repeated Watermark watermarks = 1;
+  // Set in a head whose watermarks are in buckets' entries.
+  bool bucketed = 2;
+  // In a bucketed head, the buckets, as quarter hours since the epoch, that
+  // can hold a watermark of the scope itself are first_bucket to last_bucket.
+  // first_bucket greater than last_bucket says the scope has none.
+  int64 first_bucket = 3;
+  // See first_bucket.
+  int64 last_bucket = 4;
+  // In a head, the keys of the heads of the scopes of subjects merged into
+  // this one's subject, whose watermarks also apply here. They are left where
+  // they are, not copied.
+  repeated string linked = 5;
 }

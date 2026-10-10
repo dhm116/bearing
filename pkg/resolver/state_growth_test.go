@@ -23,12 +23,18 @@ type growthSample struct {
 // ChangeSet.
 func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 	t.Helper()
+	return repeatSyncsEvery(t, facts, syncs, time.Hour)
+}
+
+// repeatSyncsEvery is repeatSyncs with the syncs the given time apart.
+func repeatSyncsEvery(t *testing.T, facts, syncs int, every time.Duration) []growthSample {
+	t.Helper()
 	e := newEnv(t)
 	ctx := context.Background()
 	start := ts("2026-10-01T00:00:00Z")
 	var out []growthSample
 	for i := range syncs {
-		o := obsAt(start.Add(time.Duration(i)*time.Hour).Format(time.RFC3339), "Repository", "github:repo_node/R1", "github:repo/acme/a")
+		o := obsAt(start.Add(time.Duration(i)*every).Format(time.RFC3339), "Repository", "github:repo_node/R1", "github:repo/acme/a")
 		for f := range facts {
 			o = withRelation(o, "approves_changes", fmt.Sprintf("github:team/acme/t%d", f))
 		}
@@ -59,12 +65,14 @@ func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 	return out
 }
 
-// A source that syncs the same facts again and again leaves the support and
-// binding state of each fact as small as after the first sync: a confirmation
+// A source that syncs the same facts again and again leaves the support,
+// binding and watermark state of each fact and scope as small as after the
+// first sync, and each sync writes as much as the one before: a confirmation
 // extends the existing record (issue #77, docs/spec/data-model.md "State,
-// determinism and apply"). The scope's watermarks are the one entry that still
-// gets a record per sync, which this test pins so that the fix for them has a
-// number to beat.
+// determinism and apply"), and the scope's watermarks are one small entry per
+// hour that is written once (issue #136). It used to be a record that grew by
+// about 200 bytes per sync and was written whole each time: 100 MB of journal
+// after 1,000 syncs.
 func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
 	t.Parallel()
 	const facts, syncs = 5, 1000
@@ -86,27 +94,30 @@ func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
 		t.Errorf("got %d sup/ entries, want one per fact (%d) at least", n, facts)
 	}
 
-	// Only the scope's watermarks grow, about 200 bytes per sync, so a
-	// ChangeSet grows by that and not with the number of facts.
+	// The ChangeSet of a sync is as large as that of the sync before.
 	perSync := float64(got[syncs-1].changeSet-got[1].changeSet) / float64(syncs-2)
 	t.Logf("ChangeSet of %d facts grows %.0f bytes per sync (%d bytes at sync 2, %d at sync %d)", facts, perSync, got[1].changeSet, got[syncs-1].changeSet, syncs)
-	if perSync > 300 {
-		t.Errorf("got %.0f bytes per sync, want at most 300: the scope's watermark entry alone", perSync)
+	if perSync > 1 {
+		t.Errorf("got %.0f bytes per sync, want none: nothing a sync writes grows with the number of syncs", perSync)
 	}
 	var journal int
 	for _, s := range got {
 		journal += s.written["wm"]
 	}
-	t.Logf("wm/ entry is %d bytes after %d syncs and the journal gained %d bytes of it over the run", got[syncs-1].entry["wm"], syncs, journal)
-	if limit := 400 * syncs; got[syncs-1].entry["wm"] > limit {
-		t.Errorf("wm/ entry is %d bytes after %d syncs, want at most %d", got[syncs-1].entry["wm"], syncs, limit)
+	t.Logf("a sync writes %d bytes of wm/ entries (%d entries) and the journal gained %d bytes of them over the run", got[syncs-1].written["wm"], got[syncs-1].entries["wm"], journal)
+	if limit := 300 * syncs; journal > limit {
+		t.Errorf("the journal gained %d bytes of wm/ entries over %d syncs, want at most %d", journal, syncs, limit)
+	}
+	for i, s := range got[2:] {
+		if s.written["wm"] > got[2].written["wm"]+32 {
+			t.Fatalf("sync %d wrote %d bytes of wm/ entries, want about as many as sync 3 (%d)", i+3, s.written["wm"], got[2].written["wm"])
+		}
 	}
 }
 
 // How many facts a sync lists doesn't change how the ChangeSet grows: after
-// the first syncs it grows by the scope's watermarks only, where it used to
-// grow by about 440 bytes per fact per sync and reach the limit for 500 facts
-// after about 73 syncs.
+// the first syncs it doesn't, where it used to grow by about 440 bytes per fact
+// per sync and reach the limit for 500 facts after about 73 syncs.
 func TestRepeatedSyncsOfManyFactsDoNotGrowTheChangeSet(t *testing.T) {
 	t.Parallel()
 	const facts, syncs = 100, 30
@@ -114,7 +125,32 @@ func TestRepeatedSyncsOfManyFactsDoNotGrowTheChangeSet(t *testing.T) {
 	from := syncs / 2
 	growth := got[syncs-1].changeSet - got[from].changeSet
 	t.Logf("%d facts: ChangeSet is %d bytes at sync %d and %d at sync %d", facts, got[from].changeSet, from+1, got[syncs-1].changeSet, syncs)
-	if want := 300 * (syncs - 1 - from); growth > want {
-		t.Errorf("ChangeSet grew %d bytes over %d syncs of %d facts, want at most %d: the scope's watermarks only", growth, syncs-1-from, facts, want)
+	if growth > 16 {
+		t.Errorf("ChangeSet grew %d bytes over %d syncs of %d facts, want none", growth, syncs-1-from, facts)
+	}
+}
+
+// A scope synced more often than hourly rewrites its hour's entry each time,
+// which holds the few watermarks of the hour: the bytes a sync writes are
+// bounded by the syncs in an hour, however long the scope has been synced.
+func TestRepeatedSyncsMoreOftenThanHourlyWriteABoundedEntry(t *testing.T) {
+	t.Parallel()
+	const syncs = 600
+	got := repeatSyncsEvery(t, 3, syncs, 5*time.Minute)
+	sum := func(from, to int) (n int) {
+		for _, s := range got[from:to] {
+			n += s.written["wm"]
+		}
+		return n
+	}
+	early, late := sum(24, 48), sum(syncs-24, syncs)
+	t.Logf("24 syncs five minutes apart write %d bytes of wm/ entries early on and %d after %d syncs", early, late, syncs)
+	if late > early+early/20 {
+		t.Errorf("24 syncs write %d bytes of wm/ entries after %d syncs and %d early on, want the same", late, syncs, early)
+	}
+	for i, s := range got {
+		if s.written["wm"] > 12*250+300 {
+			t.Fatalf("sync %d wrote %d bytes of wm/ entries, want at most the twelve watermarks of an hour and a head", i+1, s.written["wm"])
+		}
 	}
 }
