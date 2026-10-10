@@ -363,7 +363,7 @@ func (r *factRun) watermarksFor(ctx context.Context, source string, f fact, s se
 			if err != nil {
 				return nil, err
 			}
-			ws, err := deciding(ctx, comps, keys, s)
+			ws, err := deciding(ctx, comps, keys)
 			if err != nil {
 				return nil, err
 			}
@@ -375,11 +375,13 @@ func (r *factRun) watermarksFor(ctx context.Context, source string, f fact, s se
 
 // deciding returns, from one scope's watermarks (spread over the scopes
 // merged into it), those that decide what becomes of the series s: for each
-// key, the first above it and the first at or above it, and the ones between
-// two confirmations that would be joined. No other watermark of the scope
-// changes s or what is built from it. A watermark that another of the scope
-// ends no later and above is left out, as it is in a scope's own list.
-func deciding(ctx context.Context, comps []*scopeMarks, keys []*resolverv1alpha1.OrderingKey, s series) ([]watermark, error) {
+// key, the first above it and the first at or above it. In a staircase the
+// first above a key has the earliest start of those above it, so the ones
+// between two confirmations decide nothing the first does not. No other
+// watermark of the scope changes s or what is built from it. A watermark that
+// another of the scope ends no later and above is left out, as it is in a
+// scope's own list.
+func deciding(ctx context.Context, comps []*scopeMarks, keys []*resolverv1alpha1.OrderingKey) ([]watermark, error) {
 	var cand []watermark
 	keep := func(w *watermark) {
 		if w != nil && !slices.ContainsFunc(cand, func(o watermark) bool { return o.at == w.at && model.CompareOrderingKeys(o.key, w.key) == 0 }) {
@@ -394,22 +396,6 @@ func deciding(ctx context.Context, comps []*scopeMarks, keys []*resolverv1alpha1
 					return nil, err
 				}
 				keep(w)
-			}
-		}
-	}
-	for i := 1; i < len(s); i++ {
-		a, b := s[i-1], s[i]
-		if !a.confirmedBy(b) {
-			continue
-		}
-		for _, c := range comps {
-			w, err := c.next(ctx, a.key, false)
-			for err == nil && w != nil && model.CompareOrderingKeys(w.key, b.key) <= 0 && w.at < a.to {
-				keep(w)
-				w, err = c.next(ctx, w.key, false)
-			}
-			if err != nil {
-				return nil, err
 			}
 		}
 	}
