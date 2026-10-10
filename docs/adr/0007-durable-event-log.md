@@ -44,6 +44,13 @@ the graph quietly.
   `Append`, `Read(from offset)` for a consumer group, `Commit`.
   Partitions are keyed by source entity key, so events about one entity stay
   in order.
+  *Amended 2026-10-10: a partition is the configured source an event is
+  about (`manual` and `core/<name>` for events that belong to none), so the
+  events of one source stay in order and the log needs no key extraction.
+  `Read` takes a partition and an offset and `Commit` and `Committed` keep a
+  group's offset; the log also has `Trim` and `Release` for the retention
+  window, and `Partitions`. The shape is in
+  [`docs/spec/contracts.md`](../spec/contracts.md#eventlog).*
 - **Idempotent, transactional apply.** Each event has a stable ID (the
   source's delivery ID when it has one, otherwise a hash of its content).
   `GraphStore` gains `Apply(ChangeSet)`, which writes the entities, facts and
@@ -58,6 +65,12 @@ the graph quietly.
   days) for replay and debugging. Facts and their history are kept
   indefinitely, and the graph can be rebuilt from a full resync plus the
   retained window.
+  *Amended 2026-10-10: the window counts applied events. `Trim` takes the
+  consumer groups that must apply every event (the server's apply workers)
+  and keeps an entry until each of them has committed past it, so an event the
+  log acknowledged to a sender is never deleted before it was applied. A group
+  that is not named holds nothing back. A later setting may cap the log by age
+  or size and discard unapplied events anyway; it is off by default.*
 
 ## Shape
 
@@ -81,6 +94,8 @@ A webhook delivery, end to end:
   workers and API.
 - The `GraphStore` contract and its conformance suite gain `Apply` and its
   idempotency tests. `memstore` and `surrealstore` implement them.
+  *Amended 2026-10-10:* `surrealstore` was removed ([ADR 14](0014-postgres-is-the-default-store.md));
+  `memstore` and `pgstore` implement them.
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Ingest needs a registry of host verifiers, one per signature scheme, and

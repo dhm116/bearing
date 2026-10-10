@@ -142,8 +142,8 @@ supports follow their inputs. Nothing else is lost:
   Every apply therefore has a unique, strictly increasing `recorded_at`.
 - Because every apply writes the clock record, applies are serialized.
   This is the only isolation model in this version. It is far above MVP
-  volume; a load benchmark against SurrealDB checks the ceiling
-  ([issue #27](https://github.com/dhm116/bearing/issues/27)). It can later
+  volume; the design-target benchmark against PostgreSQL checks the ceiling
+  ([issue #135](https://github.com/dhm116/bearing/issues/135)). It can later
   be relaxed to per-partition hybrid logical clocks, with an as-recorded
   watermark below which every partition's applies are complete, so
   record-time reads stay consistent.
@@ -623,8 +623,9 @@ Example (CloudEvents envelope fields `specversion`, `type`,
 - Provenance comes from the configured source whose event carried the
   observation, never from the CloudEvents `source` field. The core sets it
   in the extension attribute `bearingsource`, and event IDs include it
-  (`<source>/<delivery or content id>`), so two sources' delivery IDs can't
-  collide.
+  (`<source>/<local ID>`, the local ID being the delivery ID or a content
+  hash and holding no slash), so two sources' delivery IDs can't collide
+  ([Event IDs](contracts.md#event-ids)).
 - Source names `manual` and anything starting `core/` are reserved.
 - Adapters MUST NOT send `exists` (every observation of an entity claims it
   implicitly) or `bearingsource`. Both are `malformed`.
@@ -1411,10 +1412,10 @@ proto field names, so JSON field names match the examples here.
 
 Every message in `proto/bearing/event/v1alpha1` that is an event, by who
 appends it. Each travels as the data of a CloudEvent
-([ADR 7](../adr/0007-durable-event-log.md)); the CloudEvents `type` and
-envelope of events other than observations are fixed with the `EventLog`
-contract (issue #137). Audit records and checkpoints are not events; they
-are written to the `AuditLog`.
+([ADR 7](../adr/0007-durable-event-log.md)). The CloudEvents `type` of
+each event and the partition it is appended to are in
+[`EventLog`](contracts.md#event-types). Audit records and checkpoints are
+not events; they are written to the `AuditLog`.
 
 | Event | Appended by | Rules |
 | --- | --- | --- |
@@ -1636,8 +1637,8 @@ yet:
 - Bounding the scope watermarks the resolver keeps for every sync of a
   snapshot scope (issue #77); the support and binding state is bounded by
   [confirmations](#confirmations).
-- The durable event log (issue #137), replacing the `EventBus` contract,
-  and the audit log (issue #138). Their message types, and the types of the
+- The audit log (issue #138). Its message types, and the types of the
   compaction, declaration-change and configuration-apply events, are in
-  Protobuf; nothing yet appends or applies them.
-- The apply-clock load benchmark against SurrealDB (issue #27).
+  Protobuf; nothing yet appends or applies them. The durable event log that
+  carries events is the [`EventLog`](contracts.md#eventlog) contract.
+- The design-target benchmark against PostgreSQL, which includes the apply-clock ceiling (issue #135).

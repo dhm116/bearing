@@ -50,7 +50,7 @@ images built from it, and the deployment files it ships (for example the
 compose file).
 
 Out of scope: vulnerabilities in source systems, identity providers or
-SurrealDB themselves (report those upstream), and the risks the threat model
+PostgreSQL itself (report those upstream), and the risks the threat model
 lists as accepted. Risks that an `insecure_*` setting knowingly
 accepts are out of scope; a setting that fails to warn or audit (C-GEN-1)
 is in scope.

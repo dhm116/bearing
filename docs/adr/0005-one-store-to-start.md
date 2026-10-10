@@ -6,6 +6,12 @@ Tested: both conformance suites pass against SurrealDB 3.3.0 over
 WebSocket and HTTP (`make test-surrealdb`) and embedded in memory and on
 disk (`make test-embedded`).
 
+*Amended 2026-10-10: [ADR 14](0014-postgres-is-the-default-store.md) replaced
+SurrealDB with PostgreSQL, and `internal/surrealstore`, the `surrealembed` build
+tag, the `surrealdb+*` and `surrealkv://` URLs and the make targets named above
+were removed ([#134](https://github.com/dhm116/bearing/issues/134)). The text
+below is the record of what was decided and tested at the time.*
+
 ## Context
 
 ADR 2 keeps the graph (`GraphStore`) and the semantic index (`VectorIndex`)

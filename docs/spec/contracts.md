@@ -7,9 +7,9 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (`mem://` for tests) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
-| `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
-| `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
+| `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -18,21 +18,21 @@ interface's conformance suite can replace it. The Go definitions are in
 
 ## One database to start
 
-A backend can serve more than one interface. By default SurrealDB backs
-both `GraphStore` and `VectorIndex`, so a small install runs one database, or
-none with an embedded build ([ADR 5](../adr/0005-one-store-to-start.md)).
+A backend can serve more than one interface. By default PostgreSQL backs
+`GraphStore`, `VectorIndex` (the vectors use the pgvector extension) and
+`EventLog`, so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
 [`pkg/store`](../../pkg/store) opens backends from URLs:
 
 | URL | Backend | Needs |
 | --- | --- | --- |
 | `mem://` | In-memory reference store | Nothing; data is lost on exit |
-| `surrealdb+ws://user@host:8000?ns=bearing&db=main` | SurrealDB server (also `wss`, `http`, `https`) | A running `surreal start` |
-| `surrealdb+mem://` | Embedded SurrealDB in memory | A `-tags surrealembed` build (CGO) |
-| `surrealkv:///var/lib/bearing` | Embedded SurrealDB on disk | A `-tags surrealembed` build (CGO) |
+| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore` and `EventLog`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
 
-`store.Config{Graph: url}` uses one backend for both. Setting
-`Config.Vectors` to a second URL splits them, for example a SurrealDB graph
-with Qdrant vectors, and nothing else changes. Passwords come from
+`store.Config{Graph: url}` uses one backend for all three. Setting
+`Config.Vectors` or `Config.Events` to a second URL splits them, for example a
+PostgreSQL graph with Qdrant vectors, and nothing else changes. The event log
+shares the graph's database but none of its tables, and `Backup` and `Restore`
+do not touch it. Passwords come from
 `BEARING_STORE_PASSWORD`, not the URL; opening a URL that carries a password
 MUST fail.
 
@@ -40,9 +40,9 @@ In a vector index, a point's kind is its `kind` payload field, which
 `VectorQuery.Kinds` filters on. When subjects merge, the core calls
 `Repoint` to move the merged subject's points to the survivor.
 
-The SurrealDB backend serves both `GraphStore` and `VectorIndex`: a
-SurrealDB store URL opens as either. It keeps the graph as rows and runs each
-operation on the reference store's rules (see `internal/surrealstore`).
+The PostgreSQL backend serves `GraphStore`, and `VectorIndex` too when the
+URL sets `vector_dimensions`. It keeps the graph as rows and runs each
+operation on the reference store's rules (see `internal/pgstore`).
 
 Beyond Go interfaces, components that run as separate services expose the
 same operations over a network protocol (gRPC or HTTP+JSON), so a backend can
@@ -396,6 +396,173 @@ every time and in every backend:
   conflict or issue is validated: a position's `authority` and a support's
   `confidence_ppm` are kept as written.
 
+## EventLog
+
+`EventLog` is the log of [ADR 7](../adr/0007-durable-event-log.md): webhook
+deliveries, sync requests, adapter output, people's operations and the
+core's own events all become events on it, and the workers that run adapters
+and apply their output read from it. It replaces the `EventBus` of earlier
+drafts. A webhook is acknowledged only after `Append` returns for its event,
+and a failing log makes the ingest path answer 5xx so the sender retries
+([C-INGEST-8](../security/threat-model.md)).
+
+An `Event` carries these CloudEvents attributes and a payload:
+
+| Field | Rule |
+| --- | --- |
+| `ID` | Stable for the same input, so a redelivery repeats it: `<partition>/<local ID>`, where the local ID is the source's delivery ID or a content hash and holds no slash (a delivery ID with a slash is hashed). The partition is everything before the last slash, so an ID names its partition and two partitions can never produce one ID, even when source names hold a slash. At most 512 bytes. [Event IDs](#event-ids) says how each event gets one. |
+| `Partition` | The unit of order ([below](#partitions)). |
+| `Type` | The CloudEvents type, `dev.bearing.<message in snake case>.v1` ([Event types](#event-types)). |
+| `Time` | When the event happened, UTC and truncated to microseconds. Required. |
+| `Data` | The payload message in ProtoJSON. Required, at most 8 MiB. The log stores it and does not read it. |
+| `Retain` | Exempts the event from `Trim` until `Release` ([Retention](#retention)). Required on every event in the `manual` partition. |
+
+The CloudEvents `specversion` is `1.0` and `datacontenttype` `application/json`
+for every event; the log keeps neither. A partition, a group and a type are
+1 to 256 bytes of valid UTF-8 without control characters.
+
+### Partitions
+
+Events are ordered within a partition and not across partitions. A
+partition is the configured source an event is about, so the events of one
+source, its syncs, its webhook deliveries and its adapter output, are read
+in the order they were appended, which is what identity decisions need
+([data model](data-model.md#state-determinism-and-apply)). Two reserved
+names cover events that belong to no source, because the names `manual` and
+`core/...` can't be source names:
+
+- `manual`: people's and agents' operations.
+- `core/<name>`: events the core appends about itself, one partition per
+  component.
+
+An offset is the event's position in its partition: positive, and strictly
+increasing in the order events were appended. It is not promised to be
+consecutive, because `Trim` leaves gaps and a backend may skip numbers (Kafka
+does), and offsets are not comparable across partitions.
+
+### Operations
+
+| Method | What it does |
+| --- | --- |
+| `Append(events)` | Writes the events atomically and in order, and returns each one's partition and offset. Events of one partition get increasing offsets in the order given. It returns only after the events are durable as the backend promises (`mem://` promises nothing past the process). A repeated ID writes nothing and returns the original position with `Duplicate` set; so does an ID repeated within one call. At most 1,000 events and 32 MiB per call. |
+| `Read(partition, after, limit)` | Returns the entries with an offset greater than `after`, oldest first: at most `limit` (1 to 1,000) and at most 32 MiB of data, but at least one if any qualify. It doesn't wait for new events; callers poll. An entry never becomes visible before the ones with lower offsets in its partition. A bad partition, offset or limit is `ErrInvalidRequest`. |
+| `Commit(group, partition, offset)` | Records that the group has processed the partition up to `offset`. A commit never moves a group back: a lower or equal offset changes nothing. A bad name or negative offset is `ErrInvalidRequest`; then an unknown partition is `ErrNotFound`; then an offset beyond the partition's head is `ErrInvalidRequest`. |
+| `Committed(group, partition)` | The group's offset, or 0. A bad name is `ErrInvalidRequest`. |
+| `Partitions()` | Every partition with its `Head` (latest offset) and `Trimmed` (highest offset `Trim` removed). A partition whose entries were all trimmed is still listed, with its `Head` intact, and offsets are never reused. |
+| `Trim(before, groups)` | Removes the entries appended before `before` that aren't retained and that every group in `groups` has processed (its committed offset in the partition, 0 if none, is at or above the entry's), and returns the count. A zero `before`, an empty `groups`, a bad group name or more than 64 groups (duplicates count) is `ErrInvalidRequest`. See [Retention](#retention). |
+| `Release(ids)` | Clears `Retain` on those events. Unknown IDs and an empty list are ignored; more than 1,000 IDs or an ID out of bounds is `ErrInvalidEvent`. |
+
+`Append` fails with `ErrInvalidEvent` when the batch or an event breaks the
+rules above, which `contracts.CheckEvents` checks so every backend refuses
+the same events, and writes none of the batch. `AppendedAt`, the time the log
+took an entry, comes from the backend's injectable clock, not from the
+database's transaction time, and `Trim` tolerates a clock that steps back.
+`Data` is stored byte for byte.
+
+A consumer reads a partition after the offset its group committed,
+processes the entries, and commits the last offset it finished. Delivery is
+at least once, and `GraphStore.Apply`'s processed-event mark makes a repeat
+harmless. The log doesn't assign partitions to consumers or lock them: two
+consumers of one group on one partition would process out of order, so the
+server runs one per partition and group, and until there is a lease that
+means one server instance (issue #139 settles it for replicas). A new group
+has no offset and starts at the oldest retained entry. A group that has
+committed before and sits below `Trimmed` has lost events and reports that
+instead of reading on. Different groups read the same events independently.
+
+Duplicates are found for as long as the original is retained. After `Trim`
+removes it, the same ID appends again as a new event; the processed-event
+mark is what stops a second apply. The log doesn't compare the content of
+two events with one ID, since the ID is meant to name the content.
+
+Offsets are assigned in append order and never move, but a backend need not
+number them densely, and `Read` takes any `after`, so a consumer never
+computes an offset itself. A backend serializes appends to one partition
+until they commit (on PostgreSQL, a lock on the partition's head row, taken
+in partition order when a call spans partitions), which is what keeps a
+lower offset from becoming visible after a higher one; sequence gaps from
+rolled-back appends are then harmless.
+
+### Retention
+
+`Trim` is the event log's retention window: the data model's "event log
+retention" ([State, determinism and apply](data-model.md#state-determinism-and-apply))
+is the `before` the caller passes, now minus the configured window (default
+30 days, ADR 7). It goes by the time the log appended the entry (`AppendedAt`),
+not the event's `Time`.
+
+The window counts applied events. `Trim` takes the **required groups**, the
+consumer groups whose work must not be lost (the server passes the groups
+that apply events to the graph), and keeps an entry until every one of them
+has processed it: an entry goes only when each required group's committed
+offset in that partition is at or above the entry's offset. A required group
+that has never committed in a partition holds back everything there, since
+nothing was applied, so a required group is expected to read every partition.
+A group not named holds nothing back, so a stray reader (a debugging tool, an
+old experiment) cannot pin the log. `Trim` refuses an empty list, so a
+configuration slip cannot turn the window back into deletion by age alone.
+This is what makes the at-least-once delivery above hold after a long outage:
+an event the log acknowledged to a sender is not deleted before it was
+applied. The cost is that a consumer that stops makes the log grow until it
+recovers; keeping that visible and bounded (a gauge for the age of the oldest
+unapplied event, a dead-letter record for events a worker cannot apply)
+belongs to the server, not to the log. A group that is not required and lags
+behind the window loses events, which `Partitions` shows as `Trimmed` above
+its offset.
+
+Manual events are exempt for as long as their effects are live
+([ADR 11](../adr/0011-identity-store-is-primary-state.md)). The log refuses
+one in the `manual` partition without `Retain`, since a missing flag would
+silently lose primary state at the window. The core calls `Release` when
+an event's effects end, for example when an override is cleared or
+compacted away, and only after the write that ends them has committed: a
+crash in between leaves the event retained, which is harmless.
+
+A backend whose store can only drop a prefix of a partition (Kafka) or that
+has no index by ID (JetStream) keeps retained events in a side store to
+implement `Trim` and `Release`; the contract is what the caller sees.
+
+### Event types
+
+Each event message in `proto/bearing/event/v1alpha1` has a CloudEvents type
+(`model.EventType`) and a partition. Parts of events (`Actor`, `Header`,
+`ConfigChange`) are not events.
+
+| Message | CloudEvents type | Partition |
+| --- | --- | --- |
+| `SyncRequested`, `ObservationsEmitted`, `WebhookReceived` | `dev.bearing.sync_requested.v1`, `dev.bearing.observations_emitted.v1`, `dev.bearing.webhook_received.v1` | The event's `source` |
+| `DeclarationChanged`, `SubjectDeletionDerived` | `dev.bearing.declaration_changed.v1`, `dev.bearing.subject_deletion_derived.v1` | The event's `source`, so each is read after the syncs it follows |
+| `MergeRequested`, `UnmergeRequested`, `DistinctFromSet`, `DistinctFromCleared`, `ClaimWithdrawn`, `OverrideSet`, `OverrideCleared` | `dev.bearing.<name>.v1` | `manual`, appended with `Retain` |
+| `ValidTimeBoundaryReached`, `CompactionRequested` | `dev.bearing.<name>.v1` | `core/scheduler`, also when a person requests a compaction |
+| `ConflictOpened`, `ConflictResolved`, `OverrideStale` | `dev.bearing.<name>.v1` | `core/resolver` |
+| `ConfigApplied` | `dev.bearing.config_applied.v1` | `core/config` |
+
+`Observation` is the CloudEvent of one observation, as an adapter emits it
+([Observations](data-model.md#observations)); the log carries it inside
+`ObservationsEmitted` and never as an event of its own, so it has no row
+here and its type is `model.ObservationType`.
+
+#### Event IDs
+
+The local part of an ID depends on where the event comes from:
+
+- A delivery from a source: the source's delivery ID, else the lower-case
+  hex SHA-256 of the authenticated body (C-INGEST-5). A delivery ID that
+  holds a slash is replaced by the hex SHA-256 of its bytes.
+- A request from a person, the scheduler or the CLI (`SyncRequested`,
+  `CompactionRequested`, `ConfigApplied` and the manual operations): a fresh
+  UUID, not a hash, so two identical requests are two events.
+- Adapter output: derived from the event it answers and the page number, so
+  a replayed run repeats its IDs. A derived local ID is the lower-case hex
+  SHA-256 of the causing event's ID, a NUL byte and a discriminator (the
+  page number), because the causing ID holds a slash.
+- Events the core reports after an apply (`ConflictOpened`,
+  `ConflictResolved`, `OverrideStale`, `SubjectDeletionDerived`,
+  `ValidTimeBoundaryReached`): derived from the event that caused them and
+  what they report, by the same hash, so the same replay appends the same
+  events and they dedupe. Whether the core appends them before or after the apply commits is
+  the server's design (issue #139); the IDs make either order safe.
+
 ## Rules that apply to every component
 
 - **The graph is the source of truth.** The vector index, caches and search
@@ -435,7 +602,9 @@ every time and in every backend:
 
 3. Document any behavior the suite doesn't cover (consistency, limits).
 
-[`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
-and `VectorIndex` and shows the pattern.
-[`internal/surrealstore`](../../internal/surrealstore) passes the
-`VectorIndex` and `GraphStore` suites.
+[`internal/memstore`](../../internal/memstore) is the reference `GraphStore`,
+`VectorIndex` and `EventLog` and shows the pattern.
+[`internal/pgstore`](../../internal/pgstore) passes the `VectorIndex`,
+`GraphStore` and `EventLog` suites. A backend that keeps events past the
+process also tests that a second store on the same data sees them, since the
+suite cannot restart it.

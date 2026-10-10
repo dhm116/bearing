@@ -1,6 +1,6 @@
 # Threat model
 
-Status: draft for the MVP · Last reviewed: 2026-10-08
+Status: draft for the MVP · Last reviewed: 2026-10-10
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
@@ -35,7 +35,7 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 ```
  [B3] source systems ─push─▶ [B1] ingest ─▶ event log ─▶ workers ─▶ [B6] store
-      (GitHub, …)                                        │  ▲      (SurrealDB: graph,
+      (GitHub, …)                                        │  ▲      (PostgreSQL: graph,
            ▲                                             ▼  │       vectors, log, config,
            └──── http capability ◀── [B2] adapter (WASM) ◀┘  │       audit, kv)
                                                             │
@@ -53,8 +53,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **Workers** run adapters as WASM modules (ADR 9). Adapters reach source
   systems only through host capabilities and emit observations. Workers apply
   the result to the graph in one transaction with its audit record (ADR 8).
-- **The store** is SurrealDB: graph, vectors, event log, config, audit log
-  and adapter `kv` (ADR 5).
+- **The store** is PostgreSQL with pgvector: graph, vectors, event log,
+  config, audit log and adapter `kv` (ADR 14).
 - **The API** serves queries and configuration (ADR 10). **MCP** serves
   read-only queries to AI agents.
 - **The identity provider** (Authentik or any OIDC provider) authenticates
@@ -212,7 +212,10 @@ Assets: A1, A7, the event log.
   An unknown route and a failed check get the same response.
 - **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
   sent only after the event is appended to the log (ADR 7); if the log is
-  unavailable, ingest returns 503 so the sender retries.
+  unavailable, ingest returns 503 so the sender retries. Retention then
+  keeps the event until the apply workers have processed it (`Trim` takes
+  the required groups, [contracts](../spec/contracts.md#retention)), so an
+  acknowledged event is not deleted unapplied.
 - **C-INGEST-9** The body is parsed only after authentication succeeds, into
   a fixed Protobuf or JSON type, with depth and size limits.
 - **C-INGEST-10** Forwarded headers are ignored unless the peer is in
@@ -270,7 +273,7 @@ OIDC settings, and its stderr passes through untagged
 | --- | --- | --- | --- |
 | T-ADAPTER-1 | E | Module reads files or environment, opens sockets, or escapes into the host | C-ADAPTER-1 |
 | T-ADAPTER-2 | E | Module calls a capability or host it did not declare | C-ADAPTER-2, C-ADAPTER-4 |
-| T-ADAPTER-3 | I, E | SSRF to `169.254.169.254`, localhost, SurrealDB or internal services | C-ADAPTER-5 |
+| T-ADAPTER-3 | I, E | SSRF to `169.254.169.254`, localhost, the store or internal services | C-ADAPTER-5 |
 | T-ADAPTER-4 | I | Module reads or forwards a source token | C-SECRET-3, C-ADAPTER-6 |
 | T-ADAPTER-5 | I | Module sends organization data to an attacker's host | C-ADAPTER-4, C-ADAPTER-5 |
 | T-ADAPTER-6 | T | Module writes to the source system | C-ADAPTER-4 |
@@ -635,53 +638,91 @@ Assets: caller identity, role mapping, A7 (API availability).
 - **C-IDP-5** Tokens are never logged, traced or stored. Only `iss`, `sub`
   and client ID are recorded.
 
-### B6. The store (SurrealDB)
+### B6. The store (PostgreSQL)
 
 The store holds everything except secrets. Whoever controls it controls
-Bearing's answers.
+Bearing's answers. The default backend is PostgreSQL with pgvector (ADR 14);
+`internal/pgstore` serves both halves.
 
 Assets: A1, A3, A4, A5, A6.
 
 | ID | STRIDE | Threat | Controls |
 | --- | --- | --- | --- |
-| T-STORE-1 | S, E | Attacker on the network connects to SurrealDB | C-STORE-2, C-STORE-3 |
-| T-STORE-2 | I | Store password leaks through a URL, process list or log | C-STORE-1 |
-| T-STORE-3 | E, T | Query injection through source values | C-STORE-5 |
-| T-STORE-4 | E | Injected or legitimate queries use SurrealDB network functions or scripting for SSRF or code execution | C-STORE-4 |
+| T-STORE-1 | S, E | Attacker on the network connects to PostgreSQL, or Bearing connects as a role that can do more than own its schema | C-STORE-2, C-STORE-3 |
+| T-STORE-2 | I | Store password leaks through a URL, process list, log or an environment variable or file the driver reads | C-STORE-1 |
+| T-STORE-3 | E, T | SQL injection through source values or settings | C-STORE-5 |
 | T-STORE-5 | T, R | Someone with database access edits, deletes or prunes audit records to hide a change | C-AUDIT-2, C-AUDIT-3, C-AUDIT-4, C-AUDIT-5 |
-| T-STORE-6 | I | Credentials sniffed on the store connection | C-STORE-6 |
+| T-STORE-6 | I, S | Credentials sniffed on the store connection, or a man in the middle serves a copy of the store | C-STORE-6 |
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
-| T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state | C-STORE-8, C-AUDIT-1, C-API-4 |
+| T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
+| T-STORE-10 | D, T | An oversized event, batch or read stalls the event log; an event is written into another source's partition; a stopped consumer makes the log grow without bound | C-STORE-11 |
 
-- **C-STORE-1** Store credentials are secret references (C-SECRET-1). A
-  store URL that contains a password is rejected at start. Store errors
-  name a server only by scheme and host, never its path or query.
-- **C-STORE-2** Bearing connects as a database-scoped user, never root or a
-  namespace user. `surrealstore.Provision` creates that user (EDITOR on one
-  database) and a store URL with `?auth=database` signs in as it; CI runs
-  the SurrealDB suites that way. The database-scoped user is the supported
-  setup; `auth=root` is the development default and is not supported for a
-  deployment. The default flips in the change that adds compose provisioning.
-- **C-STORE-3** The compose deployment generates a random SurrealDB password
-  on first start into a secrets file (mode 0600), passes it as a Docker
-  secret, and does not publish the SurrealDB port. The store secret is
-  mounted outside the Source secrets directory.
-- **C-STORE-4** SurrealDB runs with network access from functions and
-  embedded scripting denied, and with guest access off (`--deny-net
-  --deny-scripting --deny-guests`). The CI server runs that way, and a test
-  checks that a scoped user cannot reach another database.
-- **C-STORE-5** Values reach SurrealQL only as bound parameters. Where a
-  driver forces inlining (the embedded driver's arrays of objects, ADR 5),
-  one escaping function does it, covered by fuzz tests. Namespace, database
-  and user names cannot be parameters in `DEFINE`, so they must match
-  `^[A-Za-z0-9_.-]{1,64}$` before they are quoted into a statement (escaping
-  alone is not enough); a name that does not match is refused without being
+**Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
+PostgreSQL has no equivalent that a role without administrator rights can
+reach, so they are retired and their numbers are not reused.
+
+- **C-STORE-1** The store password comes only from the environment variable
+  `BEARING_STORE_PASSWORD` (a secret reference, C-SECRET-1). `pkg/store`
+  rejects a URL with a password in it or with a `password`, `passfile`,
+  `service`, `servicefile` or `sslpassword` parameter, and rejects any
+  parameter it does not name. `pgstore` builds the connection string
+  itself with every key the driver would fill from `PG*` environment
+  variables, the password file or a service file set explicitly, so none of
+  those is read, and refuses to open while `PGSERVICE` or `PGSERVICEFILE` is
+  set because a service file cannot be overridden. Store errors name a
+  server only by host and port (or "the Unix socket in <directory>"), never
+  the user, the database, the path or the query, and the driver's errors,
+  which quote the connection string, are reduced to their cause, and the
+  server's refusal of a role or database (which quotes the name) to its
+  SQLSTATE.
+- **C-STORE-2** Bearing connects as a login role that owns its schema and
+  nothing else: not a superuser, not `CREATEROLE`, not `CREATEDB`. `Open`
+  checks those three attributes and refuses a role that has one, unless
+  `insecure_store_superuser=true` (C-GEN-1), and logs a warning when it is
+  set. The check does not look at REPLICATION, BYPASSRLS or membership of
+  the `pg_*_server_*` roles, so the operator's own review of the role
+  still matters. `pgstore.Provision` creates
+  such a role and a schema it owns, and CI runs the PostgreSQL suites as
+  that role. The connection's `search_path` is Bearing's schema alone.
+  pgvector is the only extension, and an administrator installs it: opening
+  with `vector_dimensions` checks that it exists (version 0.5 or later) and
+  never creates it, and the vector type and operators are named with the
+  schema the extension lives in because the `search_path` holds Bearing's
+  schema alone. A role that cannot create its own schema is told to have an
+  administrator create it.
+- **C-STORE-3** The compose deployment generates a random PostgreSQL
+  password on first start into a secrets file (mode 0600), passes it as a
+  Docker secret, and does not publish the PostgreSQL port. The store secret
+  is mounted outside the Source secrets directory. Planned with the compose
+  deployment.
+- **C-STORE-5** Values reach SQL only as bound parameters; bulk writes bind
+  arrays (`unnest`) rather than building statements. Role and schema names
+  cannot be parameters in `CREATE ROLE` or `CREATE SCHEMA`, so they must
+  match `^[a-z_][a-z0-9_]{0,62}$` before the server quotes them (`format`
+  with `%I`; escaping alone is not enough), and a password is quoted by the
+  server (`%L`). A name that does not match is refused without being
   repeated in the error.
-- **C-STORE-6** Store connections use TLS (`wss`, `https`). Plaintext to a
-  non-loopback host requires `insecure_store_plaintext`. Compose sets it for
-  its internal network, with no published port, so `bearing status` shows
-  it.
+  Vectors bind as text cast to the column type, after the store has checked
+  their length and that every number is finite and that the squares of
+  the elements sum, in float32 as pgvector computes them, to a finite number
+  of at least 1e-30. The extension's schema, the one name in a vector statement that is
+  not fixed, comes from the server's catalog and is quoted by the server
+  (`%I`); nothing in the URL or a point reaches it.
+- **C-STORE-6** Store connections use TLS with the server's certificate
+  verified: `pkg/store` requires `sslmode=verify-full` for a host that is
+  not loopback or a Unix socket, and `insecure_store_plaintext=true` is the
+  only way around it. Compose will set it for its internal network, with no
+  published port; `pkg/store` logs a warning when it is in effect, and
+  `bearing status` will show it. A URL names one host: a comma-separated
+  list is refused, because the driver would try each host with the same
+  `sslmode`. A loopback or socket
+  connection defaults to `sslmode=prefer`. The driver's minimum protocol
+  version is pinned to 3.0 and `target_session_attrs=read-write` keeps the
+  pool off a read-only replica. The store benchmark (`cmd/bearing-bench`, a
+  developer tool that is not shipped) opens `pkg/store` first, so these
+  checks apply to it, and then a second direct connection for sizes, plans
+  and `VACUUM`; it reads the password only from the same variable.
 - **C-STORE-7** Operator docs state that exports contain organization data
   and audit records, and must be stored encrypted. Exports never contain
   secrets (C-SECRET-2).
@@ -723,21 +764,53 @@ Assets: A1, A3, A4, A5, A6.
   (`MaxAuditIDBytes`, `MaxAuditReasonBytes`) because they are kept for good,
   and a merge record's reviews are capped at `MaxTimelineRows`, a full record
   replacing its newest review so that a source toggling evidence cannot make
-  the events that touch the merge fail. **Known exception:** the "MUST"
-  above is met by the reference store and not yet by the SurrealDB backend.
-  Its Apply and every read load every merge record and un-merge record, with
-  their alias sets (merge reviews ride on the merge records), and every
-  conflict retry loads them again; they also load the whole history of each
-  series they touch. Its other tables are loaded by key, predicate or
-  subject, except that an unfiltered `Supports`, `AsOf`, `Changes` or
-  `DataQuality` loads every series of its table. Past `surrealstore.DefaultMaxMerges` (20,000) merge records,
-  operations fail with `ErrTooManyMerges`, an error that names #81, instead
-  of stalling. Loading only the merge components of the subjects a ChangeSet
-  names is tracked in #81 and measured in the M3 benchmark (#27).
+  the events that touch the merge fail. `pgstore` meets the rule for merges:
+  its component table names the merge component of every subject any merge
+  record ever joined, and an operation loads the merge records of the
+  components of the subjects it names and no others (#81); a test shows that
+  each operation reads the same answers as the reference store while
+  loading only those. Its Apply is one transaction under the head row's
+  lock, so a stalled writer holds the queue for as long as the transaction
+  lasts; bulk rows are written in chunks of 5,000, and the largest
+  permitted ChangeSet is measured in #135. **Known exception:** an operation
+  loads the whole history of each series it touches, and an unfiltered
+  `Supports`, `AsOf`, `Changes` or `DataQuality` loads every series of its
+  table. That stays until a series can be loaded as of one record time.
+  Components have no size cap either: an operation that names one member of
+  a very large component loads every merge record of it, and a merge that
+  joins two components rewrites the labels of the larger. A cap with a clear
+  error is a follow-up.
+  Retries are bounded: an Apply that the database keeps failing (a
+  deadlock, a serialization failure, a lost connection) gives up after six
+  attempts with `ErrBusy`, having written nothing visible; the event's
+  mark makes a repeat safe.
 - **C-STORE-10** `internal/memstore`'s rule engine is trusted production
-  code. The SurrealDB backend runs every operation on it (rows are loaded
+  code. The PostgreSQL backend runs every operation on it (rows are loaded
   into a scratch store and the delta written back), so a flaw in it is a
-  flaw in every backend built on it, and changes to it are reviewed as store changes.
+  flaw in every backend built on it, and changes to it are reviewed as store
+  changes. The PostgreSQL tests compare `pgstore` with the engine itself on
+  random histories, so a difference between the two shows up as a failure.
+
+- **C-STORE-11** The event log is bounded and scoped by construction.
+  `contracts.CheckEvents` runs in every backend's `Append` before any write
+  and refuses an event over 8 MiB, a batch over 1,000 events or 32 MiB, a name
+  or ID over its limit or with control characters, and an event whose ID does
+  not start with its own partition and a slash with a local ID that has no
+  slash, so one source cannot write into, or collide with, another's events
+  (T-INGEST-2). `Read` returns at most 1,000 entries and 32 MiB. The log
+  holds raw event bodies, which are organization data: they sit in the same
+  database and under the same role and TLS rules as the graph, and `Backup`
+  does not include them. `Trim` keeps events that a required group has not
+  applied, so a stopped consumer makes the log grow past the retention
+  window (ADR 7). That is visible and bounded only by later work: an age
+  gauge and health check (#179) and an optional ceiling that discards
+  unapplied events (#180, off by default). Retries on a failing database
+  are bounded as for Apply (six attempts, then `ErrBusy`). A partition is
+  created by its first event, so ingest MUST map a delivery to a configured
+  Source before `Append` (C-INGEST-3) and MUST NOT echo an `ErrInvalidEvent`
+  message to the sender (C-INGEST-7). Because `Backup` leaves the log out, a
+  restore into a fresh database loses retained manual events and any
+  unapplied backlog; operators back up the database itself for those.
 
 ### B7. Operators and configuration
 
@@ -770,8 +843,8 @@ Assets: A5, A2, A6, the container and host.
 
 Users run what the project ships. A compromise here bypasses every runtime
 control. The default binary is CGO-free and contains no BSL-licensed code
-(ADR 5); embedded-store builds are a separate artifact and out of scope for
-the MVP.
+(ADR 14). An embedded PostgreSQL build, the intended single-binary option,
+needs its own section here before it ships.
 
 Assets: source repository, CI, release binaries, container images, embedded
 first-party adapters, the local embedding model, the project website
@@ -814,8 +887,8 @@ first-party adapters, the local embedding model, the project website
 - **C-SUPPLY-4** Releases are built in CI from a tag with `-trimpath`, and
   ship checksums, an SBOM, build provenance and Sigstore signatures for
   binaries and images.
-- **C-SUPPLY-5** The compose file pins every image (Bearing, SurrealDB,
-  embedding model server) and model file by digest.
+- **C-SUPPLY-5** The compose file pins every image (Bearing, PostgreSQL with
+  pgvector, embedding model server) and model file by digest.
 - **C-SUPPLY-6** First-party adapters are compiled from this repository in
   the same build and embedded in the binary; they are never downloaded at
   run time.
@@ -872,7 +945,9 @@ provider API keys.
 - **Data in allowed requests.** A module can encode data in GET requests to
   hosts it is allowed to call.
 - **Erasure requests.** The audit log is append-only and raw events are kept
-  30 days by default (ADR 7), so a request to erase a person's data cannot
+  30 days by default, longer while a required consumer has not applied them,
+  and for as long as a retained manual event's effects are live (ADR 7, ADR 11),
+  so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
 - **Local-process adapters** run as the service user by default, outside
@@ -891,5 +966,5 @@ provider API keys.
   front of ingest and the API.
 - **Out of scope:** distributed mode (remote adapters, remote capability
   providers, NATS or Kafka), the `Executor` and any write action against
-  source systems, embedded-store builds, and Sigstore verification of
+  source systems, an embedded PostgreSQL build, and Sigstore verification of
   external modules. Each needs its own section here before it ships.

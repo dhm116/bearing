@@ -1,8 +1,7 @@
-package surrealstore
+package pgstore
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"google.golang.org/protobuf/types/known/anypb"
@@ -13,11 +12,19 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// reader loads sc and returns the scratch store the read runs on, with the
-// store's clock so that a zero time means now. Every read below is the
-// reference store's own method over the loaded rows.
+// reader loads sc in one snapshot and returns the scratch store the read
+// runs on, with the store's clock so that a zero time means now. Every read
+// below is the reference store's own method over the loaded rows.
 func (s *Store) reader(ctx context.Context, sc scope) (*memstore.Store, error) {
-	ld, err := s.load(ctx, sc)
+	var ld *loaded
+	err := s.readTx(ctx, func(q querier) error {
+		meta, err := readMeta(ctx, q, false)
+		if err != nil {
+			return err
+		}
+		ld, err = load(ctx, q, meta, sc)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -27,15 +34,19 @@ func (s *Store) reader(ctx context.Context, sc scope) (*memstore.Store, error) {
 
 // Head implements contracts.GraphStore.
 func (s *Store) Head(ctx context.Context) (time.Time, error) {
-	res, err := s.q.Query(ctx, `SELECT VALUE head FROM ONLY meta:graph`, nil)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("read head: %w", err)
-	}
-	var us int64
-	if err := decode(res[0], &us); err != nil {
-		return time.Time{}, fmt.Errorf("decode head: %w", err)
-	}
-	return microTime(us), nil
+	var head time.Time
+	err := s.readTx(ctx, func(q querier) error {
+		meta, err := readMeta(ctx, q, false)
+		if err != nil {
+			return err
+		}
+		if meta.restoring {
+			return ErrRestoring
+		}
+		head = microTime(meta.head)
+		return nil
+	})
+	return head, err
 }
 
 // Subject implements contracts.GraphStore.
@@ -74,7 +85,7 @@ func (s *Store) Bindings(ctx context.Context, aliases []model.Key, subjects []co
 
 // Merges implements contracts.GraphStore.
 func (s *Store) Merges(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) ([]*modelv1alpha1.MergeRecord, error) {
-	m, err := s.reader(ctx, scope{})
+	m, err := s.reader(ctx, scope{Subjects: []string{string(id)}})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +94,7 @@ func (s *Store) Merges(ctx context.Context, id contracts.SubjectID, recordedAt t
 
 // Unmerges implements contracts.GraphStore.
 func (s *Store) Unmerges(ctx context.Context, id contracts.SubjectID, recordedAt time.Time) ([]*modelv1alpha1.UnmergeRecord, error) {
-	m, err := s.reader(ctx, scope{})
+	m, err := s.reader(ctx, scope{Subjects: []string{string(id)}, Unmerges: true})
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +126,24 @@ func (s *Store) Supports(ctx context.Context, f contracts.SupportFilter, recorde
 // claimScope is what AsOf and Changes need for a filter.
 func claimScope(f contracts.FactFilter) scope {
 	sc := scope{Claims: []memstore.Table{memstore.TableFacts, memstore.TableSupports}, Predicate: f.Predicate}
-	if f.SubjectID != "" && f.Key == "" {
+	if f.Object != nil {
+		// The filter's object canonicalizes like the facts' do.
+		sc.Subjects = memstore.SubjectsIn(f.Object)
+	}
+	switch {
+	case f.SubjectID != "" && f.Key == "":
 		sc.ClaimSubjects = []string{string(f.SubjectID)}
+	case f.SubjectID == "" && f.Key == "" && len(sc.Subjects) > 0:
+		// A fact is linked to every subject it names, the object included,
+		// so the facts that point at a subject are found like the facts about
+		// it, instead of by loading every fact with the predicate.
+		sc.ClaimSubjects = sc.Subjects
 	}
 	if f.Key != "" {
 		// The key's subject is known only once its bindings are read.
 		sc.Keys = map[memstore.Table][]string{memstore.TableBindings: {string(f.Key)}}
 		sc.RowsFromBindings = true
+		sc.ClaimsFromBindings = true
 	}
 	return sc
 }
@@ -159,7 +181,7 @@ func (s *Store) Conflicts(ctx context.Context, subject contracts.SubjectID, pred
 
 // DataQuality implements contracts.GraphStore. Issues are found by type,
 // kind and source, none of which an index here covers, so it loads them all
-// (#81).
+// (the part of C-STORE-9's exception that remains).
 func (s *Store) DataQuality(ctx context.Context, f contracts.IssueFilter, validAt, recordedAt time.Time) ([]*modelv1alpha1.DataQualityIssue, error) {
 	m, err := s.reader(ctx, scope{Claims: []memstore.Table{memstore.TableIssues}, RowsFromClaims: len(f.Kinds) > 0})
 	if err != nil {

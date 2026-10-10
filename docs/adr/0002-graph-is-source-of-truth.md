@@ -24,7 +24,9 @@ exact, auditable facts.
 - Two stores to run in production. For small installs, PostgreSQL with
   pgvector can back both interfaces.
 - Superseded in part by [ADR 5](0005-one-store-to-start.md): one SurrealDB
-  database backs both interfaces by default.
+  database backs both interfaces by default. *Amended 2026-10-10:*
+  [ADR 14](0014-postgres-is-the-default-store.md) replaced SurrealDB with
+  PostgreSQL and pgvector, which back both interfaces by default.
 - Superseded in part by [ADR 11](0011-identity-store-is-primary-state.md):
   the vector index stays rebuildable from the graph, but facts can be
   rebuilt from events only within the event log's retention window. The

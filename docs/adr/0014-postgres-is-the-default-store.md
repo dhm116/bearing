@@ -1,6 +1,6 @@
 # 14. PostgreSQL is the default store, and the SurrealDB backend goes
 
-Date: 2026-10-09 · Status: proposed
+Date: 2026-10-09 · Status: accepted
 
 ## Context
 
@@ -87,12 +87,28 @@ Options considered:
   surrealstore. That part of the C-STORE-9 exception stays until a series
   can be loaded as of one record time. `DefaultMaxMerges` and
   `ErrTooManyMerges` go with surrealstore.
+  *Amended 2026-10-09, when `pgstore` was built:* the table (`component`)
+  maps each subject that any merge record ever joined to the lowest subject
+  ID of its component and is not versioned by record time. It only decides
+  which merge records to load, and the merge records themselves carry the
+  record times that the engine canonicalizes by, so a read at a past record
+  time gets the same answer. An un-merge ends a merge record and never
+  splits a component, so the table never needs to shrink: components
+  only grow, and a lookup that returns a larger component than a past
+  record time had loads more records than needed, never fewer. Joining two
+  components relabels the one with the higher label, in the apply's transaction.
 - **The driver is pgx (MIT).**
 - **`internal/surrealstore` is removed** in the change that makes
   `pgstore` the default, once `pgstore` passes both conformance suites in
   CI. With it go the `surrealembed` build tag, the `surrealdb+*` and
   `surrealkv://` URLs, the SurrealDB make targets and both SurrealDB Go
   modules. Bearing has no installs yet, so nothing needs migrating.
+  *Amended 2026-10-10: done in
+  [#134](https://github.com/dhm116/bearing/issues/134). `pgstore` passes
+  both conformance suites in CI, `postgres://` is the only database URL
+  `pkg/store` opens besides `mem://`, and CI no longer starts a SurrealDB
+  service or splits the tests into shards for its 50,000-item cases. The
+  Docs list below was updated in the same change.*
 - **`mem://` stays** for tests, demos and trials with nothing to run.
 - **Embedded PostgreSQL is the intended single-binary option, not built
   now.** [PGlite](https://github.com/electric-sql/pglite) is PostgreSQL
@@ -119,6 +135,19 @@ Options considered:
   which [#27](https://github.com/dhm116/bearing/issues/27) will now
   measure against PostgreSQL, rises accordingly, which may postpone the
   hybrid-clock relaxation.
+  *Amended 2026-10-10, after [#135](https://github.com/dhm116/bearing/issues/135)
+  measured it (`docs/benchmarks/store-10m.md`, 3.0M fact rows, 4 vCPU,
+  PostgreSQL 16.15):* point loads take 1.6 to 1.9 ms through `ResolveKey`
+  (0.04 ms in the database), and one writer applies 65 ChangeSets a second,
+  about 5.6 million a day, so the hybrid-clock relaxation is not needed for
+  the design target. The sentence above that a waiting apply "costs nothing"
+  does not hold: with 16 concurrent writers 92% of attempts come back stale
+  and the rate falls to 21 a second ([#170](https://github.com/dhm116/bearing/issues/170)),
+  so ingest should be a single consumer of the event log. Series history is
+  not the cost that grows (a fact with about 500 version rows reads in 14 ms
+  against 5 ms with none), so loading a series as of one record time is not needed either; what
+  grows is the number of series that name a subject, which result limits
+  address ([#167](https://github.com/dhm116/bearing/issues/167)).
 - **Licences.** The default binary already links no BSL code; now no
   supported configuration runs BSL code at all. pgx is MIT and pgvector uses
   the PostgreSQL License; both are Apache-2.0 compatible. pgx is a new
@@ -132,6 +161,15 @@ Options considered:
   migration that creates the vector table uses it. Changing it means
   re-indexing from the graph, as before. HNSW indexes `vector` columns of
   up to 2,000 dimensions; a larger model needs `halfvec`.
+  As built, the dimension is the `vector_dimensions` URL parameter (1 to
+  2,000), stored in the schema when the vector table is made; opening the
+  schema with another number is refused. Cosine distance on one HNSW index
+  (pgvector's default build parameters). A search asks the index for its
+  hits (with pgvector 0.8's iterative scan, so a kind filter does not lose
+  hits), and scans exactly when the index cannot bound the result (no limit,
+  or one past 1,000) or comes back with fewer hits than asked for. The
+  index keeps the entries of replaced and deleted rows until vacuum, and they
+  use up its candidates, so a short answer from it is not trusted.
 - **The threat model's store section is rewritten for PostgreSQL** in the
   change that adds `pgstore`. Boundary B6 and T-STORE-1 name PostgreSQL.
   Each control changes as follows:

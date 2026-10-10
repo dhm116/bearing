@@ -41,14 +41,15 @@ keeps the adapters that fetch it small.
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
-| [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `surrealdb+ws://`, …) |
+| [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `postgres://`) |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
-| [`internal/memstore`](internal/memstore) | In-memory graph store and vector index, the reference implementation; also the rule engine the SurrealDB backend runs on |
-| [`internal/surrealstore`](internal/surrealstore) | SurrealDB backend for both the graph and vectors (server or embedded) |
+| [`internal/memstore`](internal/memstore) | In-memory graph store, vector index and event log, the reference implementation; also the rule engine the PostgreSQL backend runs on |
+| [`internal/pgstore`](internal/pgstore) | PostgreSQL backend for the graph, the event log and, with pgvector, the vector index |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, and reads the store with `get`, `owner`, `related` and `changes` |
+| [`cmd/bearing-bench`](cmd/bearing-bench) | Store benchmark: a generated org loaded up to about 10 million facts, with the numbers in [`docs/benchmarks`](docs/benchmarks) |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
@@ -60,8 +61,8 @@ Requires Go 1.27.2 or later (the `go` command downloads it automatically if need
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
-make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # also run the SurrealDB suites
-make build         # builds bin/bearing and bin/bearing-adapter-github
+make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=...   # also run the PostgreSQL suites
+make build         # builds bin/bearing, bin/bearing-adapter-github and bin/bearing-bench
 
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github
@@ -86,17 +87,17 @@ backend that passes the conformance suite can replace it.
 ## One database to start
 
 The graph and the semantic index are separate contracts, but by default one
-SurrealDB database serves both, so there is one thing to run, or nothing.
+PostgreSQL database serves both (the vectors use the pgvector extension), so
+there is one thing to run, or nothing.
 [`pkg/store`](pkg/store) opens a store from a URL:
 
 | Store URL | What runs |
 | --- | --- |
 | `mem://` | Nothing; in-memory, for tests and demos |
-| `surrealdb+ws://root@localhost:8000` | One `surreal start` process |
-| `surrealkv:///var/lib/bearing` | SurrealDB inside Bearing (`go build -tags surrealembed`, needs CGO) |
+| `postgres://bearing@localhost/bearing` | A PostgreSQL 16 server (add `?vector_dimensions=384` for the pgvector index, which an administrator installs with `CREATE EXTENSION vector`; set the password in `BEARING_STORE_PASSWORD`) |
 
 Larger installs can move vectors to a dedicated engine later by giving the
-vector index its own URL. See [ADR 5](docs/adr/0005-one-store-to-start.md).
+vector index its own URL. See [ADR 14](docs/adr/0014-postgres-is-the-default-store.md).
 
 ## Telemetry
 

@@ -307,7 +307,7 @@ def overview():
     d.node(808, 112, 112, 64, "backend", "", "Capabilities", "http · log · kv")
     d.node(664, 200, 120, 64, "backend", "", "Resolve", ["identities", "score facts"])
     d.node(448, 320, 152, 64, "backend", "", "Query · config API", "Connect · ADR 6")
-    d.node(656, 320, 272, 64, "store", "", "Store", ["graph · vectors · audit · config", "SurrealDB by default · ADR 5"])
+    d.node(656, 320, 272, 64, "store", "", "Store", ["graph · vectors · audit · config", "PostgreSQL by default · ADR 14"])
     d.legend([("node", "focal", "Event log"), ("node", "backend", "Component"), ("node", "store", "Store"),
               ("node", "external", "Source system"), ("node", "input", "People"), ("arrow", "link", "Outbound HTTP")])
     return d

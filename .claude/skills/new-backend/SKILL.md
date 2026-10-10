@@ -7,8 +7,9 @@ description: Add a new backend for a Bearing contract (GraphStore, VectorIndex, 
 
 Each interface in `pkg/contracts` can have many backends. A backend is
 accepted when it passes the interface's conformance suite. `internal/memstore`
-is the simplest reference; `internal/surrealstore` shows a real database,
-server and embedded modes, and one backend serving two contracts.
+is the simplest reference; `internal/pgstore` shows a real database and one
+backend serving two contracts (the graph, and the vector index when pgvector
+is asked for).
 
 ## Checklist
 
@@ -19,17 +20,16 @@ server and embedded modes, and one backend serving two contracts.
       It depends on `pkg/contracts` and `pkg/model`, nothing else in Bearing.
 - [ ] Return `contracts.ErrNotFound` (wrapped is fine) for misses. Prefix
       errors with the package name.
-- [ ] If the backend needs CGO or non-Apache-compatible code, put it behind
-      a build tag with a stub file for the default build, as
-      `internal/surrealstore/embedded.go` and `embedded_stub.go` do. The
-      default binary stays CGO-free.
+- [ ] If the backend needs CGO or non-Apache-compatible code, stop and write
+      an ADR first. The default binary stays CGO-free and Bearing keeps no
+      build-tag variants of a backend.
 - [ ] Conformance test in the backend's package:
       `conformance.GraphStore(t, newStore)` and/or
       `conformance.VectorIndex(t, newIndex)`; `newStore` returns the store,
       the `conformance.Clock` it reads (a `testkit.FakeClock`) and the
       `conformance.IDs` it mints from (`testkit.NewUUIDv7s`). A backend that needs
       a live service skips unless an env var like `BEARING_TEST_<NAME>` is
-      set, and gets a Makefile target like `test-surrealdb`.
+      set, and gets a Makefile target like `test-postgres`.
 - [ ] Wire a URL scheme into `pkg/store` (`open`), and add it to the package
       doc table and the README's store URL table. Passwords come from
       `BEARING_STORE_PASSWORD`, never the URL; use `redact` in errors.
@@ -50,5 +50,5 @@ existing backend.
 
 ```sh
 make check
-make test-surrealdb SURREALDB=ws://127.0.0.1:8000 SURREALDB_USER=root SURREALDB_PASS=root   # if surrealstore changed
+make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=<password>   # if pgstore changed
 ```

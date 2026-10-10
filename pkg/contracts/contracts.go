@@ -1,13 +1,14 @@
 // Package contracts defines the interfaces between Bearing's components.
 // Each interface has one default implementation and can be backed by any
 // other technology that passes its conformance suite. One backend may serve
-// several interfaces; by default SurrealDB serves both GraphStore and
-// VectorIndex (see docs/adr/0005-one-store-to-start.md and pkg/store).
+// several interfaces; by default PostgreSQL serves both GraphStore and
+// VectorIndex (see docs/adr/0014-postgres-is-the-default-store.md and
+// pkg/store).
 //
 //	Interface      Default            Alternatives
-//	GraphStore     SurrealDB          PostgreSQL, Neo4j, Apache AGE, Memgraph
-//	VectorIndex    SurrealDB          Qdrant, pgvector, OpenSearch, Weaviate
-//	EventBus       NATS JetStream     Kafka, SQS/SNS, Postgres queue
+//	GraphStore     PostgreSQL         Neo4j, Apache AGE, Memgraph
+//	VectorIndex    PostgreSQL         Qdrant, OpenSearch, Weaviate
+//	EventLog       PostgreSQL         NATS JetStream, Kafka
 //	Extractor      self-hosted model  hosted models, only when an operator opts in
 //	Judge          Kev 4B             Jev hosted API
 //	PolicyDecider  OPA                Cedar
@@ -57,15 +58,6 @@ type VectorIndex interface {
 	// Repoint moves every point of subject from to subject to, after a
 	// merge (ApplyResult.Merges).
 	Repoint(ctx context.Context, from, to SubjectID) error
-}
-
-// EventBus carries observations and change events between components as
-// CloudEvents. Delivery is at least once; handlers must be idempotent.
-type EventBus interface {
-	Publish(ctx context.Context, topic string, event []byte) error
-	// Subscribe calls handle for each event until ctx is cancelled. Returning
-	// an error from handle asks for redelivery.
-	Subscribe(ctx context.Context, topic, group string, handle func(context.Context, []byte) error) error
 }
 
 // Document is unstructured text for candidate extraction.

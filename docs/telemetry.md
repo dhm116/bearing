@@ -48,6 +48,9 @@ up as a single trace spanning both processes and every GitHub API call.
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.unmerges`, `graph.supports`, `graph.as_of`, `graph.changes`, `graph.conflicts`, `graph.data_quality`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
 | `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` (`vector.repoint` after a merge) | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
+| `eventlog.<operation>` | client | any `EventLog` wrapped by `instrument.EventLog`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release |
+
+`db.system.name` is the backend: `memory` or `postgresql`. The PostgreSQL backend adds no spans of its own; an apply it retries after a serialization failure or a dropped connection is still one `graph.apply` span, and one that gives up ends it with `error.type` `busy`.
 
 ## Metrics
 
@@ -71,6 +74,9 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.graph.subjects.merged` | counter | {merge} | `bearing.rule` (merge rule) | How identities converge, and by which evidence |
 | `bearing.vector.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Vector index latency per operation |
 | `bearing.vector.points.upserted` | counter | {point} | `db.system.name` | Indexing throughput |
+| `bearing.eventlog.operation.duration` | histogram | s | `db.system.name`, `db.operation.name`, `error.type` | Event log latency per operation. A failing `append` is the one to alert on: ingest cannot acknowledge webhooks while it fails |
+| `bearing.eventlog.events` | counter | {event} | `db.system.name`, `bearing.result` (`appended`, `duplicate`) | Events offered to `Append`; many `duplicate` results mean senders redeliver |
+| `bearing.eventlog.trimmed` | counter | {event} | `db.system.name` | Events removed by `Trim` at the end of the retention window |
 | `bearing.graph.key.lookups` | counter | {lookup} | `bearing.result` (`hit`, `miss`), `bearing.key.namespace` (a configured namespace, else `other`) | High miss rates mean identity resolution is falling behind |
 | `bearing.graph.state_entry.bytes` | histogram | By | `bearing.state.prefix` (`bind`, `del`, `sup`, `wm`, else `other`) | Payload bytes of each state entry in an applied ChangeSet (a rejected `too_large` observation never reaches the store, so it shows only in the rejection audit). Entries are rewritten whole. `sup` and `bind` entries stay flat across repeated syncs, and `wm` entries grow by a watermark per sync of a scope, so a rising tail of anything but `wm` is the state growth of [#77](https://github.com/dhm116/bearing/issues/77) |
 
