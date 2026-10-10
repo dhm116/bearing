@@ -168,6 +168,19 @@ func TestPostgresEventLogLocksDoNotDeadlock(t *testing.T) {
 					errs <- err
 					return
 				}
+				// Process everything so far, so Trim removes rows while the
+				// other appends run.
+				ps, err := s.Partitions(ctx)
+				if err != nil {
+					errs <- err
+					return
+				}
+				for _, p := range ps {
+					if err := s.Commit(ctx, "applier", p.Partition, p.Head); err != nil {
+						errs <- err
+						return
+					}
+				}
 				if _, err := s.Trim(ctx, time.Now().Add(time.Hour), []string{"applier"}); err != nil {
 					errs <- err
 					return
@@ -294,5 +307,29 @@ func TestPostgresEventLogEveryStatementMayFail(t *testing.T) {
 	// The log still answers.
 	if _, err := s.Read(ctx, "a", 0, 10); err != nil {
 		t.Fatalf("Read after the failures: %v", err)
+	}
+}
+
+// An append that fails part way consumes no offset and leaves no partition.
+func TestPostgresFailedAppendConsumesNoOffset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestStore(t)
+	probe := &faultPool{}
+	if _, err := withPool(s, probe).Append(ctx, []contracts.Event{logEvent("z", "probe")}); err != nil {
+		t.Fatal(err)
+	}
+	fresh := newTestStore(t)
+	for k := 1; k <= probe.calls; k++ {
+		if _, err := withPool(fresh, &faultPool{failAt: k}).Append(ctx, []contracts.Event{logEvent("z", "d1")}); !errors.Is(err, errInjected) {
+			t.Fatalf("statement %d: got %v, want the injected failure", k, err)
+		}
+	}
+	if ps, err := fresh.Partitions(ctx); err != nil || len(ps) != 0 {
+		t.Fatalf("got %v, %v, want no partition after the failed appends", ps, err)
+	}
+	got, err := fresh.Append(ctx, []contracts.Event{logEvent("z", "d1")})
+	if err != nil || got[0].Offset != 1 || got[0].Duplicate {
+		t.Fatalf("got %+v, %v, want offset 1", got, err)
 	}
 }
