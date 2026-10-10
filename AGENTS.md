@@ -67,11 +67,11 @@ minimal.
 | `pkg/contracts/conformance` | Test suites every backend must pass. |
 | `pkg/query` | The CLI's query layer: `get`, `owner`, `related` and `changes` over a `GraphStore`, each answer with its sources, events, confidence and observed times. `cmd/bearing` reads the graph only through it. Not a stable API yet; M3's server will answer the same questions. |
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
-| `pkg/store` | Opens graph store and vector index from URLs (`mem://`, `postgres://`). |
+| `pkg/store` | Opens graph store, vector index and event log from URLs (`mem://`, `postgres://`). |
 | `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
 | `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
-| `internal/memstore` | In-memory reference backend for both contracts, and the rule engine other backends run their operations on (`pgstore` loads rows into a scratch `memstore.Store`). Production code. |
-| `internal/pgstore` | PostgreSQL backend for `GraphStore` ([ADR 14](docs/adr/0014-postgres-is-the-default-store.md)): rows in `bearing`-schema tables, every operation run on a scratch `memstore.Store`, one transaction per apply under the head row's lock. Server only, pure Go (pgx). With `vector_dimensions` it also serves `VectorIndex` on pgvector (`vectors.go`: one HNSW cosine index, dimensions fixed per schema). |
+| `internal/memstore` | In-memory reference backend for all three contracts (`GraphStore`, `VectorIndex`, `EventLog`), and the rule engine other backends run their operations on (`pgstore` loads rows into a scratch `memstore.Store`). Production code. |
+| `internal/pgstore` | PostgreSQL backend for `GraphStore` ([ADR 14](docs/adr/0014-postgres-is-the-default-store.md)) and `EventLog` (`eventlog.go`: tables `event_partition`, `event` and `event_offset`, an append locks its partitions' head rows in name order, `Backup`/`Restore` never touch them): rows in `bearing`-schema tables, every operation run on a scratch `memstore.Store`, one transaction per apply under the head row's lock. Server only, pure Go (pgx). With `vector_dimensions` it also serves `VectorIndex` on pgvector (`vectors.go`: one HNSW cosine index, dimensions fixed per schema). |
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |

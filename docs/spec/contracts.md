@@ -9,7 +9,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | --- | --- | --- | --- | --- |
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
-| `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Planned |
+| `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -19,18 +19,20 @@ interface's conformance suite can replace it. The Go definitions are in
 ## One database to start
 
 A backend can serve more than one interface. By default PostgreSQL backs
-both `GraphStore` and `VectorIndex` (the vectors use the pgvector extension),
-so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
+`GraphStore`, `VectorIndex` (the vectors use the pgvector extension) and
+`EventLog`, so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
 [`pkg/store`](../../pkg/store) opens backends from URLs:
 
 | URL | Backend | Needs |
 | --- | --- | --- |
 | `mem://` | In-memory reference store | Nothing; data is lost on exit |
-| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
+| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore` and `EventLog`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
 
-`store.Config{Graph: url}` uses one backend for both. Setting
-`Config.Vectors` to a second URL splits them, for example a PostgreSQL graph
-with Qdrant vectors, and nothing else changes. Passwords come from
+`store.Config{Graph: url}` uses one backend for all three. Setting
+`Config.Vectors` or `Config.Events` to a second URL splits them, for example a
+PostgreSQL graph with Qdrant vectors, and nothing else changes. The event log
+shares the graph's database but none of its tables, and `Backup` and `Restore`
+do not touch it. Passwords come from
 `BEARING_STORE_PASSWORD`, not the URL; opening a URL that carries a password
 MUST fail.
 
@@ -600,7 +602,9 @@ The local part of an ID depends on where the event comes from:
 
 3. Document any behavior the suite doesn't cover (consistency, limits).
 
-[`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
-and `VectorIndex` and shows the pattern.
-[`internal/pgstore`](../../internal/pgstore) passes the `VectorIndex` and
-`GraphStore` suites.
+[`internal/memstore`](../../internal/memstore) is the reference `GraphStore`,
+`VectorIndex` and `EventLog` and shows the pattern.
+[`internal/pgstore`](../../internal/pgstore) passes the `VectorIndex`,
+`GraphStore` and `EventLog` suites. A backend that keeps events past the
+process also tests that a second store on the same data sees them, since the
+suite cannot restart it.

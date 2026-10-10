@@ -200,6 +200,10 @@ func TestPostgresServesTheGraphWithoutVectorDimensions(t *testing.T) {
 	if s.Vectors != nil {
 		t.Fatal("a Postgres store without vector_dimensions has no vector index")
 	}
+	appended, err := s.Events.Append(ctx, []contracts.Event{{ID: "github-acme/d1", Partition: "github-acme", Type: "dev.bearing.webhook_received.v1", Time: time.Unix(1, 0), Data: []byte("{}")}})
+	if err != nil || len(appended) != 1 || appended[0].Offset != 1 {
+		t.Fatalf("Append to the event log = %+v, %v, want offset 1", appended, err)
+	}
 	res, err := s.Graph.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "store-open", Mints: []*modelv1alpha1.Mint{{Ref: "new:t", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION}}})
 	if err != nil {
 		t.Fatal(err)

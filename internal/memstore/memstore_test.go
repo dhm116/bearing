@@ -457,3 +457,37 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEventLogConformance(t *testing.T) {
+	conformance.EventLog(t, func(*testing.T) (contracts.EventLog, conformance.Clock) {
+		clk := testkit.NewClock(time.Time{})
+		s := New()
+		s.Now = clk.Now
+		return s, clk
+	})
+}
+
+// A cancelled context stops every event log call before it does anything.
+func TestEventLogRefusesACancelledContext(t *testing.T) {
+	s := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ev := contracts.Event{ID: "github-acme/d1", Partition: "github-acme", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}
+	calls := map[string]func() error{
+		"Append":     func() error { _, err := s.Append(ctx, []contracts.Event{ev}); return err },
+		"Read":       func() error { _, err := s.Read(ctx, "github-acme", 0, 1); return err },
+		"Commit":     func() error { return s.Commit(ctx, "g", "github-acme", 0) },
+		"Committed":  func() error { _, err := s.Committed(ctx, "g", "github-acme"); return err },
+		"Partitions": func() error { _, err := s.Partitions(ctx); return err },
+		"Trim":       func() error { _, err := s.Trim(ctx, time.Unix(2, 0), []string{"g"}); return err },
+		"Release":    func() error { return s.Release(ctx, []string{"github-acme/d1"}) },
+	}
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s: got %v, want context.Canceled", name, err)
+		}
+	}
+	if ps, err := s.Partitions(context.Background()); err != nil || len(ps) != 0 {
+		t.Fatalf("got %v, %v, want an empty log: nothing was written", ps, err)
+	}
+}

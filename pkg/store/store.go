@@ -1,10 +1,10 @@
-// Package store opens the graph store and vector index Bearing runs on, from
-// connection URLs.
+// Package store opens the graph store, vector index and event log Bearing
+// runs on, from connection URLs.
 //
-// By default one backend serves both contracts, so a small install has one
-// database to run. Pointing Vectors at a different URL splits them, for
-// example a graph in PostgreSQL and vectors in Qdrant, without changing any
-// code that uses the contracts.
+// By default one backend serves all three contracts, so a small install has
+// one database to run. Pointing Vectors or Events at a different URL splits
+// them, for example a graph in PostgreSQL and vectors in Qdrant, without
+// changing any code that uses the contracts.
 //
 //	URL                                    Backend
 //	mem://                                 In-memory reference store, for tests and demos
@@ -41,10 +41,11 @@ import (
 // user named in a store URL.
 const PasswordEnv = "BEARING_STORE_PASSWORD"
 
-// Config names the backends. Vectors defaults to Graph.
+// Config names the backends. Vectors and Events default to Graph.
 type Config struct {
 	Graph   string
 	Vectors string
+	Events  string
 	// Namespaces are the configured source namespaces, which telemetry
 	// names in metric labels; it labels any other namespace "other".
 	Namespaces []string
@@ -52,10 +53,12 @@ type Config struct {
 	Getenv func(string) string
 }
 
-// Store is an open graph store and vector index. Both are instrumented with
-// OpenTelemetry.
+// Store is an open graph store, vector index and event log, all
+// instrumented with OpenTelemetry.
 type Store struct {
 	Graph contracts.GraphStore
+	// Events is the durable event log (ADR 7).
+	Events contracts.EventLog
 	// Vectors is nil when the graph backend does not serve vectors (a
 	// PostgreSQL graph store without vector_dimensions) and no vector URL
 	// was given; check before use.
@@ -78,6 +81,7 @@ type backend struct {
 	name   string // for telemetry: "memory", "postgresql"
 	graph  contracts.GraphStore
 	vector contracts.VectorIndex
+	events contracts.EventLog
 	close  func(context.Context) error
 }
 
@@ -114,7 +118,15 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if v.vector == nil && (c.Vectors != c.Graph || explicitVectors) {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
 	}
+	e := g
+	if c.Events != "" && c.Events != c.Graph {
+		if e, err = open(ctx, c.Events, c.Getenv); err != nil {
+			return nil, errors.Join(err, s.Close(ctx))
+		}
+		s.closers = append(s.closers, e.close)
+	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
+	s.Events = instrument.EventLog(e.events, e.name)
 	if v.vector != nil {
 		s.Vectors = instrument.VectorIndex(v.vector, v.name)
 	}
@@ -129,7 +141,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	switch u.Scheme {
 	case "mem":
 		m := memstore.New()
-		return backend{name: "memory", graph: m, vector: m, close: func(context.Context) error { return nil }}, nil
+		return backend{name: "memory", graph: m, vector: m, events: m, close: func(context.Context) error { return nil }}, nil
 	case "postgres", "postgresql":
 		return openPostgres(ctx, u, getenv)
 	}

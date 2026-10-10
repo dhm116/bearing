@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -26,6 +27,26 @@ func TestOpenMemoryServesBothContracts(t *testing.T) {
 	hits, err := s.Vectors.Search(ctx, contracts.VectorQuery{Vector: []float32{1}, Limit: 1})
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("got %v, %v", hits, err)
+	}
+	got, err := s.Events.Append(ctx, []contracts.Event{{ID: "github-acme/d1", Partition: "github-acme", Type: "dev.bearing.webhook_received.v1", Time: time.Unix(1, 0), Data: []byte("{}")}})
+	if err != nil || len(got) != 1 || got[0].Offset != 1 {
+		t.Fatalf("Append through the store = %+v, %v, want offset 1", got, err)
+	}
+}
+
+// Events can be opened from a URL of their own.
+func TestOpenTakesAnEventLogURL(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, Config{Graph: "mem://", Events: "mem://?x=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	if s.Events == nil {
+		t.Fatal("no event log")
+	}
+	if _, err := Open(ctx, Config{Graph: "mem://", Events: "neo4j://localhost"}); err == nil {
+		t.Fatal("an unsupported event log URL opened")
 	}
 }
 
