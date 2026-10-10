@@ -87,10 +87,8 @@ type factRun struct {
 	// key: they are written empty.
 	retired map[string]*modelv1alpha1.SupportTimeline
 	groups  map[string]map[string]*groupFact
-	// before holds the groups as the store has them, for the audit entries of
-	// status changes.
-	prior map[string]map[string]*groupFact
-	// atRest caches storedGroup.
+	// atRest caches storedGroup: the groups as the store has them, for the
+	// audit entries of status changes.
 	atRest map[string]map[string]*groupFact
 	stored map[string][]*modelv1alpha1.SupportTimeline
 	// existsChanged are the subjects whose live exists times the ChangeSet
@@ -103,7 +101,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
 		series: map[string]*seriesEntry{}, marks: map[string]*scopeMarks{}, touched: map[string]affected{},
 		claimed: map[string][]seg{}, out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
-		groups: map[string]map[string]*groupFact{}, prior: map[string]map[string]*groupFact{}, atRest: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
+		groups: map[string]map[string]*groupFact{}, atRest: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
 	}
 }
@@ -582,63 +580,6 @@ func (r *factRun) group(ctx context.Context, subject, pred string) (map[string]*
 	return g, nil
 }
 
-// beforeGroup is group as the store holds it, before the ChangeSet: the
-// stored supports of the subject and of the subjects the ChangeSet merges into
-// it, with their ends followed through the planned merges, so a fact a merge
-// only moves is the same fact before and after.
-func (r *factRun) beforeGroup(ctx context.Context, subject, pred string) (map[string]*groupFact, error) {
-	key := groupKey(subject, pred)
-	if g, ok := r.prior[key]; ok {
-		return g, nil
-	}
-	g := map[string]*groupFact{}
-	r.prior[key] = g
-	if isRef(subject) {
-		return g, nil
-	}
-	members := []string{subject}
-	for _, m := range slices.Sorted(maps.Keys(r.g.merged)) {
-		if !isRef(m) && r.g.mustCanon(ctx, m) == subject {
-			members = append(members, m)
-		}
-	}
-	seen := map[string]bool{}
-	for _, m := range members {
-		tls, err := r.supportsOf(ctx, m)
-		if err != nil {
-			return nil, err
-		}
-		for _, st := range tls {
-			if st.GetPredicate() != pred {
-				continue
-			}
-			w, err := written(st)
-			if err != nil {
-				return nil, err
-			}
-			k := retiredKey(st.GetSource(), w)
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			f, err := r.canonicalFact(ctx, st)
-			if err != nil {
-				return nil, err
-			}
-			if f.subject != subject {
-				continue
-			}
-			gf := g[f.id()]
-			if gf == nil {
-				gf = &groupFact{f: f, bySource: map[string][]*modelv1alpha1.Support{}}
-				g[f.id()] = gf
-			}
-			gf.bySource[st.GetSource()] = append(gf.bySource[st.GetSource()], st.GetVersions()...)
-		}
-	}
-	return g, nil
-}
-
 // storedGroup is group as the store holds it: the facts of one active subject,
 // each with its stored supports, with no planned merge applied to the subject
 // or to the objects. It is what the statuses were computed from before this
@@ -657,26 +598,22 @@ func (r *factRun) storedGroup(ctx context.Context, subject, pred string) (map[st
 	if err != nil {
 		return nil, err
 	}
+	c := &canoner{g: r.g}
 	for _, st := range tls {
 		if st.GetPredicate() != pred {
 			continue
 		}
-		owner, err := r.g.storedCanon(ctx, st.GetSubjectId())
-		if err != nil {
-			return nil, err
-		}
-		if owner != subject {
+		if c.stored(ctx, st.GetSubjectId()) != subject {
 			continue
 		}
 		obj := proto.CloneOf(st.GetObject())
 		if obj.GetSubjectId() != "" {
-			if obj.SubjectId, err = r.g.storedCanon(ctx, obj.GetSubjectId()); err != nil {
-				return nil, err
-			}
+			obj.SubjectId = c.stored(ctx, obj.GetSubjectId())
 		}
 		f, err := newFact(subject, pred, obj)
 		if err != nil {
-			return nil, err
+			c.fail(err)
+			continue
 		}
 		gf := g[f.id()]
 		if gf == nil {
@@ -685,76 +622,134 @@ func (r *factRun) storedGroup(ctx context.Context, subject, pred string) (map[st
 		}
 		gf.bySource[st.GetSource()] = append(gf.bySource[st.GetSource()], st.GetVersions()...)
 	}
-	return g, nil
+	return g, c.err
 }
 
-// beforeStatuses computes the statuses and conflicts of a (subject, predicate)
-// as the store holds them: those of the subject and of each subject the
-// ChangeSet merges into it, which are separate groups until it applies. Each
-// fact is named as the ChangeSet leaves it, so a fact that a merge moves is the
-// same fact before and after, and the fact the first subject has wins when
-// two collapse into one.
-func (r *factRun) beforeStatuses(ctx context.Context, subject, pred string) ([]*modelv1alpha1.FactTimeline, *modelv1alpha1.ConflictTimeline, error) {
+// canoner follows subjects through the store's merges and the ChangeSet's
+// planned ones, and keeps the first error, so a builder checks it once.
+type canoner struct {
+	g   *graph
+	err error
+}
+
+func (c *canoner) fail(err error) {
+	if c.err == nil {
+		c.err = err
+	}
+}
+
+func (c *canoner) subject(ctx context.Context, id string) string {
+	got, err := c.g.canon(ctx, id)
+	if err != nil {
+		c.fail(err)
+	}
+	return got
+}
+
+// stored is subject without the ChangeSet's planned merges.
+func (c *canoner) stored(ctx context.Context, id string) string {
+	got, err := c.g.storedCanon(ctx, id)
+	if err != nil {
+		c.fail(err)
+	}
+	return got
+}
+
+// object names a fact object as the ChangeSet leaves it.
+func (c *canoner) object(ctx context.Context, o *modelv1alpha1.FactObject) *modelv1alpha1.FactObject {
+	if id := o.GetSubjectId(); id != "" {
+		if got := c.subject(ctx, id); got != id {
+			o = proto.CloneOf(o)
+			o.SubjectId = got
+		}
+	}
+	return o
+}
+
+// membersOf returns the subject and each subject the ChangeSet merges into it:
+// separate groups in the store until the ChangeSet applies.
+func (r *factRun) membersOf(ctx context.Context, c *canoner, subject string) []string {
 	if isRef(subject) {
-		return nil, nil, nil
+		return nil
 	}
 	members := []string{subject}
 	for _, m := range slices.Sorted(maps.Keys(r.g.merged)) {
-		if !isRef(m) && r.g.mustCanon(ctx, m) == subject {
+		if !isRef(m) && c.subject(ctx, m) == subject {
 			members = append(members, m)
 		}
 	}
-	var facts []*modelv1alpha1.FactTimeline
-	var conflicts *modelv1alpha1.ConflictTimeline
-	seen := map[string]bool{}
-	for _, m := range members {
+	return members
+}
+
+// beforeState is what the store holds about a (subject, predicate) before the
+// ChangeSet: the statuses and conflicts, and the supports behind them. The
+// subject and each subject the ChangeSet merges into it are separate groups
+// until it applies, so their statuses are computed apart; every fact is named
+// as the ChangeSet leaves them, so a fact that a merge moves is the same fact
+// before and after. When two facts become one, the first subject's wins.
+type beforeState struct {
+	facts     []*modelv1alpha1.FactTimeline
+	conflicts *modelv1alpha1.ConflictTimeline
+	group     map[string]*groupFact
+}
+
+func (r *factRun) storedState(ctx context.Context, c *canoner, subject, pred string) (beforeState, error) {
+	st := beforeState{group: map[string]*groupFact{}}
+	for _, m := range r.membersOf(ctx, c, subject) {
 		fts, ct, err := r.groupStatuses(ctx, m, pred, r.storedGroup)
 		if err != nil {
-			return nil, nil, err
+			return st, err
 		}
 		for _, ft := range fts {
-			f, err := r.canonicalFact(ctx, &modelv1alpha1.SupportTimeline{SubjectId: ft.GetSubjectId(), Predicate: pred, Object: ft.GetObject()})
-			if err != nil {
-				return nil, nil, err
-			}
-			if seen[f.id()] {
-				continue
-			}
-			seen[f.id()] = true
-			facts = append(facts, &modelv1alpha1.FactTimeline{SubjectId: f.subject, Predicate: pred, Object: f.object, Spans: ft.GetSpans()})
+			st.facts = append(st.facts, &modelv1alpha1.FactTimeline{
+				SubjectId: c.subject(ctx, ft.GetSubjectId()), Predicate: pred, Object: c.object(ctx, ft.GetObject()), Spans: ft.GetSpans(),
+			})
 		}
 		if ct != nil {
-			if conflicts == nil {
-				conflicts = &modelv1alpha1.ConflictTimeline{SubjectId: subject, Predicate: pred}
+			if st.conflicts == nil {
+				st.conflicts = &modelv1alpha1.ConflictTimeline{SubjectId: subject, Predicate: pred}
 			}
-			conflicts.Conflicts = append(conflicts.Conflicts, ct.GetConflicts()...)
+			st.conflicts.Conflicts = append(st.conflicts.Conflicts, ct.GetConflicts()...)
+		}
+		g, err := r.storedGroup(ctx, m, pred)
+		if err != nil {
+			return st, err
+		}
+		for _, id := range slices.Sorted(maps.Keys(g)) {
+			f := g[id].f
+			f.subject, f.object = subject, c.object(ctx, f.object)
+			if f.object.GetSubjectId() != "" {
+				f.token = f.object.GetSubjectId()
+			}
+			gf := st.group[f.id()]
+			if gf == nil {
+				gf = &groupFact{f: f, bySource: map[string][]*modelv1alpha1.Support{}}
+				st.group[f.id()] = gf
+			}
+			for source, versions := range g[id].bySource {
+				gf.bySource[source] = append(gf.bySource[source], versions...)
+			}
 		}
 	}
-	return facts, conflicts, nil
+	return st, c.err
 }
 
 // canonicalConflicts returns ct with each position's objects named as the
-// ChangeSet leaves them (through its planned merges) and in a fixed order, so
-// a conflict that a merge only renames compares equal before and after.
-func (r *factRun) canonicalConflicts(ctx context.Context, ct *modelv1alpha1.ConflictTimeline) (*modelv1alpha1.ConflictTimeline, error) {
+// ChangeSet leaves them and in a fixed order, so a conflict that a merge only
+// renames compares equal before and after.
+func canonicalConflicts(ctx context.Context, c *canoner, ct *modelv1alpha1.ConflictTimeline) *modelv1alpha1.ConflictTimeline {
 	if ct == nil {
-		return nil, nil
+		return nil
 	}
 	out := proto.CloneOf(ct)
-	for _, c := range out.GetConflicts() {
-		for _, pos := range c.GetPositions() {
+	for _, cf := range out.GetConflicts() {
+		for _, pos := range cf.GetPositions() {
 			keys := make([]string, len(pos.GetObjects()))
 			for i, o := range pos.GetObjects() {
-				if o.GetSubjectId() != "" {
-					var err error
-					if o.SubjectId, err = r.g.canon(ctx, o.GetSubjectId()); err != nil {
-						return nil, err
-					}
-				}
-				b, err := proto.MarshalOptions{Deterministic: true}.Marshal(o)
-				if err != nil {
-					return nil, fmt.Errorf("conflict object: %w", err)
-				}
+				pos.Objects[i] = c.object(ctx, o)
+				// Marshalling a fact object fails only for text that is not UTF-8,
+				// which no stored fact holds.
+				b, _ := proto.MarshalOptions{Deterministic: true}.Marshal(pos.Objects[i])
 				keys[i] = string(b)
 			}
 			idx := make([]int, len(keys))
@@ -770,7 +765,29 @@ func (r *factRun) canonicalConflicts(ctx context.Context, ct *modelv1alpha1.Conf
 			pos.Objects = objects
 		}
 	}
-	return out, nil
+	return out
+}
+
+// auditGroup returns the audit entries for what the ChangeSet changes in one
+// (subject, predicate): the claims withdrawn, then the status changes and the
+// conflicts opened and closed. timelines and ct are what the ChangeSet leaves.
+func (r *factRun) auditGroup(ctx context.Context, subject, pred string, timelines []*modelv1alpha1.FactTimeline, ct *modelv1alpha1.ConflictTimeline) ([]*modelv1alpha1.AuditEntry, error) {
+	c := &canoner{g: r.g}
+	was, err := r.storedState(ctx, c, subject, pred)
+	if err != nil {
+		return nil, err
+	}
+	now, err := r.group(ctx, subject, pred)
+	if err != nil {
+		return nil, err
+	}
+	t := &trail{}
+	t.withdrawals(was.group, now)
+	t.statusChanges(subject, pred, was.facts, canonicalConflicts(ctx, c, was.conflicts), timelines, canonicalConflicts(ctx, c, ct))
+	if c.err != nil {
+		return nil, c.err
+	}
+	return t.entries, t.err
 }
 
 // stateEntries returns the state entries the run changed, sorted by key.

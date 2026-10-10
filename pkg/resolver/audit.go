@@ -248,11 +248,10 @@ func (t *trail) factStatus(before, after *modelv1alpha1.FactTimeline) {
 // supported with no end of valid time before the ChangeSet and does not after.
 // before and after are the groups as the store holds them and as the ChangeSet
 // leaves them.
-func withdrawalEntries(before, after map[string]*groupFact) ([]*modelv1alpha1.AuditEntry, error) {
+func (t *trail) withdrawals(before, after map[string]*groupFact) {
 	live := func(vs []*modelv1alpha1.Support) bool {
 		return slices.ContainsFunc(vs, func(v *modelv1alpha1.Support) bool { return v.GetValidTo() == nil })
 	}
-	t := &trail{}
 	for _, id := range slices.Sorted(maps.Keys(before)) {
 		gf := before[id]
 		for _, source := range slices.Sorted(maps.Keys(gf.bySource)) {
@@ -279,7 +278,6 @@ func withdrawalEntries(before, after map[string]*groupFact) ([]*modelv1alpha1.Au
 			t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_CLAIM_WITHDRAWN, t.factTarget(ft), "", timeline(gf.bySource[source]), timeline(now))
 		}
 	}
-	return t.entries, t.err
 }
 
 // cutShort reports whether after is before with an earlier end of valid time.

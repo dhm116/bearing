@@ -31,35 +31,11 @@ func (r *factRun) statuses(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		prior, priorCT, err := r.beforeStatuses(ctx, subject, pred)
-		if err != nil {
-			return err
-		}
-		if priorCT, err = r.canonicalConflicts(ctx, priorCT); err != nil {
-			return err
-		}
-		nowCT, err := r.canonicalConflicts(ctx, ct)
-		if err != nil {
-			return err
-		}
-		audit, err := statusAudit(subject, pred, prior, priorCT, timelines, nowCT)
-		if err != nil {
-			return err
-		}
-		was, err := r.beforeGroup(ctx, subject, pred)
-		if err != nil {
-			return err
-		}
-		now, err := r.group(ctx, subject, pred)
-		if err != nil {
-			return err
-		}
-		withdrawn, err := withdrawalEntries(was, now)
-		if err != nil {
-			return err
-		}
 		// Withdrawals come first: the claims ended, then the statuses followed.
-		r.u.audit = append(r.u.audit, withdrawn...)
+		audit, err := r.auditGroup(ctx, subject, pred, timelines, ct)
+		if err != nil {
+			return err
+		}
 		r.u.audit = append(r.u.audit, audit...)
 		if ct != nil {
 			conflicts = append(conflicts, ct)
@@ -302,8 +278,7 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string, read 
 // are the store's, so what a merge changes (a placeholder object that turns
 // out to be a real team, two sources that now disagree) is audited here beside
 // the merge.
-func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, beforeCT *modelv1alpha1.ConflictTimeline, after []*modelv1alpha1.FactTimeline, afterCT *modelv1alpha1.ConflictTimeline) ([]*modelv1alpha1.AuditEntry, error) {
-	t := &trail{}
+func (t *trail) statusChanges(subject, pred string, before []*modelv1alpha1.FactTimeline, beforeCT *modelv1alpha1.ConflictTimeline, after []*modelv1alpha1.FactTimeline, afterCT *modelv1alpha1.ConflictTimeline) {
 	index := func(fts []*modelv1alpha1.FactTimeline) map[string]*modelv1alpha1.FactTimeline {
 		out := make(map[string]*modelv1alpha1.FactTimeline, len(fts))
 		for _, ft := range fts {
@@ -312,7 +287,9 @@ func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, bef
 				t.fail(err)
 				continue
 			}
-			out[f.id()] = ft
+			if _, dup := out[f.id()]; !dup {
+				out[f.id()] = ft
+			}
 		}
 		return out
 	}
@@ -328,7 +305,6 @@ func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, bef
 		t.factStatus(b[id], a[id])
 	}
 	t.conflicts(subject, pred, beforeCT.GetConflicts(), afterCT.GetConflicts())
-	return t.entries, t.err
 }
 
 // authoritative reports whether the source's declaration makes the fact's

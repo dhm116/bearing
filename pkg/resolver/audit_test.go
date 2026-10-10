@@ -282,9 +282,10 @@ func TestMergeThatRenamesAConflictsObjectAuditsNoConflict(t *testing.T) {
 
 // Every read the audit makes can fail, and the failure is returned.
 func TestAuditReadsReturnStoreErrors(t *testing.T) {
-	t.Run("a merge that renames a conflict", func(t *testing.T) { failEveryReadWith(t, ownedByConflictConfig, renamedConflict()) })
+	t.Run("a merge that changes statuses", func(t *testing.T) { failEveryReadWith(t, ownedByConfig, placeholderMerge(), false) })
+	t.Run("a merge that renames a conflict", func(t *testing.T) { failEveryReadWith(t, ownedByConflictConfig, renamedConflict(), false) })
 	t.Run("claims withdrawn", func(t *testing.T) {
-		failEveryReadWith(t, testConfig, []Event{syncOf(1, "T1", "T2"), syncOf(2, "T1"), syncOf(3, "T1")})
+		failEveryReadWith(t, testConfig, []Event{syncOf(1, "T1", "T2"), syncOf(2, "T1"), syncOf(3, "T1")}, true)
 	})
 }
 
@@ -628,5 +629,50 @@ func TestPackedEntriesHaveStableBytes(t *testing.T) {
 		if !slices.Equal(first.GetValue(), again.GetValue()) {
 			t.Fatal("got different bytes for the same message")
 		}
+	}
+}
+
+// An entry whose before or after can't be marshalled fails the trail instead
+// of being written without it.
+func TestTrailReportsAMessageThatCannotBePacked(t *testing.T) {
+	bad := &modelv1alpha1.Subject{Kind: "\xff"}
+	for name, args := range map[string][2]proto.Message{"before": {bad, nil}, "after": {nil, bad}} {
+		t.Run(name, func(t *testing.T) {
+			tr := &trail{}
+			tr.add(modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, "s"), "", args[0], args[1])
+			if tr.err == nil {
+				t.Fatal("got no error for a message that is not valid UTF-8")
+			}
+		})
+	}
+}
+
+// storedCanon follows the store's merges and ignores the ChangeSet's planned
+// ones; canon follows both.
+func TestStoredCanonIgnoresPlannedMerges(t *testing.T) {
+	ctx := context.Background()
+	e := newEnvWith(t, ownedByConfig(t))
+	events := placeholderMerge()
+	for _, ev := range events {
+		e.apply(ev)
+	}
+	team := e.resolveKey("github:team_node/T1", time.Time{})
+	merges, err := e.store.Merges(ctx, contracts.SubjectID(team), time.Time{})
+	if err != nil || len(merges) != 1 {
+		t.Fatalf("got %v, %v, want the one merge of the placeholder into %s", merges, err, team)
+	}
+	g := newGraph(e.store, time.Time{})
+	g.merged[team] = "planned"
+	if got, err := g.storedCanon(ctx, team); err != nil || got != team {
+		t.Errorf("got %q, %v, want the active team, whatever the ChangeSet plans", got, err)
+	}
+	if got, err := g.storedCanon(ctx, merges[0].GetMergedId()); err != nil || got != team {
+		t.Errorf("got %q, %v, want the placeholder to follow the stored merge to the team", got, err)
+	}
+	if got, err := g.storedCanon(ctx, "new:x"); err != nil || got != "new:x" {
+		t.Errorf("got %q, %v, want a ref to be its own subject", got, err)
+	}
+	if _, err := g.storedCanon(ctx, "no-such-subject"); err == nil {
+		t.Error("got no error for a subject the store doesn't know")
 	}
 }
