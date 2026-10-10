@@ -16,7 +16,6 @@ func TestEventTypeNamesEveryEvent(t *testing.T) {
 		msg  proto.Message
 		want string
 	}{
-		{&eventv1alpha1.Observation{}, ObservationType},
 		{&eventv1alpha1.SyncRequested{}, "dev.bearing.sync_requested.v1"},
 		{&eventv1alpha1.WebhookReceived{}, "dev.bearing.webhook_received.v1"},
 		{&eventv1alpha1.ObservationsEmitted{}, "dev.bearing.observations_emitted.v1"},
@@ -33,7 +32,7 @@ func TestEventTypeNamesEveryEvent(t *testing.T) {
 
 func TestEventTypeRejectsNonEvents(t *testing.T) {
 	t.Parallel()
-	for _, m := range []proto.Message{&eventv1alpha1.Actor{}, &eventv1alpha1.Header{}, &eventv1alpha1.ConfigChange{}, &modelv1alpha1.Entity{}} {
+	for _, m := range []proto.Message{&eventv1alpha1.Observation{}, &eventv1alpha1.Actor{}, &eventv1alpha1.Header{}, &eventv1alpha1.ConfigChange{}, &modelv1alpha1.Entity{}} {
 		if got, ok := EventType(m); ok {
 			t.Errorf("EventType(%T) = %q, true, want false", m, got)
 		}
@@ -45,7 +44,7 @@ func TestEventTypeRejectsNonEvents(t *testing.T) {
 // can't reach the log without a CloudEvents type.
 func TestEveryEventMessageIsClassified(t *testing.T) {
 	t.Parallel()
-	parts := []string{"Header", "Actor", "ConfigChange"}
+	parts := []string{"Observation", "Header", "Actor", "ConfigChange"}
 	msgs := eventv1alpha1.File_bearing_event_v1alpha1_event_proto.Messages()
 	seen := map[string]bool{}
 	for i := range msgs.Len() {

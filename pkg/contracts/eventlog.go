@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"bearing.example/pkg/model"
 )
 
 // ErrInvalidEvent is returned by Append and Release for an event or ID that
@@ -52,18 +54,22 @@ const (
 // they can't collide.
 type Partition string
 
-// Offset is an event's position in its partition. Offsets start at 1 and
-// grow by one for each event appended, so zero means "before the first".
-// After Trim a partition's offsets have gaps.
+// Offset is an event's position in its partition. Offsets are positive and
+// strictly increase in the order events were appended, so zero means "before
+// the first". They are not promised to be consecutive: Trim leaves gaps, and
+// a backend may skip numbers of its own. Offsets are comparable only within
+// one partition.
 type Offset int64
 
 // Event is one input on the log: the CloudEvents attributes the log keeps,
 // and the payload. The log stores it as given and does not read Data.
 type Event struct {
 	// ID is stable for the same input, so a redelivery repeats it:
-	// "<partition>/<delivery ID or content hash>" (docs/spec/data-model.md,
-	// "Observations"). It must start with the partition and a slash, which
-	// keeps one source's delivery IDs from colliding with another's.
+	// "<partition>/<local ID>" (docs/spec/data-model.md, "Observations"),
+	// where the local ID is the source's delivery ID or a content hash and
+	// holds no slash. The partition is therefore everything before the last
+	// slash, so no two partitions can produce one ID, and an ID names its
+	// partition. Callers hash a delivery ID that holds a slash.
 	ID string
 	// Partition says which order the event belongs to.
 	Partition Partition
@@ -76,8 +82,8 @@ type Event struct {
 	// Data is the payload message in ProtoJSON, the data of the CloudEvent.
 	// It must not be empty.
 	Data []byte
-	// Retain exempts the event from Trim until Release names it. Manual
-	// events are appended with it set: they are kept as long as their
+	// Retain exempts the event from Trim until Release names it. Events in
+	// the manual partition must set it: they are kept as long as their
 	// effects are live (docs/adr/0011-identity-store-is-primary-state.md).
 	Retain bool
 }
@@ -88,8 +94,10 @@ type Entry struct {
 	Event
 	// Offset is its position in Event.Partition.
 	Offset Offset
-	// AppendedAt is the log's clock when the event was appended, UTC and
-	// truncated to microseconds. Trim goes by it.
+	// AppendedAt is the backend's clock when the event was appended (an
+	// injectable clock, not the database's transaction time), UTC and
+	// truncated to microseconds. Trim goes by it and tolerates a clock that
+	// is not monotonic.
 	AppendedAt time.Time
 }
 
@@ -105,7 +113,8 @@ type Appended struct {
 // PartitionInfo describes one partition.
 type PartitionInfo struct {
 	Partition Partition
-	// Head is the offset of the latest event appended, or zero if none.
+	// Head is the offset of the latest event appended, or zero if none. It
+	// survives a Trim of every entry, and so does the partition.
 	Head Offset
 	// Trimmed is the highest offset Trim has removed, or zero if none. A
 	// group whose committed offset is below it may have missed events: the
@@ -124,11 +133,13 @@ type PartitionInfo struct {
 // and the consumer's own idempotency (GraphStore.Apply's processed-event
 // mark) makes a repeat harmless. The log does not hand partitions to
 // consumers or lock them: two consumers of one group on one partition would
-// process out of order, so the caller runs one.
+// process out of order, so the caller runs one. A consumer whose committed
+// offset is below a partition's Trimmed has lost events and says so instead of
+// reading on. Until there is a lease, one server instance consumes.
 type EventLog interface {
 	// Append writes events in one atomic step, in order: either all are
 	// visible to Read afterwards or none is. Events of one partition get
-	// consecutive offsets in the order given. Append returns only after the
+	// increasing offsets in the order given. Append returns only after the
 	// events are durable as the backend promises (mem:// promises nothing
 	// beyond the process), and a returned error means the caller may not
 	// acknowledge the input. An error whose outcome is unknown, such as a
@@ -148,17 +159,20 @@ type EventLog interface {
 	// after, oldest first, at most limit of them and at most MaxReadBytes of
 	// Data (always at least one if any qualify). A partition with no
 	// qualifying entry, or that doesn't exist, returns none. It does not
-	// wait for new events; callers poll. An entry never appears before the
-	// ones with lower offsets in its partition.
+	// wait for new events; callers poll. An entry never becomes visible
+	// before the ones with lower offsets in its partition. It fails with
+	// ErrInvalidRequest (CheckRead).
 	Read(ctx context.Context, partition Partition, after Offset, limit int) ([]Entry, error)
 	// Commit records that group has processed partition up to and including
 	// offset. It never moves a group back: a lower or equal offset changes
-	// nothing and is not an error. It fails with ErrNotFound for a
-	// partition that doesn't exist, and with ErrInvalidRequest for an offset
-	// beyond the partition's head.
+	// nothing and is not an error. It fails with ErrInvalidRequest for a bad
+	// name or a negative offset (CheckCommit), then with ErrNotFound for a
+	// partition that doesn't exist, then with ErrInvalidRequest for an
+	// offset beyond the partition's head.
 	Commit(ctx context.Context, group string, partition Partition, offset Offset) error
 	// Committed returns the offset group last committed in partition, or
-	// zero for a group or partition that has none.
+	// zero for a group or partition that has none. It fails with
+	// ErrInvalidRequest for a bad name (CheckCommit).
 	Committed(ctx context.Context, group string, partition Partition) (Offset, error)
 	// Partitions lists every partition, ordered by name.
 	Partitions(ctx context.Context) ([]PartitionInfo, error)
@@ -168,13 +182,15 @@ type EventLog interface {
 	// model refers to ("event log retention", docs/spec/data-model.md): the
 	// caller passes now minus the configured window. It does not look at
 	// what groups have committed. It fails with ErrInvalidRequest for a zero
-	// cutoff.
+	// cutoff (CheckTrim).
 	Trim(ctx context.Context, before time.Time) (int, error)
 	// Release clears Retain on the events with these IDs, so a later Trim
 	// can remove them. An ID the log doesn't hold, because it was never
-	// appended or was already trimmed, is ignored. It fails with
-	// ErrInvalidEvent for more than MaxAppendEvents IDs or an ID that breaks
-	// the ID rules.
+	// appended or was already trimmed, is ignored, and an empty list does
+	// nothing. The caller releases an event only after the write that ends
+	// its effect has committed; a crash in between leaves it retained, which
+	// is harmless. It fails with ErrInvalidEvent for more than
+	// MaxAppendEvents IDs or an ID that breaks the ID rules (CheckRelease).
 	Release(ctx context.Context, ids []string) error
 }
 
@@ -210,8 +226,12 @@ func CheckEvent(e *Event) error {
 	if err := checkText("ID", e.ID, MaxEventIDBytes); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 	}
-	if !strings.HasPrefix(e.ID, string(e.Partition)+"/") || len(e.ID) == len(e.Partition)+1 {
-		return fmt.Errorf("%w: ID %s does not start with its partition and a slash, or has nothing after it", ErrInvalidEvent, quote(e.ID))
+	local, ok := strings.CutPrefix(e.ID, string(e.Partition)+"/")
+	if !ok || local == "" || strings.Contains(local, "/") {
+		return fmt.Errorf("%w: ID %s is not its partition, a slash and a local ID without a slash", ErrInvalidEvent, quote(e.ID))
+	}
+	if e.Partition == model.SourceManual && !e.Retain {
+		return fmt.Errorf("%w: an event in the manual partition must set Retain", ErrInvalidEvent)
 	}
 	if err := checkText("type", e.Type, MaxNameBytes); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEvent, err)
@@ -229,8 +249,8 @@ func CheckEvent(e *Event) error {
 }
 
 // CheckEventID reports whether id is a well-formed event ID, as an error
-// wrapping ErrInvalidEvent. It does not check the partition prefix, which
-// needs the event.
+// wrapping ErrInvalidEvent. It checks the bounds only; CheckEvent also holds
+// an ID to the shape "<partition>/<local ID>".
 func CheckEventID(id string) error {
 	if err := checkText("ID", id, MaxEventIDBytes); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEvent, err)
@@ -253,6 +273,59 @@ func CheckPartition(p Partition) error {
 func CheckGroup(g string) error {
 	if err := checkText("group", g, MaxNameBytes); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+	}
+	return nil
+}
+
+// CheckRead reports whether the arguments of Read are in range, as an error
+// wrapping ErrInvalidRequest.
+func CheckRead(partition Partition, after Offset, limit int) error {
+	if err := CheckPartition(partition); err != nil {
+		return err
+	}
+	if after < 0 {
+		return fmt.Errorf("%w: offset %d is negative", ErrInvalidRequest, after)
+	}
+	if limit < 1 || limit > MaxReadEntries {
+		return fmt.Errorf("%w: limit %d is not from 1 to %d", ErrInvalidRequest, limit, MaxReadEntries)
+	}
+	return nil
+}
+
+// CheckCommit reports whether the arguments of Commit and Committed are well
+// formed, as an error wrapping ErrInvalidRequest. Committed passes offset 0.
+func CheckCommit(group string, partition Partition, offset Offset) error {
+	if err := CheckGroup(group); err != nil {
+		return err
+	}
+	if err := CheckPartition(partition); err != nil {
+		return err
+	}
+	if offset < 0 {
+		return fmt.Errorf("%w: offset %d is negative", ErrInvalidRequest, offset)
+	}
+	return nil
+}
+
+// CheckTrim reports whether the cutoff of Trim is usable, as an error
+// wrapping ErrInvalidRequest.
+func CheckTrim(before time.Time) error {
+	if before.IsZero() {
+		return fmt.Errorf("%w: the cutoff is zero", ErrInvalidRequest)
+	}
+	return nil
+}
+
+// CheckRelease reports whether the IDs of Release are within bounds, as an
+// error wrapping ErrInvalidEvent.
+func CheckRelease(ids []string) error {
+	if len(ids) > MaxAppendEvents {
+		return fmt.Errorf("%w: %d IDs, over the limit of %d", ErrInvalidEvent, len(ids), MaxAppendEvents)
+	}
+	for _, id := range ids {
+		if err := CheckEventID(id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

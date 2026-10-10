@@ -43,6 +43,8 @@ func TestCheckEventRejectsInvalidEvents(t *testing.T) {
 		{"ID of another partition", func(e *Event) { e.ID = "gitea-acme/delivery-1" }},
 		{"ID with no slash after the partition", func(e *Event) { e.ID = "github-acme-1" }},
 		{"nothing after the partition", func(e *Event) { e.ID = "github-acme/" }},
+		{"slash in the local ID", func(e *Event) { e.ID = "github-acme/delivery/1" }},
+		{"manual event not retained", func(e *Event) { e.Partition, e.ID = "manual", "manual/m1" }},
 		{"no type", func(e *Event) { e.Type = "" }},
 		{"no time", func(e *Event) { e.Time = time.Time{} }},
 		{"no data", func(e *Event) { e.Data = nil }},
@@ -60,6 +62,31 @@ func TestCheckEventRejectsInvalidEvents(t *testing.T) {
 				t.Errorf("error is %d bytes, want it to quote at most 64 bytes of the input", len(err.Error()))
 			}
 		})
+	}
+}
+
+// TestCheckEventKeepsPartitionsFromSharingAnID covers the sources whose names
+// hold a slash: the ID of one must not be the ID of an event in another
+// partition, because the log dedupes by ID.
+func TestCheckEventKeepsPartitionsFromSharingAnID(t *testing.T) {
+	t.Parallel()
+	byPartition := func(p Partition, id string) Event {
+		e := validEvent()
+		e.Partition, e.ID = p, id
+		return e
+	}
+	// Source "a" with delivery "b/x" and source "a/b" with delivery "x" both
+	// spell "a/b/x"; so do "core" with "scheduler/t" and "core/scheduler"
+	// with "t". Only the split at the last slash is allowed.
+	for _, e := range []Event{byPartition("a", "a/b/x"), byPartition("core", "core/scheduler/t")} {
+		if err := CheckEvent(&e); !errors.Is(err, ErrInvalidEvent) {
+			t.Errorf("partition %s ID %s: got %v, want ErrInvalidEvent", e.Partition, e.ID, err)
+		}
+	}
+	for _, e := range []Event{byPartition("a/b", "a/b/x"), byPartition("core/scheduler", "core/scheduler/t")} {
+		if err := CheckEvent(&e); err != nil {
+			t.Errorf("partition %s ID %s: got %v, want nil", e.Partition, e.ID, err)
+		}
 	}
 }
 
@@ -105,5 +132,39 @@ func TestCheckNamesWrapInvalidRequest(t *testing.T) {
 	}
 	if err := CheckEventID(""); !errors.Is(err, ErrInvalidEvent) {
 		t.Errorf("CheckEventID(\"\") = %v, want ErrInvalidEvent", err)
+	}
+}
+
+func TestCheckRequestsRefuseOutOfRangeArguments(t *testing.T) {
+	t.Parallel()
+	for name, err := range map[string]error{
+		"read zero limit":      CheckRead("p", 0, 0),
+		"read too large":       CheckRead("p", 0, MaxReadEntries+1),
+		"read negative offset": CheckRead("p", -1, 1),
+		"read no partition":    CheckRead("", 0, 1),
+		"commit no group":      CheckCommit("", "p", 1),
+		"commit no partition":  CheckCommit("g", "", 1),
+		"commit negative":      CheckCommit("g", "p", -1),
+		"trim zero":            CheckTrim(time.Time{}),
+	} {
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%s: got %v, want ErrInvalidRequest", name, err)
+		}
+	}
+	for name, err := range map[string]error{
+		"read":    CheckRead("p", 0, MaxReadEntries),
+		"commit":  CheckCommit("g", "p", 0),
+		"trim":    CheckTrim(time.Unix(1, 0)),
+		"release": CheckRelease(nil),
+	} {
+		if err != nil {
+			t.Errorf("%s: got %v, want nil", name, err)
+		}
+	}
+	if err := CheckRelease([]string{"a/b", ""}); !errors.Is(err, ErrInvalidEvent) {
+		t.Errorf("release with an empty ID: got %v, want ErrInvalidEvent", err)
+	}
+	if err := CheckRelease(make([]string, MaxAppendEvents+1)); !errors.Is(err, ErrInvalidEvent) {
+		t.Errorf("release with too many IDs: got %v, want ErrInvalidEvent", err)
 	}
 }

@@ -13,10 +13,12 @@ import (
 
 // eventMessages are the messages of proto/bearing/event/v1alpha1 that travel
 // on the event log as the data of a CloudEvent (docs/spec/contracts.md,
-// "EventLog"); the rest of the file is parts of them. A new event message is
-// added here, and a test fails until it is.
+// "EventLog"); the rest of the file is parts of them, Observation among them:
+// it is the CloudEvent of one observation and the log carries it inside
+// ObservationsEmitted. A new event message is added here, and a test fails
+// until it is.
 var eventMessages = []protoreflect.Name{
-	"Observation", "SyncRequested", "WebhookReceived", "ObservationsEmitted",
+	"SyncRequested", "WebhookReceived", "ObservationsEmitted",
 	"MergeRequested", "UnmergeRequested", "DistinctFromSet", "DistinctFromCleared",
 	"ClaimWithdrawn", "OverrideSet", "OverrideCleared",
 	"ValidTimeBoundaryReached", "SubjectDeletionDerived",
