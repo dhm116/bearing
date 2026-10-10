@@ -1411,10 +1411,10 @@ proto field names, so JSON field names match the examples here.
 
 Every message in `proto/bearing/event/v1alpha1` that is an event, by who
 appends it. Each travels as the data of a CloudEvent
-([ADR 7](../adr/0007-durable-event-log.md)); the CloudEvents `type` and
-envelope of events other than observations are fixed with the `EventLog`
-contract (issue #137). Audit records and checkpoints are not events; they
-are written to the `AuditLog`.
+([ADR 7](../adr/0007-durable-event-log.md)). The CloudEvents `type` of
+each event and the partition it is appended to are in
+[`EventLog`](contracts.md#event-types). Audit records and checkpoints are
+not events; they are written to the `AuditLog`.
 
 | Event | Appended by | Rules |
 | --- | --- | --- |
@@ -1636,8 +1636,8 @@ yet:
 - Bounding the scope watermarks the resolver keeps for every sync of a
   snapshot scope (issue #77); the support and binding state is bounded by
   [confirmations](#confirmations).
-- The durable event log (issue #137), replacing the `EventBus` contract,
-  and the audit log (issue #138). Their message types, and the types of the
+- The audit log (issue #138). Its message types, and the types of the
   compaction, declaration-change and configuration-apply events, are in
-  Protobuf; nothing yet appends or applies them.
+  Protobuf; nothing yet appends or applies them. The durable event log that
+  carries events is the [`EventLog`](contracts.md#eventlog) contract.
 - The design-target benchmark against PostgreSQL, which includes the apply-clock ceiling (issue #135).

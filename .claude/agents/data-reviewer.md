@@ -21,7 +21,7 @@ log).
   be rebuilt from the graph. Ownership and policy answers read only
   asserted facts. Nothing writes a candidate to the graph without a Judge
   score.
-- **Idempotency.** `EventBus` delivery is at least once: applying the same
+- **Idempotency.** `EventLog` delivery is at least once: applying the same
   observation or event twice yields the same graph and the same history
   (no duplicate versions, no bumped timestamps for no-op writes). Observation
   IDs are deterministic.

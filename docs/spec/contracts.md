@@ -9,7 +9,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | --- | --- | --- | --- | --- |
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
-| `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
+| `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -393,6 +393,108 @@ every time and in every backend:
   a known issue type, and each support in it a source. Nothing else in a
   conflict or issue is validated: a position's `authority` and a support's
   `confidence_ppm` are kept as written.
+
+## EventLog
+
+`EventLog` is the log of [ADR 7](../adr/0007-durable-event-log.md): webhook
+deliveries, sync requests, adapter output, people's operations and the
+core's own events all become events on it, and the workers that run adapters
+and apply their output read from it. It replaces the `EventBus` of earlier
+drafts. A webhook is acknowledged only after `Append` returns for its event,
+and a failing log makes the ingest path answer 5xx so the sender retries
+([C-INGEST-8](../security/threat-model.md)).
+
+An `Event` carries these CloudEvents attributes and a payload:
+
+| Field | Rule |
+| --- | --- |
+| `ID` | Stable for the same input, so a redelivery repeats it: `<partition>/<delivery ID or content hash>`. It MUST start with the event's partition and a slash, which keeps one source's delivery IDs from colliding with another's. At most 512 bytes. |
+| `Partition` | The unit of order ([below](#partitions)). |
+| `Type` | The CloudEvents type, `dev.bearing.<message in snake case>.v1` ([Event types](#event-types)). |
+| `Time` | When the event happened, UTC and truncated to microseconds. Required. |
+| `Data` | The payload message in ProtoJSON. Required, at most 8 MiB. The log stores it and does not read it. |
+| `Retain` | Exempts the event from `Trim` until `Release` ([Retention](#retention)). |
+
+The CloudEvents `specversion` is `1.0` and `datacontenttype` `application/json`
+for every event; the log keeps neither. A partition, a group and a type are
+1 to 256 bytes of valid UTF-8 without control characters.
+
+### Partitions
+
+Events are ordered within a partition and not across partitions. A
+partition is the configured source an event is about, so the events of one
+source, its syncs, its webhook deliveries and its adapter output, are read
+in the order they were appended, which is what identity decisions need
+([data model](data-model.md#state-determinism-and-apply)). Two reserved
+names cover events that belong to no source, because the names `manual` and
+`core/...` can't be source names:
+
+- `manual`: people's and agents' operations.
+- `core/<name>`: events the core appends about itself, one partition per
+  component.
+
+An offset is the event's position in its partition, starting at 1 and
+growing by one per event. Offsets are not comparable across partitions.
+Trim leaves gaps.
+
+### Operations
+
+| Method | What it does |
+| --- | --- |
+| `Append(events)` | Writes the events atomically and in order, and returns each one's partition and offset. Events of one partition get consecutive offsets in the order given. It returns only after the events are durable as the backend promises (`mem://` promises nothing past the process). A repeated ID writes nothing and returns the original position with `Duplicate` set; so does an ID repeated within one call. At most 1,000 events and 32 MiB per call. |
+| `Read(partition, after, limit)` | Returns the entries with an offset greater than `after`, oldest first: at most `limit` (1 to 1,000) and at most 32 MiB of data, but at least one if any qualify. It doesn't wait for new events; callers poll. A reader never sees an offset before the ones below it. |
+| `Commit(group, partition, offset)` | Records that the group has processed the partition up to `offset`. A commit never moves a group back: a lower or equal offset changes nothing. An offset beyond the partition's head is `ErrInvalidRequest`, and an unknown partition `ErrNotFound`. |
+| `Committed(group, partition)` | The group's offset, or 0. |
+| `Partitions()` | Every partition with its `Head` (latest offset) and `Trimmed` (highest offset `Trim` removed). A group whose offset is below `Trimmed` may have missed events. |
+| `Trim(before)` | Removes the entries appended before `before` that aren't retained, and returns the count. |
+| `Release(ids)` | Clears `Retain` on those events. Unknown IDs are ignored. |
+
+A consumer reads a partition after the offset its group committed,
+processes the entries, and commits the last offset it finished. Delivery is
+at least once, and `GraphStore.Apply`'s processed-event mark makes a repeat
+harmless. The log doesn't assign partitions to consumers or lock them: two
+consumers of one group on one partition would process out of order, so the
+server runs one per partition and group. Different groups read the same
+events independently.
+
+Duplicates are found for as long as the original is retained. After `Trim`
+removes it, the same ID appends again as a new event; the processed-event
+mark is what stops a second apply. The log doesn't compare the content of
+two events with one ID, since the ID is meant to name the content.
+
+### Retention
+
+`Trim` is the event log's retention window: the data model's "event log
+retention" ([State, determinism and apply](data-model.md#state-determinism-and-apply))
+is the `before` the caller passes, now minus the configured window (default
+30 days, ADR 7). It goes by the time the log appended the entry (`AppendedAt`),
+not the event's `Time`, and doesn't look at what groups have committed: a
+group that lags behind the window loses events, which `Partitions` shows
+as `Trimmed` above its offset.
+
+Manual events are exempt for as long as their effects are live
+([ADR 11](../adr/0011-identity-store-is-primary-state.md)). The core appends
+them with `Retain` set and calls `Release` when their effects end, for
+example when an override is cleared or compacted away.
+
+### Event types
+
+Each event message in `proto/bearing/event/v1alpha1` has a CloudEvents type
+(`model.EventType`) and a partition. Parts of events (`Actor`, `Header`,
+`ConfigChange`) are not events.
+
+| Message | CloudEvents type | Partition |
+| --- | --- | --- |
+| `SyncRequested`, `ObservationsEmitted`, `WebhookReceived` | `dev.bearing.sync_requested.v1`, `dev.bearing.observations_emitted.v1`, `dev.bearing.webhook_received.v1` | The event's `source` |
+| `DeclarationChanged`, `SubjectDeletionDerived` | `dev.bearing.declaration_changed.v1`, `dev.bearing.subject_deletion_derived.v1` | The event's `source`, so each is read after the syncs it follows |
+| `MergeRequested`, `UnmergeRequested`, `DistinctFromSet`, `DistinctFromCleared`, `ClaimWithdrawn`, `OverrideSet`, `OverrideCleared` | `dev.bearing.<name>.v1` | `manual`, appended with `Retain` |
+| `ValidTimeBoundaryReached`, `CompactionRequested` | `dev.bearing.<name>.v1` | `core/scheduler` |
+| `ConflictOpened`, `ConflictResolved`, `OverrideStale` | `dev.bearing.<name>.v1` | `core/resolver` |
+| `ConfigApplied` | `dev.bearing.config_applied.v1` | `core/config` |
+
+`Observation` is the CloudEvent of one observation, as an adapter emits it
+([Observations](data-model.md#observations)); the log carries it inside
+`ObservationsEmitted` and never as an event of its own.
 
 ## Rules that apply to every component
 
