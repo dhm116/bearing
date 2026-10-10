@@ -488,8 +488,8 @@ retention" ([State, determinism and apply](data-model.md#state-determinism-and-a
 is the `before` the caller passes, now minus the configured window (default
 30 days, ADR 7). It goes by the time the log appended the entry (`AppendedAt`),
 not the event's `Time`, and doesn't look at what groups have committed: a
-group that lags behind the window loses events, which `Partitions` shows
-as `Trimmed` above its offset.
+group that has committed and lags behind the window loses events, which
+`Partitions` shows as `Trimmed` above its offset.
 
 Manual events are exempt for as long as their effects are live
 ([ADR 11](../adr/0011-identity-store-is-primary-state.md)). The log refuses

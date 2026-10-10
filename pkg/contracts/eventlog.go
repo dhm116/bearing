@@ -117,8 +117,9 @@ type PartitionInfo struct {
 	// survives a Trim of every entry, and so does the partition.
 	Head Offset
 	// Trimmed is the highest offset Trim has removed, or zero if none. A
-	// group whose committed offset is below it may have missed events: the
-	// ones between its offset and Trimmed that were not Retained are gone.
+	// group that has committed an offset below it may have missed events:
+	// the ones between its offset and Trimmed that were not Retained are
+	// gone. A group with no offset yet starts at the oldest entry instead.
 	Trimmed Offset
 }
 
@@ -135,7 +136,8 @@ type PartitionInfo struct {
 // consumers or lock them: two consumers of one group on one partition would
 // process out of order, so the caller runs one. A new group starts at
 // the oldest retained entry; a group that has committed and sits below a
-// partition's Trimmed has lost events and says so instead of reading on. Until there is a lease, one server instance consumes.
+// partition's Trimmed has lost events and says so instead of reading on.
+// Until there is a lease, one server instance consumes.
 type EventLog interface {
 	// Append writes events in one atomic step, in order: either all are
 	// visible to Read afterwards or none is. Events of one partition get
