@@ -119,8 +119,8 @@ binds, or the run's name to another subject, because a source's names share
 the namespace's other sources. Applied in order, the same write would have
 decided the valid time before the latest confirmation's claim takes effect,
 and only there: the answers can differ from key-ordered application at valid
-times before the latest confirmation's observation time, or before its
-claim's `valid_from` when that is later, never at or after it. Writes of `manual` and `core/…`
+times before the later of the latest confirmation's observation time and its
+claim's `valid_from`, never at or after it. Writes of `manual` and `core/…`
 sources are never dropped: a manual event is not a confirmation, and derived
 supports follow their inputs. Nothing else is lost:
 
