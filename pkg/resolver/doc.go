@@ -75,8 +75,20 @@
 // ever: the event is recorded as processed with an empty ChangeSet and a
 // too_large rejection that names the limit and the count.
 //
+// The resolver also decides what to audit (docs/spec/data-model.md, "Audit"),
+// so every caller gets the same record: the ChangeSet's Audit lists, in order,
+// the rejections, then the mints, bindings written or released and merges,
+// then for each (subject, predicate) the claims withdrawn, the facts whose
+// status changed and the conflicts opened or closed, then the writes dropped.
+// Only a change the apply caused is audited: a confirmation, a repeated
+// delivery or a sync that says what the last said adds no entry. Entries use
+// refs for subjects the event mints, which the store replaces. The actor is
+// system:resolver; unmerge, distinct_from, override and compaction entries
+// belong to the manual operations and compaction that are not built yet, and
+// config_applied and declaration_changed to the writers of configuration.
+//
 // Not yet, and tracked as follow-ups: the ConflictOpened and ConflictResolved
-// events and their audit records; manual overrides, precedence and same_as facts; scored matching (names,
+// events; manual overrides, precedence and same_as facts; scored matching (names,
 // emails, member overlap); non-authoritative links and the evidence state
 // that ending a link needs; authority overrides; manual operations;
 // sync-completeness deletions; compaction, and with it deleting the scope

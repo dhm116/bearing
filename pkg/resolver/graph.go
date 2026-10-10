@@ -149,6 +149,25 @@ func (g *graph) canon(ctx context.Context, id string) (string, error) {
 	return "", fmt.Errorf("subject %s: merges form a cycle", id)
 }
 
+// storedCanon is canon without the ChangeSet's planned merges: the active
+// subject the store holds id under.
+func (g *graph) storedCanon(ctx context.Context, id string) (string, error) {
+	for range 1000 {
+		if isRef(id) {
+			return id, nil
+		}
+		s, err := g.subject(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if s.GetStatus() != modelv1alpha1.SubjectStatus_SUBJECT_STATUS_MERGED {
+			return id, nil
+		}
+		id = s.GetMergedInto()
+	}
+	return "", fmt.Errorf("subject %s: merges form a cycle", id)
+}
+
 // mustCanon is canon for callers that can't return an error: it runs after
 // the subjects it asks about were read, and returns id if one can't be.
 func (g *graph) mustCanon(ctx context.Context, id string) string {

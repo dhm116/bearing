@@ -27,10 +27,16 @@ func (r *factRun) statuses(ctx context.Context) error {
 	emitted := map[string]bool{}
 	for _, k := range slices.Sorted(maps.Keys(dirty)) {
 		subject, pred := dirty[k][0], dirty[k][1]
-		timelines, ct, err := r.groupStatuses(ctx, subject, pred)
+		timelines, ct, err := r.groupStatuses(ctx, subject, pred, r.group)
 		if err != nil {
 			return err
 		}
+		// Withdrawals come first: the claims ended, then the statuses followed.
+		audit, err := r.auditGroup(ctx, subject, pred, timelines, ct)
+		if err != nil {
+			return err
+		}
+		r.u.audit = append(r.u.audit, audit...)
 		if ct != nil {
 			conflicts = append(conflicts, ct)
 		}
@@ -192,10 +198,15 @@ func (r *factRun) retiredConflicts() []*modelv1alpha1.ConflictTimeline {
 	return out
 }
 
+// groupFn reads the facts of a subject's predicate with their supports: as the
+// ChangeSet leaves them (group) or as the store has them (beforeGroup).
+type groupFn func(ctx context.Context, subject, pred string) (map[string]*groupFact, error)
+
 // groupStatuses computes the fact timelines of one subject's predicate, and
-// the conflict timeline when the predicate has a conflict policy.
-func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*modelv1alpha1.FactTimeline, *modelv1alpha1.ConflictTimeline, error) {
-	g, err := r.group(ctx, subject, pred)
+// the conflict timeline when the predicate has a conflict policy, from the
+// facts that read returns.
+func (r *factRun) groupStatuses(ctx context.Context, subject, pred string, read groupFn) ([]*modelv1alpha1.FactTimeline, *modelv1alpha1.ConflictTimeline, error) {
+	g, err := read(ctx, subject, pred)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -222,7 +233,7 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*m
 			}
 		}
 		if o := gf.f.objectSubject(); rules.needsObserved() && o != "" {
-			eg, err := r.group(ctx, o, model.PredicateExists)
+			eg, err := read(ctx, o, model.PredicateExists)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -259,6 +270,41 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string) ([]*m
 		ct.Conflicts = append(ct.Conflicts, c)
 	}
 	return out, ct, nil
+}
+
+// statusAudit returns the audit entries for what a ChangeSet changes in one
+// (subject, predicate): a fact whose status timeline differs between before
+// and after, then the standing conflicts opened and closed. The statuses before
+// are the store's, so what a merge changes (a placeholder object that turns
+// out to be a real team, two sources that now disagree) is audited here beside
+// the merge.
+func (t *trail) statusChanges(subject, pred string, before []*modelv1alpha1.FactTimeline, beforeCT *modelv1alpha1.ConflictTimeline, after []*modelv1alpha1.FactTimeline, afterCT *modelv1alpha1.ConflictTimeline) {
+	index := func(fts []*modelv1alpha1.FactTimeline) map[string]*modelv1alpha1.FactTimeline {
+		out := make(map[string]*modelv1alpha1.FactTimeline, len(fts))
+		for _, ft := range fts {
+			f, err := newFact(ft.GetSubjectId(), ft.GetPredicate(), ft.GetObject())
+			if err != nil {
+				t.fail(err)
+				continue
+			}
+			if _, dup := out[f.id()]; !dup {
+				out[f.id()] = ft
+			}
+		}
+		return out
+	}
+	b, a := index(before), index(after)
+	ids := slices.Sorted(maps.Keys(b))
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		t.factStatus(b[id], a[id])
+	}
+	t.conflicts(subject, pred, beforeCT.GetConflicts(), afterCT.GetConflicts())
 }
 
 // authoritative reports whether the source's declaration makes the fact's
