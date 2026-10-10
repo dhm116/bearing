@@ -43,6 +43,7 @@ FROM pg_stat_statements
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND query !~* '^(begin|commit|rollback|show|set|savepoint|release|select pg_|vacuum|analyze|explain)'
   AND query NOT LIKE '%pg_stat_%' AND query NOT LIKE '%pg_class%'
+  AND query !~* '(password|secret|create role|alter role)'
 ORDER BY total_exec_time DESC LIMIT $1`, n)
 	if err != nil {
 		return nil, nil //nolint:nilerr // pg_stat_statements is optional

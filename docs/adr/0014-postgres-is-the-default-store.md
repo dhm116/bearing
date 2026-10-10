@@ -144,8 +144,8 @@ Options considered:
   does not hold: with 16 concurrent writers 92% of attempts come back stale
   and the rate falls to 21 a second ([#170](https://github.com/dhm116/bearing/issues/170)),
   so ingest should be a single consumer of the event log. Series history is
-  not the cost that grows (a fact with 250 spans reads in 14 ms against
-  3 ms), so loading a series as of one record time is not needed either; what
+  not the cost that grows (a fact with about 500 version rows reads in 14 ms
+  against 5 ms with none), so loading a series as of one record time is not needed either; what
   grows is the number of series that name a subject, which result limits
   address ([#167](https://github.com/dhm116/bearing/issues/167)).
 - **Licences.** The default binary already links no BSL code; now no

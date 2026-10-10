@@ -20,7 +20,7 @@ PostgreSQL itself is comfortable at 45 GB.
 repository, a key or an alias are flat as the store grows: `ResolveKey` 1.8 ms
 (p50), `AsOf` of a repository 5.3 ms, `bearing get <repository>` 37 ms.
 Questions about a person cost more as the person's history grows: `AsOf` of a
-person 27 ms (11.7 ms at 1M), `bearing get <person>` 108 ms (70 ms).
+person 27 ms (11.7 ms at 1M), `bearing get <person>` 122 ms (70 ms before the `related` fix; 108 ms at 3M).
 
 **Where it goes wrong:**
 
@@ -50,8 +50,9 @@ person 27 ms (11.7 ms at 1M), `bearing get <person>` 108 ms (70 ms).
 - *Do series need to be loadable as of one record time (the remaining
   C-STORE-9 exception)?* **No, not for this target.** The cost of a read is
   the number of series that name the subject, not the depth of one series. A
-  repository whose description changes at every read (250 spans of that one
-  fact after 250 reads) answers `AsOf` in 14 ms against 3 ms with none, and
+  repository whose description changes at every read (about 500 version rows
+  of that one fact after 250 reads, two per read) answers `AsOf` in 14 ms
+  against 5 ms at the same sync count with none, and
   `ResolveKey` stays at 1.5 ms. A person's reads grow because 190 Changes name
   them, and loading each series as of one record time would load the same
   190 series. What helps is bounding what a read returns (#167). The per-apply
@@ -141,9 +142,12 @@ The same store afterwards, same machine:
 | `bearing get <repository>` | 27.8 / 40.0 | 119 / 162 | 0.3 |
 | `bearing owner <repository>` | 19.2 / 28.9 | 85 / 120 | 0.11 |
 
-Nothing else moved: `ResolveKey`, `AsOf` and `Changes` rows, `get <person>`
-and `get <change>` repeat within noise (`results/2026-10-10/related-fix.ndjson`). What
-is left in `related <person>` is one lookup of a name per result (#167).
+The `ResolveKey`, `AsOf` and `Changes` rows repeat within noise
+(`results/2026-10-10/related-fix.ndjson`). The fix also reaches `bearing get`:
+`get <change>` falls from 51 to 37 ms (p50) and from 2.2 MB to 0.2 MB per
+call, and `get <person>` allocates 2.3 MB per call instead of 7.5 MB but is
+not faster (109 ms before, 122 ms after; 16 callers 489 and 436). What is left
+in `related <person>` is one lookup of a name per result (#167).
 
 With 16 callers on 4 cores, latency is about four times the single-caller
 latency: the cores are full, so throughput stops growing at about 4 callers
@@ -156,8 +160,10 @@ ms and their versions 0.42 ms, a person's facts 19 ms and versions 28 ms, the
 merge components of a subject 1.1 ms. All use the primary keys and
 `series_subject`; no missing index. The slowest is "every fact with one
 predicate": 9 ms for the series and 547 ms for their versions. In the
-statement statistics the same query had the highest mean, 488 ms (186 calls,
-7.0M rows returned), which is the unfiltered shape #167 bounds. A repository read takes 33-37 ms through the CLI against 5 ms through
+statement statistics the highest means were the two unfiltered whole-org
+reads (26.6 s and 12.3 s, two calls each), then the predicate-only series
+query at 488 ms (186 calls, 7.0M rows returned); these are the unfiltered
+shapes #167 bounds. A repository read takes 33-37 ms through the CLI against 5 ms through
 the store because `Get` makes several reads.
 
 ## Applying
@@ -193,7 +199,9 @@ transactions stays at 203, 108, 222 and 224, which is what #168 is about.
 
 Reads and applies with 1,000, 10,000 and 100,000 synthetic merge records
 (pairs of people nothing else refers to, plus one survivor of 250 merges),
-over a 300-repository org. The canonical-subject table keeps them flat.
+over a 300-repository org. The `component` table, which names each subject's
+merge group, keeps them flat. (The merges are pairs and one large group, not
+facts spread across many large groups; see the limits below.)
 
 | Merge records | `ResolveKey` p50 | `AsOf` a merged person p50 | `Merges` of the 250-merge survivor p50 | `Subject` of it p50 |
 | --- | --- | --- | --- | --- |
@@ -211,7 +219,7 @@ A ten-repository org read again and again, nothing changing, with the #77 fix
 (`history`), and with one repository's description changing at every read
 (`history --flip`):
 
-| Syncs | Mean apply per event | Resolve one repository (p50) | State bytes | Flip: `AsOf` of the repository | Flip: fact spans |
+| Syncs | Mean apply per event | Resolve one repository (p50) | State bytes | Flip: `AsOf` of the repository | Flip: fact version rows (whole org) |
 | --- | --- | --- | --- | --- | --- |
 | 25 | 23 ms | 78 ms | 13.5 MB | 6.2 ms | 235 |
 | 100 | 74 ms | 137 ms | 168 MB | 9.8 ms | 385 |
@@ -226,6 +234,14 @@ resolve rows come from the unchanged-org run; the flip columns from the run
 with a changing description.
 
 ## Limits of this run
+
+- The merge rows test pairs of people nothing else refers to and one group of
+  250; they do not test facts that point at members of many large groups.
+- Some figures come from ad hoc queries against the loaded schema, not from a
+  committed measurement: the split of state bytes (`sup/` 2.1 GB, `wm/` 1.0 GB,
+  supports 645 MB, `unobserved_object` issues 643 MB, facts 65 MB), the 45
+  minutes for a full re-read, and "throughput stops growing at about 4
+  callers" (the runs used 1 and 16 callers; the four-core ceiling is inferred).
 
 - One host: the database shared 4 cores and 16 GB with the benchmark. Larger
   hardware changes the numbers, not the shapes.

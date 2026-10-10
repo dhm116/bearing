@@ -254,6 +254,12 @@ func (h *history) compare(ctx context.Context) {
 			h.same("AsOf by object", r, id, func(s contracts.GraphStore) (any, error) {
 				return s.AsOf(ctx, contracts.FactFilter{Object: &modelv1alpha1.FactObject{SubjectId: id}}, time.Time{}, r)
 			})
+			h.same("AsOf by object and predicate", r, id, func(s contracts.GraphStore) (any, error) {
+				return s.AsOf(ctx, contracts.FactFilter{Predicate: "owned_by", Object: &modelv1alpha1.FactObject{SubjectId: id}}, time.Time{}, r)
+			})
+			h.same("Changes by object", r, id, func(s contracts.GraphStore) (any, error) {
+				return s.Changes(ctx, contracts.FactFilter{Object: &modelv1alpha1.FactObject{SubjectId: id}}, h.heads[0], h.clk.Now().Add(time.Hour), contracts.AxisRecord)
+			})
 			h.same("Supports", r, id, func(s contracts.GraphStore) (any, error) {
 				return s.Supports(ctx, contracts.SupportFilter{SubjectID: sid}, r)
 			})

@@ -45,8 +45,13 @@ Two experiments need a store of their own: `merges` (1,000, 10,000 and
 ## Running it
 
 Use a PostgreSQL role that owns its schema and is not a superuser. For
-`pg_stat_statements`, load the extension and let the role read it
-(`pg_monitor`); without it the statement and plan sections are left out.
+`pg_stat_statements`, load the extension, let the role read it (`pg_monitor`)
+and grant it `EXECUTE` on `pg_stat_statements_reset()`; without the extension
+the statement and plan sections are left out, and without the grant they
+include statements from before the measurement. The run creates one table,
+`bench_meta`, in the store's schema to remember how far a load has got, and
+the statement list leaves out statements that mention a password, a secret or
+a role change.
 
 ```sh
 export BEARING_STORE_PASSWORD=...
