@@ -136,6 +136,17 @@ func TestPostgresGraphConformance(t *testing.T) {
 	})
 }
 
+func TestPostgresAuditLogConformance(t *testing.T) {
+	t.Parallel()
+	conformance.AuditLog(t, func(t *testing.T) (conformance.AuditStore, conformance.Clock, conformance.IDs) {
+		clk := testkit.NewClock(time.Time{})
+		s := newTestStore(t)
+		ids := testkit.NewUUIDv7s(clk.Now)
+		s.Now, s.IDs = clk.Now, ids
+		return s, clk, ids
+	})
+}
+
 // ensureVectorExtension installs pgvector in the test database, as an
 // administrator would. The suites for the vector index need a server that has
 // it (the pgvector/pgvector image does). Test processes share the database,

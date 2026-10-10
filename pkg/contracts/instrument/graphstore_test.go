@@ -257,3 +257,71 @@ func TestEventLogMetricsAndSpans(t *testing.T) {
 		t.Fatalf("got appended and duplicate counts %v and %d trimmed, want each recorded", results, trimmed)
 	}
 }
+
+type auditStore struct {
+	contracts.GraphStore
+	log contracts.AuditLog
+}
+
+func (s auditStore) AuditLog() contracts.AuditLog { return s.log }
+
+// The audit wrapper passes the AuditLog suite, with the store written
+// through the wrapped graph store as it is in a running server.
+func TestWrappedAuditLogConforms(t *testing.T) {
+	conformance.AuditLog(t, func(*testing.T) (conformance.AuditStore, conformance.Clock, conformance.IDs) {
+		clk := testkit.NewClock(time.Time{})
+		s := memstore.New()
+		ids := testkit.NewUUIDv7s(clk.Now)
+		s.Now, s.IDs = clk.Now, ids
+		return auditStore{instrument.GraphStore(s, "memory", "github"), instrument.AuditLog(s.AuditLog(), "memory")}, clk, ids
+	})
+}
+
+func TestAuditTelemetry(t *testing.T) {
+	ctx := context.Background()
+	s := memstore.New()
+	clk := testkit.NewClock(time.Date(2026, 9, 28, 1, 30, 2, 0, time.UTC))
+	s.Now, s.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	g, l := instrument.GraphStore(s, "memory"), instrument.AuditLog(s.AuditLog(), "memory")
+	e := &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/a"},
+	}
+	if _, err := g.Apply(ctx, &modelv1alpha1.ChangeSet{EventId: "a1", Audit: []*modelv1alpha1.AuditEntry{e}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Query(ctx, contracts.AuditFilter{}); !errors.Is(err, contracts.ErrInvalidAuditQuery) {
+		t.Fatalf("got %v, want ErrInvalidAuditQuery", err)
+	}
+	if sp := spans.Ended()[len(spans.Ended())-1]; sp.Name() != "audit.query" || sp.Status().Code == codes.Error {
+		t.Fatalf("got span %q with status %v, want audit.query not marked as an error", sp.Name(), sp.Status())
+	}
+	if _, err := l.Query(ctx, contracts.AuditFilter{Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if sp := spans.Ended()[len(spans.Ended())-1]; !slices.Contains(sp.Attributes(), attribute.Int("bearing.results.count", 1)) {
+		t.Fatalf("got span attributes %v, want one result", sp.Attributes())
+	}
+	if h, err := l.Head(ctx); err != nil || h.Seq != 1 {
+		t.Fatalf("got %+v, %v, want the head at record 1", h, err)
+	}
+	if sp := spans.Ended()[len(spans.Ended())-1]; sp.Name() != "audit.head" {
+		t.Fatalf("got span %q, want audit.head", sp.Name())
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			seen[m.Name] = true
+		}
+	}
+	for _, name := range []string{"bearing.audit.operation.duration", "bearing.audit.records"} {
+		if !seen[name] {
+			t.Errorf("metric %s was not recorded", name)
+		}
+	}
+}

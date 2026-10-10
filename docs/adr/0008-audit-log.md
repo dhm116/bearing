@@ -96,8 +96,11 @@ transaction as the change, and form a hash chain.
   one extra row in a transaction that already happens.
 - Retention and privacy: records name people. Retention is configurable, and
   exports must respect the organization's data rules.
-- New `conformance.AuditLog` suite: append-only, ordering, and the hash chain
-  breaking on tampering.
+- New `conformance.AuditLog` suite: one chained record per entry, nothing
+  written by a refused or repeated `Apply`, filters and paging, concurrent
+  writers, and `Backup` and `Restore` rebuilding the same records. The
+  contract has no write that tampers, so the chain breaking on an edit, a
+  gap or a rewrite is tested on `audit.Verify` in `pkg/audit`.
 - The chain alone shows that records are consistent with each other, not
   that none was replaced. Only checkpoints kept outside the store show
   that, and only for records older than the latest checkpoint, so the

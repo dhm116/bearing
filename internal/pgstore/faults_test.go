@@ -203,6 +203,17 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 			return err
 		}},
 		{"Backup", func(ctx context.Context, s *Store) error { return s.Backup(ctx, io.Discard) }},
+		{"Apply with audit entries", func(ctx context.Context, s *Store) error {
+			cs := next(1)
+			cs.Audit = []*modelv1alpha1.AuditEntry{auditEntry("a"), auditEntry("b")}
+			_, err := s.Apply(ctx, cs)
+			return err
+		}},
+		{"AuditLog Query", func(ctx context.Context, s *Store) error {
+			_, err := s.AuditLog().Query(ctx, contracts.AuditFilter{Limit: 10, ActorID: "core/resolver"})
+			return err
+		}},
+		{"AuditLog Head", func(ctx context.Context, s *Store) error { _, err := s.AuditLog().Head(ctx); return err }},
 		{"Apply of many rows", func(ctx context.Context, s *Store) error { _, err := s.Apply(ctx, next(rowChunk+1)); return err }},
 	}
 	for _, op := range ops {
@@ -405,5 +416,14 @@ func TestACommitWhoseAnswerWasLostIsNotAppliedTwice(t *testing.T) {
 	}
 	if got, _ := s.Head(ctx); !got.Equal(res.RecordedAt) {
 		t.Fatalf("got head %v, want the original apply's %v", got, res.RecordedAt)
+	}
+}
+
+// auditEntry is a valid audit entry that names an alias.
+func auditEntry(alias string) *modelv1alpha1.AuditEntry {
+	return &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/" + alias},
 	}
 }

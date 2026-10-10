@@ -124,11 +124,11 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   admin operation and confirmation by a person is written to the audit log
   in the same transaction as the change (ADR 8). No change commits without
   its record. Individual support writes are in the change journal, which is
-  not hash-chained. Until the audit log (#138) exists, a `ChangeSet`'s audit
-  entries are kept only in the change journal, which holds the whole
-  `ChangeSet`; C-AUDIT-1 is met for that copy and the entries are not yet
-  readable through any contract. Their text (reason, rule, IDs) is untrusted
-  input of bounded size: whatever prints it escapes control characters.
+  not hash-chained. The store writes the records itself inside `Apply`, from
+  the `ChangeSet`'s audit entries; a refused `Apply` and a repeated event
+  write none, and `Restore` rebuilds them from the journal. Their text
+  (reason, rule, IDs) is untrusted input of bounded size: whatever prints it
+  escapes control characters.
 - **C-AUDIT-2** Each record carries the SHA-256 hash of the previous record
   over a canonical encoding, forming a chain.
 - **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,

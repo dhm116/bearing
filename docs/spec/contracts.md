@@ -10,7 +10,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
-| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Planned |
+| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Yes (`conformance.AuditLog`) |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -27,7 +27,7 @@ A backend can serve more than one interface. By default PostgreSQL backs
 | URL | Backend | Needs |
 | --- | --- | --- |
 | `mem://` | In-memory reference store | Nothing; data is lost on exit |
-| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore` and `EventLog`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
+| `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore`, `EventLog` and the `AuditLog`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
 
 `store.Config{Graph: url}` uses one backend for all three. Setting
 `Config.Vectors` or `Config.Events` to a second URL splits them, for example a
@@ -743,6 +743,18 @@ latest checkpoint it is given, so the interval bounds how much recent history
 someone with store access can change undetected, and a truncation back to the
 newest checkpoint still held if the newer ones were withheld.
 
+### Storage
+
+The in-memory store keeps the records in a slice. The PostgreSQL store keeps
+them in `audit_record`, one row per record holding the record as marshaled
+and the columns `Query` filters on, and the newest record's number, hash and
+time in the `meta` row that every `Apply` already locks. That lock is what
+makes the chain: the next record is built from the head read under it, in the
+transaction that writes the change. `Restore` empties the table with the rest
+of the graph and the replay writes it again. A store that applied events
+before the log existed has no records for them (no released version did), and
+a restore from its backup would write them.
+
 ### Query
 
 `Query` takes an `AuditFilter`: records after a sequence number, up to a
@@ -763,10 +775,6 @@ role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
 ### Not implemented yet
 
-- Writing records. No backend writes a record yet: `Apply` doing so, the
-  `ChangeSet.trace_id` check (`CheckTraceID`) and journaling, `AuditLog()` on
-  the memory and PostgreSQL stores, `store.Store.Audit`, the `instrument`
-  wrapper and `conformance.AuditLog` (issue #138, next).
 - `bearing audit verify` and `bearing audit checkpoint` (issue #138).
 - Retention. The contract has no delete. The cut that removes the oldest
   records comes with the server (issue #139), together with the signed marker

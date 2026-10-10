@@ -415,12 +415,18 @@ ON CONFLICT (seq) DO UPDATE SET data = EXCLUDED.data`,
 			return fail("write un-merge records", err)
 		}
 	}
+	if err := writeAuditRows(ctx, tx, ld.scratch.AuditRecords()); err != nil {
+		return fail("write audit records", err)
+	}
 	seq := ld.journal + 1
 	if _, err := tx.Exec(ctx, `INSERT INTO journal (seq, event, event_kid, data) VALUES ($1, $2, $3, $4)`, seq, cs.GetEventId(), kidOf(cs.GetEventId()), entryBytes); err != nil {
 		return fail("write journal", err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE meta SET head = $1, last_id = $2, merges = $3, unmerges = $4, journal = $5 WHERE head = $6 AND journal = $7`,
-		microsOf(head), lastID, ld.merges+int64(len(entry.GetMerges())), ld.unmerges+int64(len(p.unmerges.seq)), seq, microsOf(ld.head), ld.journal)
+	audit := ld.scratch.AuditPosition()
+	tag, err := tx.Exec(ctx, `UPDATE meta SET head = $1, last_id = $2, merges = $3, unmerges = $4, journal = $5,
+	audit_seq = $8, audit_hash = $9, audit_time = $10 WHERE head = $6 AND journal = $7`,
+		microsOf(head), lastID, ld.merges+int64(len(entry.GetMerges())), ld.unmerges+int64(len(p.unmerges.seq)), seq, microsOf(ld.head), ld.journal,
+		int64(audit.Seq), nonNil(audit.Hash), microsOf(audit.RecordedAt)) //nolint:gosec // G115: a sequence number never reaches 2^63
 	if err != nil {
 		return fail("move the head", err)
 	}
