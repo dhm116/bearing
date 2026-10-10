@@ -1,6 +1,6 @@
 # Threat model
 
-Status: draft for the MVP · Last reviewed: 2026-10-08
+Status: draft for the MVP · Last reviewed: 2026-10-10
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
@@ -654,7 +654,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 
-T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
+**Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
 reach, so they are retired and their numbers are not reused.
 
@@ -815,8 +815,8 @@ Assets: A5, A2, A6, the container and host.
 
 Users run what the project ships. A compromise here bypasses every runtime
 control. The default binary is CGO-free and contains no BSL-licensed code
-(ADR 5); embedded-store builds are a separate artifact and out of scope for
-the MVP.
+(ADR 14). An embedded PostgreSQL build, the intended single-binary option,
+needs its own section here before it ships.
 
 Assets: source repository, CI, release binaries, container images, embedded
 first-party adapters, the local embedding model, the project website
@@ -936,5 +936,5 @@ provider API keys.
   front of ingest and the API.
 - **Out of scope:** distributed mode (remote adapters, remote capability
   providers, NATS or Kafka), the `Executor` and any write action against
-  source systems, embedded-store builds, and Sigstore verification of
+  source systems, an embedded PostgreSQL build, and Sigstore verification of
   external modules. Each needs its own section here before it ships.

@@ -142,7 +142,7 @@ supports follow their inputs. Nothing else is lost:
   Every apply therefore has a unique, strictly increasing `recorded_at`.
 - Because every apply writes the clock record, applies are serialized.
   This is the only isolation model in this version. It is far above MVP
-  volume; a load benchmark against PostgreSQL checks the ceiling
+  volume; the design-target benchmark against PostgreSQL checks the ceiling
   ([issue #135](https://github.com/dhm116/bearing/issues/135)). It can later
   be relaxed to per-partition hybrid logical clocks, with an as-recorded
   watermark below which every partition's applies are complete, so
@@ -1640,4 +1640,4 @@ yet:
   and the audit log (issue #138). Their message types, and the types of the
   compaction, declaration-change and configuration-apply events, are in
   Protobuf; nothing yet appends or applies them.
-- The apply-clock load benchmark against PostgreSQL (issue #135).
+- The design-target benchmark against PostgreSQL, which includes the apply-clock ceiling (issue #135).

@@ -16,8 +16,8 @@ COVER_BASE ?= origin/$(or $(GITHUB_BASE_REF),main)
 COVER_MIN ?= 80
 
 COVER_OUT ?= cover.out
-# A hung CI job dumps its goroutines before its 20-minute limit.
-COVER_TEST := go test -count=1 -timeout 20m -coverpkg=./... -coverprofile
+# A hung CI job dumps its goroutines before the job's 20-minute limit.
+COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpkg=./... -coverprofile
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
 # skipping it.
 COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)

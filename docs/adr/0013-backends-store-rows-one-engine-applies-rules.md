@@ -84,7 +84,7 @@ Options considered:
 - *Amended 2026-10-10:* `internal/surrealstore`, the backend this ADR
   describes in its Context and Cost, was removed by
   [ADR 14](0014-postgres-is-the-default-store.md). `internal/pgstore` follows
-  the same design; its canonical-subject table is the way out the Cost bullet
+  the same design; its `component` table is the way out the Cost bullet
   names, and `DefaultMaxMerges` and `ErrTooManyMerges` went with
   `surrealstore`.
 - **Supersedes in part ADR 5.** The graph is stored as rows, not as the

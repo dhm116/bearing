@@ -297,9 +297,10 @@ Both are plain Markdown checklists; any agent can follow them.
   (`make static`: everything but the tests), `test` (`make cover`, with
   PostgreSQL), `baseline` (the same tests at the merge base, `make
   covergate-base`) and `check` (`make covergate-report`, which compares the
-  two profiles and fails unless the other jobs passed). Keep the whole run to about five minutes: a test that takes longer than a
-  minute or two on its own gets split up or made parallel (`t.Parallel` with a
-  store per test), and nothing slow should be added to `static`.
+  two profiles and fails unless the other jobs passed). Keep the whole run to about five
+  minutes: a test that takes longer than a minute or two on its own gets split
+  up or made parallel (`t.Parallel` with a store per test), and nothing slow
+  should be added to `static`.
 
 ## Review and merge process
 
