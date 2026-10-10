@@ -135,6 +135,19 @@ Options considered:
   which [#27](https://github.com/dhm116/bearing/issues/27) will now
   measure against PostgreSQL, rises accordingly, which may postpone the
   hybrid-clock relaxation.
+  *Amended 2026-10-10, after [#135](https://github.com/dhm116/bearing/issues/135)
+  measured it (`docs/benchmarks/store-10m.md`, 3.0M fact rows, 4 vCPU,
+  PostgreSQL 16.15):* point loads take 1.6 to 1.9 ms through `ResolveKey`
+  (0.04 ms in the database), and one writer applies 65 ChangeSets a second,
+  about 5.6 million a day, so the hybrid-clock relaxation is not needed for
+  the design target. The sentence above that a waiting apply "costs nothing"
+  does not hold: with 16 concurrent writers 92% of attempts come back stale
+  and the rate falls to 21 a second ([#170](https://github.com/dhm116/bearing/issues/170)),
+  so ingest should be a single consumer of the event log. Series history is
+  not the cost that grows (a fact with 250 spans reads in 14 ms against
+  3 ms), so loading a series as of one record time is not needed either; what
+  grows is the number of series that name a subject, which result limits
+  address ([#167](https://github.com/dhm116/bearing/issues/167)).
 - **Licences.** The default binary already links no BSL code; now no
   supported configuration runs BSL code at all. pgx is MIT and pgvector uses
   the PostgreSQL License; both are Apache-2.0 compatible. pgx is a new
