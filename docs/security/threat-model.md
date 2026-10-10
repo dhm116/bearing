@@ -134,8 +134,12 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-3** At an interval, Bearing writes a checkpoint (sequence number,
   head hash and time) outside the store: to the log stream, a file or the
   configured exporter. When a signing key is configured (a secret
-  reference, C-SECRET-1), the checkpoint is signed. A rewrite of the whole
-  chain in the store no longer matches the checkpoints.
+  reference, C-SECRET-1), the checkpoint is signed with Ed25519 over its
+  sequence number, head hash, time and key ID. The process that writes
+  checkpoints holds the private key, and verifiers hold only the public keys
+  the operator gave them, never keys read from the store or the checkpoint
+  file. A rewrite of the whole chain in the store no longer matches the
+  checkpoints.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails.

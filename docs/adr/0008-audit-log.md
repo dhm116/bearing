@@ -17,6 +17,12 @@ record that can't be lost or quietly edited.
 
 - **An `AuditLog` contract** with `Append(Record)` and `Query(filter)`. There
   is no update or delete.
+  *Amended 2026-10-10: the interface reads only (`Query` and `Head`). The
+  backend that serves `GraphStore` writes the records itself, inside
+  `Apply`, from the `ChangeSet`'s audit entries, because a record written by
+  a separate call could be lost or orphaned. An append call comes with the
+  first writer that changes no graph state (policy decisions, executor
+  actions).*
 - **What gets recorded:**
   - A fact asserted, changed or retracted: the event ID, the rule or judge
     score that decided it, and the old and new values.
@@ -38,6 +44,9 @@ record that can't be lost or quietly edited.
 - **Tamper evidence.** Each record includes a hash of the previous record, so
   a gap or an edit breaks the chain. `bearing audit verify` checks the
   chain.
+  *Amended 2026-10-10: the hashed bytes are fixed in
+  [`contracts.md`](../spec/contracts.md#auditlog): a canonical encoding of
+  the record without its hash, under a version prefix.*
 - **Checkpoints outside the store.** A chain kept only in the store can be
   rewritten end to end by whoever can write to the store, and the result
   still verifies. So at an interval, and at every retention cut, Bearing
@@ -52,6 +61,11 @@ record that can't be lost or quietly edited.
   *Amended 2026-10-08: the original chain had no external anchor. Optional
   signing and the checkpoint time are added to C-AUDIT-3 and C-AUDIT-4 in
   the same change.*
+  *Amended 2026-10-10 (issue #60): signatures are Ed25519 over a canonical
+  encoding of the checkpoint, with PEM keys the operator labels. Verifiers
+  trust only the public keys they are given, never ones from the store or
+  the checkpoint file. The key trust model and rotation are in
+  [`contracts.md`](../spec/contracts.md#auditlog).*
 - **Storage.** The default is an append-only table in the main store,
   written in the same transaction as the change it describes: no change
   without its record. An optional exporter streams records to object

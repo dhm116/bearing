@@ -10,6 +10,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
+| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -19,8 +20,8 @@ interface's conformance suite can replace it. The Go definitions are in
 ## One database to start
 
 A backend can serve more than one interface. By default PostgreSQL backs
-`GraphStore`, `VectorIndex` (the vectors use the pgvector extension) and
-`EventLog`, so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
+`GraphStore`, `VectorIndex` (the vectors use the pgvector extension),
+`EventLog` and the `AuditLog` that `GraphStore` writes, so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
 [`pkg/store`](../../pkg/store) opens backends from URLs:
 
 | URL | Backend | Needs |
@@ -83,6 +84,7 @@ is one event's writes:
 | `state` | The resolver's own entries (ordering keys, watermarks, sync progress), as `google.protobuf.Any`. A key may name a subject the `ChangeSet` creates ([State keys](#state-keys)). |
 | `audit` | What the resolver decided to audit in this event, in order ([Audit entries](#audit-entries)). |
 | `merge_reviews` | Re-evaluations of merges recorded earlier, or in this `ChangeSet`: the per-side score and review status of a merge record ([Merge reviews](#merge-reviews)). |
+| `trace_id` | The W3C trace ID of the work that produced the `ChangeSet` (32 lowercase hex digits, not all zero), or empty. The store refuses any other value. The audit log copies it into each record, and the journal keeps it so a restore rebuilds the same records ([AuditLog](#auditlog)). |
 
 Anywhere a subject ID appears in a `ChangeSet`, a ref may stand for a
 subject the same `ChangeSet` creates; the store substitutes the minted ID.
@@ -249,8 +251,8 @@ and returns them in `ApplyResult.Audit`, in order and refs replaced, also for a
 repeated event. It does not check that the entries cover the other items:
 what to audit is the resolver's rule. The audit log adds the rest of a record
 (its sequence number, the apply's record time and event ID, the trace ID and
-the hash chain) when it writes the entries in the apply's transaction; that log
-is a separate contract ([ADR 8](../adr/0008-audit-log.md)).
+the hash chain) when it writes the entries in the apply's transaction
+([AuditLog](#auditlog)).
 
 #### Merge reviews
 
@@ -592,6 +594,152 @@ The local part of an ID depends on where the event comes from:
   what they report, by the same hash, so the same replay appends the same
   events and they dedupe. Whether the core appends them before or after the apply commits is
   the server's design (issue #139); the IDs make either order safe.
+
+## AuditLog
+
+`AuditLog` is the record of who or what changed a fact and why, which the
+change journal is not: the journal keeps every write of a `ChangeSet`, the
+audit log keeps the decisions people rely on, and it can show that none was
+edited, removed or cut off ([ADR 8](../adr/0008-audit-log.md), threat model
+C-AUDIT-1 to C-AUDIT-6). The Go definition is
+[`pkg/contracts/audit.go`](../../pkg/contracts/audit.go); the bytes that are
+hashed and the verifier are in [`pkg/audit`](../../pkg/audit).
+
+The interface only reads. The backend that serves `GraphStore` writes the
+records itself, inside the transaction of the `Apply` that carries their
+entries, so no change commits without its record and no record exists for a
+change that did not commit. There is no separate append call: a record
+written apart from its change could be lost or orphaned. (Writers that change
+no graph state, such as policy decisions and executor actions in ADR 8, get
+an append when the first of them exists.) Nothing updates or deletes a
+record. Because the log lives in the graph's backend, `store.Store.Audit` is
+that backend; it has no URL of its own.
+
+### Records
+
+For each entry of an applied `ChangeSet.audit`, in order, `Apply` writes one
+`AuditRecord`
+([`audit.proto`](../../proto/bearing/model/v1alpha1/audit.proto)):
+
+| Field | Value |
+| --- | --- |
+| `seq` | The previous record's `seq` plus one; 1 for the first. The numbers have no gaps: an `Apply` that fails uses none. |
+| `recorded_at` | The apply's record time. |
+| `event_id`, `ordinal` | The event, and the entry's position among the event's entries from 1. They are unique together. |
+| `trace_id` | `ChangeSet.trace_id`, which the journal keeps; empty when there was none. |
+| `entry` | The entry as `Apply` returns it in `ApplyResult.Audit`, refs replaced. |
+| `prev_hash` | The previous record's `hash`; empty for the first record. |
+| `hash` | See below. |
+
+An event that audits nothing writes nothing, and a repeated event writes
+nothing. Everything in a record comes from the journal entry (the
+`ChangeSet` as applied, with its trace ID), so `Restore`, which replays the
+journal, rebuilds the same records with the same hashes: a restored store
+continues the chain, and checkpoints written before the backup still match
+it. Records after the backup's head are lost with the rest of the store's
+tail, and a checkpoint beyond the restored head says so
+([Verify](#verify)).
+
+### The chain
+
+`hash` is the SHA-256 of the bytes `"bearing.audit.record.v1"`, a NUL, and
+the **canonical encoding** of the record without its `hash` field. The
+canonical encoding is the Protobuf wire encoding with the fields of each
+message in ascending field number, a field at its default value left out, a
+message that is present but empty written as an empty message, and `before`
+and `after` written as their `type_url` and `value` bytes exactly as stored.
+Messages with unknown fields, repeated fields and maps can't be encoded; a
+record that has one fails verification. Leaving out defaults means a field
+added to the record later does not change the hash of a record written
+without it, and a field that is set is always covered: `pkg/audit` tests that
+changing any field of a record changes its hash. A change to these rules
+takes a new version in the leading bytes, never an edit of version 1.
+`audit.Hash` is the reference; its test pins the hash of a known record.
+
+The chain alone shows that the records are consistent with each other. Whoever
+can write to the store can rewrite every record from the one they edit and
+recompute the hashes, and the result verifies. Checkpoints close that gap.
+
+### Checkpoints
+
+A checkpoint is an `AuditCheckpoint`: the `seq` and `hash` of a record, the
+time it was written, and, when a signing key is configured, the key's ID and
+a signature. The core writes one at an interval and at every retention cut
+(the server schedules them, issue #139; `bearing audit checkpoint` writes one
+now). It writes them **outside the store**: to the log stream, a file or an
+exporter, never to a table the store's writers can edit. The operator keeps
+that place where the store's writers can't write. A checkpoint is one line of
+ProtoJSON, so a file of them is NDJSON.
+
+Signing is optional and settles issue #60:
+
+- **Algorithm**: Ed25519 (RFC 8032), from the Go standard library. The
+  signature covers the bytes `"bearing.audit.checkpoint.v1"`, a NUL, and the
+  canonical encoding of the checkpoint without its `signature` field, so the
+  sequence number, hash, time and key ID are all signed.
+- **Keys**: the key ID is a label the operator picks (1 to 64 letters,
+  digits and `. _ : -`). Private keys are PKCS #8 PEM and public keys PKIX
+  PEM, as `openssl genpkey -algorithm ed25519` and `openssl pkey -pubout`
+  write them. There is no certificate chain.
+- **Who holds what**: the process that writes checkpoints holds the private
+  key as a secret, named by reference like any other (C-SECRET-1), and the
+  people who can write to the store don't. A verifier needs only public keys,
+  so an auditor can check the log without being able to sign.
+- **Trust**: a verifier trusts exactly the public keys it is given, by key
+  ID, out of band. It never reads a key from the store or the checkpoint
+  file. A checkpoint that names a key it does not hold fails, as does one
+  whose signature does not match, and `RequireSigned` fails an unsigned one.
+- **Rotation and compromise**: a new key gets a new ID, and the verifier
+  keeps the public keys of old checkpoints. If a signing key leaks, the
+  chain it signed for can no longer be told from a forgery after the leak:
+  the operator verifies the log by other means, writes a checkpoint under a
+  new key, and drops the old public key from the keys it trusts.
+- The signature says the checkpoint's writer held the key. The time in it is
+  the writer's claim.
+
+### Verify
+
+`audit.Verify` reads the log from its oldest record, in pages, and reports
+what it finds, naming the first bad record by `seq`:
+
+- a record whose hash doesn't match its content (an edit);
+- a gap (records missing: a deletion), or a record whose `prev_hash` isn't
+  the one before it (an insertion or a replaced record);
+- an oldest record that isn't record 1 and isn't the record after a
+  checkpoint at a retention cut (a cut-off start);
+- a checkpoint whose hash differs from the record at its `seq` (a chain
+  rewritten end to end);
+- a checkpoint newer than the log's newest record (a cut-off tail);
+- a checkpoint with a bad or untrusted signature, which is also not used to
+  judge the chain.
+
+It stops reading at the first broken record. Checkpoints older than the
+oldest record are counted and skipped. `bearing audit verify` runs it against
+a store, a checkpoint file and public keys, and exits non-zero when anything
+fails. What it can't find is a rewrite of records newer than the latest
+checkpoint, so the interval bounds how much recent history someone with store
+access can change undetected.
+
+### Query
+
+`Query` takes an `AuditFilter`: records after a sequence number, up to a
+limit of 1 to `MaxAuditQueryRecords` (1,000, required), narrowed by event ID,
+actions, actor ID, target kind and ID (an ID requires its kind) and a
+`recorded_at` range `[From, To)`. It returns the matching records oldest
+first and at most `MaxAuditQueryBytes` (32 MiB) of them, always at least one
+if any match. A caller pages with the last `seq` it saw. A filter outside
+these bounds fails with `ErrInvalidAuditQuery` (`CheckAuditFilter`). `Head`
+returns the newest record's `seq` and hash, or the zero value for an empty
+log. Records name people, so the API that exposes `Query` is for the admin
+role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
+
+### Not implemented yet
+
+- Retention. The contract has no delete. The cut that removes the oldest
+  records, and the checkpoint written at it, come with the server (issue
+  #139); `Verify` already accepts a log that starts after such a checkpoint.
+- Export to object storage or a SIEM (ADR 8).
+- Writers that change no graph state (policy decisions, executor actions).
 
 ## Rules that apply to every component
 

@@ -80,7 +80,13 @@ type ChangeSet struct {
 	// Re-evaluations of merges recorded earlier, or in this ChangeSet: the
 	// per-side score and review status of a merge record. Applied after the
 	// merges and un-merges.
-	MergeReviews  []*MergeReviewWrite `protobuf:"bytes,14,rep,name=merge_reviews,json=mergeReviews,proto3" json:"merge_reviews,omitempty"`
+	MergeReviews []*MergeReviewWrite `protobuf:"bytes,14,rep,name=merge_reviews,json=mergeReviews,proto3" json:"merge_reviews,omitempty"`
+	// The W3C trace ID (32 lowercase hex digits, not all zero) of the work that
+	// produced this ChangeSet, or empty when there was none. The audit log
+	// copies it into each record this apply writes, and the change journal keeps
+	// it, so a restore rebuilds the same records. The audit log never depends on
+	// telemetry: an empty trace ID is as valid as any.
+	TraceId       string `protobuf:"bytes,15,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -211,6 +217,13 @@ func (x *ChangeSet) GetMergeReviews() []*MergeReviewWrite {
 		return x.MergeReviews
 	}
 	return nil
+}
+
+func (x *ChangeSet) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
 }
 
 // Mint creates a subject (docs/spec/data-model.md, "Minting").
@@ -1501,7 +1514,7 @@ var File_bearing_model_v1alpha1_changeset_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\n" +
-	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/audit.proto\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe1\x06\n" +
+	"&bearing/model/v1alpha1/changeset.proto\x12\x16bearing.model.v1alpha1\x1a\"bearing/model/v1alpha1/audit.proto\x1a\"bearing/model/v1alpha1/enums.proto\x1a!bearing/model/v1alpha1/fact.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfc\x06\n" +
 	"\tChangeSet\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12D\n" +
 	"\x10base_recorded_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0ebaseRecordedAt\x12;\n" +
@@ -1518,7 +1531,8 @@ const file_bearing_model_v1alpha1_changeset_proto_rawDesc = "" +
 	"\x06issues\x18\v \x03(\v2%.bearing.model.v1alpha1.IssueTimelineR\x06issues\x128\n" +
 	"\x05state\x18\f \x03(\v2\".bearing.model.v1alpha1.StateEntryR\x05state\x128\n" +
 	"\x05audit\x18\r \x03(\v2\".bearing.model.v1alpha1.AuditEntryR\x05audit\x12M\n" +
-	"\rmerge_reviews\x18\x0e \x03(\v2(.bearing.model.v1alpha1.MergeReviewWriteR\fmergeReviews\"\x81\x01\n" +
+	"\rmerge_reviews\x18\x0e \x03(\v2(.bearing.model.v1alpha1.MergeReviewWriteR\fmergeReviews\x12\x19\n" +
+	"\btrace_id\x18\x0f \x01(\tR\atraceId\"\x81\x01\n" +
 	"\x04Mint\x12\x10\n" +
 	"\x03ref\x18\x01 \x01(\tR\x03ref\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x124\n" +
