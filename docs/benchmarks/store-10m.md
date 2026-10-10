@@ -2,7 +2,7 @@
 
 Measured with `cmd/bearing-bench` ([method](README.md)) for
 [#135](https://github.com/dhm116/bearing/issues/135), on 2026-10-10, against
-`internal/pgstore` at commit `3cd5fe3` (the SurrealDB removal).
+`internal/pgstore` at commit `3cd5fe3` (the SurrealDB removal). The `related` read fix described below was made afterwards and measured on the same store.
 
 ## Answers
 
@@ -25,9 +25,13 @@ person 27 ms (11.7 ms at 1M), `bearing get <person>` 108 ms (70 ms).
 **Where it goes wrong:**
 
 1. *Unbounded reads* ([#167](https://github.com/dhm116/bearing/issues/167)).
-   `bearing related <person> --predicate changed_by` takes 64 s and 7.2 GB
-   for a person with about 190 Changes; a whole-org `changes --since` and an
-   every-predicate `related` of a repository pass a 6 GB heap limit.
+   `bearing related <person> --predicate changed_by` took 64 s and 7.2 GB
+   for a person with about 190 Changes, and an every-predicate `related` of a
+   repository passed a 6 GB heap limit, because the store loaded every fact
+   with the predicate to find the ones pointing at a subject. **Fixed in this
+   change** (a missing use of the subject index, a few lines in
+   `internal/pgstore`): 1.0 s and 9.5 MB, and 21 ms. Still open: the whole-org
+   `changes --since`, which passes 6 GB and needs a result limit.
 2. *The resolver* ([#168](https://github.com/dhm116/bearing/issues/168)).
    One new Change costs 220 database transactions at 3M fact rows (49 at 12k);
    one pipeline ingests 3.3 events/s, 45 minutes for a full re-read of the
@@ -125,6 +129,22 @@ p50 / p99 in milliseconds, one caller and 16 callers at the same time. 1M and
 | `bearing related <repository>` (every predicate) | 69,416 | not run | stopped at 6 GB | not run | |
 | `bearing changes --since 1 day`, whole org | stopped at 6 GB | not run | stopped at 6 GB | not run | |
 
+The four `related` rows above were measured before the fix in this change.
+The same store afterwards, same machine:
+
+| Read | 1 caller, p50 / p99 ms | 16 callers | MB per call |
+| --- | --- | --- | --- |
+| `related <repository> --predicate approves_changes` | 21 / 30 | 99 / 134 | 0.13 |
+| `related <team> --predicate member_of` | 541 / 771 | 1,702 / 2,758 | 1.7 |
+| `related <person> --predicate changed_by` | 1,040 / 1,426 | 4,035 / 4,599 | 9.5 |
+| `related <repository>` (every predicate) | 21 (3 calls) | not run | 0.39 |
+| `bearing get <repository>` | 27.8 / 40.0 | 119 / 162 | 0.3 |
+| `bearing owner <repository>` | 19.2 / 28.9 | 85 / 120 | 0.11 |
+
+Nothing else moved: `ResolveKey`, `AsOf` and `Changes` rows, `get <person>`
+and `get <change>` repeat within noise (`results/2026-10-10/related-fix.ndjson`). What
+is left in `related <person>` is one lookup of a name per result (#167).
+
 With 16 callers on 4 cores, latency is about four times the single-caller
 latency: the cores are full, so throughput stops growing at about 4 callers
 (`ResolveKey` 2,100 calls/s with 16 callers, 520 with one). Memory per call is
@@ -164,6 +184,10 @@ fact rows:
 | Repository read again, unchanged | 150 ms | 95 | 21,022 |
 | Team read again, unchanged | 759 ms | 230 | 257,100 |
 | Person read again, unchanged | 315 ms | 206 | 50,716 |
+
+After the read fix in this change the rows per event fall (11,481, 11,641,
+39,164 and 15,274) and the team event takes 445 ms; the number of
+transactions stays at 203, 108, 222 and 224, which is what #168 is about.
 
 ## Merges
 
