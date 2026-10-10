@@ -1315,7 +1315,7 @@ target or in `before` and `after`, and the store replaces it
 | `unmerge` | the subject split from | | `after`: the `MergeRecord`, where one exists |
 | `distinct_from_set`, `distinct_from_cleared` | the `distinct_from` fact | | |
 | `claim_withdrawn` | the fact (a `(subject, predicate)` when the subject is minted in the same event) | | the source's `SupportTimeline` |
-| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of a subject this event mints, since its ID can't be known before the apply | the `status_reason` | the `FactTimeline` |
+| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of, or about, a subject this event mints, since its ID can't be known before the apply | the `status_reason` of the first new span; `no_support` when the change only ends spans | the `FactTimeline` |
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
@@ -1328,12 +1328,14 @@ The resolver writes these entries as `system:resolver`, in an order a caller
 can rely on: rejections first, then mints, bindings and merges, then for each
 `(subject, predicate)` the claims withdrawn, the status changes and the
 conflicts, then dropped writes. A claim is withdrawn when a source's support for
-a fact stops being open-ended; a conflict closes when it ends or shrinks, with
+a fact stops being open-ended; a conflict closes when it ends or its valid time ends earlier (one that lasts longer is opened again), with
 `evidence_changed` as its rule unless a decision closed it. A `before` or
 `after` that holds a stored row leaves out the store's fields (`recorded_at`,
-`retracted_at`, a support's `fact_id`), so a replay of the same event against
-the same state writes the same entries. An event that changes nothing audits
-nothing.
+`retracted_at`, a support's `fact_id`, a subject's `minted_at`), and a merge's
+`after` leaves out the alias lists and `recorded_at`, which the binding entries
+and the journal hold, so a replay of the same event against
+the same state writes the same entries. An event that changes nothing and refuses
+nothing audits nothing.
 
 | Code | Scope | Raised by |
 | --- | --- | --- |

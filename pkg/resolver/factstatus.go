@@ -31,7 +31,7 @@ func (r *factRun) statuses(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		prior, priorCT, err := r.groupStatuses(ctx, subject, pred, r.beforeGroup)
+		prior, priorCT, err := r.beforeStatuses(ctx, subject, pred)
 		if err != nil {
 			return err
 		}
@@ -291,9 +291,10 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string, read 
 
 // statusAudit returns the audit entries for what a ChangeSet changes in one
 // (subject, predicate): a fact whose status timeline differs between before
-// and after, then the standing conflicts opened and closed. A merge moves facts
-// between subjects without changing them, so it adds none here; the merge is
-// audited itself.
+// and after, then the standing conflicts opened and closed. The statuses before
+// are the store's, so what a merge changes (a placeholder object that turns
+// out to be a real team, two sources that now disagree) is audited here beside
+// the merge.
 func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, beforeCT *modelv1alpha1.ConflictTimeline, after []*modelv1alpha1.FactTimeline, afterCT *modelv1alpha1.ConflictTimeline) ([]*modelv1alpha1.AuditEntry, error) {
 	index := func(fts []*modelv1alpha1.FactTimeline) (map[string]*modelv1alpha1.FactTimeline, error) {
 		out := make(map[string]*modelv1alpha1.FactTimeline, len(fts))

@@ -88,7 +88,9 @@ type factRun struct {
 	groups  map[string]map[string]*groupFact
 	// before holds the groups as the store has them, for the audit entries of
 	// status changes.
-	prior  map[string]map[string]*groupFact
+	prior map[string]map[string]*groupFact
+	// atRest caches storedGroup.
+	atRest map[string]map[string]*groupFact
 	stored map[string][]*modelv1alpha1.SupportTimeline
 	// existsChanged are the subjects whose live exists times the ChangeSet
 	// changes: their unobserved_object issues are recomputed.
@@ -100,7 +102,7 @@ func newFactRun(u *run, cs *modelv1alpha1.ChangeSet) *factRun {
 		u: u, g: u.g, ix: u.ix, p: u.p, cs: cs, at: micros(u.p.at),
 		series: map[string]*seriesEntry{}, marks: map[string]*scopeMarks{}, touched: map[string]affected{},
 		claimed: map[string][]seg{}, out: map[string]*modelv1alpha1.SupportTimeline{}, retired: map[string]*modelv1alpha1.SupportTimeline{},
-		groups: map[string]map[string]*groupFact{}, prior: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
+		groups: map[string]map[string]*groupFact{}, prior: map[string]map[string]*groupFact{}, atRest: map[string]map[string]*groupFact{}, stored: map[string][]*modelv1alpha1.SupportTimeline{},
 		existsChanged: map[string]bool{},
 	}
 }
@@ -634,6 +636,100 @@ func (r *factRun) beforeGroup(ctx context.Context, subject, pred string) (map[st
 		}
 	}
 	return g, nil
+}
+
+// storedGroup is group as the store holds it: the facts of one active subject,
+// each with its stored supports, with no planned merge applied to the subject
+// or to the objects. It is what the statuses were computed from before this
+// ChangeSet, so what a merge changes about them shows.
+func (r *factRun) storedGroup(ctx context.Context, subject, pred string) (map[string]*groupFact, error) {
+	key := groupKey(subject, pred)
+	if g, ok := r.atRest[key]; ok {
+		return g, nil
+	}
+	g := map[string]*groupFact{}
+	r.atRest[key] = g
+	if isRef(subject) {
+		return g, nil
+	}
+	tls, err := r.supportsOf(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
+	for _, st := range tls {
+		if st.GetPredicate() != pred {
+			continue
+		}
+		owner, err := r.g.storedCanon(ctx, st.GetSubjectId())
+		if err != nil {
+			return nil, err
+		}
+		if owner != subject {
+			continue
+		}
+		obj := proto.CloneOf(st.GetObject())
+		if obj.GetSubjectId() != "" {
+			if obj.SubjectId, err = r.g.storedCanon(ctx, obj.GetSubjectId()); err != nil {
+				return nil, err
+			}
+		}
+		f, err := newFact(subject, pred, obj)
+		if err != nil {
+			return nil, err
+		}
+		gf := g[f.id()]
+		if gf == nil {
+			gf = &groupFact{f: f, bySource: map[string][]*modelv1alpha1.Support{}}
+			g[f.id()] = gf
+		}
+		gf.bySource[st.GetSource()] = append(gf.bySource[st.GetSource()], st.GetVersions()...)
+	}
+	return g, nil
+}
+
+// beforeStatuses computes the statuses and conflicts of a (subject, predicate)
+// as the store holds them: those of the subject and of each subject the
+// ChangeSet merges into it, which are separate groups until it applies. Each
+// fact is named as the ChangeSet leaves it, so a fact that a merge moves is the
+// same fact before and after, and the fact the first subject has wins when
+// two collapse into one.
+func (r *factRun) beforeStatuses(ctx context.Context, subject, pred string) ([]*modelv1alpha1.FactTimeline, *modelv1alpha1.ConflictTimeline, error) {
+	if isRef(subject) {
+		return nil, nil, nil
+	}
+	members := []string{subject}
+	for _, m := range slices.Sorted(maps.Keys(r.g.merged)) {
+		if !isRef(m) && r.g.mustCanon(ctx, m) == subject {
+			members = append(members, m)
+		}
+	}
+	var facts []*modelv1alpha1.FactTimeline
+	var conflicts *modelv1alpha1.ConflictTimeline
+	seen := map[string]bool{}
+	for _, m := range members {
+		fts, ct, err := r.groupStatuses(ctx, m, pred, r.storedGroup)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, ft := range fts {
+			f, err := r.canonicalFact(ctx, &modelv1alpha1.SupportTimeline{SubjectId: ft.GetSubjectId(), Predicate: pred, Object: ft.GetObject()})
+			if err != nil {
+				return nil, nil, err
+			}
+			if seen[f.id()] {
+				continue
+			}
+			seen[f.id()] = true
+			facts = append(facts, &modelv1alpha1.FactTimeline{SubjectId: f.subject, Predicate: pred, Object: f.object, Spans: ft.GetSpans()})
+		}
+		if ct != nil {
+			if conflicts == nil {
+				conflicts = &modelv1alpha1.ConflictTimeline{SubjectId: subject, Predicate: pred}
+			}
+			conflicts.Conflicts = append(conflicts.Conflicts, ct.GetConflicts()...)
+		}
+	}
+	return facts, conflicts, nil
 }
 
 // stateEntries returns the state entries the run changed, sorted by key.

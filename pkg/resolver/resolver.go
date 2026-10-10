@@ -80,7 +80,7 @@ func (d DroppedWrite) audit() *modelv1alpha1.AuditEntry {
 	target := &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, Id: d.Subject + "/" + d.Predicate}
 	what := fmt.Sprintf("%s %s -> %s", d.Subject, d.Predicate, d.Object)
 	if d.Alias != "" {
-		target = &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: string(d.Alias)}
+		target = aliasTarget(string(d.Alias))
 		what = fmt.Sprintf("alias %s -> %s", d.Alias, d.Subject)
 	}
 	return &modelv1alpha1.AuditEntry{

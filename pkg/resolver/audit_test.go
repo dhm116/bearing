@@ -3,11 +3,13 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -138,9 +140,17 @@ func hasReleased(bt *modelv1alpha1.BindingTimeline) bool {
 }
 
 func TestMergesAreAudited(t *testing.T) {
-	e := newEnv(t)
+	cfg := testConfig(t)
+	for _, d := range cfg.Declarations {
+		for _, k := range d.GetKinds() {
+			if d.GetName() == "github" && k.GetKind() == "Repository" {
+				k.Fields = append(k.Fields, &modelv1alpha1.FieldDeclaration{Predicate: string(model.RelOwnedBy)})
+			}
+		}
+	}
+	e := newEnvWith(t, cfg)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
-	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/old")))
+	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "owned_by", "github:team/acme/old")))
 	team := e.resolveKey("github:team_node/T1", time.Time{})
 	placeholder := e.resolveKey("github:team/acme/old", ts("2026-10-03T00:00:00Z"))
 	ev := event("github-acme", obsAt("2026-10-01T12:00:00Z", "Team", "github:team_node/T1", "github:team/acme/old"))
@@ -153,6 +163,76 @@ func TestMergesAreAudited(t *testing.T) {
 		t.Errorf("got %v with record %v, want the placeholder merge into %s of %s", m, rec, team, placeholder)
 	}
 	wantResolverActor(t, m)
+
+	// The merge also changed what the repository's owned_by fact is:
+	// its object was a placeholder nobody had observed, and is now the team.
+	var changed *modelv1alpha1.AuditEntry
+	for _, a := range entriesOf(got, modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED) {
+		if unpack(t, a.GetAfter(), &modelv1alpha1.FactTimeline{}).GetPredicate() == "owned_by" {
+			changed = a
+		}
+	}
+	if changed == nil {
+		t.Fatalf("got no status change for the fact the merge moved, in %v", got)
+	}
+	was := unpack(t, changed.GetBefore(), &modelv1alpha1.FactTimeline{}).GetSpans()
+	now := unpack(t, changed.GetAfter(), &modelv1alpha1.FactTimeline{}).GetSpans()
+	if was[len(was)-1].GetStatus() != modelv1alpha1.FactStatus_FACT_STATUS_CANDIDATE || now[len(now)-1].GetStatus() != modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED {
+		t.Errorf("got spans %v then %v, want a candidate fact that the merge makes asserted", was, now)
+	}
+}
+
+// Two subjects that agree with themselves can disagree once they are one: the
+// merge opens a conflict, and the audit says so beside the merge.
+func TestMergeThatOpensAConflictIsAudited(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, true))
+	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
+	e := newEnvWith(t, cfg)
+	e.apply(event("github-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "default_branch", "main")))
+	e.apply(event("catalog-acme", withAttr(obsAt("2026-10-01T01:00:00Z", "Repository", "catalog:repo_id/C1"), "default_branch", "master")))
+	// One observation names both: the catalog's repository is the GitHub one.
+	got := e.audited(event("catalog-acme", obsAt("2026-10-01T02:00:00Z", "Repository", "catalog:repo_id/C1", "github:repo_node/R1")))
+	only(t, got, modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE)
+	opened := only(t, got, modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED)
+	if n := len(unpack(t, opened.GetAfter(), &modelv1alpha1.Conflict{}).GetPositions()); n != 2 {
+		t.Errorf("got a conflict of %d positions, want main against master", n)
+	}
+	if n := len(entriesOf(got, modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED)); n == 0 {
+		t.Errorf("got no status change in %v, want the facts the conflict made conflicted", got)
+	}
+}
+
+// An alias has no length limit, an audit target has. The entry must not turn a
+// valid event into a rejection.
+func TestLongAliasDoesNotMakeAnEventUnappliable(t *testing.T) {
+	e := newEnv(t)
+	long := "github:repo/acme/" + strings.Repeat("x", 3*contracts.MaxAuditIDBytes)
+	ev := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", long))
+	res, err := e.r.Resolve(context.Background(), ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rejections) != 0 {
+		t.Fatalf("got rejections %v, want the event to apply", res.Rejections)
+	}
+	var seen bool
+	for _, a := range entriesOf(res.ChangeSet.GetAudit(), modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN) {
+		id := a.GetTarget().GetId()
+		if strings.HasPrefix(id, "github:repo/acme/xxx") {
+			seen = true
+			if len(id) > contracts.MaxAuditIDBytes || !strings.Contains(id, "#") {
+				t.Errorf("got a target of %d bytes, want a cut one with a hash", len(id))
+			}
+			if bt := unpack(t, a.GetAfter(), &modelv1alpha1.BindingTimeline{}); bt.GetAlias() != long {
+				t.Errorf("got alias of %d bytes in after, want the whole alias", len(bt.GetAlias()))
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("got no binding entry for the long alias")
+	}
+	e.apply(ev)
 }
 
 func TestFactStatusChangesAreAudited(t *testing.T) {
@@ -177,8 +257,6 @@ func TestFactStatusChangesAreAudited(t *testing.T) {
 	o := withClaim(obsAt("2026-10-02T00:00:00Z", "Repository", repo), "language", "Go", "", false)
 	o.Data.AttributeClaims[0].ConfidencePpm = &low
 	second := e.audited(event("github-acme", o))
-	object := ft.GetObject()
-	_ = object
 	var lang *modelv1alpha1.AuditEntry
 	for _, a := range entriesOf(second, modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED) {
 		if a.GetTarget().GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_FACT {
@@ -409,6 +487,33 @@ func TestStoreRecordsTheResolversEntries(t *testing.T) {
 		}
 		if strings.Contains(fmt.Sprint(r.GetEntry()), "new:") {
 			t.Errorf("record %d still holds a ref: %v", r.GetSeq(), r.GetEntry())
+		}
+	}
+}
+
+// The audit log hashes the bytes of an entry, so packing a message with a map
+// in it (a qualifier is a Struct) must give the same bytes every time.
+func TestPackedEntriesHaveStableBytes(t *testing.T) {
+	q := map[string]any{}
+	for i := range 40 {
+		q[fmt.Sprintf("key%02d", i)] = fmt.Sprint(i)
+	}
+	st, err := structpb.NewStruct(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	support := &modelv1alpha1.Support{Source: "github-acme", Qualifiers: []*structpb.Struct{st}}
+	first, err := pack(support)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		again, err := pack(support)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(first.GetValue(), again.GetValue()) {
+			t.Fatal("got different bytes for the same message")
 		}
 	}
 }

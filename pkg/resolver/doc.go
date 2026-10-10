@@ -84,7 +84,8 @@
 // delivery or a sync that says what the last said adds no entry. Entries use
 // refs for subjects the event mints, which the store replaces. The actor is
 // system:resolver; unmerge, distinct_from, override and compaction entries
-// belong to the manual operations and compaction that are not built yet.
+// belong to the manual operations and compaction that are not built yet, and
+// config_applied and declaration_changed to the writers of configuration.
 //
 // Not yet, and tracked as follow-ups: the ConflictOpened and ConflictResolved
 // events; manual overrides, precedence and same_as facts; scored matching (names,

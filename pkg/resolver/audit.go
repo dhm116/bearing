@@ -1,14 +1,18 @@
 package resolver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
 
@@ -31,8 +35,10 @@ func pack(m proto.Message) (*anypb.Any, error) {
 	if m == nil {
 		return nil, nil
 	}
-	a, err := anypb.New(m)
-	if err != nil {
+	// Deterministic: a qualifier is a Struct, a map, and the audit log hashes
+	// the bytes.
+	a := &anypb.Any{}
+	if err := anypb.MarshalFrom(a, m, proto.MarshalOptions{Deterministic: true}); err != nil {
 		return nil, fmt.Errorf("pack %T for an audit entry: %w", m, err)
 	}
 	return a, nil
@@ -61,8 +67,29 @@ func rejectionEntry(eventID string, r Rejection) *modelv1alpha1.AuditEntry {
 	return &modelv1alpha1.AuditEntry{
 		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, Actor: resolverActor(),
 		Target:        target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT, eventID),
-		RejectionCode: r.Code, Reason: model.Clip(scopeName(r.Scope) + " rejected: " + r.String()),
+		RejectionCode: r.Code, Reason: clipReason(scopeName(r.Scope) + " rejected: " + r.String()),
 	}
+}
+
+// clipReason cuts a reason to the audit limit on a rune boundary.
+func clipReason(s string) string {
+	if len(s) <= contracts.MaxAuditReasonBytes {
+		return s
+	}
+	return strings.ToValidUTF8(s[:contracts.MaxAuditReasonBytes-len("…")], "") + "…"
+}
+
+// aliasTarget is the audit target of an alias. An alias has no length limit
+// but an entry's target ID has (contracts.MaxAuditIDBytes), and an audit entry
+// must never make a valid event unappliable, so a long alias is cut and
+// ends with a hash of the whole; the entry's before and after hold it in full.
+func aliasTarget(alias string) *modelv1alpha1.AuditTarget {
+	if len(alias) <= contracts.MaxAuditIDBytes {
+		return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, alias)
+	}
+	sum := sha256.Sum256([]byte(alias))
+	suffix := "#" + hex.EncodeToString(sum[:8])
+	return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, strings.ToValidUTF8(alias[:contracts.MaxAuditIDBytes-len(suffix)], "")+suffix)
 }
 
 func scopeName(s model.Scope) string {
@@ -107,7 +134,7 @@ func bindingEntry(alias string, before, after []*modelv1alpha1.Binding) (*modelv
 	if len(after) > 0 {
 		a = &modelv1alpha1.BindingTimeline{Alias: alias, Bindings: withoutRecordTimes(after)}
 	}
-	return entry(action, target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, alias), "", b, a)
+	return entry(action, aliasTarget(alias), "", b, a)
 }
 
 // withoutRecordTimes copies rows without the times the store sets, so an
@@ -123,7 +150,10 @@ func withoutRecordTimes(rows []*modelv1alpha1.Binding) []*modelv1alpha1.Binding 
 }
 
 // mergeEntry audits a merge, on the surviving subject. The record is what the
-// resolver knows of the store's: the store adds the aliases and the times.
+// resolver knows of the store's MergeRecord: the store keeps an entry's
+// before and after as written, so it leaves out the aliases and recorded_at
+// (the alias lists are in the binding entries and the record is in the
+// journal).
 func mergeEntry(eventID string, m *modelv1alpha1.Merge) (*modelv1alpha1.AuditEntry, error) {
 	survivor, merged := m.GetSubjectIds()[0], m.GetSubjectIds()[1]
 	e, err := entry(modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE,
