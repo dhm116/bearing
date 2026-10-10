@@ -442,7 +442,7 @@ func TestCheckRefusesAnEmptyProfileList(t *testing.T) {
 	}
 }
 
-// CI shards the tests, so each profile covers part of the code; the gate
+// A CI job may shard the tests, so each profile covers part of the code; the gate
 // merges them, and a block counts as covered if any shard covers it.
 func TestCheckMergesProfilesOfShardedRuns(t *testing.T) {
 	dir := newRepo(t)

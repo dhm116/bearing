@@ -169,7 +169,7 @@ features:
       - { label: Component contracts, href: spec/contracts/ }
   - name: One database to start
     area: Run it your way
-    summary: SurrealDB holds both the facts and the search index, as a separate server or built into Bearing.
+    summary: PostgreSQL, the widely used open source database, holds both the facts and the search index, so there is one database to run.
     status: available
   - name: Settings in files
     area: Run it your way

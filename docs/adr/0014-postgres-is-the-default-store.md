@@ -1,6 +1,6 @@
 # 14. PostgreSQL is the default store, and the SurrealDB backend goes
 
-Date: 2026-10-09 · Status: proposed
+Date: 2026-10-09 · Status: accepted
 
 ## Context
 
@@ -103,6 +103,12 @@ Options considered:
   CI. With it go the `surrealembed` build tag, the `surrealdb+*` and
   `surrealkv://` URLs, the SurrealDB make targets and both SurrealDB Go
   modules. Bearing has no installs yet, so nothing needs migrating.
+  *Amended 2026-10-10: done in
+  [#134](https://github.com/dhm116/bearing/issues/134). `pgstore` passes
+  both conformance suites in CI, `postgres://` is the only database URL
+  `pkg/store` opens besides `mem://`, and CI no longer starts a SurrealDB
+  service or splits the tests into shards for its 50,000-item cases. The
+  Docs list below was updated in the same change.*
 - **`mem://` stays** for tests, demos and trials with nothing to run.
 - **Embedded PostgreSQL is the intended single-binary option, not built
   now.** [PGlite](https://github.com/electric-sql/pglite) is PostgreSQL

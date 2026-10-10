@@ -81,6 +81,12 @@ Options considered:
   `AGENTS.md` say it is production code, `mem://` stays for tests and local
   trials, and C-STORE-10 records that its rule engine is trusted. Changes to
   it are reviewed that way.
+- *Amended 2026-10-10:* `internal/surrealstore`, the backend this ADR
+  describes in its Context and Cost, was removed by
+  [ADR 14](0014-postgres-is-the-default-store.md). `internal/pgstore` follows
+  the same design; its canonical-subject table is the way out the Cost bullet
+  names, and `DefaultMaxMerges` and `ErrTooManyMerges` went with
+  `surrealstore`.
 - **Supersedes in part ADR 5.** The graph is stored as rows, not as the
   `entity->fact->entity` edges ADR 5's Decision describes. ADR 5 carries the
   note.

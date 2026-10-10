@@ -1,6 +1,6 @@
 // Package memstore is an in-memory GraphStore and VectorIndex, the
 // reference implementation of both contracts, and the engine that applies
-// the data model's rules. It is production code: the SurrealDB backend
+// the data model's rules. It is production code: the PostgreSQL backend
 // loads rows into a scratch Store and runs its operations here, so the rules
 // exist once (workingset.go is the API for that). As a backend in its own
 // right (mem://) it is for tests and local trials only: it has no size

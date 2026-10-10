@@ -49,7 +49,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.unmerges`, `graph.supports`, `graph.as_of`, `graph.changes`, `graph.conflicts`, `graph.data_quality`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
 | `vector.<operation>` | client | any `VectorIndex` wrapped by `instrument.VectorIndex` (`vector.repoint` after a merge) | `db.system.name`, `db.operation.name`, `bearing.vector.hits` |
 
-`db.system.name` is the backend: `memory`, `surrealdb` or `postgresql`. The PostgreSQL backend adds no spans of its own; an apply it retries after a serialization failure or a dropped connection is still one `graph.apply` span, and one that gives up ends it with `error.type` `busy`.
+`db.system.name` is the backend: `memory` or `postgresql`. The PostgreSQL backend adds no spans of its own; an apply it retries after a serialization failure or a dropped connection is still one `graph.apply` span, and one that gives up ends it with `error.type` `busy`.
 
 ## Metrics
 

@@ -18,4 +18,4 @@ After:
 - [ ] Spec (`docs/spec/`) and schema updated if the data model, protocol or contracts changed
 - [ ] ADR added for significant decisions
 - [ ] New spans or metrics listed in `docs/telemetry.md`
-- [ ] SurrealDB suites run (`make test-surrealdb` / `make test-embedded`) if `internal/surrealstore` changed, or noted as not run
+- [ ] PostgreSQL suites run (`make test-postgres`) if `internal/pgstore` changed, or noted as not run

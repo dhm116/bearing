@@ -614,7 +614,7 @@ func splitList(s string) []string {
 }
 
 // readProfiles reads coverage profiles, as one run of the tests would write
-// them, or several runs of parts of it (CI shards the tests): a block is
+// them, or several runs of parts of it (a CI job may shard the tests): a block is
 // covered if any profile covers it. File names are made relative to the
 // module root.
 func readProfiles(paths []string, module string) ([]block, error) {

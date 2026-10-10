@@ -23,7 +23,7 @@ var (
 )
 
 // VectorIndex wraps ix so every call is traced and measured. backend names
-// the implementation (for example "qdrant" or "surrealdb") in telemetry.
+// the implementation (for example "qdrant" or "postgresql") in telemetry.
 func VectorIndex(ix contracts.VectorIndex, backend string) contracts.VectorIndex {
 	return &vectorIndex{next: ix, backend: backend}
 }
