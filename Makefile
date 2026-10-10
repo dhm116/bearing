@@ -1,4 +1,4 @@
-.PHONY: all build test test-postgres fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test test-postgres bench fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -50,6 +50,12 @@ test-postgres:
 	BEARING_TEST_POSTGRES=$(POSTGRES) BEARING_TEST_POSTGRES_PASSWORD=$(POSTGRES_PASS) \
 		BEARING_TEST_POSTGRES_SCOPED=$(POSTGRES_SCOPED) \
 		go test -count=1 -timeout 30m ./internal/pgstore/ ./pkg/store/
+
+# Runs the store benchmark (docs/benchmarks/README.md), e.g.
+#   make bench BENCH='load --store postgres://bench@127.0.0.1:5432/bench?schema=main --facts 1000000' BEARING_STORE_PASSWORD=...
+# It is not part of check: the full run takes hours.
+bench:
+	go run ./cmd/bearing-bench $(BENCH)
 
 # The tools module is separate, so ./... does not reach it; lint it with the
 # same config from inside it.
