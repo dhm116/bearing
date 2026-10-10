@@ -65,6 +65,9 @@ type env struct {
 	// among.
 	dropped       int
 	lastConfirmed time.Time
+	// takesEffect is, by event ID, the valid time from which the latest of the
+	// event's claims holds.
+	takesEffect map[string]time.Time
 }
 
 func newEnv(t testing.TB) *env {
@@ -111,24 +114,52 @@ func (e *env) apply(ev Event) Applied {
 		e.t.Fatalf("apply %s: %v", ev.ID, err)
 	}
 	e.clock.Advance(time.Second)
+	if e.takesEffect == nil {
+		e.takesEffect = map[string]time.Time{}
+	}
+	e.takesEffect[ev.ID] = claimsHoldFrom(ev.Observation)
 	e.dropped += len(got.Dropped)
 	for _, d := range got.Dropped {
 		// A dropped write falls strictly among the confirmations it names.
 		if model.CompareOrderingKeys(withoutHash(d.First), withoutHash(d.Key)) >= 0 || model.CompareOrderingKeys(withoutHash(d.Key), withoutHash(d.Last)) >= 0 {
 			e.t.Errorf("event %s: dropped write %v is not among confirmations %v to %v", ev.ID, d.Key, d.First, d.Last)
 		}
-		if at := d.Last.GetObservedAt().AsTime(); at.After(e.lastConfirmed) {
+		// The run's latest confirmation decides from its observation time on, or
+		// from its claim's valid_from when that is later.
+		at := d.Last.GetObservedAt().AsTime()
+		if v := e.takesEffect[d.Last.GetEventId()]; v.After(at) {
+			at = v
+		}
+		if at.After(e.lastConfirmed) {
 			e.lastConfirmed = at
 		}
 	}
 	return got
 }
 
+// claimsHoldFrom is the latest valid_from among an observation's claims, or
+// its observation time when none is later.
+func claimsHoldFrom(o *eventv1alpha1.Observation) time.Time {
+	out := o.GetTime().AsTime()
+	for _, r := range o.GetData().GetRelations() {
+		if v := r.GetValidFrom(); v != nil && v.AsTime().After(out) {
+			out = v.AsTime()
+		}
+	}
+	for _, c := range o.GetData().GetAttributeClaims() {
+		if v := c.GetValidFrom(); v != nil && v.AsTime().After(out) {
+			out = v.AsTime()
+		}
+	}
+	return out
+}
+
 // sameOrDropped checks that an apply order gave the facts of the in-order
 // apply (per valid time, in the samples taken at times), unless apply reported
-// ignoring a write, and then only at valid times before the latest
-// confirmation it fell among (docs/spec/data-model.md, "Confirmations"). It
-// reports whether the two were equal, and whether the order failed the check.
+// ignoring a write, and then only at valid times before the claims of the
+// latest confirmation it fell among take effect (docs/spec/data-model.md,
+// "Confirmations"). It reports whether the two were equal, and whether the
+// order failed the check.
 func (e *env) sameOrDropped(got, want string, times []time.Time) (same, failed bool) {
 	if got == want {
 		return true, false

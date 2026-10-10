@@ -117,9 +117,10 @@ into a compacted period has none, and it is audited the same way
 the write is one of any source that binds another name to the subject the run
 binds, or the run's name to another subject, because a source's names share
 the namespace's other sources. Applied in order, the same write would have
-decided the valid time before the latest confirmation starts, and only there:
-the answers can differ from key-ordered application at valid times before the
-latest confirmation, never at or after it. Writes of `manual` and `core/…`
+decided the valid time before the latest confirmation's claim takes effect,
+and only there: the answers can differ from key-ordered application at valid
+times before the latest confirmation's observation time, or before its
+claim's `valid_from` when that is later, never at or after it. Writes of `manual` and `core/…`
 sources are never dropped: a manual event is not a confirmation, and derived
 supports follow their inputs. Nothing else is lost:
 

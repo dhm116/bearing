@@ -105,7 +105,17 @@ func joined(e *env) string {
 // (docs/spec/data-model.md, "State, determinism and apply").
 func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
 	compared, sourceOrdered := 0, 0
-	for seed := range int64(150) {
+	// The first seeds, and the ones that once found a write lost without a
+	// report (1242) or answers differing after a future-dated confirmation
+	// (245, 438, 1373).
+	seeds := slices.Concat(slices.Collect(func(yield func(int64) bool) {
+		for i := range int64(150) {
+			if !yield(i) {
+				return
+			}
+		}
+	}), []int64{245, 438, 1242, 1373})
+	for _, seed := range seeds {
 		rng := rand.New(rand.NewSource(seed)) //nolint:gosec // G404: a seeded shuffle, not security
 		var events []Event
 		seen := map[string]bool{}
