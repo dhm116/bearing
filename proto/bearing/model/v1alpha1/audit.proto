@@ -82,10 +82,14 @@ enum AuditTargetKind {
   AUDIT_TARGET_KIND_SUBJECT = 1;
   // An alias: its key, <namespace>:<key_type>/<external_id>.
   AUDIT_TARGET_KIND_ALIAS = 2;
-  // A fact: its fact_id.
+  // A fact: its fact_id, a hash the store does not read. Facts of subjects
+  // minted in the same ChangeSet use SUBJECT_PREDICATE.
   AUDIT_TARGET_KIND_FACT = 3;
   // A (subject, predicate): "<subject_id>/<predicate>". Conflicts,
-  // overrides and compaction summaries target one.
+  // overrides and compaction summaries target one, and so does the status
+  // change of a fact of a subject the same ChangeSet mints, whose fact_id
+  // can't be known before the apply. In a ChangeSet's entry the subject
+  // may be a ref ("new:<label>"), which the store replaces.
   AUDIT_TARGET_KIND_SUBJECT_PREDICATE = 4;
   // A configured source: its name.
   AUDIT_TARGET_KIND_SOURCE = 5;
@@ -134,8 +138,11 @@ message AuditEntry {
   RejectionCode rejection_code = 6;
   // Why: a person's reason, or a rejection's message.
   string reason = 7;
-  // What the target was before, as a model message (a Binding, a
-  // FactTimeline, a MergeRecord, ...); absent when it did not exist.
+  // What the target was before, as a message of the model or config package
+  // (a Binding, a FactTimeline, a MergeRecord, a config Resource, ...);
+  // absent when it did not exist. Subject IDs inside it may be refs in a
+  // ChangeSet's entry; the store replaces them (docs/spec/contracts.md,
+  // "Audit entries").
   google.protobuf.Any before = 8;
   // What it is after; absent when it no longer exists.
   google.protobuf.Any after = 9;
