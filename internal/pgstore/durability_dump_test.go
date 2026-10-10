@@ -326,10 +326,10 @@ func newNumbering(on bool) *numbering {
 	return &numbering{on: on, subjects: map[string]string{}, facts: map[string]string{}}
 }
 
-// factIDs finds the fact IDs a ProtoJSON text names: a fact's ID is the hash
+// factIDField finds the fact IDs a ProtoJSON text names: a fact's ID is the hash
 // of its subject's ID, so it carries the random bits of the run that minted
 // the subject.
-var factIDs = regexp.MustCompile(`"fact_id":\s*"([0-9a-f]{64})"`)
+var factIDField = regexp.MustCompile(`"fact_id":\s*"([0-9a-f]{64})"`)
 
 // ids matches a subject ID and a 64-digit hash.
 var ids = regexp.MustCompile(uuidV7.String() + `|[0-9a-f]{64}`)
@@ -337,7 +337,7 @@ var ids = regexp.MustCompile(uuidV7.String() + `|[0-9a-f]{64}`)
 // learn notes the fact IDs in s, so that number finds them wherever they
 // appear (a state key may hold one).
 func (n *numbering) learn(s string) {
-	for _, m := range factIDs.FindAllStringSubmatch(s, -1) {
+	for _, m := range factIDField.FindAllStringSubmatch(s, -1) {
 		n.facts[m[1]] = ""
 	}
 }
