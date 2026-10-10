@@ -124,9 +124,6 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 			return nil, errors.Join(err, s.Close(ctx))
 		}
 		s.closers = append(s.closers, e.close)
-		if e.events == nil {
-			return nil, errors.Join(fmt.Errorf("store: %s can't be an event log", redact(c.Events)), s.Close(ctx))
-		}
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
 	s.Events = instrument.EventLog(e.events, e.name)

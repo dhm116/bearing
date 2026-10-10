@@ -805,7 +805,12 @@ reach, so they are retired and their numbers are not reused.
   window (ADR 7). That is visible and bounded only by later work: an age
   gauge and health check (#179) and an optional ceiling that discards
   unapplied events (#180, off by default). Retries on a failing database
-  are bounded as for Apply (six attempts, then `ErrBusy`).
+  are bounded as for Apply (six attempts, then `ErrBusy`). A partition is
+  created by its first event, so ingest MUST map a delivery to a configured
+  Source before `Append` (C-INGEST-3) and MUST NOT echo an `ErrInvalidEvent`
+  message to the sender (C-INGEST-7). Because `Backup` leaves the log out, a
+  restore into a fresh database loses retained manual events and any
+  unapplied backlog; operators back up the database itself for those.
 
 ### B7. Operators and configuration
 
@@ -940,8 +945,9 @@ provider API keys.
 - **Data in allowed requests.** A module can encode data in GET requests to
   hosts it is allowed to call.
 - **Erasure requests.** The audit log is append-only and raw events are kept
-  30 days by default, and longer while a required consumer has not applied them
-  (ADR 7), so a request to erase a person's data cannot
+  30 days by default, longer while a required consumer has not applied them,
+  and for as long as a retained manual event's effects are live (ADR 7, ADR 11),
+  so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
 - **Local-process adapters** run as the service user by default, outside

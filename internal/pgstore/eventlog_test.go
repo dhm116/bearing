@@ -211,3 +211,88 @@ func TestPostgresAppendRetriesAndGivesUp(t *testing.T) {
 		t.Fatalf("got %v after %d tries, want a failure at once", err, permanent.n)
 	}
 }
+
+// Every statement of every event log call may fail: the call then reports it,
+// and the log is as it was.
+func TestPostgresEventLogEveryStatementMayFail(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	clk := testkit.NewClock(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))
+	s := newTestStore(t)
+	s.Now = clk.Now
+	seed := []contracts.Event{logEvent("a", "s1"), logEvent("a", "s2"), logEvent("b", "s1")}
+	if _, err := s.Append(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Commit(ctx, "applier", "a", 2); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	ops := []struct {
+		name string
+		// prep makes the call below have something to do.
+		prep func(t *testing.T)
+		run  func(*Store) error
+	}{
+		{"Append", nil, func(w *Store) error {
+			n++
+			_, err := w.Append(ctx, []contracts.Event{logEvent("a", fmt.Sprintf("n%d", n)), logEvent("c", fmt.Sprintf("n%d", n))})
+			return err
+		}},
+		{"Read", nil, func(w *Store) error { _, err := w.Read(ctx, "a", 0, 10); return err }},
+		{"Commit", nil, func(w *Store) error { return w.Commit(ctx, "other", "a", 1) }},
+		{"Committed", nil, func(w *Store) error { _, err := w.Committed(ctx, "applier", "a"); return err }},
+		{"Partitions", nil, func(w *Store) error { _, err := w.Partitions(ctx); return err }},
+		{"Release", nil, func(w *Store) error { return w.Release(ctx, []string{"a/s1", "a/never"}) }},
+		{"Trim", func(t *testing.T) {
+			// A trimmable entry: appended now, committed past, cutoff in the future.
+			n++
+			if _, err := s.Append(ctx, []contracts.Event{logEvent("t", fmt.Sprintf("n%d", n))}); err != nil {
+				t.Fatal(err)
+			}
+			head, err := s.Partitions(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range head {
+				if p.Partition == "t" {
+					if err := s.Commit(ctx, "applier", "t", p.Head); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		}, func(w *Store) error {
+			_, err := w.Trim(ctx, clk.Now().Add(time.Hour), []string{"applier"})
+			return err
+		}},
+	}
+	for _, op := range ops {
+		prep := func() {
+			if op.prep != nil {
+				op.prep(t)
+			}
+		}
+		prep()
+		probe := &faultPool{}
+		if err := op.run(withPool(s, probe)); err != nil {
+			t.Fatalf("%s: a clean call failed: %v", op.name, err)
+		}
+		if probe.calls == 0 {
+			t.Fatalf("%s: counted no statements", op.name)
+		}
+		for k := 1; k <= probe.calls; k++ {
+			prep()
+			before := count(t, s, `SELECT count(*) FROM event`)
+			if err := op.run(withPool(s, &faultPool{failAt: k})); !errors.Is(err, errInjected) {
+				t.Errorf("%s: statement %d of %d failed and the call said %v", op.name, k, probe.calls, err)
+			}
+			if after := count(t, s, `SELECT count(*) FROM event`); op.name != "Trim" && after != before {
+				t.Errorf("%s: statement %d failed and left %d entries, had %d", op.name, k, after, before)
+			}
+		}
+	}
+	// The log still answers.
+	if _, err := s.Read(ctx, "a", 0, 10); err != nil {
+		t.Fatalf("Read after the failures: %v", err)
+	}
+}
