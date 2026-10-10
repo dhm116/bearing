@@ -16,6 +16,7 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/model"
 )
 
 // The reads that list changes across the whole graph (no subject, key or
@@ -68,6 +69,18 @@ func wholeGraph(f contracts.FactFilter) bool {
 	return f.SubjectID == "" && f.Key == "" && (f.Object == nil || len(memstore.SubjectsIn(f.Object)) == 0)
 }
 
+// checkFilterObject refuses a filter object the reference store would
+// refuse, which a listing that visits no candidate would otherwise not.
+func checkFilterObject(f contracts.FactFilter) error {
+	if f.Object == nil {
+		return nil
+	}
+	if _, err := model.FactID("-", "-", f.Object); err != nil {
+		return fmt.Errorf("filter object: %w", err)
+	}
+	return nil
+}
+
 // A candidate is a fact timeline that may have changed, with the newest
 // instant in the window at which it could have.
 type candidate struct {
@@ -103,6 +116,9 @@ func (s *Store) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (co
 			return contracts.ChangesPage{}, err
 		}
 		return m.ChangesPage(ctx, r)
+	}
+	if err := checkFilterObject(r.Filter); err != nil {
+		return contracts.ChangesPage{}, fmt.Errorf("changes: %w", err)
 	}
 	var page contracts.ChangesPage
 	err := s.readTx(ctx, func(q querier) error {
@@ -166,6 +182,9 @@ func (s *Store) LastChange(ctx context.Context, f contracts.FactFilter, t time.T
 			return time.Time{}, err
 		}
 		return m.LastChange(ctx, f, t, axis)
+	}
+	if err := checkFilterObject(f); err != nil {
+		return time.Time{}, fmt.Errorf("last change: %w", err)
 	}
 	var best time.Time
 	err := s.readTx(ctx, func(q querier) error {
@@ -310,8 +329,9 @@ func scan(ctx context.Context, q querier, predicate string, axis contracts.Axis,
 
 // loadBatch loads the timelines of batch into a scratch store, with the
 // series that could canonicalize to the same facts and no others: those with
-// the same predicate whose subject is in the merge component of a
-// candidate's subject and whose object is in that of its object. A subject
+// the same predicate that name a subject in the merge component of a
+// candidate's subject and one in that of its object (series_subject does not
+// say which is which, so a reversed series comes too, which does no harm). A subject
 // that many facts point at, such as a team that owns every repository, is
 // not loaded for the facts about one of them.
 func (s *Store) loadBatch(ctx context.Context, q querier, meta metaRow, batch []candidate) (*memstore.Store, error) {

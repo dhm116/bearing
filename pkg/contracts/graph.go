@@ -148,9 +148,10 @@ type GraphStore interface {
 	Changes(ctx context.Context, f FactFilter, t1, t2 time.Time, axis Axis) ([]*modelv1alpha1.FactChange, error)
 	// ChangesPage returns one page of the changes Changes would return,
 	// newest changed_at first, then by fact ID (docs/spec/contracts.md,
-	// "Reads"). A store need not load the facts that did not change, so
-	// a window the whole graph changed in is paged in memory bounded by the
-	// page; how long that takes is up to the store. The same errors as Changes, and an error for a limit out of range.
+	// "Reads"). A store need not load the facts that did not change, so a
+	// window the whole graph changed in is paged in memory bounded by the page;
+	// how long that takes is up to the store. The same errors as Changes, and
+	// an error for a limit out of range.
 	ChangesPage(ctx context.Context, r ChangesRequest) (ChangesPage, error)
 	// LastChange returns the changed_at of the newest change at or before t
 	// among the facts matching f: the latest instant, on axis, at which a

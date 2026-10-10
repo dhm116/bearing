@@ -169,6 +169,8 @@ func (g *suite) changesPage(t *testing.T) {
 		"t1 after t2":     {T1: window.T2, T2: window.T1},
 		"unknown axis":    {T1: window.T1, T2: window.T2, Axis: contracts.Axis(99)},
 		"bad object":      {T1: window.T1, T2: window.T2, Filter: contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}},
+		// Refused even when no fact changed in the window to meet it.
+		"bad object in an empty window": {T1: at("2026-10-02T00:00:00Z"), T2: at("2026-10-03T00:00:00Z"), Filter: contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}},
 	} {
 		_, err := s.ChangesPage(ctx, bad)
 		errorIf(t, err == nil, "%s: got no error", name)
@@ -334,6 +336,9 @@ func (g *suite) lastChange(t *testing.T) {
 		_, err := s.LastChange(ctx, bad.f, time.Time{}, bad.axis)
 		errorIf(t, err == nil, "%s: got no error", name)
 	}
+	// Refused even when nothing changed before the time asked about.
+	_, err = s.LastChange(ctx, contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}, at("2026-08-01T00:00:00Z"), contracts.AxisValid)
+	errorIf(t, err == nil || errors.Is(err, contracts.ErrNotFound), "a bad filter object before any change: got %v, want an error that is not ErrNotFound", err)
 }
 
 // fatalIf stops the test with the message if bad. The message's arguments

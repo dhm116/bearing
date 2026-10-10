@@ -817,12 +817,15 @@ reach, so they are retired and their numbers are not reused.
   `ChangesPage` and `LastChange` are the way out for changes across the whole
   graph (a filter that names no subject, key or object that points at one):
   memory is a page, a held list of candidate timelines (32,768 by default,
-  about 40 bytes of key and bound each) and one batch, however many facts
+  about 100 bytes of key and bound each, up to twice that many while a scan
+  trims) and one batch, however many facts
   changed (#167). The work is not bounded the same way. Each call reads every
   fact row of the graph once, plus one more time for each held block of
   timelines that the page needs; facts that changed at one instant, as in an
   import, can only be told apart by loading all of them, so a page of such
-  facts costs a scan per block. A batch also loads the series that could
+  facts costs a scan per block. A filter that matches few facts, or none,
+  cannot fill a page, so the call loads every candidate in the window, at a
+  few statements each. A batch also loads the series that could
   canonicalize to its facts, and no others: those with the same predicate
   whose subject is in the merge component of a candidate's subject and whose
   object is in that of its object. A subject that thousands of facts point at,

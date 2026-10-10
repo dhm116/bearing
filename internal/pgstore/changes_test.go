@@ -2,6 +2,7 @@ package pgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -413,5 +414,49 @@ func TestChangesPageBatchDoesNotLoadWhatPointsAtASharedSubject(t *testing.T) {
 	}
 	if loaded != 2 {
 		t.Errorf("a batch of 2 facts loaded %d facts, want 2: the shared subject drags in everything pointing at it", loaded)
+	}
+}
+
+// Two timelines that merges make one fact are loaded together, whichever of
+// them is the candidate: one written about the merged-away subject and
+// object, one about the survivors, with different confidences.
+func TestChangesPageLoadsTheTimelinesMergesJoin(t *testing.T) {
+	ctx := context.Background()
+	p := newPair(t)
+	p.pg.changesBatch = 1
+	ids := p.teams(6)
+	owned := func(from, to string, ppm uint32, start time.Time) *modelv1alpha1.FactTimeline {
+		ft := named(from, "", start, time.Time{})
+		ft.Predicate, ft.Object = "owned_by", &modelv1alpha1.FactObject{SubjectId: to}
+		ft.Spans[0].ConfidencePpm = ppm
+		return ft
+	}
+	p.apply(&modelv1alpha1.ChangeSet{EventId: "owners", Facts: []*modelv1alpha1.FactTimeline{
+		owned(ids[0], ids[2], 900_000, day(1)),
+		owned(ids[1], ids[3], 600_000, day(2)),
+		owned(ids[4], ids[5], 700_000, day(3)), // not part of either merge
+	}})
+	before, _ := p.ref.Head(ctx)
+	p.apply(&modelv1alpha1.ChangeSet{EventId: "merges", Merges: []*modelv1alpha1.Merge{
+		{SubjectIds: []string{ids[0], ids[1]}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL},
+		{SubjectIds: []string{ids[2], ids[3]}, Rule: modelv1alpha1.MergeRule_MERGE_RULE_MANUAL},
+	}})
+	after, _ := p.ref.Head(ctx)
+	p.clk.Set(day(30))
+	for _, axis := range []contracts.Axis{contracts.AxisValid, contracts.AxisRecord} {
+		w := contracts.ChangesRequest{T1: day(0), T2: day(20), Axis: axis, Limit: 1}
+		if axis == contracts.AxisRecord {
+			w.T1, w.T2 = before.Add(-time.Hour), after
+		}
+		if n := p.same(w); n < 2 {
+			t.Errorf("axis %d: listed %d changes, want at least 2", axis, n)
+		}
+		for _, at := range []time.Time{day(1), day(2), day(10), after} {
+			want, wantErr := p.ref.LastChange(ctx, contracts.FactFilter{}, at, axis)
+			got, gotErr := p.pg.LastChange(ctx, contracts.FactFilter{}, at, axis)
+			if errors.Is(wantErr, contracts.ErrNotFound) != errors.Is(gotErr, contracts.ErrNotFound) || !got.Equal(want) {
+				t.Errorf("axis %d last change at %v: got %v, %v, want %v, %v", axis, at, got, gotErr, want, wantErr)
+			}
+		}
 	}
 }
