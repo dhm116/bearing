@@ -1,10 +1,12 @@
 package memstore
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -102,10 +104,9 @@ func (s *Store) changes(f contracts.FactFilter, t1, t2 time.Time, axis contracts
 		if byFact == nil {
 			byFact = s.timelinesByFact(r2)
 		}
-		at, found := byFact[id].lastChange(axis, w1, w2, rc)
-		if !found {
-			at = w2 // the answers differ, so an instant exists; this is only the safe side
-		}
+		// The answers differ, so an instant exists; w2 is only the safe side.
+		at, _ := byFact[id].lastChange(axis, w1, w2, rc)
+		at = cmp.Or(at, w2)
 		out = append(out, &modelv1alpha1.FactChange{
 			FactId: id, SubjectId: fact.GetSubjectId(), Predicate: fact.GetPredicate(), Object: fact.GetObject(),
 			From: from, To: to, Precision: full(), SupportsChanged: changedSources(supBefore[id], supAfter[id]),
@@ -113,13 +114,7 @@ func (s *Store) changes(f contracts.FactFilter, t1, t2 time.Time, axis contracts
 		})
 	}
 	slices.SortFunc(out, func(a, b *modelv1alpha1.FactChange) int {
-		switch {
-		case factLess(a, b):
-			return -1
-		case factLess(b, a):
-			return 1
-		}
-		return 0
+		return cmp.Or(strings.Compare(a.GetSubjectId(), b.GetSubjectId()), strings.Compare(a.GetPredicate(), b.GetPredicate()), strings.Compare(a.GetFactId(), b.GetFactId()))
 	})
 	return out, w1, w2, nil
 }

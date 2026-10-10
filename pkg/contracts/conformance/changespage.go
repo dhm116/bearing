@@ -27,9 +27,7 @@ func pageAll(t *testing.T, s contracts.GraphStore, r contracts.ChangesRequest) (
 		pages++
 		if pages == 1 {
 			w1, w2 = page.T1, page.T2
-			if w1.IsZero() || w2.IsZero() {
-				t.Fatalf("page 1 resolved the window to %v, %v, want both times", w1, w2)
-			}
+			fatalIf(t, w1.IsZero() || w2.IsZero(), "page 1 resolved the window to %v, %v, want both times", w1, w2)
 		} else if !page.T1.Equal(w1) || !page.T2.Equal(w2) {
 			t.Fatalf("page %d is on window %v, %v, want the first page's %v, %v", pages, page.T1, page.T2, w1, w2)
 		}
@@ -40,16 +38,12 @@ func pageAll(t *testing.T, s contracts.GraphStore, r contracts.ChangesRequest) (
 		if page.Next == nil {
 			return all, pages
 		}
-		if len(page.Changes) != r.PageSize() {
-			t.Fatalf("page %d has a cursor but %d of %d changes", pages, len(page.Changes), r.PageSize())
-		}
+		fatalIf(t, len(page.Changes) != r.PageSize(), "page %d has a cursor but %d of %d changes", pages, len(page.Changes), r.PageSize())
 		if last := page.Changes[len(page.Changes)-1]; page.Next.FactID != last.GetFactId() || !page.Next.ChangedAt.Equal(last.GetChangedAt().AsTime()) {
 			t.Fatalf("page %d: cursor %+v is not its last change %v", pages, page.Next, last)
 		}
 		r.T1, r.T2, r.After = w1, w2, page.Next
-		if pages > 10_000 {
-			t.Fatal("a listing never ends")
-		}
+		fatalIf(t, pages > 10_000, "a listing never ends")
 	}
 }
 
@@ -88,20 +82,15 @@ func (g *suite) changesPage(t *testing.T) {
 
 	window := contracts.ChangesRequest{T1: at("2026-08-31T00:00:00Z"), T2: at("2026-10-01T00:00:00Z"), Axis: contracts.AxisValid}
 	all, err := s.Changes(ctx, contracts.FactFilter{}, window.T1, window.T2, window.Axis)
-	if err != nil || len(all) != 303 {
-		t.Fatalf("got %d changes, %v, want 303", len(all), err)
-	}
+	fatalIf(t, err != nil || len(all) != 303, "got %d changes, %v, want 303", len(all), err)
 	slices.SortFunc(all, contracts.CompareChanges)
 	for _, c := range all {
-		if c.GetChangedAt() == nil {
-			t.Fatalf("Changes: %v has no changed_at", c)
-		}
+		fatalIf(t, c.GetChangedAt() == nil, "Changes: %v has no changed_at", c)
 	}
 	// The newest is team 299, an hour after team 298; the four facts of hour
 	// 150 follow each other by fact ID.
-	if got := all[0].GetChangedAt().AsTime(); !got.Equal(base.Add(299 * time.Hour)) {
-		t.Fatalf("newest change at %v, want %v", got, base.Add(299*time.Hour))
-	}
+	newest := all[0].GetChangedAt().AsTime()
+	fatalIf(t, !newest.Equal(base.Add(299*time.Hour)), "newest change at %v, want %v", newest, base.Add(299*time.Hour))
 
 	// A filter whose object holds only attributes, or whose key is bound to
 	// nothing, lists what Changes does too.
@@ -119,13 +108,10 @@ func (g *suite) changesPage(t *testing.T) {
 		}
 		slices.SortFunc(want, contracts.CompareChanges)
 		page, err := s.ChangesPage(ctx, req)
-		if err != nil || !slices.Equal(factIDs(page.Changes), factIDs(want)) {
-			t.Errorf("%s: got %v, %v, want %v", name, factIDs(page.Changes), err, factIDs(want))
-		}
+		errorIf(t, err != nil || !slices.Equal(factIDs(page.Changes), factIDs(want)), "%s: got %v, %v, want %v", name, factIDs(page.Changes), err, factIDs(want))
 	}
-	if page, _ := s.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{Object: str("team-007")}, T1: window.T1, T2: window.T2}); len(page.Changes) != 1 {
-		t.Errorf("an attribute object: got %d changes, want the one team name", len(page.Changes))
-	}
+	one, _ := s.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{Object: str("team-007")}, T1: window.T1, T2: window.T2})
+	errorIf(t, len(one.Changes) != 1, "an attribute object: got %d changes, want the one team name", len(one.Changes))
 
 	// Pages of any size list exactly what Changes does, in the same order.
 	for _, limit := range []int{0, 7, 100, 303, 304, contracts.MaxChangesLimit} {
@@ -133,12 +119,9 @@ func (g *suite) changesPage(t *testing.T) {
 		req.Limit = limit
 		got, pages := pageAll(t, s, req)
 		size := req.PageSize()
-		if want := (303 + size - 1) / size; pages != want {
-			t.Errorf("limit %d: read %d pages, want %d", limit, pages, want)
-		}
-		if !slices.Equal(factIDs(got), factIDs(all)) {
-			t.Fatalf("limit %d: got\n\t%v\nwant\n\t%v", limit, factIDs(got), factIDs(all))
-		}
+		want := (303 + size - 1) / size
+		errorIf(t, pages != want, "limit %d: read %d pages, want %d", limit, pages, want)
+		fatalIf(t, !slices.Equal(factIDs(got), factIDs(all)), "limit %d: got\n\t%v\nwant\n\t%v", limit, factIDs(got), factIDs(all))
 		for i, c := range got {
 			if !proto.Equal(c, all[i]) {
 				t.Fatalf("limit %d: change %d is %v, want %v", limit, i, c, all[i])
@@ -149,45 +132,35 @@ func (g *suite) changesPage(t *testing.T) {
 	// Changes of one instant are told apart by fact ID, and a page may end between them.
 	req := window
 	req.T1, req.T2, req.Limit = base.Add(149*time.Hour), base.Add(150*time.Hour), 1
-	if got, pages := pageAll(t, s, req); len(got) != 4 || pages != 4 || !slices.IsSortedFunc(got, contracts.CompareChanges) {
-		t.Errorf("four changes at hour 150, one to a page: got %d changes in %d pages, %v", len(got), pages, factIDs(got))
-	}
+	got, pages := pageAll(t, s, req)
+	errorIf(t, len(got) != 4 || pages != 4 || !slices.IsSortedFunc(got, contracts.CompareChanges), "four changes at hour 150, one to a page: got %d changes in %d pages, %v", len(got), pages, factIDs(got))
 	// The window is (t1, t2]: a change at t1 is not in it, one at t2 is.
 	req = window
 	req.T1, req.T2 = base.Add(290*time.Hour), base.Add(295*time.Hour)
-	got, _ := pageAll(t, s, req)
-	if want := 5; len(got) != want || !got[0].GetChangedAt().AsTime().Equal(base.Add(295*time.Hour)) || !got[4].GetChangedAt().AsTime().Equal(base.Add(291*time.Hour)) {
-		t.Errorf("window (290h, 295h]: got %d changes %v, want 5 from 295h to 291h", len(got), factIDs(got))
-	}
+	got, _ = pageAll(t, s, req)
+	errorIf(t, len(got) != 5 || !got[0].GetChangedAt().AsTime().Equal(base.Add(295*time.Hour)) || !got[4].GetChangedAt().AsTime().Equal(base.Add(291*time.Hour)), "window (290h, 295h]: got %d changes %v, want 5 from 295h to 291h", len(got), factIDs(got))
 	// A predicate narrows the listing; a subject does too.
 	req = window
 	req.Filter = contracts.FactFilter{Predicate: "topics"}
-	if got, _ := pageAll(t, s, req); len(got) != 3 {
-		t.Errorf("predicate topics: got %d changes, want 3", len(got))
-	}
+	got, _ = pageAll(t, s, req)
+	errorIf(t, len(got) != 3, "predicate topics: got %d changes, want 3", len(got))
 	req.Filter = contracts.FactFilter{SubjectID: contracts.SubjectID(r)}
 	req.Limit = 2
-	if got, pages := pageAll(t, s, req); len(got) != 3 || pages != 2 {
-		t.Errorf("subject %s: got %d changes in %d pages, want 3 in 2", r, len(got), pages)
-	}
+	got, pages = pageAll(t, s, req)
+	errorIf(t, len(got) != 3 || pages != 2, "subject %s: got %d changes in %d pages, want 3 in 2", r, len(got), pages)
 	// An empty window is an empty page with no cursor.
 	req = window
 	req.T1, req.T2 = at("2026-10-02T00:00:00Z"), at("2026-10-03T00:00:00Z")
 	page, err := s.ChangesPage(ctx, req)
-	if err != nil || len(page.Changes) != 0 || page.Next != nil || page.T1.IsZero() {
-		t.Errorf("empty window: got %+v, %v, want an empty page with the window", page, err)
-	}
+	errorIf(t, err != nil || len(page.Changes) != 0 || page.Next != nil || page.T1.IsZero(), "empty window: got %+v, %v, want an empty page with the window", page, err)
 	// Zero times are now, and the page says what they were.
 	req = window
 	req.T1, req.T2 = time.Time{}, at("2026-09-02T00:00:00Z")
-	if _, err := s.ChangesPage(ctx, req); err == nil {
-		t.Error("a zero t1 (now) after a past t2: got no error")
-	}
+	_, err = s.ChangesPage(ctx, req)
+	errorIf(t, err == nil, "a zero t1 (now) after a past t2: got no error")
 	req.T1, req.T2 = at("2026-09-20T00:00:00Z"), time.Time{}
 	page, err = s.ChangesPage(ctx, req)
-	if err != nil || page.T2.IsZero() || len(page.Changes) != 0 {
-		t.Errorf("a window to now: got %+v, %v, want no changes and a resolved t2", page, err)
-	}
+	errorIf(t, err != nil || page.T2.IsZero() || len(page.Changes) != 0, "a window to now: got %+v, %v, want no changes and a resolved t2", page, err)
 	// Bad requests are errors.
 	for name, bad := range map[string]contracts.ChangesRequest{
 		"negative limit":  {T1: window.T1, T2: window.T2, Limit: -1},
@@ -197,9 +170,8 @@ func (g *suite) changesPage(t *testing.T) {
 		"unknown axis":    {T1: window.T1, T2: window.T2, Axis: contracts.Axis(99)},
 		"bad object":      {T1: window.T1, T2: window.T2, Filter: contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}},
 	} {
-		if _, err := s.ChangesPage(ctx, bad); err == nil {
-			t.Errorf("%s: got no error", name)
-		}
+		_, err := s.ChangesPage(ctx, bad)
+		errorIf(t, err == nil, "%s: got no error", name)
 	}
 }
 
@@ -255,9 +227,7 @@ func (g *suite) changedAt(t *testing.T) {
 	}
 	expect := func(what string, got map[string]string, want map[string]string) {
 		t.Helper()
-		if !maps.Equal(got, want) {
-			t.Errorf("%s: got %v, want %v", what, got, want)
-		}
+		errorIf(t, !maps.Equal(got, want), "%s: got %v, want %v", what, got, want)
 	}
 	// P's confidence fell on the 10th and 20th and its ownership ended on the
 	// 25th; L's held at one confidence across three spans, and Go fell and
@@ -285,9 +255,8 @@ func (g *suite) changedAt(t *testing.T) {
 func (g *suite) lastChange(t *testing.T) {
 	s, _ := g.store(t)
 	r, p, l := seed(t, s)
-	if _, err := s.LastChange(ctx, contracts.FactFilter{}, time.Time{}, contracts.AxisValid); !errors.Is(err, contracts.ErrNotFound) {
-		t.Fatalf("an empty graph: got %v, want ErrNotFound", err)
-	}
+	_, err := s.LastChange(ctx, contracts.FactFilter{}, time.Time{}, contracts.AxisValid)
+	fatalIf(t, !errors.Is(err, contracts.ErrNotFound), "an empty graph: got %v, want ErrNotFound", err)
 	one := apply(t, s, &modelv1alpha1.ChangeSet{
 		EventId: "e1",
 		Supports: []*modelv1alpha1.SupportTimeline{
@@ -316,57 +285,70 @@ func (g *suite) lastChange(t *testing.T) {
 		return got.UTC().Format(time.RFC3339Nano)
 	}
 	everything := contracts.FactFilter{}
-	for _, c := range []struct{ at, want string }{
-		{"2026-08-31T00:00:00Z", "none"},
-		{"2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z"}, // the instant itself counts
-		{"2026-09-04T00:00:00Z", "2026-09-01T00:00:00Z"},
-		{"2026-09-05T00:00:00Z", "2026-09-05T00:00:00Z"},
+	e1 := one.RecordedAt.UTC().Format(time.RFC3339Nano)
+	const (
+		validAt = "2026-12-01T00:00:00Z"
+		sep20   = "2026-09-20T00:00:00Z"
+		sep5    = "2026-09-05T00:00:00Z"
+	)
+	for _, c := range []struct {
+		name string
+		f    contracts.FactFilter
+		at   string
+		axis contracts.Axis
+		want string
+	}{
+		{"before everything", everything, "2026-08-31T00:00:00Z", contracts.AxisValid, "none"},
+		{"the instant itself counts", everything, "2026-09-01T00:00:00Z", contracts.AxisValid, "2026-09-01T00:00:00Z"},
+		{"between two starts", everything, "2026-09-04T00:00:00Z", contracts.AxisValid, "2026-09-01T00:00:00Z"},
+		{"the second start", everything, sep5, contracts.AxisValid, sep5},
 		// The split at 10 September changes nothing; the answer stays that of the 5th.
-		{"2026-09-15T00:00:00Z", "2026-09-05T00:00:00Z"},
+		{"after a split that changes nothing", everything, "2026-09-15T00:00:00Z", contracts.AxisValid, sep5},
 		// P's ownership ends on the 20th.
-		{"2026-09-21T00:00:00Z", "2026-09-20T00:00:00Z"},
-		{"2026-12-01T00:00:00Z", "2026-09-20T00:00:00Z"},
+		{"after an end", everything, "2026-09-21T00:00:00Z", contracts.AxisValid, sep20},
+		{"long after", everything, validAt, contracts.AxisValid, sep20},
+		{"predicate language", contracts.FactFilter{Predicate: "language"}, validAt, contracts.AxisValid, sep5},
+		{"a subject with no facts", contracts.FactFilter{SubjectID: contracts.SubjectID(l)}, validAt, contracts.AxisValid, "none"},
+		{"a key", contracts.FactFilter{Key: "github:repo_node/R_1", Predicate: "owned_by"}, validAt, contracts.AxisValid, sep20},
+		{"a key bound to nothing", contracts.FactFilter{Key: "github:repo_node/NOPE"}, validAt, contracts.AxisValid, "none"},
+		// An object of attributes only matches the facts that hold it, with or
+		// without a predicate to narrow the search.
+		{"an attribute object", contracts.FactFilter{Object: str("Go")}, validAt, contracts.AxisValid, sep5},
+		{"an attribute object under another predicate", contracts.FactFilter{Object: str("Go"), Predicate: "owned_by"}, validAt, contracts.AxisValid, "none"},
+		// Zero is now: the clock is at the end of September.
+		{"now", everything, "", contracts.AxisValid, sep20},
+		// On the record axis, what Bearing answered changed when it recorded e1.
+		{"record axis", everything, "2026-09-29T00:00:00Z", contracts.AxisRecord, e1},
+		{"record axis before e1 was recorded", everything, "2026-09-10T00:00:00Z", contracts.AxisRecord, "none"},
 	} {
-		if got := last(everything, c.at, contracts.AxisValid); got != c.want {
-			t.Errorf("valid axis at %s: got %s, want %s", c.at, got, c.want)
-		}
+		got := last(c.f, c.at, c.axis)
+		errorIf(t, got != c.want, "%s: got %s, want %s", c.name, got, c.want)
 	}
-	if got := last(contracts.FactFilter{Predicate: "language"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "2026-09-05T00:00:00Z" {
-		t.Errorf("predicate language: got %s, want 2026-09-05", got)
+	for name, bad := range map[string]struct {
+		f    contracts.FactFilter
+		axis contracts.Axis
+	}{
+		"a bad filter object": {contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}, contracts.AxisValid},
+		"an unknown axis":     {everything, contracts.Axis(99)},
+	} {
+		_, err := s.LastChange(ctx, bad.f, time.Time{}, bad.axis)
+		errorIf(t, err == nil, "%s: got no error", name)
 	}
-	if got := last(contracts.FactFilter{SubjectID: contracts.SubjectID(l)}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "none" {
-		t.Errorf("a subject with no facts: got %s, want none", got)
+}
+
+// fatalIf stops the test with the message if bad. The message's arguments
+// are evaluated either way, so they must be safe to evaluate when it passes.
+func fatalIf(t *testing.T, bad bool, format string, args ...any) {
+	t.Helper()
+	if bad {
+		t.Fatalf(format, args...)
 	}
-	if got := last(contracts.FactFilter{Key: "github:repo_node/R_1", Predicate: "owned_by"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "2026-09-20T00:00:00Z" {
-		t.Errorf("a key: got %s, want 2026-09-20", got)
-	}
-	if got := last(contracts.FactFilter{Key: "github:repo_node/NOPE"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "none" {
-		t.Errorf("a key bound to nothing: got %s, want none", got)
-	}
-	// An object of attributes only matches the facts that hold it, with or
-	// without a predicate to narrow the search.
-	if got := last(contracts.FactFilter{Object: str("Go")}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "2026-09-05T00:00:00Z" {
-		t.Errorf("an attribute object: got %s, want 2026-09-05", got)
-	}
-	if got := last(contracts.FactFilter{Object: str("Go"), Predicate: "owned_by"}, "2026-12-01T00:00:00Z", contracts.AxisValid); got != "none" {
-		t.Errorf("an attribute object under another predicate: got %s, want none", got)
-	}
-	// Zero is now: the clock is at the end of September.
-	if got := last(everything, "", contracts.AxisValid); got != "2026-09-20T00:00:00Z" {
-		t.Errorf("now: got %s, want 2026-09-20", got)
-	}
-	// On the record axis, what Bearing answered changed when it recorded e1,
-	// and again as valid time passed 20 September.
-	if got := last(everything, "2026-09-29T00:00:00Z", contracts.AxisRecord); got != one.RecordedAt.UTC().Format(time.RFC3339Nano) {
-		t.Errorf("record axis: got %s, want e1's record time %s", got, one.RecordedAt.UTC().Format(time.RFC3339Nano))
-	}
-	if got := last(everything, "2026-09-10T00:00:00Z", contracts.AxisRecord); got != "none" {
-		t.Errorf("record axis before e1 was recorded: got %s, want none", got)
-	}
-	if _, err := s.LastChange(ctx, contracts.FactFilter{Object: &modelv1alpha1.FactObject{}}, time.Time{}, contracts.AxisValid); err == nil {
-		t.Error("a bad filter object: got no error")
-	}
-	if _, err := s.LastChange(ctx, everything, time.Time{}, contracts.Axis(99)); err == nil {
-		t.Error("an unknown axis: got no error")
+}
+
+// errorIf fails the test with the message if bad, and carries on.
+func errorIf(t *testing.T, bad bool, format string, args ...any) {
+	t.Helper()
+	if bad {
+		t.Errorf(format, args...)
 	}
 }
