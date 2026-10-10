@@ -83,12 +83,18 @@ func TestResolveReturnsStoreReadErrors(t *testing.T) {
 }
 
 func failEveryRead(t *testing.T, events []Event) {
-	e := newEnv(t)
+	failEveryReadWith(t, testConfig, events)
+}
+
+// failEveryReadWith is failEveryRead for a configuration other than the
+// default.
+func failEveryReadWith(t *testing.T, config func(testing.TB) Config, events []Event) {
+	e := newEnvWith(t, config(t))
 	for i, ev := range events {
 		ctx := context.Background()
 		for k := 1; ; k++ {
 			st := &failingStore{GraphStore: e.store, failAt: k}
-			r, err := New(testConfig(t), st)
+			r, err := New(config(t), st)
 			if err != nil {
 				t.Fatal(err)
 			}

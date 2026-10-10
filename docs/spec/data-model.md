@@ -1344,7 +1344,8 @@ nothing.
 An entry's target ID is at most `MaxAuditIDBytes` ([contracts.md](contracts.md#audit-entries)),
 and an alias has no length limit. An alias over it is named in the target by
 its first bytes, cut on a character boundary, then `#` and the first 16 hex
-characters of the SHA-256 of the alias; `before` and `after` hold it in full. A
+characters of the SHA-256 of the alias, so the target is `MaxAuditIDBytes` long
+less any partial character; the `before` and `after` of a binding entry hold the alias in full. A
 `rejection`'s `reason` is cut to `MaxAuditReasonBytes` on a character
 boundary, with "…" at the cut.
 

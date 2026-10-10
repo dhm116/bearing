@@ -44,17 +44,33 @@ func pack(m proto.Message) (*anypb.Any, error) {
 	return a, nil
 }
 
-// entry builds an audit entry of the resolver's.
-func entry(action modelv1alpha1.AuditAction, target *modelv1alpha1.AuditTarget, rule string, before, after proto.Message) (*modelv1alpha1.AuditEntry, error) {
+// trail collects the entries a decision builds and the first error that kept
+// one from being built, so a builder doesn't check an error at every entry.
+type trail struct {
+	entries []*modelv1alpha1.AuditEntry
+	err     error
+}
+
+func (t *trail) fail(err error) {
+	if t.err == nil {
+		t.err = err
+	}
+}
+
+// add appends an entry of the resolver's and returns it. A message that can't
+// be packed fails the trail.
+func (t *trail) add(action modelv1alpha1.AuditAction, target *modelv1alpha1.AuditTarget, rule string, before, after proto.Message) *modelv1alpha1.AuditEntry {
 	b, err := pack(before)
 	if err != nil {
-		return nil, err
+		t.fail(err)
 	}
 	a, err := pack(after)
 	if err != nil {
-		return nil, err
+		t.fail(err)
 	}
-	return &modelv1alpha1.AuditEntry{Action: action, Actor: resolverActor(), Target: target, Rule: rule, Before: b, After: a}, nil
+	e := &modelv1alpha1.AuditEntry{Action: action, Actor: resolverActor(), Target: target, Rule: rule, Before: b, After: a}
+	t.entries = append(t.entries, e)
+	return e
 }
 
 func target(kind modelv1alpha1.AuditTargetKind, id string) *modelv1alpha1.AuditTarget {
@@ -100,8 +116,8 @@ func scopeName(s model.Scope) string {
 }
 
 // mintEntry audits a mint: the subject as the store will record it.
-func mintEntry(eventID string, m *modelv1alpha1.Mint) (*modelv1alpha1.AuditEntry, error) {
-	return entry(modelv1alpha1.AuditAction_AUDIT_ACTION_MINT,
+func (t *trail) mint(eventID string, m *modelv1alpha1.Mint) {
+	t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_MINT,
 		target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, m.GetRef()), model.ShortName(m.GetRule()), nil,
 		&modelv1alpha1.Subject{
 			SubjectId: m.GetRef(), Kind: m.GetKind(), Status: modelv1alpha1.SubjectStatus_SUBJECT_STATUS_ACTIVE,
@@ -112,7 +128,7 @@ func mintEntry(eventID string, m *modelv1alpha1.Mint) (*modelv1alpha1.AuditEntry
 // bindingEntry audits a change to an alias's binding timeline: released when
 // the change leaves the alias with a released row it did not have, or with no
 // rows at all, written otherwise. before is nil for an alias with no rows.
-func bindingEntry(alias string, before, after []*modelv1alpha1.Binding) (*modelv1alpha1.AuditEntry, error) {
+func (t *trail) binding(alias string, before, after []*modelv1alpha1.Binding) {
 	action := modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN
 	released := func(rows []*modelv1alpha1.Binding) int {
 		n := 0
@@ -134,7 +150,7 @@ func bindingEntry(alias string, before, after []*modelv1alpha1.Binding) (*modelv
 	if len(after) > 0 {
 		a = &modelv1alpha1.BindingTimeline{Alias: alias, Bindings: withoutRecordTimes(after)}
 	}
-	return entry(action, aliasTarget(alias), "", b, a)
+	t.add(action, aliasTarget(alias), "", b, a)
 }
 
 // withoutRecordTimes copies rows without the times the store sets, so an
@@ -154,78 +170,58 @@ func withoutRecordTimes(rows []*modelv1alpha1.Binding) []*modelv1alpha1.Binding 
 // before and after as written, so it leaves out the aliases and recorded_at
 // (the alias lists are in the binding entries and the record is in the
 // journal).
-func mergeEntry(eventID string, m *modelv1alpha1.Merge) (*modelv1alpha1.AuditEntry, error) {
+func (t *trail) merge(eventID string, m *modelv1alpha1.Merge) {
 	survivor, merged := m.GetSubjectIds()[0], m.GetSubjectIds()[1]
-	e, err := entry(modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE,
+	e := t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE,
 		target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, survivor), model.ShortName(m.GetRule()), nil,
 		&modelv1alpha1.MergeRecord{
 			SurvivorId: survivor, MergedId: merged, Rule: m.GetRule(), ConfidencePpm: m.GetConfidencePpm(),
 			Evidence: m.GetEvidence(), EventId: eventID,
 		})
-	if err != nil {
-		return nil, err
-	}
 	e.ConfidencePpm = m.GetConfidencePpm()
-	return e, nil
 }
 
 // identityAudit returns the entries for the mints, the binding changes and the
 // merges of cs, in that order. before is the store's rows for each alias.
 func (u *run) identityAudit() ([]*modelv1alpha1.AuditEntry, error) {
-	var out []*modelv1alpha1.AuditEntry
+	t := &trail{}
 	for _, m := range u.cs.GetMints() {
-		e, err := mintEntry(u.cs.GetEventId(), m)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+		t.mint(u.cs.GetEventId(), m)
 	}
 	for _, bt := range u.cs.GetBindings() {
-		e, err := bindingEntry(bt.GetAlias(), u.g.rows[model.Key(bt.GetAlias())], bt.GetBindings())
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+		t.binding(bt.GetAlias(), u.g.rows[model.Key(bt.GetAlias())], bt.GetBindings())
 	}
 	for _, m := range u.cs.GetMerges() {
-		e, err := mergeEntry(u.cs.GetEventId(), m)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+		t.merge(u.cs.GetEventId(), m)
 	}
-	return out, nil
+	return t.entries, t.err
 }
 
 // factTarget names a fact in an entry. A fact of a subject the ChangeSet
 // mints, or with a minted subject as its object, has no ID yet, so it is named
 // by its subject and predicate (docs/spec/contracts.md, "Audit entries").
-func factTarget(ft *modelv1alpha1.FactTimeline) (*modelv1alpha1.AuditTarget, error) {
+func (t *trail) factTarget(ft *modelv1alpha1.FactTimeline) *modelv1alpha1.AuditTarget {
 	if isRef(ft.GetSubjectId()) || isRef(ft.GetObject().GetSubjectId()) {
-		return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, ft.GetSubjectId()+"/"+ft.GetPredicate()), nil
+		return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, ft.GetSubjectId()+"/"+ft.GetPredicate())
 	}
 	id, err := model.FactID(ft.GetSubjectId(), ft.GetPredicate(), ft.GetObject())
 	if err != nil {
-		return nil, fmt.Errorf("fact id of %s %s: %w", ft.GetSubjectId(), ft.GetPredicate(), err)
+		t.fail(fmt.Errorf("fact id of %s %s: %w", ft.GetSubjectId(), ft.GetPredicate(), err))
 	}
-	return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_FACT, id), nil
+	return target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_FACT, id)
 }
 
 // factStatusEntry audits the change of a fact's status timeline from before to
 // after, or returns nil if the two say the same. The rule is the status reason
 // of the first span that is new, or no_support when the change only removes
 // spans or cuts their valid time short.
-func factStatusEntry(before, after *modelv1alpha1.FactTimeline) (*modelv1alpha1.AuditEntry, error) {
+func (t *trail) factStatus(before, after *modelv1alpha1.FactTimeline) {
 	if slices.EqualFunc(before.GetSpans(), after.GetSpans(), func(a, b *modelv1alpha1.FactSpan) bool { return proto.Equal(a, b) }) {
-		return nil, nil
+		return
 	}
 	ft := after
 	if len(after.GetSpans()) == 0 {
 		ft = before
-	}
-	t, err := factTarget(ft)
-	if err != nil {
-		return nil, err
 	}
 	reason := modelv1alpha1.StatusReason_STATUS_REASON_NO_SUPPORT
 	for _, s := range after.GetSpans() {
@@ -245,7 +241,7 @@ func factStatusEntry(before, after *modelv1alpha1.FactTimeline) (*modelv1alpha1.
 	if len(after.GetSpans()) > 0 {
 		a = after
 	}
-	return entry(modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED, t, rule, b, a)
+	t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_FACT_STATUS_CHANGED, t.factTarget(ft), rule, b, a)
 }
 
 // withdrawalEntries audits the claims a source stopped making: a fact it
@@ -256,7 +252,7 @@ func withdrawalEntries(before, after map[string]*groupFact) ([]*modelv1alpha1.Au
 	live := func(vs []*modelv1alpha1.Support) bool {
 		return slices.ContainsFunc(vs, func(v *modelv1alpha1.Support) bool { return v.GetValidTo() == nil })
 	}
-	var out []*modelv1alpha1.AuditEntry
+	t := &trail{}
 	for _, id := range slices.Sorted(maps.Keys(before)) {
 		gf := before[id]
 		for _, source := range slices.Sorted(maps.Keys(gf.bySource)) {
@@ -268,10 +264,6 @@ func withdrawalEntries(before, after map[string]*groupFact) ([]*modelv1alpha1.Au
 				continue
 			}
 			ft := &modelv1alpha1.FactTimeline{SubjectId: gf.f.subject, Predicate: gf.f.pred, Object: gf.f.object}
-			t, err := factTarget(ft)
-			if err != nil {
-				return nil, err
-			}
 			timeline := func(vs []*modelv1alpha1.Support) proto.Message {
 				if len(vs) == 0 {
 					return nil
@@ -284,14 +276,10 @@ func withdrawalEntries(before, after map[string]*groupFact) ([]*modelv1alpha1.Au
 				}
 				return st
 			}
-			e, err := entry(modelv1alpha1.AuditAction_AUDIT_ACTION_CLAIM_WITHDRAWN, t, "", timeline(gf.bySource[source]), timeline(now))
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, e)
+			t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_CLAIM_WITHDRAWN, t.factTarget(ft), "", timeline(gf.bySource[source]), timeline(now))
 		}
 	}
-	return out, nil
+	return t.entries, t.err
 }
 
 // cutShort reports whether after is before with an earlier end of valid time.
@@ -309,19 +297,14 @@ func cutShort(before, after *modelv1alpha1.FactSpan) bool {
 // without standing (docs/spec/data-model.md, "Conflicts"). One that a decision
 // closes is closed by the rule that decided it, and one whose supports stopped
 // disagreeing by evidence_changed.
-func conflictEntries(subject, pred string, before, after []*modelv1alpha1.Conflict) ([]*modelv1alpha1.AuditEntry, error) {
+func (t *trail) conflicts(subject, pred string, before, after []*modelv1alpha1.Conflict) {
 	standing := func(c *modelv1alpha1.Conflict) bool {
 		return c.GetResolution() == modelv1alpha1.ConflictResolution_CONFLICT_RESOLUTION_UNSPECIFIED
 	}
-	t := target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, subject+"/"+pred)
-	var out []*modelv1alpha1.AuditEntry
+	at := target(modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, subject+"/"+pred)
 	for _, c := range after {
 		if standing(c) && !covered(before, c) {
-			e, err := entry(modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, t, "", nil, c)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, e)
+			t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, at, "", nil, c)
 		}
 	}
 	for _, c := range before {
@@ -335,13 +318,8 @@ func conflictEntries(subject, pred string, before, after []*modelv1alpha1.Confli
 				break
 			}
 		}
-		e, err := entry(modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_CLOSED, t, model.ShortName(resolution), c, nil)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+		t.add(modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_CLOSED, at, model.ShortName(resolution), c, nil)
 	}
-	return out, nil
 }
 
 // covered reports whether list holds a standing conflict between the same

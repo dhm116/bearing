@@ -303,25 +303,20 @@ func (r *factRun) groupStatuses(ctx context.Context, subject, pred string, read 
 // out to be a real team, two sources that now disagree) is audited here beside
 // the merge.
 func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, beforeCT *modelv1alpha1.ConflictTimeline, after []*modelv1alpha1.FactTimeline, afterCT *modelv1alpha1.ConflictTimeline) ([]*modelv1alpha1.AuditEntry, error) {
-	index := func(fts []*modelv1alpha1.FactTimeline) (map[string]*modelv1alpha1.FactTimeline, error) {
+	t := &trail{}
+	index := func(fts []*modelv1alpha1.FactTimeline) map[string]*modelv1alpha1.FactTimeline {
 		out := make(map[string]*modelv1alpha1.FactTimeline, len(fts))
 		for _, ft := range fts {
 			f, err := newFact(ft.GetSubjectId(), ft.GetPredicate(), ft.GetObject())
 			if err != nil {
-				return nil, err
+				t.fail(err)
+				continue
 			}
 			out[f.id()] = ft
 		}
-		return out, nil
+		return out
 	}
-	b, err := index(before)
-	if err != nil {
-		return nil, err
-	}
-	a, err := index(after)
-	if err != nil {
-		return nil, err
-	}
+	b, a := index(before), index(after)
 	ids := slices.Sorted(maps.Keys(b))
 	for id := range a {
 		if _, ok := b[id]; !ok {
@@ -329,21 +324,11 @@ func statusAudit(subject, pred string, before []*modelv1alpha1.FactTimeline, bef
 		}
 	}
 	slices.Sort(ids)
-	var out []*modelv1alpha1.AuditEntry
 	for _, id := range ids {
-		e, err := factStatusEntry(b[id], a[id])
-		if err != nil {
-			return nil, err
-		}
-		if e != nil {
-			out = append(out, e)
-		}
+		t.factStatus(b[id], a[id])
 	}
-	cs, err := conflictEntries(subject, pred, beforeCT.GetConflicts(), afterCT.GetConflicts())
-	if err != nil {
-		return nil, err
-	}
-	return append(out, cs...), nil
+	t.conflicts(subject, pred, beforeCT.GetConflicts(), afterCT.GetConflicts())
+	return t.entries, t.err
 }
 
 // authoritative reports whether the source's declaration makes the fact's
