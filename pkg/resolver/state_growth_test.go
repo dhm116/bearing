@@ -70,7 +70,7 @@ func repeatSyncsEvery(t *testing.T, facts, syncs int, every time.Duration) []gro
 // first sync, and each sync writes as much as the one before: a confirmation
 // extends the existing record (issue #77, docs/spec/data-model.md "State,
 // determinism and apply"), and the scope's watermarks are one small entry per
-// hour that is written once (issue #136). It used to be a record that grew by
+// quarter hour that is written once (issue #136). It used to be a record that grew by
 // about 200 bytes per sync and was written whole each time: 100 MB of journal
 // after 1,000 syncs.
 func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
@@ -130,9 +130,9 @@ func TestRepeatedSyncsOfManyFactsDoNotGrowTheChangeSet(t *testing.T) {
 	}
 }
 
-// A scope synced more often than hourly rewrites its hour's entry each time,
-// which holds the few watermarks of the hour: the bytes a sync writes are
-// bounded by the syncs in an hour, however long the scope has been synced.
+// A scope synced more often than hourly rewrites its quarter hour's entry each
+// time, which holds the few watermarks of the quarter hour: the bytes a sync writes are
+// bounded by the syncs in a quarter hour, however long the scope has been synced.
 func TestRepeatedSyncsMoreOftenThanHourlyWriteABoundedEntry(t *testing.T) {
 	t.Parallel()
 	const syncs = 600
@@ -149,8 +149,8 @@ func TestRepeatedSyncsMoreOftenThanHourlyWriteABoundedEntry(t *testing.T) {
 		t.Errorf("24 syncs write %d bytes of wm/ entries after %d syncs and %d early on, want the same", late, syncs, early)
 	}
 	for i, s := range got {
-		if s.written["wm"] > 12*250+300 {
-			t.Fatalf("sync %d wrote %d bytes of wm/ entries, want at most the twelve watermarks of an hour and a head", i+1, s.written["wm"])
+		if s.written["wm"] > 3*250+300 {
+			t.Fatalf("sync %d wrote %d bytes of wm/ entries, want at most the three watermarks of a quarter hour and a head", i+1, s.written["wm"])
 		}
 	}
 }

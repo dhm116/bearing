@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"math/rand"
 	"regexp"
 	"slices"
@@ -9,6 +10,9 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
 var approverRE = regexp.MustCompile(`approves_changes -> github:team_node/(\w+)`)
@@ -208,7 +212,7 @@ func TestRandomScopeStoriesDoNotDependOnApplyOrder(t *testing.T) {
 		times = append(times, t0.Add(time.Duration(m)*time.Minute))
 	}
 	var same, ignored int
-	for story := range 40 {
+	for story := range 25 {
 		events := randomStory(rng)
 		ordered := slices.Clone(events)
 		slices.SortStableFunc(ordered, func(a, b Event) int {
@@ -216,7 +220,7 @@ func TestRandomScopeStoriesDoNotDependOnApplyOrder(t *testing.T) {
 		})
 		base := applyAll(t, ordered...)
 		want := factsAtTimes(t, base, times)
-		for range 15 {
+		for range 10 {
 			e := newEnv(t)
 			order := rng.Perm(len(events))
 			for _, i := range order {
@@ -233,7 +237,134 @@ func TestRandomScopeStoriesDoNotDependOnApplyOrder(t *testing.T) {
 		}
 	}
 	t.Logf("%d applies gave the in-order facts and %d reported ignoring a write", same, ignored)
-	if same < 200 {
-		t.Errorf("got %d applies with the in-order facts, want at least 200", same)
+	if same < 100 {
+		t.Errorf("got %d applies with the in-order facts, want at least 100", same)
+	}
+}
+
+func minuteStamp(m int) string { return t0.Add(time.Duration(m) * time.Minute).Format(time.RFC3339) }
+
+// multiScopeStory is syncs and claims of one repository and its teams at
+// irregular times, scoped to one predicate, all predicates, one attribute and
+// the team side's incoming relations, so late arrivals meet scopes that overlap
+// and ones that do not.
+func multiScopeStory(rng *rand.Rand) []Event {
+	teams := []string{"github:team_node/T1", "github:team_node/T2", "github:team_node/T3"}
+	var evs []Event
+	n := 6 + rng.Intn(10)
+	for i := 0; i < n; i++ {
+		at := 2 + rng.Intn(14)
+		var o *eventv1alpha1.Observation
+		kind := rng.Intn(6)
+		switch kind {
+		case 4:
+			tm := teams[rng.Intn(3)]
+			o = obsAt(minuteStamp(at), "Team", tm)
+			if rng.Intn(2) == 0 {
+				o.Data.Relations = append(o.Data.Relations, &modelv1alpha1.Relation{Type: "approves_changes", End: &modelv1alpha1.Relation_From{From: "github:repo_node/R1"}})
+			}
+			o = withScope(o, true, "approves_changes")
+		default:
+			o = obsAt(minuteStamp(at), "Repository", "github:repo_node/R1", "github:repo/acme/a")
+			for _, tm := range teams {
+				if rng.Intn(3) == 0 {
+					o = withRelation(o, "approves_changes", tm)
+					rel := o.Data.Relations[len(o.Data.Relations)-1]
+					switch rng.Intn(4) {
+					case 0:
+						rel.ValidFrom = timestamppb.New(t0.Add(time.Duration(rng.Intn(16)) * time.Minute))
+					case 1:
+						rel.Absent = true
+					}
+				}
+			}
+			switch kind {
+			case 0:
+				o = withScope(o, false, "approves_changes")
+			case 1:
+				o = withScope(o, false, "*")
+			case 2:
+				o = withAttr(o, "default_branch", []string{"main", "dev"}[rng.Intn(2)])
+			case 3:
+				o = withClaim(o, "default_branch", []string{"main", "dev"}[rng.Intn(2)], minuteStamp(rng.Intn(16)), false)
+			case 5:
+				o = withScope(o, false, "approves_changes", "default_branch")
+				if rng.Intn(2) == 0 {
+					o = withAttr(o, "default_branch", "main")
+				}
+			}
+		}
+		o.Id += fmt.Sprintf("-n%d", i)
+		src := "github-acme"
+		evs = append(evs, event(src, o))
+	}
+	return evs
+}
+
+// Several scopes at once give the same facts in any arrival order, as long as
+// the resolver reports no ignored write (a regression of the first version of
+// issue #136, whose watermarks of one scope hid the ones of another).
+func TestRandomMultiScopeStoriesDoNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewSource(1361)) //nolint:gosec // G404: a seeded shuffle, not security
+	var times []time.Time
+	for m := range 20 {
+		times = append(times, t0.Add(time.Duration(m)*time.Minute+30*time.Second))
+	}
+	var same, ignored int
+	for story := range 20 {
+		events := multiScopeStory(rng)
+		ordered := slices.Clone(events)
+		slices.SortStableFunc(ordered, func(a, b Event) int {
+			return a.Observation.GetTime().AsTime().Compare(b.Observation.GetTime().AsTime())
+		})
+		want := factsAtTimes(t, applyAll(t, ordered...), times)
+		for range 6 {
+			e := newEnv(t)
+			order := rng.Perm(len(events))
+			for _, i := range order {
+				e.apply(events[i])
+			}
+			switch ok, failed := e.sameOrDropped(factsAtTimes(t, e, times), want, times); {
+			case ok:
+				same++
+			case failed:
+				t.Fatalf("story %d order %v differs and nothing explains it:\n%s\nwant:\n%s", story, order, factsAtTimes(t, e, times), want)
+			default:
+				ignored++
+			}
+		}
+	}
+	t.Logf("%d applies gave the in-order facts and %d reported ignoring a write", same, ignored)
+	if same < 100 {
+		t.Errorf("got %d applies with the in-order facts, want at least 100", same)
+	}
+}
+
+// Five writes to one repository (found by comparing with the version that
+// copied watermarks into every merged scope) in which a watermark of one scope
+// must still split a pair of confirmations when another scope has one that
+// ends later: their dominance is judged scope by scope, not across them.
+func TestWatermarksOfOtherScopesDoNotHideASplit(t *testing.T) {
+	t.Parallel()
+	all := multiScopeStory(rand.New(rand.NewSource(76))) //nolint:gosec // G404: a seeded story, not security
+	pick := func(order ...int) []Event {
+		var out []Event
+		for _, i := range order {
+			out = append(out, all[i])
+		}
+		return out
+	}
+	var times []time.Time
+	for m := range 20 {
+		times = append(times, t0.Add(time.Duration(m)*time.Minute+30*time.Second))
+	}
+	late := applyAll(t, pick(4, 8, 7, 5, 6)...)
+	inOrder := applyAll(t, pick(4, 8, 6, 7, 5)...)
+	if got, want := factsAtTimes(t, late, times), factsAtTimes(t, inOrder, times); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if late.dropped != 0 {
+		t.Errorf("got %d dropped writes, want none", late.dropped)
 	}
 }

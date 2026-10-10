@@ -126,9 +126,7 @@ func (r *factRun) moveScopes(ctx context.Context, m, to string) error {
 			}
 			// The merged subject's watermarks stay where they are: the survivor's
 			// scope answers for them too.
-			if into.link(from.key) {
-				r.linkGen++
-			}
+			into.link(from.key)
 			moved = append(moved, c)
 		}
 		if len(moved) > 0 {

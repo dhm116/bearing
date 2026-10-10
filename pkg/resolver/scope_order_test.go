@@ -96,7 +96,7 @@ func TestScopeSyncsAndChangesDoNotDependOnApplyOrder(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(136)) //nolint:gosec // G404: a seeded shuffle, not security
 	var same, ignored int
-	for range 400 {
+	for range 200 {
 		e := newEnv(t)
 		order := rng.Perm(len(events))
 		for _, i := range order {

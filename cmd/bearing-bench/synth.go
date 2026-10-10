@@ -49,7 +49,12 @@ type changeTemplate struct {
 // bucket of the scope watermark entries the resolver writes for an observation
 // made at t. A test compares it with the resolver's.
 func quarterHour(t time.Time) string {
-	return strconv.FormatInt(t.UnixMicro()/(15*60*1e6), 10)
+	const span = 15 * 60 * 1e6
+	n := t.UnixMicro() / span
+	if t.UnixMicro()%span < 0 {
+		n--
+	}
+	return strconv.FormatInt(n, 10)
 }
 
 var hashKey = regexp.MustCompile(`/(at|url)/=([0-9a-f]{64})`)

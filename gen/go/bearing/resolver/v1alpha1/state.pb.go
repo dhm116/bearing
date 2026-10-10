@@ -501,24 +501,30 @@ func (x *Watermark) GetReason() v1alpha1.SupportReason {
 // ScopeWatermarks that holds, sorted by key, the watermarks whose key's
 // observed_at falls in that quarter hour of the epoch (the bucket). A late
 // claim finds the first watermark with a greater key by reading its bucket
-// and the ones after it up to `last_bucket`, so an entry is only ever read by
-// its key. A bucket is written when it gains or loses a watermark.
+// and the ones after it inside the head's blocks, so an entry is only ever read by
+// its key. A bucket is written when it gains or loses a watermark. A binary
+// from before the buckets reads a bucketed head as having no watermarks; the
+// format is unreleased, so nothing guards against it.
 type ScopeWatermarks struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The watermarks, in a head that is not bucketed and in a bucket's entry.
 	Watermarks []*Watermark `protobuf:"bytes,1,rep,name=watermarks,proto3" json:"watermarks,omitempty"`
 	// Set in a head whose watermarks are in buckets' entries.
 	Bucketed bool `protobuf:"varint,2,opt,name=bucketed,proto3" json:"bucketed,omitempty"`
-	// In a bucketed head, the buckets, as quarter hours since the epoch, that
-	// can hold a watermark of the scope itself are first_bucket to last_bucket.
-	// first_bucket greater than last_bucket says the scope has none.
-	FirstBucket int64 `protobuf:"varint,3,opt,name=first_bucket,json=firstBucket,proto3" json:"first_bucket,omitempty"`
-	// See first_bucket.
-	LastBucket int64 `protobuf:"varint,4,opt,name=last_bucket,json=lastBucket,proto3" json:"last_bucket,omitempty"`
+	// In a bucketed head, the blocks of 1,024 buckets (block n covers buckets
+	// 1024n to 1024n+1023) that can hold a watermark of the scope itself, in
+	// increasing order. A lookup reads buckets only inside them, so a gap of
+	// years between watermarks costs no reads. A block may stay after its last
+	// watermark is gone.
+	Blocks []int64 `protobuf:"varint,3,rep,packed,name=blocks,proto3" json:"blocks,omitempty"`
 	// In a head, the keys of the heads of the scopes of subjects merged into
 	// this one's subject, whose watermarks also apply here. They are left where
 	// they are, not copied.
-	Linked        []string `protobuf:"bytes,5,rep,name=linked,proto3" json:"linked,omitempty"`
+	Linked []string `protobuf:"bytes,4,rep,name=linked,proto3" json:"linked,omitempty"`
+	// In a bucketed head, the highest bucket that held a watermark, which is in
+	// the last block, so a lookup past the latest watermark reads nothing. It
+	// may stay after that watermark is gone.
+	LastBucket    int64 `protobuf:"varint,5,opt,name=last_bucket,json=lastBucket,proto3" json:"last_bucket,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -567,18 +573,11 @@ func (x *ScopeWatermarks) GetBucketed() bool {
 	return false
 }
 
-func (x *ScopeWatermarks) GetFirstBucket() int64 {
+func (x *ScopeWatermarks) GetBlocks() []int64 {
 	if x != nil {
-		return x.FirstBucket
+		return x.Blocks
 	}
-	return 0
-}
-
-func (x *ScopeWatermarks) GetLastBucket() int64 {
-	if x != nil {
-		return x.LastBucket
-	}
-	return 0
+	return nil
 }
 
 func (x *ScopeWatermarks) GetLinked() []string {
@@ -586,6 +585,13 @@ func (x *ScopeWatermarks) GetLinked() []string {
 		return x.Linked
 	}
 	return nil
+}
+
+func (x *ScopeWatermarks) GetLastBucket() int64 {
+	if x != nil {
+		return x.LastBucket
+	}
+	return 0
 }
 
 var File_bearing_resolver_v1alpha1_state_proto protoreflect.FileDescriptor
@@ -623,16 +629,16 @@ const file_bearing_resolver_v1alpha1_state_proto_rawDesc = "" +
 	"\tWatermark\x12*\n" +
 	"\x02at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x128\n" +
 	"\x03key\x18\x02 \x01(\v2&.bearing.resolver.v1alpha1.OrderingKeyR\x03key\x12=\n" +
-	"\x06reason\x18\x03 \x01(\x0e2%.bearing.model.v1alpha1.SupportReasonR\x06reason\"\xcf\x01\n" +
+	"\x06reason\x18\x03 \x01(\x0e2%.bearing.model.v1alpha1.SupportReasonR\x06reason\"\xc4\x01\n" +
 	"\x0fScopeWatermarks\x12D\n" +
 	"\n" +
 	"watermarks\x18\x01 \x03(\v2$.bearing.resolver.v1alpha1.WatermarkR\n" +
 	"watermarks\x12\x1a\n" +
-	"\bbucketed\x18\x02 \x01(\bR\bbucketed\x12!\n" +
-	"\ffirst_bucket\x18\x03 \x01(\x03R\vfirstBucket\x12\x1f\n" +
-	"\vlast_bucket\x18\x04 \x01(\x03R\n" +
-	"lastBucket\x12\x16\n" +
-	"\x06linked\x18\x05 \x03(\tR\x06linkedBCZAbearing.example/gen/go/bearing/resolver/v1alpha1;resolverv1alpha1b\x06proto3"
+	"\bbucketed\x18\x02 \x01(\bR\bbucketed\x12\x16\n" +
+	"\x06blocks\x18\x03 \x03(\x03R\x06blocks\x12\x16\n" +
+	"\x06linked\x18\x04 \x03(\tR\x06linked\x12\x1f\n" +
+	"\vlast_bucket\x18\x05 \x01(\x03R\n" +
+	"lastBucketBCZAbearing.example/gen/go/bearing/resolver/v1alpha1;resolverv1alpha1b\x06proto3"
 
 var (
 	file_bearing_resolver_v1alpha1_state_proto_rawDescOnce sync.Once

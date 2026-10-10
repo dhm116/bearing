@@ -189,6 +189,15 @@ hour) and rewrites nothing that grows. A scope synced hourly adds about 1.8 MB
 of journal a year, and a scope synced more than four times an hour rewrites
 its current quarter hour's entry, which holds a few watermarks. A
 `ChangeSet` is the same size on the thousandth sync as on the tenth. The
+head lists the blocks of about ten days that hold a watermark, so a gap of
+years between two watermarks costs no reads. A scope whose watermarks were
+written before this layout keeps them in its head until the first sync that
+changes them, which moves them in one `ChangeSet`
+([#203](https://github.com/dhm116/bearing/issues/203) covers a scope too large
+for one); a binary from before the layout reads a moved head as empty. A merge
+links the merged subject's head from the survivor's and copies nothing; how
+the link ends with an un-merge is
+[#204](https://github.com/dhm116/bearing/issues/204). The
 `bearing.graph.state_entry.bytes` metric shows the sizes. The entries of
 periods that compaction has rolled up can be deleted
 ([#193](https://github.com/dhm116/bearing/issues/193)).

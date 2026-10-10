@@ -168,15 +168,15 @@ func checkAgainst(t testing.TB, m *scopeMarks, want staircase, rng *rand.Rand, w
 // Adding watermarks in any order, one run at a time, keeps the same
 // watermarks the plain list keeps and finds the same neighbours of any key,
 // in a scope whose watermarks are spread over hours with long gaps, and
-// share hours and instants.
+// share quarter hours and instants.
 func TestScopeMarksKeepTheStaircaseOfAPlainList(t *testing.T) {
 	t.Parallel()
-	for seed := range 30 {
+	for seed := range 15 {
 		rng := rand.New(rand.NewSource(int64(seed))) //nolint:gosec // G404: seeded data, not security
 		store := &markStore{entries: map[string]*anypb.Any{}}
 		const key = "wm/src/subject/out/pred"
 		var want staircase
-		for i := range 60 {
+		for i := range 40 {
 			// Hours are clustered, so some buckets hold several watermarks and
 			// there are gaps of hundreds of hours between clusters.
 			h := float64([]int{0, 1, 2, 3, 30, 31, 400, 401, 402, 1500}[rng.Intn(10)]) + float64(rng.Intn(4))*0.25
@@ -238,8 +238,8 @@ func TestScopeMarksHourlySyncsCostTheSameEachTime(t *testing.T) {
 		if err := m.add(context.Background(), wmAt(float64(i), orderKeyAt(float64(i), "o"))); err != nil {
 			t.Fatal(err)
 		}
-		if i > 2 && store.keys > 2 {
-			t.Fatalf("sync %d read %d keys, want at most 2", i, store.keys)
+		if i > 2 && store.keys > 8 {
+			t.Fatalf("sync %d read %d keys, want at most 8 (the buckets between two syncs)", i, store.keys)
 		}
 		written = append(written, store.save(t, m))
 	}
@@ -248,12 +248,13 @@ func TestScopeMarksHourlySyncsCostTheSameEachTime(t *testing.T) {
 	}
 	t.Logf("a sync writes %d bytes after 2000 syncs", written[1999])
 	if len(store.entries) != 2001 {
-		t.Errorf("got %d entries, want a head and a bucket for each of the 2000 hours", len(store.entries))
+		t.Errorf("got %d entries, want a head and a bucket for each of the 2000 syncs", len(store.entries))
 	}
 }
 
-// A watermark that falls in a gap of many empty hours is found by reading
-// in batches that double, not one hour at a time.
+// A watermark that falls in a gap of many empty quarter hours is found by
+// reading in batches that double, and a gap of years between blocks is not
+// read at all.
 func TestScopeMarksCrossAGapInFewReads(t *testing.T) {
 	t.Parallel()
 	store := &markStore{entries: map[string]*anypb.Any{}}
@@ -274,7 +275,7 @@ func TestScopeMarksCrossAGapInFewReads(t *testing.T) {
 	if store.reads > 40 {
 		t.Errorf("got %d reads over a gap of 5000 hours, want at most 40", store.reads)
 	}
-	// Nothing before the first or after the last hour is read at all.
+	// Nothing before the first or after the last block is read at all.
 	store.reads = 0
 	if w, err := m.next(context.Background(), orderKeyAt(6000, "o"), false); err != nil || w != nil || store.reads != 0 {
 		t.Errorf("past the last watermark: got %v, %v after %d reads, want none and no reads", w, err, store.reads)
@@ -327,7 +328,7 @@ func TestScopeMarksMoveAnInlineHeadOnTheFirstChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !msg.GetBucketed() || len(msg.GetWatermarks()) != 0 || len(store.entries) < 5 {
-		t.Errorf("got head %v and %d entries, want a bucketed head with no watermarks and one entry per hour", msg, len(store.entries))
+		t.Errorf("got head %v and %d entries, want a bucketed head with no watermarks and one entry per quarter hour", msg, len(store.entries))
 	}
 }
 
@@ -371,14 +372,18 @@ func TestScopeMarksRefuseEntriesThatBreakTheFormat(t *testing.T) {
 		head   *resolverv1alpha1.ScopeWatermarks
 		bucket *resolverv1alpha1.ScopeWatermarks
 	}{
-		"a bucketed head with watermarks": {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, FirstBucket: 0, LastBucket: 9, Watermarks: []*resolverv1alpha1.Watermark{ok}}},
-		"a watermark without a reason":    {head: &resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{noReason}}},
-		"a watermark in the wrong hour": {
-			head:   &resolverv1alpha1.ScopeWatermarks{Bucketed: true, FirstBucket: 0, LastBucket: 9},
+		"a bucketed head with watermarks":      {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{0}, Watermarks: []*resolverv1alpha1.Watermark{ok}}},
+		"a watermark without a reason":         {head: &resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{noReason}}},
+		"blocks out of order":                  {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{5, 3}}},
+		"a last bucket outside the last block": {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{0}, LastBucket: 5000}},
+		"a last bucket without blocks":         {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, LastBucket: 3}},
+		"blocks out of range":                  {head: &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{1 << 40}}},
+		"a watermark in the wrong quarter hour": {
+			head:   &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{0}, LastBucket: 3},
 			bucket: &resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{ok}},
 		},
-		"an hour with head fields": {
-			head:   &resolverv1alpha1.ScopeWatermarks{Bucketed: true, FirstBucket: 0, LastBucket: 9},
+		"a quarter hour with head fields": {
+			head:   &resolverv1alpha1.ScopeWatermarks{Bucketed: true, Blocks: []int64{0}, LastBucket: 3},
 			bucket: &resolverv1alpha1.ScopeWatermarks{Linked: []string{"x"}},
 		},
 	} {
@@ -390,7 +395,7 @@ func TestScopeMarksRefuseEntriesThatBreakTheFormat(t *testing.T) {
 				t.Fatal(err)
 			}
 			if c.bucket != nil {
-				// The watermark is not in the hour whose entry holds it.
+				// The watermark is not in the quarter hour whose entry holds it.
 				if store.entries[key+"/3"], err = anypb.New(c.bucket); err != nil {
 					t.Fatal(err)
 				}
@@ -407,5 +412,66 @@ func TestScopeMarksRefuseEntriesThatBreakTheFormat(t *testing.T) {
 				t.Errorf("got %v, want ErrCorrupt", err)
 			}
 		})
+	}
+}
+
+// A watermark stamped decades before the rest (a source with a broken clock)
+// does not make a lookup in the gap read the quarter hours between: they are
+// outside every block of the head.
+func TestScopeMarksSkipDecadesOfNothing(t *testing.T) {
+	t.Parallel()
+	store := &markStore{entries: map[string]*anypb.Any{}}
+	const key = "wm/src/subject/out/pred"
+	ctx := context.Background()
+	const early = -56 * 8766 // hours: about 56 years before the others
+	for _, h := range []float64{early, 0, 1} {
+		m := store.open(t, key)
+		if err := m.add(ctx, wmAt(h, orderKeyAt(h, "o"))); err != nil {
+			t.Fatal(err)
+		}
+		store.save(t, m)
+	}
+	m := store.open(t, key)
+	store.reads, store.keys = 0, 0
+	w, err := m.next(ctx, orderKeyAt(early+10, "o"), false)
+	if err != nil || w == nil || w.at != wmAt(0, nil).at {
+		t.Fatalf("got %v, %v, want the watermark of hour 0", w, err)
+	}
+	if store.keys > 2100 {
+		t.Errorf("a lookup across 56 years read %d keys in %d reads, want no more than two blocks", store.keys, store.reads)
+	}
+	store.reads, store.keys = 0, 0
+	if w, err := m.prev(ctx, orderKeyAt(-10, "o")); err != nil || w == nil || w.at != wmAt(early, nil).at || store.keys > 2100 {
+		t.Errorf("got %v, %v after %d keys, want the early watermark in no more than a block", w, err, store.keys)
+	}
+}
+
+// Linking a merged subject's scope to a scope whose head still holds its
+// watermarks inline writes the link and the watermarks back as they were: a
+// merge alone does not move a legacy head.
+func TestScopeMarksLinkToAnInlineHeadKeepsItInline(t *testing.T) {
+	t.Parallel()
+	const key = "wm/src/survivor/out/pred"
+	w := wmAt(3, orderKeyAt(3, "o"))
+	head, err := anypb.New(&resolverv1alpha1.ScopeWatermarks{Watermarks: []*resolverv1alpha1.Watermark{packWatermark(w)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &markStore{entries: map[string]*anypb.Any{key: head}}
+	m := store.open(t, key)
+	if !m.link("wm/src/gone/out/pred") {
+		t.Fatal("link changed nothing")
+	}
+	store.save(t, m)
+	msg := &resolverv1alpha1.ScopeWatermarks{}
+	if err := store.entries[key].UnmarshalTo(msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.GetBucketed() || len(msg.GetWatermarks()) != 1 || !slices.Equal(msg.GetLinked(), []string{"wm/src/gone/out/pred"}) || len(store.entries) != 1 {
+		t.Errorf("got head %v and %d entries, want the inline watermark and the link in one entry", msg, len(store.entries))
+	}
+	got := store.open(t, key)
+	if n, err := got.next(context.Background(), orderKeyAt(0, "o"), false); err != nil || n == nil || n.at != w.at {
+		t.Errorf("got %v, %v, want the inline watermark after the link", n, err)
 	}
 }

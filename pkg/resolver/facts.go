@@ -75,9 +75,6 @@ type factRun struct {
 
 	series map[string]*seriesEntry
 	marks  map[string]*scopeMarks
-	// linkGen counts the links made, which invalidate the scopes known to be
-	// reachable from one another.
-	linkGen int
 	// touched are the supports to recompute.
 	touched map[string]affected
 	// out are the support timelines to write, by source and fact ID.
@@ -175,7 +172,7 @@ func (r *factRun) readMarks(ctx context.Context, key string, hasRef bool) (*scop
 // components returns a scope and the scopes linked to it, directly or not:
 // the watermarks that apply to its facts are theirs together.
 func (r *factRun) components(ctx context.Context, m *scopeMarks) ([]*scopeMarks, error) {
-	if m.closure != nil && m.closureGen == r.linkGen {
+	if m.closure != nil {
 		return m.closure, nil
 	}
 	out := []*scopeMarks{m}
@@ -193,7 +190,7 @@ func (r *factRun) components(ctx context.Context, m *scopeMarks) ([]*scopeMarks,
 			out = append(out, c)
 		}
 	}
-	m.closure, m.closureGen = out, r.linkGen
+	m.closure = out
 	return out, nil
 }
 
@@ -334,11 +331,10 @@ func (r *factRun) supportOf(c *claim) *modelv1alpha1.Support {
 // watermarksFor returns the watermarks of the scopes of a source's fact (those
 // with its subject as the subject (out) and its object as the object (in), for
 // its predicate and for all predicates) that decide what becomes of the
-// series s: for each key in it, the first watermark above the key and the first
-// at or above it, and the ones between two confirmations that would be joined.
-// No other watermark of the scopes changes s or what is built from it. Those
-// that a watermark of the scopes ends no later and above are left out, as they
-// are in a scope's own list.
+// series s. Each scope is read with the scopes linked to it, which together
+// are the list main kept after a merge copied the merged subject's watermarks
+// in, and the watermarks are chosen and pruned in each of those lists on its
+// own.
 func (r *factRun) watermarksFor(ctx context.Context, source string, f fact, s series) ([]watermark, error) {
 	scopes := []struct {
 		subject string
@@ -350,26 +346,40 @@ func (r *factRun) watermarksFor(ctx context.Context, source string, f fact, s se
 			in      bool
 		}{f.objectSubject(), true})
 	}
-	var comps []*scopeMarks
-	for _, sc := range scopes {
-		for _, pred := range []string{f.pred, "*"} {
-			m, err := r.readMarks(ctx, wmKey(source, sc.subject, sc.in, pred), isRef(sc.subject))
-			if err != nil {
-				return nil, err
-			}
-			cs, err := r.components(ctx, m)
-			if err != nil {
-				return nil, err
-			}
-			comps = append(comps, cs...)
-		}
-	}
 	keys := []*resolverv1alpha1.OrderingKey{r.p.key}
 	for _, e := range s {
 		if !slices.ContainsFunc(keys, func(k *resolverv1alpha1.OrderingKey) bool { return model.CompareOrderingKeys(k, e.key) == 0 }) {
 			keys = append(keys, e.key)
 		}
 	}
+	var out []watermark
+	for _, sc := range scopes {
+		for _, pred := range []string{f.pred, "*"} {
+			m, err := r.readMarks(ctx, wmKey(source, sc.subject, sc.in, pred), isRef(sc.subject))
+			if err != nil {
+				return nil, err
+			}
+			comps, err := r.components(ctx, m)
+			if err != nil {
+				return nil, err
+			}
+			ws, err := deciding(ctx, comps, keys, s)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ws...)
+		}
+	}
+	return out, nil
+}
+
+// deciding returns, from one scope's watermarks (spread over the scopes
+// merged into it), those that decide what becomes of the series s: for each
+// key, the first above it and the first at or above it, and the ones between
+// two confirmations that would be joined. No other watermark of the scope
+// changes s or what is built from it. A watermark that another of the scope
+// ends no later and above is left out, as it is in a scope's own list.
+func deciding(ctx context.Context, comps []*scopeMarks, keys []*resolverv1alpha1.OrderingKey, s series) ([]watermark, error) {
 	var cand []watermark
 	keep := func(w *watermark) {
 		if w != nil && !slices.ContainsFunc(cand, func(o watermark) bool { return o.at == w.at && model.CompareOrderingKeys(o.key, w.key) == 0 }) {
