@@ -203,6 +203,44 @@ func TestMergeThatOpensAConflictIsAudited(t *testing.T) {
 	}
 }
 
+// A merge that only renames the object of a standing conflict does not close
+// the conflict, and does not open another.
+func TestMergeThatRenamesAConflictsObjectAuditsNoConflict(t *testing.T) {
+	authority := &modelv1alpha1.FieldDeclaration{Predicate: string(model.RelOwnedBy), Authority: &modelv1alpha1.Authority{Authoritative: true}}
+	cfg := testConfig(t)
+	for _, d := range cfg.Declarations {
+		for _, k := range d.GetKinds() {
+			if d.GetName() == "github" && k.GetKind() == "Repository" {
+				k.Fields = append(k.Fields, proto.CloneOf(authority))
+			}
+		}
+	}
+	catalog := catalogDeclaration(t, true)
+	for _, f := range catalog.GetKinds()[0].GetFields() {
+		if f.GetPredicate() == string(model.RelOwnedBy) {
+			f.Authority = &modelv1alpha1.Authority{Authoritative: true}
+		}
+	}
+	cfg.Declarations = append(cfg.Declarations, catalog)
+	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
+	e := newEnvWith(t, cfg)
+	for i, team := range []string{"T0", "T1", "T2"} {
+		e.apply(event("github-acme", obsAt(fmt.Sprintf("2026-10-01T0%d:00:00Z", i), "Team", "github:team_node/"+team)))
+	}
+	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "owned_by", "github:team_node/T1")))
+	opened := e.audited(event("catalog-acme", withRelation(obsAt("2026-10-02T01:00:00Z", "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "owned_by", "github:team_node/T2")))
+	only(t, opened, modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED)
+
+	// T1 and T0 turn out to be one team; T1 merges into T0.
+	got := e.audited(event("github-acme", obsAt("2026-10-03T00:00:00Z", "Team", "github:team_node/T1", "github:team_node/T0")))
+	only(t, got, modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE)
+	for _, action := range []modelv1alpha1.AuditAction{modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_OPENED, modelv1alpha1.AuditAction_AUDIT_ACTION_CONFLICT_CLOSED} {
+		if n := len(entriesOf(got, action)); n != 0 {
+			t.Errorf("got %d %s entries in %v, want none: the conflict stands, with the survivor in place of the merged team", n, action, got)
+		}
+	}
+}
+
 // An alias has no length limit, an audit target has. The entry must not turn a
 // valid event into a rejection.
 func TestLongAliasDoesNotMakeAnEventUnappliable(t *testing.T) {

@@ -1315,7 +1315,7 @@ target or in `before` and `after`, and the store replaces it
 | `unmerge` | the subject split from | | `after`: the `MergeRecord`, where one exists |
 | `distinct_from_set`, `distinct_from_cleared` | the `distinct_from` fact | | |
 | `claim_withdrawn` | the fact (a `(subject, predicate)` when the subject is minted in the same event) | | the source's `SupportTimeline` |
-| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of, or about, a subject this event mints, since its ID can't be known before the apply | the `status_reason` of the first new span; `no_support` when the change only ends spans | the `FactTimeline` |
+| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of, or about, a subject this event mints, since its ID can't be known before the apply | the `status_reason` of the first new span; `no_support` when the change only ends spans or ends them earlier | the `FactTimeline` |
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
@@ -1328,14 +1328,25 @@ The resolver writes these entries as `system:resolver`, in an order a caller
 can rely on: rejections first, then mints, bindings and merges, then for each
 `(subject, predicate)` the claims withdrawn, the status changes and the
 conflicts, then dropped writes. A claim is withdrawn when a source's support for
-a fact stops being open-ended; a conflict closes when it ends or its valid time ends earlier (one that lasts longer is opened again), with
-`evidence_changed` as its rule unless a decision closed it. A `before` or
-`after` that holds a stored row leaves out the store's fields (`recorded_at`,
-`retracted_at`, a support's `fact_id`, a subject's `minted_at`), and a merge's
-`after` leaves out the alias lists and `recorded_at`, which the binding entries
-and the journal hold, so a replay of the same event against
-the same state writes the same entries. An event that changes nothing and refuses
-nothing audits nothing.
+a fact stops being open-ended. A conflict closes when it ends or its valid time
+ends earlier (one that lasts longer is opened again), with `evidence_changed`
+as its rule unless a decision closed it.
+
+A `before` or `after` that holds a stored row leaves out the store's fields
+(`recorded_at`, `retracted_at`, a support's `fact_id`, a subject's
+`minted_at`), and a merge's `after` leaves out the alias lists and
+`recorded_at`, which the binding entries and the journal hold. So a replay of
+the same event against the same state writes the same entries. When a merge
+makes two facts one, the `before` of the status change is the surviving
+subject's fact. An event that changes nothing and refuses nothing audits
+nothing.
+
+An entry's target ID is at most `MaxAuditIDBytes` ([contracts.md](contracts.md#audit-entries)),
+and an alias has no length limit. An alias over it is named in the target by
+its first bytes, cut on a character boundary, then `#` and the first 16 hex
+characters of the SHA-256 of the alias; `before` and `after` hold it in full. A
+`rejection`'s `reason` is cut to `MaxAuditReasonBytes` on a character
+boundary, with "…" at the cut.
 
 | Code | Scope | Raised by |
 | --- | --- | --- |

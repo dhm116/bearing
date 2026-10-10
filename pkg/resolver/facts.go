@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -730,6 +731,46 @@ func (r *factRun) beforeStatuses(ctx context.Context, subject, pred string) ([]*
 		}
 	}
 	return facts, conflicts, nil
+}
+
+// canonicalConflicts returns ct with each position's objects named as the
+// ChangeSet leaves them (through its planned merges) and in a fixed order, so
+// a conflict that a merge only renames compares equal before and after.
+func (r *factRun) canonicalConflicts(ctx context.Context, ct *modelv1alpha1.ConflictTimeline) (*modelv1alpha1.ConflictTimeline, error) {
+	if ct == nil {
+		return nil, nil
+	}
+	out := proto.CloneOf(ct)
+	for _, c := range out.GetConflicts() {
+		for _, pos := range c.GetPositions() {
+			keys := make([]string, len(pos.GetObjects()))
+			for i, o := range pos.GetObjects() {
+				if o.GetSubjectId() != "" {
+					var err error
+					if o.SubjectId, err = r.g.canon(ctx, o.GetSubjectId()); err != nil {
+						return nil, err
+					}
+				}
+				b, err := proto.MarshalOptions{Deterministic: true}.Marshal(o)
+				if err != nil {
+					return nil, fmt.Errorf("conflict object: %w", err)
+				}
+				keys[i] = string(b)
+			}
+			idx := make([]int, len(keys))
+			for i := range idx {
+				idx[i] = i
+			}
+			slices.SortFunc(idx, func(a, b int) int { return strings.Compare(keys[a], keys[b]) })
+			idx = slices.CompactFunc(idx, func(a, b int) bool { return keys[a] == keys[b] })
+			objects := make([]*modelv1alpha1.FactObject, len(idx))
+			for i, j := range idx {
+				objects[i] = pos.GetObjects()[j]
+			}
+			pos.Objects = objects
+		}
+	}
+	return out, nil
 }
 
 // stateEntries returns the state entries the run changed, sorted by key.

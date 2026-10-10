@@ -35,7 +35,14 @@ func (r *factRun) statuses(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		audit, err := statusAudit(subject, pred, prior, priorCT, timelines, ct)
+		if priorCT, err = r.canonicalConflicts(ctx, priorCT); err != nil {
+			return err
+		}
+		nowCT, err := r.canonicalConflicts(ctx, ct)
+		if err != nil {
+			return err
+		}
+		audit, err := statusAudit(subject, pred, prior, priorCT, timelines, nowCT)
 		if err != nil {
 			return err
 		}
