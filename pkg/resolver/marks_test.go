@@ -475,3 +475,40 @@ func TestScopeMarksLinkToAnInlineHeadKeepsItInline(t *testing.T) {
 		t.Errorf("got %v, %v, want the inline watermark after the link", n, err)
 	}
 }
+
+// The head's last bucket is never below the bucket of a watermark that is
+// there: a watermark far ahead is found from below it, and one added after it
+// at an earlier time (which ends it) leaves the lookup past it empty.
+func TestScopeMarksKeepTheLastBucketAtOrAboveEveryWatermark(t *testing.T) {
+	t.Parallel()
+	store := &markStore{entries: map[string]*anypb.Any{}}
+	const key = "wm/src/subject/out/pred"
+	ctx := context.Background()
+	for _, w := range []watermark{wmAt(5, orderKeyAt(5, "o")), wmAt(40000, orderKeyAt(40000, "o")), wmAt(20, orderKeyAt(20, "o"))} {
+		m := store.open(t, key)
+		if err := m.add(ctx, w); err != nil {
+			t.Fatal(err)
+		}
+		store.save(t, m)
+	}
+	m := store.open(t, key)
+	if top := bucketOf(orderKeyAt(40000, "o")); m.last != top {
+		t.Errorf("got last bucket %d, want %d", m.last, top)
+	}
+	if w, err := m.next(ctx, orderKeyAt(30, "o"), false); err != nil || w == nil || w.at != wmAt(40000, nil).at {
+		t.Errorf("got %v, %v, want the watermark far ahead", w, err)
+	}
+	// A watermark that starts earlier and ends later takes the far one's place.
+	m = store.open(t, key)
+	if err := m.add(ctx, wmAt(30, orderKeyAt(50000, "o"))); err != nil {
+		t.Fatal(err)
+	}
+	store.save(t, m)
+	m = store.open(t, key)
+	if w, err := m.next(ctx, orderKeyAt(40001, "o"), false); err != nil || w == nil || w.at != wmAt(30, nil).at {
+		t.Errorf("got %v, %v, want the later watermark that ends the far one", w, err)
+	}
+	if w, err := m.next(ctx, orderKeyAt(50001, "o"), false); err != nil || w != nil {
+		t.Errorf("got %v, %v, want nothing past the last watermark", w, err)
+	}
+}
