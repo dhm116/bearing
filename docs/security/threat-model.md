@@ -706,8 +706,8 @@ reach, so they are retired and their numbers are not reused.
   repeated in the error.
   Vectors bind as text cast to the column type, after the store has checked
   their length and that every number is finite and that the squares of
-  the elements sum, in float32 as pgvector computes them, to a nonzero finite
-  number. The extension's schema, the one name in a vector statement that is
+  the elements sum, in float32 as pgvector computes them, to a finite number
+  of at least 1e-30. The extension's schema, the one name in a vector statement that is
   not fixed, comes from the server's catalog and is quoted by the server
   (`%I`); nothing in the URL or a point reaches it.
 - **C-STORE-6** Store connections use TLS with the server's certificate
