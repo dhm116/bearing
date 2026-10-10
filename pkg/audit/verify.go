@@ -31,6 +31,11 @@ type Options struct {
 type Failure struct {
 	Seq    uint64
 	Reason string
+	// Checkpoint is true when the failure is a checkpoint that can't be
+	// trusted (unsigned, an unknown key, a bad signature): it says nothing
+	// against the chain. A checkpoint that disagrees with a record is not
+	// one, since the chain and the checkpoint cannot both be right.
+	Checkpoint bool
 }
 
 // Error implements error.
@@ -83,7 +88,7 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 	var maxSeq uint64
 	for _, cp := range checkpoints {
 		if err := checkpointOK(cp, opts); err != nil {
-			rep.Failures = append(rep.Failures, Failure{Seq: cp.GetSeq(), Reason: fmt.Sprintf("checkpoint written %s cannot be trusted: %v", cp.GetTime().AsTime().Format("2006-01-02T15:04:05Z"), err)})
+			rep.Failures = append(rep.Failures, Failure{Seq: cp.GetSeq(), Checkpoint: true, Reason: fmt.Sprintf("checkpoint written %s cannot be trusted: %v", cp.GetTime().AsTime().Format("2006-01-02T15:04:05Z"), err)})
 			continue
 		}
 		bySeq[cp.GetSeq()] = append(bySeq[cp.GetSeq()], cp)

@@ -14,6 +14,10 @@ import (
 // is a few hundred bytes of ProtoJSON, so a longer line is not one.
 const MaxCheckpointLineBytes = 64 << 10
 
+// MaxCheckpointFileBytes bounds a checkpoint file. One a day for a century is
+// a few megabytes.
+const MaxCheckpointFileBytes = 64 << 20
+
 // MarshalCheckpoint returns cp as one line of ProtoJSON without its newline.
 // A file of checkpoints is these lines, one per line (NDJSON), appended as
 // they are written.
@@ -28,7 +32,8 @@ func MarshalCheckpoint(cp *modelv1alpha1.AuditCheckpoint) ([]byte, error) {
 // be trusted.
 func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 	var out []*modelv1alpha1.AuditCheckpoint
-	sc := bufio.NewScanner(r)
+	lr := &io.LimitedReader{R: r, N: MaxCheckpointFileBytes + 1}
+	sc := bufio.NewScanner(lr)
 	sc.Buffer(nil, MaxCheckpointLineBytes)
 	for n := 1; sc.Scan(); n++ {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -43,6 +48,9 @@ func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("audit: read checkpoint file: %w", err)
+	}
+	if lr.N <= 0 {
+		return nil, fmt.Errorf("audit: checkpoint file is over %d bytes", MaxCheckpointFileBytes)
 	}
 	return out, nil
 }

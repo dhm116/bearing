@@ -379,3 +379,148 @@ func TestAuditSpanNamesTheSubcommand(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestAuditVerifyFailsOnACheckpointFileThatHoldsNone(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	if err := os.WriteFile(a.file("cp.ndjson"), []byte("\n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"))
+	if !errors.Is(err, errAuditFailed) || !strings.Contains(out, "holds none") || strings.Contains(out, "none given") {
+		t.Fatalf("got %q, %v, want a failure that says the file held none", out, err)
+	}
+	out, err = a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--json")
+	var got verifyJSON
+	if !errors.Is(err, errAuditFailed) || json.Unmarshal([]byte(out), &got) != nil || got.OK || !got.CheckpointsMissing || !got.ChainIntact || got.Failures == nil {
+		t.Fatalf("got %+v from %q, %v, want ok=false, chain_intact=true and checkpoints_missing", got, out, err)
+	}
+}
+
+func TestAuditVerifyReportsAnUntrustedCheckpointApartFromTheChain(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	a.keys("audit-1")
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson"), "--key-id", "audit-1", "--key-env", "KEY_VAR"); err != nil {
+		t.Fatal(err)
+	}
+	// The verifier holds another key under the same ID: the signature does not match.
+	other := a.keys("audit-1-other")
+	out, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--key", "audit-1="+other)
+	if !errors.Is(err, errAuditFailed) || !strings.Contains(out, "1 records, 1 to 1, intact") || !strings.Contains(out, "checkpoint of record 1: ") || !strings.Contains(out, "cannot be trusted") {
+		t.Fatalf("got %q, %v, want an intact chain and a checkpoint that cannot be trusted", out, err)
+	}
+	out, _ = a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--key", "audit-1="+other, "--json")
+	var got verifyJSON
+	if json.Unmarshal([]byte(out), &got) != nil || got.OK || !got.ChainIntact || len(got.Failures) != 1 || !got.Failures[0].Checkpoint {
+		t.Fatalf("got %+v from %q, want chain_intact=true and one checkpoint failure", got, out)
+	}
+}
+
+func TestAuditVerifyAcceptsCheckpointsFromRotatedKeys(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	oldPub := a.keys("audit-1")
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson"), "--key-id", "audit-1", "--key-env", "KEY_VAR"); err != nil {
+		t.Fatal(err)
+	}
+	a.record("e2")
+	newPub := a.keys("audit-2")
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson"), "--key-id", "audit-2", "--key-env", "KEY_VAR"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--key", "audit-1="+oldPub, "--key", "audit-2="+newPub)
+	if err != nil || !strings.Contains(out, "2 of 2 agree") || !strings.Contains(out, "signed by audit-2") {
+		t.Fatalf("got %q, %v, want both checkpoints to agree", out, err)
+	}
+	// Without the old public key its checkpoint cannot be trusted.
+	if _, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--key", "audit-2="+newPub); !errors.Is(err, errAuditFailed) {
+		t.Fatalf("got %v, want the checkpoint of the retired key refused", err)
+	}
+}
+
+func TestAuditVerifyMaxAgeRefusesACheckpointDatedAhead(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	a.keys("audit-1")
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	a.clock.Advance(-time.Hour) // this host's clock is behind the writer's
+	out, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--allow-unsigned", "--max-age", "24h")
+	if !errors.Is(err, errAuditFailed) || !strings.Contains(out, "dated ahead") {
+		t.Fatalf("got %q, %v, want a checkpoint dated ahead called stale", out, err)
+	}
+}
+
+func TestAuditVerifyMaxAgeTooLargeIsRefused(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	for _, age := range []string{"1000000d", "9999999999d", "-1h"} {
+		if out, err := a.run("verify", "--checkpoints", a.file("cp.ndjson"), "--allow-unsigned", "--max-age", age); err == nil || errors.Is(err, errAuditFailed) {
+			t.Errorf("--max-age %s: got %q, %v, want the flag refused", age, out, err)
+		}
+	}
+}
+
+func TestAuditCheckpointKeyEnvTakesAName(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	const pasted = "-----BEGIN PRIVATE KEY-----\nsecret-material\n-----END PRIVATE KEY-----"
+	_, err := a.run("checkpoint", "--key-id", "audit-1", "--key-env", pasted)
+	if err == nil || strings.Contains(err.Error(), "secret-material") || !strings.Contains(err.Error(), "name of an environment variable") {
+		t.Fatalf("got %v, want a refusal that does not repeat the value", err)
+	}
+}
+
+// headLog reports a head that its records do not carry.
+type headLog struct {
+	contracts.AuditLog
+	head contracts.AuditHead
+}
+
+func (l headLog) Head(context.Context) (contracts.AuditHead, error) { return l.head, nil }
+
+func TestAuditCheckpointRefusesAHeadNoRecordCarries(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	a.record("e2")
+	head, _ := a.log.Head(context.Background())
+	bad := head
+	bad.Hash = append([]byte(nil), head.Hash...)
+	bad.Hash[0] ^= 0xff
+	a.log = headLog{a.log, bad}
+	out, err := a.run("checkpoint", "--out", a.file("cp.ndjson"))
+	if err == nil || !strings.Contains(err.Error(), "does not match its newest record") {
+		t.Fatalf("got %q, %v, want a refusal to sign a head no record carries", out, err)
+	}
+	if _, statErr := os.Stat(a.file("cp.ndjson")); statErr == nil {
+		t.Error("a checkpoint was written for a head no record carries")
+	}
+	// A record that was edited no longer matches its own hash.
+	a.log = editedLog{a.store.AuditLog(), 2}
+	if _, err := a.run("checkpoint"); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
+		t.Fatalf("got %v, want a refusal to sign an edited record's hash", err)
+	}
+}
+
+func TestAuditCheckpointStartsANewLineAfterACutOffOne(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	if err := os.WriteFile(a.file("cp.ndjson"), []byte(`{"seq":"1"`), 0o600); err != nil { // cut off, no newline
+		t.Fatal(err)
+	}
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	lines := readLines(t, a.file("cp.ndjson"))
+	if len(lines) != 2 || lines[0] != `{"seq":"1"` {
+		t.Fatalf("got %q, want the cut-off line kept and the checkpoint on a line of its own", lines)
+	}
+	if cps, err := audit.ReadCheckpoints(strings.NewReader(lines[1])); err != nil || len(cps) != 1 {
+		t.Fatalf("got %v, %v, want the new line to be one checkpoint", cps, err)
+	}
+}

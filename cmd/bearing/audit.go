@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/ed25519"
@@ -79,7 +80,7 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 	}
 	var age time.Duration
 	if *maxAge != "" {
-		if age, err = parseAge(*maxAge); err != nil || age == 0 {
+		if age, err = parseAge(*maxAge); err != nil || age <= 0 {
 			return fmt.Errorf("--max-age: %q is not a positive duration such as 24h or 7d", *maxAge)
 		}
 		if *file == "" {
@@ -96,6 +97,9 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 			return err
 		}
 	}
+	// A file that holds none is a file someone emptied, or a rotation that
+	// went wrong: verify must not fall back to checking the chain alone.
+	missing := *file != "" && len(cps) == 0
 	log, closeStore, err := openAudit(ctx, env, *storeURL)
 	if err != nil {
 		return err
@@ -106,12 +110,13 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 		return err
 	}
 	now := env.Now()
-	out := verifyOutput{Report: rep, Given: len(cps), MaxAge: *maxAge, Now: now}
-	if age > 0 && rep.Newest != nil && now.Sub(rep.Newest.GetTime().AsTime()) > age {
-		out.Stale = true
-	}
-	if age > 0 && rep.Newest == nil {
-		out.Stale = true
+	out := verifyOutput{Report: rep, Given: len(cps), Missing: missing, MaxAge: *maxAge, Now: now}
+	if age > 0 {
+		// Stale: nothing agrees, the newest is too old, or it is dated ahead
+		// of this host's clock (a skewed writer or a forged time), which
+		// would otherwise pass until real time caught up.
+		n := rep.Newest
+		out.Stale = n == nil || now.Sub(n.GetTime().AsTime()) > age || n.GetTime().AsTime().Sub(now) > maxClockSkew
 	}
 	if *asJSON {
 		enc := json.NewEncoder(stdout)
@@ -122,41 +127,67 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 	} else if err := out.render(stdout); err != nil {
 		return err
 	}
-	if !rep.OK() || out.Stale {
+	if !rep.OK() || out.Stale || out.Missing {
 		return errAuditFailed
 	}
 	return nil
 }
 
+// maxClockSkew is how far ahead of this host's clock a checkpoint's time may
+// be before --max-age calls it stale.
+const maxClockSkew = 5 * time.Minute
+
 // verifyOutput is what `audit verify` reports.
 type verifyOutput struct {
 	audit.Report
-	// Given is how many checkpoints the file held.
-	Given int
+	// Given is how many checkpoints the file held; Missing says --checkpoints
+	// named a file that held none.
+	Given   int
+	Missing bool
 	// MaxAge is the flag as given; Stale says the newest agreeing checkpoint
-	// is older than it, or there is none.
+	// is older than it, dated ahead of the clock, or there is none.
 	MaxAge string
 	Stale  bool
 	Now    time.Time
 }
 
-func (o verifyOutput) render(w io.Writer) error {
-	var b strings.Builder
-	switch {
-	case o.Records == 0 && o.OK():
-		b.WriteString("audit log: empty\n")
-	case o.OK():
-		fmt.Fprintf(&b, "audit log: %d records, %d to %d, intact\n", o.Records, o.First, o.Last)
-	default:
-		fmt.Fprintf(&b, "audit log: NOT intact (%d problem(s)); read %d record(s) before the first broken one\n", len(o.Failures), o.Records)
-		for _, f := range o.Failures {
-			fmt.Fprintf(&b, "  record %d: %s\n", f.Seq, f.Reason)
+// chainFailures and checkpointFailures split the report: a checkpoint that
+// can't be trusted says nothing against the chain.
+func (o verifyOutput) split() (chain, cps []audit.Failure) {
+	for _, f := range o.Failures {
+		if f.Checkpoint {
+			cps = append(cps, f)
+		} else {
+			chain = append(chain, f)
 		}
 	}
-	if o.Given == 0 {
+	return chain, cps
+}
+
+func (o verifyOutput) render(w io.Writer) error {
+	var b strings.Builder
+	chain, cps := o.split()
+	switch {
+	case len(chain) > 0:
+		fmt.Fprintf(&b, "audit log: NOT intact (%d problem(s)); read %d record(s) before the first broken one\n", len(chain), o.Records)
+		for _, f := range chain {
+			fmt.Fprintf(&b, "  record %d: %s\n", f.Seq, f.Reason)
+		}
+	case o.Records == 0:
+		b.WriteString("audit log: empty\n")
+	default:
+		fmt.Fprintf(&b, "audit log: %d records, %d to %d, intact\n", o.Records, o.First, o.Last)
+	}
+	switch {
+	case o.Missing:
+		b.WriteString("checkpoints: the file holds none, so nothing pins the log; it may have been emptied\n")
+	case o.Given == 0:
 		b.WriteString("checkpoints: none given, so only the chain itself was checked; a log rewritten end to end would pass\n")
-	} else {
+	default:
 		fmt.Fprintf(&b, "checkpoints: %d of %d agree with the chain\n", o.Checkpoints, o.Given)
+	}
+	for _, f := range cps {
+		fmt.Fprintf(&b, "  checkpoint of record %d: %s\n", f.Seq, f.Reason)
 	}
 	if n := o.Newest; n != nil {
 		signed := "unsigned"
@@ -166,9 +197,12 @@ func (o verifyOutput) render(w io.Writer) error {
 		fmt.Fprintf(&b, "newest checkpoint: record %d, written %s (%s), %s ago\n", n.GetSeq(), n.GetTime().AsTime().Format(time.RFC3339), signed, o.Now.Sub(n.GetTime().AsTime()).Round(time.Second))
 	}
 	if o.Stale {
-		if o.Newest == nil {
+		switch n := o.Newest; {
+		case n == nil:
 			fmt.Fprintf(&b, "STALE: no checkpoint agrees, so nothing pins the log (--max-age %s)\n", o.MaxAge)
-		} else {
+		case n.GetTime().AsTime().After(o.Now):
+			fmt.Fprintf(&b, "STALE: the newest checkpoint is dated ahead of this host's clock, so its age cannot be trusted (--max-age %s)\n", o.MaxAge)
+		default:
 			fmt.Fprintf(&b, "STALE: the newest checkpoint is older than --max-age %s, so records since it are not pinned from outside the store\n", o.MaxAge)
 		}
 	}
@@ -177,8 +211,9 @@ func (o verifyOutput) render(w io.Writer) error {
 }
 
 type failureJSON struct {
-	Seq    uint64 `json:"seq"`
-	Reason string `json:"reason"`
+	Seq        uint64 `json:"seq"`
+	Checkpoint bool   `json:"checkpoint"`
+	Reason     string `json:"reason"`
 }
 
 type newestJSON struct {
@@ -187,25 +222,36 @@ type newestJSON struct {
 	KeyID string    `json:"key_id,omitempty"`
 }
 
+// verifyJSON is the --json output (docs/spec/contracts.md, "The commands").
+// Every field but newest_checkpoint and max_age is always present.
 type verifyJSON struct {
-	OK          bool          `json:"ok"`
-	Records     uint64        `json:"records"`
-	First       uint64        `json:"first,omitempty"`
-	Last        uint64        `json:"last,omitempty"`
-	Checkpoints int           `json:"checkpoints_agreeing"`
-	Given       int           `json:"checkpoints_given"`
-	Newest      *newestJSON   `json:"newest_checkpoint,omitempty"`
-	Stale       bool          `json:"stale,omitempty"`
-	Failures    []failureJSON `json:"failures,omitempty"`
+	OK                 bool          `json:"ok"`
+	ChainIntact        bool          `json:"chain_intact"`
+	Records            uint64        `json:"records"`
+	First              uint64        `json:"first"`
+	Last               uint64        `json:"last"`
+	Checkpoints        int           `json:"checkpoints_agreeing"`
+	Given              int           `json:"checkpoints_given"`
+	CheckpointsMissing bool          `json:"checkpoints_missing"`
+	Newest             *newestJSON   `json:"newest_checkpoint,omitempty"`
+	MaxAge             string        `json:"max_age,omitempty"`
+	Stale              bool          `json:"stale"`
+	Failures           []failureJSON `json:"failures"`
 }
 
 func (o verifyOutput) json() verifyJSON {
-	j := verifyJSON{OK: o.OK() && !o.Stale, Records: o.Records, First: o.First, Last: o.Last, Checkpoints: o.Checkpoints, Given: o.Given, Stale: o.Stale}
+	chain, _ := o.split()
+	j := verifyJSON{
+		OK: o.OK() && !o.Stale && !o.Missing, ChainIntact: len(chain) == 0,
+		Records: o.Records, First: o.First, Last: o.Last,
+		Checkpoints: o.Checkpoints, Given: o.Given, CheckpointsMissing: o.Missing,
+		MaxAge: o.MaxAge, Stale: o.Stale, Failures: []failureJSON{},
+	}
 	if n := o.Newest; n != nil {
 		j.Newest = &newestJSON{Seq: n.GetSeq(), Time: n.GetTime().AsTime(), KeyID: n.GetKeyId()}
 	}
 	for _, f := range o.Failures {
-		j.Failures = append(j.Failures, failureJSON{Seq: f.Seq, Reason: f.Reason})
+		j.Failures = append(j.Failures, failureJSON{Seq: f.Seq, Checkpoint: f.Checkpoint, Reason: f.Reason})
 	}
 	return j
 }
@@ -234,6 +280,10 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 	}
 	var signer *audit.Signer
 	if *keyEnv != "" {
+		if !validEnvName(*keyEnv) {
+			// Not repeated: an operator who pasted the key here must not see it echoed.
+			return errors.New("--key-env takes the name of an environment variable, such as AUDIT_SIGNING_KEY, not the key")
+		}
 		pemText := env.Getenv(*keyEnv)
 		if pemText == "" {
 			return fmt.Errorf("$%s is not set or empty", *keyEnv)
@@ -252,6 +302,21 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 	head, err := log.Head(ctx)
 	if err != nil {
 		return err
+	}
+	// The head comes from the store's bookkeeping, not from a record. A
+	// checkpoint is appended to a file that cannot be edited, so it must not
+	// sign a head that no record carries.
+	if head.Seq > 0 {
+		recs, err := log.Query(ctx, contracts.AuditFilter{After: head.Seq - 1, Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(recs) != 1 || recs[0].GetSeq() != head.Seq || !bytes.Equal(recs[0].GetHash(), head.Hash) {
+			return fmt.Errorf("the log's head (record %d) does not match its newest record: run `bearing audit verify` and investigate before taking a checkpoint", head.Seq)
+		}
+		if want, err := audit.Hash(recs[0]); err != nil || !bytes.Equal(want, head.Hash) {
+			return fmt.Errorf("record %d does not match its hash: run `bearing audit verify` and investigate before taking a checkpoint", head.Seq)
+		}
 	}
 	cp, err := audit.NewCheckpoint(head, env.Now(), signer)
 	if err != nil {
@@ -278,17 +343,45 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 }
 
 // appendFile appends b to the file at path, creating it private, and syncs:
-// a checkpoint that is lost in a crash pins nothing.
+// a checkpoint that is lost in a crash pins nothing. If the file ends in a
+// cut-off line, a newline goes first, so the new checkpoint is its own line.
 func appendFile(path string, b []byte) (err error) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // G304: the operator names the checkpoint file
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600) //nolint:gosec // G304: the operator names the checkpoint file
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
+	if info, err := f.Stat(); err != nil {
+		return err
+	} else if info.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, info.Size()-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			b = append([]byte{'\n'}, b...)
+		}
+	}
 	if _, err := f.Write(b); err != nil {
 		return err
 	}
 	return f.Sync()
+}
+
+// validEnvName reports whether s is a plausible environment variable name,
+// which a PEM key is not.
+func validEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_', r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // readCheckpointFile reads a checkpoint file the operator named.

@@ -750,24 +750,50 @@ operator, not for a caller of the API.
 
 `bearing audit checkpoint [--out FILE] [--key-id ID --key-env VAR]` writes
 a checkpoint of the newest record, at the current time. Without `--out` it
-prints the line; with it, it appends the line to the file (created mode 0600)
-and syncs it. The signing key is named by reference: `--key-env` names an
-environment variable that holds the PKCS #8 PEM, so the key is never an
-argument, never in a config file and never in the store (C-SECRET-1).
-`--key-id` is its label. Giving one flag without the other is an error, and
-giving neither writes an unsigned checkpoint. After a key rotation, run it
-once with the new ID at once. An empty log has nothing to checkpoint.
+prints the line, and nothing else; with it, it appends the line to the file
+(created mode 0600, a newline first if the file ends in a cut-off line) and
+syncs it, and prints one sentence saying what it wrote. The signing key is
+named by reference: `--key-env` names an environment variable that holds the
+PKCS #8 PEM, so the key is never an argument, never in a config file and
+never in the store (C-SECRET-1); a value that is not a variable name is
+refused without being repeated. `--key-id` is its label. Giving one flag
+without the other is an error, and giving neither writes an unsigned
+checkpoint. After a key rotation, run it once with the new ID at once. An
+empty log has nothing to checkpoint. It refuses to sign a head that its
+newest record does not carry (the record's number and hash must match
+`Head`, and the hash must match the record's content), because a checkpoint
+can never be taken back out of the file; it does not read the rest of the
+log, so run `verify` first after any incident.
 
 `bearing audit verify [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned]
 [--max-age D] [--json]` runs `Verify` and prints the result: the records read,
 how many checkpoints agreed, and the newest one with its record, time and
 signing key. `--key` gives a trusted public key (PEM), once per key ID, and the
-keys of rotated-out signers stay. `--max-age` fails the run when the newest
-agreeing checkpoint is older than the duration (or none agrees), because the
-interval since the last checkpoint is how much history is not pinned. It
-exits non-zero when `Verify` found anything wrong or the checkpoint is stale,
-and says in its output when it was given no checkpoints, since then a log
-rewritten end to end would pass.
+keys of rotated-out signers stay. A checkpoint that cannot be trusted is listed
+apart from the chain, since it says nothing against the records. `--max-age`
+(a positive duration, such as `24h` or `7d`; it needs `--checkpoints`) marks
+the run stale when the newest agreeing checkpoint is older than the duration,
+when none agrees, or when the newest is dated more than five minutes ahead of
+this host's clock, because the interval since the last checkpoint is how much
+history is not pinned. A `--checkpoints` file that holds no checkpoint fails
+the run, since an emptied file would otherwise turn it into a chain-only
+check; without `--checkpoints`, verify says in its output that it was given
+none, because then a log rewritten end to end would pass.
+
+The exit status is 0 when the log verified (and, with `--max-age`, is not
+stale), 1 when `Verify` found anything wrong, the run is stale, or the
+checkpoint file held none, and 2 for a usage error (a bad flag or value,
+printed with the usage). The report goes to standard output whatever the
+status; the error log goes to standard error. With `--json` the report is one
+indented object. These fields are always present: `ok` (the run passes, that
+is, exit status 0), `chain_intact` (no problem with the records or against a
+checkpoint that could be trusted), `records`, `first` and `last` (the
+sequence numbers read, zero for an empty log), `checkpoints_given`,
+`checkpoints_agreeing`, `checkpoints_missing` (`--checkpoints` named a file
+with none), `stale` and `failures`, a list of `{seq, checkpoint, reason}`
+where `checkpoint` is true for a checkpoint that cannot be trusted.
+`newest_checkpoint` (`seq`, `time`, and `key_id` when signed) is present when
+one agrees, and `max_age` echoes the flag when it was given.
 
 ### Storage
 

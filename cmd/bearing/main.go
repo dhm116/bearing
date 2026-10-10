@@ -19,8 +19,8 @@
 //
 // Each takes --store (or $BEARING_STORE); the queries also take --as-of. Run
 // one with -h for its flags. A subject is a subject ID or a key such as
-// github:repo/acme/payments. For changes, --since and --as-of are the two ends of the window, and the
-// default end is now.
+// github:repo/acme/payments. For changes, --since and --as-of are the two
+// ends of the window, and the default end is now.
 package main
 
 import (

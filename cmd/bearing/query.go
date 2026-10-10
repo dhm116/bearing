@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -246,6 +247,9 @@ func parseAge(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("%q is not a duration such as 24h or 7d", s)
 	}
 	if days {
+		if dur > math.MaxInt64/24 {
+			return 0, fmt.Errorf("%q is too long a duration", s)
+		}
 		dur *= 24
 	}
 	return dur, nil

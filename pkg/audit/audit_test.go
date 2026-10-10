@@ -730,3 +730,20 @@ func TestVerifyReportsTheNewestAgreeingCheckpoint(t *testing.T) {
 		t.Fatalf("got %v, want no newest checkpoint without any", rep.Newest)
 	}
 }
+
+// endless is a reader of newlines that never ends.
+type endless struct{}
+
+func (endless) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = '\n'
+	}
+	return len(p), nil
+}
+
+func TestReadCheckpointsStopsAtTheFileLimit(t *testing.T) {
+	t.Parallel()
+	if _, err := ReadCheckpoints(endless{}); err == nil || !strings.Contains(err.Error(), "over") {
+		t.Fatalf("got %v, want the file refused as too big", err)
+	}
+}
