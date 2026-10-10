@@ -15,6 +15,7 @@ type growthSample struct {
 	changeSet int            // bytes of the whole ChangeSet
 	entry     map[string]int // largest state entry by key prefix, in bytes
 	entries   map[string]int // state entries by key prefix
+	written   map[string]int // bytes of every state entry by key prefix: what the journal gains
 }
 
 // repeatSyncs applies syncs of one repository whose snapshot scope lists the
@@ -46,11 +47,12 @@ func repeatSyncs(t *testing.T, facts, syncs int) []growthSample {
 			t.Fatalf("sync %d: apply: %v", i+1, err)
 		}
 		e.clock.Advance(time.Second)
-		s := growthSample{changeSet: proto.Size(res.ChangeSet), entry: map[string]int{}, entries: map[string]int{}}
+		s := growthSample{changeSet: proto.Size(res.ChangeSet), entry: map[string]int{}, entries: map[string]int{}, written: map[string]int{}}
 		for _, st := range res.ChangeSet.GetState() {
 			prefix, _, _ := strings.Cut(st.GetKey(), "/")
 			s.entries[prefix]++
 			s.entry[prefix] = max(s.entry[prefix], len(st.GetValue().GetValue()))
+			s.written[prefix] += len(st.GetValue().GetValue())
 		}
 		out = append(out, s)
 	}
@@ -91,6 +93,11 @@ func TestRepeatedSyncsKeepSupportAndBindingStateFlat(t *testing.T) {
 	if perSync > 300 {
 		t.Errorf("got %.0f bytes per sync, want at most 300: the scope's watermark entry alone", perSync)
 	}
+	var journal int
+	for _, s := range got {
+		journal += s.written["wm"]
+	}
+	t.Logf("wm/ entry is %d bytes after %d syncs and the journal gained %d bytes of it over the run", got[syncs-1].entry["wm"], syncs, journal)
 	if limit := 400 * syncs; got[syncs-1].entry["wm"] > limit {
 		t.Errorf("wm/ entry is %d bytes after %d syncs, want at most %d", got[syncs-1].entry["wm"], syncs, limit)
 	}
