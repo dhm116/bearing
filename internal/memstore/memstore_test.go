@@ -457,3 +457,12 @@ func TestRestoreRejectsABadJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEventLogConformance(t *testing.T) {
+	conformance.EventLog(t, func(*testing.T) (contracts.EventLog, conformance.Clock) {
+		clk := testkit.NewClock(time.Time{})
+		s := New()
+		s.Now = clk.Now
+		return s, clk
+	})
+}

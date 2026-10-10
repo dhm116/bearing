@@ -121,6 +121,45 @@ CREATE TABLE journal (
 	event_kid bytea  NOT NULL UNIQUE,
 	data      bytea  NOT NULL
 );`},
+	// The event log (ADR 7) lives beside the graph, in tables that no graph
+	// operation touches, and Restore leaves them alone.
+	//
+	//   event_partition  one per partition: head, the highest offset appended
+	//                    (never reused), and trimmed, the highest offset Trim
+	//                    removed. Append locks this row until it commits, which
+	//                    is what makes a reader never see an offset before the
+	//                    ones below it. Rows are locked in partition order.
+	//   event            one per entry, by partition and offset. The ID names
+	//                    its partition, so one unique index finds duplicates.
+	//                    Times are µs since the epoch. Data is bytea, stored
+	//                    byte for byte.
+	//   event_offset     the offset each consumer group last committed
+	{2, "event log", `
+CREATE TABLE event_partition (
+	name    text   PRIMARY KEY,
+	head    bigint NOT NULL,
+	trimmed bigint NOT NULL DEFAULT 0
+);
+
+CREATE TABLE event (
+	part        text    NOT NULL,
+	off         bigint  NOT NULL,
+	id          text    NOT NULL UNIQUE,
+	ev_type     text    NOT NULL,
+	ev_time     bigint  NOT NULL,
+	appended_at bigint  NOT NULL,
+	retain      boolean NOT NULL,
+	data        bytea   NOT NULL,
+	PRIMARY KEY (part, off)
+);
+CREATE INDEX event_trim ON event (appended_at) WHERE NOT retain;
+
+CREATE TABLE event_offset (
+	grp  text   NOT NULL,
+	part text   NOT NULL,
+	off  bigint NOT NULL,
+	PRIMARY KEY (grp, part)
+);`},
 }
 
 // schemaVersion is the newest step this build knows.

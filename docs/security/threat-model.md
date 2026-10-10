@@ -656,6 +656,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-7 | I | A backup or export is stolen | C-STORE-7 |
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
+| T-STORE-10 | D, T | An oversized event, batch or read stalls the event log; an event is written into another source's partition; a stopped consumer makes the log grow without bound | C-STORE-11 |
 
 **Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
@@ -790,6 +791,22 @@ reach, so they are retired and their numbers are not reused.
   changes. The PostgreSQL tests compare `pgstore` with the engine itself on
   random histories, so a difference between the two shows up as a failure.
 
+- **C-STORE-11** The event log is bounded and scoped by construction.
+  `contracts.CheckEvents` runs in every backend's `Append` before any write
+  and refuses an event over 8 MiB, a batch over 1,000 events or 32 MiB, a name
+  or ID over its limit or with control characters, and an event whose ID does
+  not start with its own partition and a slash with a local ID that has no
+  slash, so one source cannot write into, or collide with, another's events
+  (T-INGEST-2). `Read` returns at most 1,000 entries and 32 MiB. The log
+  holds raw event bodies, which are organization data: they sit in the same
+  database and under the same role and TLS rules as the graph, and `Backup`
+  does not include them. `Trim` keeps events that a required group has not
+  applied, so a stopped consumer makes the log grow past the retention
+  window (ADR 7). That is visible and bounded only by later work: an age
+  gauge and health check (#179) and an optional ceiling that discards
+  unapplied events (#180, off by default). Retries on a failing database
+  are bounded as for Apply (six attempts, then `ErrBusy`).
+
 ### B7. Operators and configuration
 
 Operators are trusted, but mistakes are expected. Configuration comes from
@@ -923,7 +940,8 @@ provider API keys.
 - **Data in allowed requests.** A module can encode data in GET requests to
   hosts it is allowed to call.
 - **Erasure requests.** The audit log is append-only and raw events are kept
-  30 days by default (ADR 7), so a request to erase a person's data cannot
+  30 days by default, and longer while a required consumer has not applied them
+  (ADR 7), so a request to erase a person's data cannot
   be met fully before retention removes them. Audit records name people by
   stable ID only.
 - **Local-process adapters** run as the service user by default, outside

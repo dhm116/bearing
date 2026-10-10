@@ -193,3 +193,67 @@ func TestStateEntryBytesLabelsByPrefix(t *testing.T) {
 		t.Errorf("got labels %v, want an unknown prefix recorded as other", after)
 	}
 }
+
+func newLog(*testing.T) (contracts.EventLog, conformance.Clock) {
+	clk := testkit.NewClock(time.Time{})
+	s := memstore.New()
+	s.Now = clk.Now
+	return instrument.EventLog(s, "memory"), clk
+}
+
+func TestWrappedEventLogConforms(t *testing.T) {
+	conformance.EventLog(t, newLog)
+}
+
+func TestEventLogMetricsAndSpans(t *testing.T) {
+	l, clk := newLog(t)
+	ctx := context.Background()
+	clk.Set(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))
+	e := contracts.Event{ID: "github-acme/d1", Partition: "github-acme", Type: "t", Time: clk.Now(), Data: []byte("{}")}
+	for range 2 {
+		if _, err := l.Append(ctx, []contracts.Event{e}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.Commit(ctx, "workers", "nobody", 1); !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+	if last := spans.Ended()[len(spans.Ended())-1]; last.Name() != "eventlog.commit" || last.Status().Code == codes.Error {
+		t.Fatalf("got span %s with status %v, want eventlog.commit, not marked as an error", last.Name(), last.Status())
+	}
+	if _, err := l.Append(ctx, nil); !errors.Is(err, contracts.ErrInvalidEvent) {
+		t.Fatalf("got %v, want ErrInvalidEvent", err)
+	}
+	if last := spans.Ended()[len(spans.Ended())-1]; last.Name() != "eventlog.append" || last.Status().Code != codes.Error {
+		t.Fatalf("got span %s with status %v, want a failed eventlog.append", last.Name(), last.Status())
+	}
+	if _, err := l.Trim(ctx, clk.Now().Add(time.Hour), []string{"applier"}); err != nil {
+		t.Fatal(err)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]int64{}
+	var trimmed int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				switch m.Name {
+				case "bearing.eventlog.events":
+					v, _ := dp.Attributes.Value("bearing.result")
+					results[v.AsString()] += dp.Value
+				case "bearing.eventlog.trimmed":
+					trimmed += dp.Value
+				}
+			}
+		}
+	}
+	if results["appended"] < 1 || results["duplicate"] < 1 || trimmed < 1 {
+		t.Fatalf("got appended and duplicate counts %v and %d trimmed, want each recorded", results, trimmed)
+	}
+}
