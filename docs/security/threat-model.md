@@ -149,7 +149,13 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
-  log must start at record 1.
+  log must start at record 1. The verifier reads the log without a filter.
+  The PostgreSQL store's filtered `Query` also looks at columns outside the
+  hash (event, time, action, actor, target); it refuses a row whose number
+  differs from its record's, but an edit to the other columns can hide a
+  record from a filtered read without breaking the chain, so a filtered
+  answer is not evidence that no record exists. Re-deriving those columns
+  from the records is a later mode of `bearing audit verify`.
 - **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
   removes only the oldest records, after writing a checkpoint at the cut.
   Until a signed marker says a checkpoint was written at a cut (with
@@ -753,7 +759,10 @@ reach, so they are retired and their numbers are not reused.
   record time or one later than the header's `taken_at`, which it doesn't
   compare with its own clock, so a backup from a host whose clock ran ahead
   restores with its head and ID timestamps ahead too. These checks are in
-  the store contract today. **Planned**, with the restore entry point, which
+  the store contract today. A restore rebuilds the audit log from the same
+  journal, so its records and hashes are the original's; a restored log
+  is verified against the newest checkpoints, which a tampered backup
+  would no longer match. **Planned**, with the restore entry point, which
   doesn't exist yet: that entry point caps the backup's total size; it
   reports the backup's `taken_at` and head against the host's clock and
   refuses, or asks for an audited confirmation, when they are further ahead

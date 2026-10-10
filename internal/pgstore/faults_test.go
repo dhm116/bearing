@@ -224,12 +224,16 @@ func TestEveryStatementMayFailWithoutHarmingTheStore(t *testing.T) {
 			}
 			for at := 1; at <= counter.calls; at++ {
 				headBefore, _ := s.Head(ctx)
+				auditBefore, _ := s.AuditLog().Head(ctx)
 				f := &faultPool{failAt: at}
 				if err := op.do(ctx, withPool(s, f)); !errors.Is(err, errInjected) {
 					t.Fatalf("statement %d of %d: got %v, want the injected failure", at, counter.calls, err)
 				}
 				if got, err := s.Head(ctx); err != nil || !got.Equal(headBefore) {
 					t.Fatalf("statement %d: head is %v, %v after the failure, want %v", at, got, err, headBefore)
+				}
+				if got, err := s.AuditLog().Head(ctx); err != nil || got.Seq != auditBefore.Seq || !bytes.Equal(got.Hash, auditBefore.Hash) {
+					t.Fatalf("statement %d: audit head is %+v, %v after the failure, want %+v", at, got, err, auditBefore)
 				}
 				if err := op.do(ctx, s); err != nil {
 					t.Fatalf("statement %d: retry after failure: %v", at, err)
@@ -246,7 +250,7 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 	ctx := context.Background()
 	src, clk := graphStoreAt(t)
 	for i := range 3 {
-		cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("e%d", i), State: stateEntries(2, fmt.Sprintf("s%d", i))}
+		cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("e%d", i), State: stateEntries(2, fmt.Sprintf("s%d", i)), Audit: []*modelv1alpha1.AuditEntry{auditEntry(fmt.Sprintf("r%d", i))}}
 		if head, _ := src.Head(ctx); !head.IsZero() {
 			cs.BaseRecordedAt = timestamppb.New(head)
 		}
@@ -261,6 +265,10 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 	}
 	backup := buf.Bytes()
 	want, _ := src.Head(ctx)
+	wantAudit, _ := src.AuditLog().Head(ctx)
+	if wantAudit.Seq != 3 {
+		t.Fatalf("source audit head is %+v, want 3 records", wantAudit)
+	}
 
 	dst, _ := graphStoreAt(t)
 	counter := &faultPool{}
@@ -282,6 +290,9 @@ func TestRestoreFailingAtAnyStatementCanBeRetried(t *testing.T) {
 		}
 		if got, _ := fresh.Head(ctx); !got.Equal(want) {
 			t.Fatalf("statement %d: got head %v, want %v", at, got, want)
+		}
+		if got, err := fresh.AuditLog().Head(ctx); err != nil || got.Seq != wantAudit.Seq || !bytes.Equal(got.Hash, wantAudit.Hash) {
+			t.Fatalf("statement %d: got audit head %+v, %v, want %+v", at, got, err, wantAudit)
 		}
 	}
 }

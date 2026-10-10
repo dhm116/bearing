@@ -182,6 +182,7 @@ ALTER TABLE meta
 CREATE TABLE audit_record (
 	seq         bigint   PRIMARY KEY,
 	event       text     NOT NULL,
+	event_kid   bytea    NOT NULL,
 	recorded_at bigint   NOT NULL,
 	action      smallint NOT NULL,
 	actor       bytea    NOT NULL,
@@ -189,7 +190,7 @@ CREATE TABLE audit_record (
 	target      bytea    NOT NULL,
 	data        bytea    NOT NULL
 );
-CREATE INDEX audit_record_event ON audit_record (event);
+CREATE INDEX audit_record_event ON audit_record (event_kid);
 CREATE INDEX audit_record_time ON audit_record (recorded_at);
 CREATE INDEX audit_record_actor ON audit_record (actor, seq);
 CREATE INDEX audit_record_target ON audit_record (target_kind, target, seq);`},

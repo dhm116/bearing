@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -41,6 +42,7 @@ func AuditLog(t *testing.T, newStore func(t *testing.T) (AuditStore, Clock, IDs)
 		{"Apply writes one chained record per audit entry", a.chain},
 		{"An empty log has the zero head and no records", a.empty},
 		{"A repeated event writes no record", a.duplicate},
+		{"An event ID the filter would refuse still gets its records", a.longEventID},
 		{"A refused Apply writes no record", a.refused},
 		{"Apply refuses a bad trace ID", a.traceID},
 		{"Query filters, pages and refuses bad filters", a.query},
@@ -127,7 +129,8 @@ func (a *auditSuite) chain(t *testing.T) {
 		n     int
 		trace string
 	}{{"e1", 2, traceA}, {"e2", 0, ""}, {"e3", 1, ""}, {"e4", 3, traceA}} {
-		clk.Set(clk.Now().Add(time.Second))
+		// Not a whole microsecond, so the record time is truncated on the way in.
+		clk.Set(clk.Now().Add(time.Second + 1500*time.Nanosecond))
 		res := apply(t, s, &modelv1alpha1.ChangeSet{EventId: ev.name, TraceId: ev.trace, Audit: ent(ev.n)})
 		wants = append(wants, want{ev.name, res})
 	}
@@ -155,6 +158,19 @@ func (a *auditSuite) chain(t *testing.T) {
 	got[0].Entry.Reason = "changed by the caller"
 	again, _ := l.Query(ctx, contracts.AuditFilter{Limit: 1})
 	failIf(t, again[0].GetEntry().GetReason() != "", "a caller changed a record in the log")
+}
+
+// longEventID applies an event ID over what Query takes and that does not
+// compress: a backend that indexes the ID itself refuses it.
+func (a *auditSuite) longEventID(t *testing.T) {
+	s, _ := a.store(t)
+	var id strings.Builder
+	for h := sha256.Sum256([]byte("event")); id.Len() < 4000; h = sha256.Sum256(h[:]) {
+		fmt.Fprintf(&id, "%x", h)
+	}
+	apply(t, s, &modelv1alpha1.ChangeSet{EventId: id.String(), Audit: []*modelv1alpha1.AuditEntry{entry(modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, "core/resolver", "github:repo/acme/a")}})
+	got := records(t, s.AuditLog())
+	failIf(t, len(got) != 1 || got[0].GetEventId() != id.String(), "got %d records, want the one for the %d-byte event ID", len(got), id.Len())
 }
 
 func (a *auditSuite) duplicate(t *testing.T) {
@@ -273,6 +289,7 @@ func (a *auditSuite) query(t *testing.T) {
 		{"from a time", contracts.AuditFilter{From: times[1]}, []uint64{3, 4, 5}},
 		{"to a time (exclusive)", contracts.AuditFilter{To: times[1]}, []uint64{1, 2}},
 		{"a window", contracts.AuditFilter{From: times[1], To: times[2]}, []uint64{3}},
+		{"to just past a record", contracts.AuditFilter{To: times[1].Add(time.Nanosecond)}, []uint64{1, 2, 3}},
 		{"a window that is empty", contracts.AuditFilter{From: times[0].Add(time.Nanosecond), To: times[1]}, nil},
 	} {
 		f := c.f
@@ -295,18 +312,20 @@ func (a *auditSuite) query(t *testing.T) {
 	}
 	failIf(t, !slices.Equal(walked, []uint64{1, 2, 3, 4, 5}), "paging: got %v", walked)
 	for name, f := range map[string]contracts.AuditFilter{
-		"no limit":                 {},
-		"a limit over the maximum": {Limit: contracts.MaxAuditQueryRecords + 1},
-		"a negative limit":         {Limit: -1},
-		"an unset action":          {Limit: 1, Actions: []modelv1alpha1.AuditAction{0}},
-		"an unknown action":        {Limit: 1, Actions: []modelv1alpha1.AuditAction{999}},
-		"an unknown target kind":   {Limit: 1, TargetKind: 999},
-		"a target ID without kind": {Limit: 1, TargetID: "x"},
-		"from after to":            {Limit: 1, From: times[2], To: times[1]},
-		"from equal to":            {Limit: 1, From: times[1], To: times[1]},
-		"an event ID too long":     {Limit: 1, EventID: strings.Repeat("e", contracts.MaxEventIDBytes+1)},
-		"an actor ID too long":     {Limit: 1, ActorID: strings.Repeat("a", contracts.MaxAuditIDBytes+1)},
-		"a target ID too long":     {Limit: 1, TargetKind: alias, TargetID: strings.Repeat("t", contracts.MaxAuditIDBytes+1)},
+		"no limit":                      {},
+		"a limit over the maximum":      {Limit: contracts.MaxAuditQueryRecords + 1},
+		"a negative limit":              {Limit: -1},
+		"an unset action":               {Limit: 1, Actions: []modelv1alpha1.AuditAction{0}},
+		"an unknown action":             {Limit: 1, Actions: []modelv1alpha1.AuditAction{999}},
+		"an unknown target kind":        {Limit: 1, TargetKind: 999},
+		"a target ID without kind":      {Limit: 1, TargetID: "x"},
+		"from after to":                 {Limit: 1, From: times[2], To: times[1]},
+		"from equal to":                 {Limit: 1, From: times[1], To: times[1]},
+		"an event ID too long":          {Limit: 1, EventID: strings.Repeat("e", contracts.MaxEventIDBytes+1)},
+		"an event ID with a NUL":        {Limit: 1, EventID: "a\x00b"},
+		"an event ID that is not UTF-8": {Limit: 1, EventID: "\xff"},
+		"an actor ID too long":          {Limit: 1, ActorID: strings.Repeat("a", contracts.MaxAuditIDBytes+1)},
+		"a target ID too long":          {Limit: 1, TargetKind: alias, TargetID: strings.Repeat("t", contracts.MaxAuditIDBytes+1)},
 	} {
 		_, err := l.Query(ctx, f)
 		failIf(t, !errors.Is(err, contracts.ErrInvalidAuditQuery), "%s: got %v, want ErrInvalidAuditQuery", name, err)
@@ -403,7 +422,7 @@ func (a *auditSuite) restore(t *testing.T) {
 			{Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, Actor: person, Target: auditTarget(subject, p), Rule: "manual", Before: embed(t, &modelv1alpha1.StateEntry{Key: "before"}), After: embed(t, &modelv1alpha1.StateEntry{Key: "after"})},
 		}},
 	} {
-		clk.Set(clk.Now().Add(time.Duration(i+1) * time.Second))
+		clk.Set(clk.Now().Add(time.Duration(i+1)*time.Second + 1500*time.Nanosecond))
 		apply(t, s, cs)
 	}
 	want := records(t, l)

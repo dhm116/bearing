@@ -767,7 +767,7 @@ pages with the last `seq` it saw until a call returns nothing: a short page
 does not mean the end. A filter outside the bounds fails with
 `ErrInvalidAuditQuery` (`CheckAuditFilter`): a limit outside 1 to 1,000, an
 action that is unset or unknown or more actions than there are, an event ID
-over `MaxEventIDBytes` or an actor or target ID over `MaxAuditIDBytes`, an
+over `MaxEventIDBytes` or not text (invalid UTF-8 or a NUL), an actor or target ID over `MaxAuditIDBytes`, an
 unknown target kind, a target ID without its kind, or `From` not before `To`
 when both are set. `Head` returns the newest record's `seq`, hash and
 `recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin

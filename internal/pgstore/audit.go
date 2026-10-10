@@ -38,7 +38,7 @@ func writeAuditRows(ctx context.Context, q querier, recs []*modelv1alpha1.AuditR
 		var (
 			seq, at      = make([]int64, len(part)), make([]int64, len(part))
 			action, kind = make([]int16, len(part)), make([]int16, len(part))
-			event        = make([]string, len(part))
+			event, kid   = make([]string, len(part)), make([][]byte, len(part))
 			actor, tgt   = make([][]byte, len(part)), make([][]byte, len(part))
 			data         = make([][]byte, len(part))
 		)
@@ -46,7 +46,7 @@ func writeAuditRows(ctx context.Context, q querier, recs []*modelv1alpha1.AuditR
 			e := r.GetEntry()
 			seq[j], at[j] = int64(r.GetSeq()), r.GetRecordedAt().AsTime().UnixMicro() //nolint:gosec // G115: a sequence number never reaches 2^63
 			action[j], kind[j] = int16(e.GetAction()), int16(e.GetTarget().GetKind()) //nolint:gosec // G115: enum values are small
-			event[j] = r.GetEventId()
+			event[j], kid[j] = r.GetEventId(), kidOf(r.GetEventId())
 			actor[j], tgt[j] = []byte(e.GetActor().GetId()), []byte(e.GetTarget().GetId())
 			b, err := proto.Marshal(r)
 			if err != nil {
@@ -54,9 +54,9 @@ func writeAuditRows(ctx context.Context, q querier, recs []*modelv1alpha1.AuditR
 			}
 			data[j] = b
 		}
-		if _, err := q.Exec(ctx, `INSERT INTO audit_record (seq, event, recorded_at, action, actor, target_kind, target, data)
-SELECT * FROM unnest($1::bigint[], $2::text[], $3::bigint[], $4::smallint[], $5::bytea[], $6::smallint[], $7::bytea[], $8::bytea[])`,
-			seq, event, at, action, actor, kind, tgt, data); err != nil {
+		if _, err := q.Exec(ctx, `INSERT INTO audit_record (seq, event, event_kid, recorded_at, action, actor, target_kind, target, data)
+SELECT * FROM unnest($1::bigint[], $2::text[], $3::bytea[], $4::bigint[], $5::smallint[], $6::bytea[], $7::smallint[], $8::bytea[], $9::bytea[])`,
+			seq, event, kid, at, action, actor, kind, tgt, data); err != nil {
 			return err
 		}
 	}
@@ -103,6 +103,9 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
 	}
 	if f.EventID != "" {
+		// The index is on the digest because the contract does not bound the
+		// ID, and a btree refuses entries over about 2.7 KB.
+		add("event_kid = $%d", kidOf(f.EventID))
 		add("event = $%d", f.EventID)
 	}
 	if len(f.Actions) > 0 {
@@ -128,7 +131,7 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 		add("recorded_at < $%d", ceilMicros(f.To))
 	}
 	args = append(args, f.Limit)
-	sql := `SELECT data FROM audit_record WHERE ` + strings.Join(conds, " AND ") + fmt.Sprintf(` ORDER BY seq LIMIT $%d`, len(args))
+	sql := `SELECT seq, data FROM audit_record WHERE ` + strings.Join(conds, " AND ") + fmt.Sprintf(` ORDER BY seq LIMIT $%d`, len(args))
 
 	var out []*modelv1alpha1.AuditRecord
 	err := a.s.readTx(ctx, func(q querier) error {
@@ -146,8 +149,11 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 		defer rows.Close()
 		size := 0
 		for rows.Next() {
-			var b []byte
-			if err := rows.Scan(&b); err != nil {
+			var (
+				seq int64
+				b   []byte
+			)
+			if err := rows.Scan(&seq, &b); err != nil {
 				return fmt.Errorf("read audit record: %w", err)
 			}
 			// The limit is on the encoded size, which is what the row holds.
@@ -157,6 +163,12 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 			rec := &modelv1alpha1.AuditRecord{}
 			if err := proto.Unmarshal(b, rec); err != nil {
 				return fmt.Errorf("audit record: %w", err)
+			}
+			// The columns Query filters on sit outside the hash; a row whose
+			// number differs from its record was edited, and paging on it
+			// would not end.
+			if rec.GetSeq() != uint64(seq) { //nolint:gosec // G115: the column is a sequence number, never negative
+				return fmt.Errorf("audit record %d: row holds record %d", seq, rec.GetSeq())
 			}
 			out, size = append(out, rec), size+len(b)
 		}
