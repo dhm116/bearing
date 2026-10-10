@@ -1,12 +1,13 @@
 // Package contracts defines the interfaces between Bearing's components.
 // Each interface has one default implementation and can be backed by any
 // other technology that passes its conformance suite. One backend may serve
-// several interfaces; by default SurrealDB serves both GraphStore and
-// VectorIndex (see docs/adr/0005-one-store-to-start.md and pkg/store).
+// several interfaces; by default PostgreSQL serves both GraphStore and
+// VectorIndex (see docs/adr/0014-postgres-is-the-default-store.md and
+// pkg/store).
 //
 //	Interface      Default            Alternatives
-//	GraphStore     SurrealDB          PostgreSQL, Neo4j, Apache AGE, Memgraph
-//	VectorIndex    SurrealDB          Qdrant, pgvector, OpenSearch, Weaviate
+//	GraphStore     PostgreSQL         Neo4j, Apache AGE, Memgraph
+//	VectorIndex    PostgreSQL         Qdrant, OpenSearch, Weaviate
 //	EventBus       NATS JetStream     Kafka, SQS/SNS, Postgres queue
 //	Extractor      self-hosted model  hosted models, only when an operator opts in
 //	Judge          Kev 4B             Jev hosted API

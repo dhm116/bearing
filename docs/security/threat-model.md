@@ -1,6 +1,6 @@
 # Threat model
 
-Status: draft for the MVP · Last reviewed: 2026-10-08
+Status: draft for the MVP · Last reviewed: 2026-10-10
 
 This document describes Bearing as planned for the MVP, where it trusts what,
 what can go wrong at each trust boundary, and the control that answers each
@@ -35,7 +35,7 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 ```
  [B3] source systems ─push─▶ [B1] ingest ─▶ event log ─▶ workers ─▶ [B6] store
-      (GitHub, …)                                        │  ▲      (SurrealDB: graph,
+      (GitHub, …)                                        │  ▲      (PostgreSQL: graph,
            ▲                                             ▼  │       vectors, log, config,
            └──── http capability ◀── [B2] adapter (WASM) ◀┘  │       audit, kv)
                                                             │
@@ -53,8 +53,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **Workers** run adapters as WASM modules (ADR 9). Adapters reach source
   systems only through host capabilities and emit observations. Workers apply
   the result to the graph in one transaction with its audit record (ADR 8).
-- **The store** is SurrealDB: graph, vectors, event log, config, audit log
-  and adapter `kv` (ADR 5).
+- **The store** is PostgreSQL with pgvector: graph, vectors, event log,
+  config, audit log and adapter `kv` (ADR 14).
 - **The API** serves queries and configuration (ADR 10). **MCP** serves
   read-only queries to AI agents.
 - **The identity provider** (Authentik or any OIDC provider) authenticates
@@ -270,7 +270,7 @@ OIDC settings, and its stderr passes through untagged
 | --- | --- | --- | --- |
 | T-ADAPTER-1 | E | Module reads files or environment, opens sockets, or escapes into the host | C-ADAPTER-1 |
 | T-ADAPTER-2 | E | Module calls a capability or host it did not declare | C-ADAPTER-2, C-ADAPTER-4 |
-| T-ADAPTER-3 | I, E | SSRF to `169.254.169.254`, localhost, SurrealDB or internal services | C-ADAPTER-5 |
+| T-ADAPTER-3 | I, E | SSRF to `169.254.169.254`, localhost, the store or internal services | C-ADAPTER-5 |
 | T-ADAPTER-4 | I | Module reads or forwards a source token | C-SECRET-3, C-ADAPTER-6 |
 | T-ADAPTER-5 | I | Module sends organization data to an attacker's host | C-ADAPTER-4, C-ADAPTER-5 |
 | T-ADAPTER-6 | T | Module writes to the source system | C-ADAPTER-4 |
@@ -639,12 +639,7 @@ Assets: caller identity, role mapping, A7 (API availability).
 
 The store holds everything except secrets. Whoever controls it controls
 Bearing's answers. The default backend is PostgreSQL with pgvector (ADR 14);
-`internal/pgstore` serves both halves. The SurrealDB backend stays in the tree
-until the change that removes it (#134) and is not a supported
-configuration: its controls (a database-scoped user from
-`surrealstore.Provision`, `wss`, a server started with `--deny-net
---deny-scripting --deny-guests`, one escaping function for embedded values)
-are as built and are deleted with it.
+`internal/pgstore` serves both halves.
 
 Assets: A1, A3, A4, A5, A6.
 
@@ -659,7 +654,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 
-T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
+**Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
 reach, so they are retired and their numbers are not reused.
 
@@ -820,8 +815,8 @@ Assets: A5, A2, A6, the container and host.
 
 Users run what the project ships. A compromise here bypasses every runtime
 control. The default binary is CGO-free and contains no BSL-licensed code
-(ADR 5); embedded-store builds are a separate artifact and out of scope for
-the MVP.
+(ADR 14). An embedded PostgreSQL build, the intended single-binary option,
+needs its own section here before it ships.
 
 Assets: source repository, CI, release binaries, container images, embedded
 first-party adapters, the local embedding model, the project website
@@ -864,8 +859,8 @@ first-party adapters, the local embedding model, the project website
 - **C-SUPPLY-4** Releases are built in CI from a tag with `-trimpath`, and
   ship checksums, an SBOM, build provenance and Sigstore signatures for
   binaries and images.
-- **C-SUPPLY-5** The compose file pins every image (Bearing, SurrealDB,
-  embedding model server) and model file by digest.
+- **C-SUPPLY-5** The compose file pins every image (Bearing, PostgreSQL with
+  pgvector, embedding model server) and model file by digest.
 - **C-SUPPLY-6** First-party adapters are compiled from this repository in
   the same build and embedded in the binary; they are never downloaded at
   run time.
@@ -941,5 +936,5 @@ provider API keys.
   front of ingest and the API.
 - **Out of scope:** distributed mode (remote adapters, remote capability
   providers, NATS or Kafka), the `Executor` and any write action against
-  source systems, embedded-store builds, and Sigstore verification of
+  source systems, an embedded PostgreSQL build, and Sigstore verification of
   external modules. Each needs its own section here before it ships.

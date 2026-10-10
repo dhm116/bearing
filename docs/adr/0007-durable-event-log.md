@@ -81,6 +81,8 @@ A webhook delivery, end to end:
   workers and API.
 - The `GraphStore` contract and its conformance suite gain `Apply` and its
   idempotency tests. `memstore` and `surrealstore` implement them.
+  *Amended 2026-10-10:* `surrealstore` was removed ([ADR 14](0014-postgres-is-the-default-store.md));
+  `memstore` and `pgstore` implement them.
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Ingest needs a registry of host verifiers, one per signature scheme, and

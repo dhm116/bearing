@@ -77,14 +77,6 @@ linters:
           deny:
             - pkg: bearing.example/internal/fakes
               desc: fakes are for tests only
-        # Only internal/surrealstore talks to SurrealDB.
-        surrealdb:
-          files:
-            - $all
-            - "!**/internal/surrealstore/**"
-          deny:
-            - pkg: github.com/surrealdb
-              desc: only internal/surrealstore talks to SurrealDB
         # Log through telemetry.Logger (slog), not another logging library.
         logging:
           files:

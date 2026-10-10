@@ -13,7 +13,7 @@ capabilities, config resources, audit records and the query API.
 | Concern | Standalone | Distributed |
 | --- | --- | --- |
 | Event log | Table in the store | NATS JetStream (or Kafka) |
-| Store | Embedded or single SurrealDB | SurrealDB cluster, or split graph and vectors |
+| Store | Single PostgreSQL with pgvector | PostgreSQL with replication or a managed service, or split graph and vectors |
 | Adapters | In-process WASM | WASM on any worker; remote adapters for what WASM can't host |
 | Capabilities | In-process | In-process, or remote providers (shared egress, cache) |
 | Config | `bearing server --config ./config` | `bearing apply` / API into the store |

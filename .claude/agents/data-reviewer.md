@@ -48,9 +48,8 @@ log).
 - **Proto.** Field numbers never reused, removed fields reserved, enums with
   an `_UNSPECIFIED` zero value.
 
-If the PR touches `internal/surrealstore`, check whether
-`make test-surrealdb` or `make test-embedded` was run; a green `make test`
-does not exercise it.
+If the PR touches `internal/pgstore`, check whether `make test-postgres` was
+run; a green `make test` does not exercise it.
 
 ## How to review
 

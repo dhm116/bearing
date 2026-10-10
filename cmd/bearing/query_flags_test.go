@@ -160,11 +160,11 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	}
 	env.Getenv = func(k string) string {
 		if k == storeEnv {
-			return "surrealdb+ws://db:8000"
+			return "postgres://bearing@db.example.com/bearing"
 		}
 		return ""
 	}
-	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err != nil || opened != "surrealdb+ws://db:8000" {
+	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err != nil || opened != "postgres://bearing@db.example.com/bearing" {
 		t.Fatalf("got %v, opened %q, want the store from the environment", err, opened)
 	}
 	if passwordEnv != opened {

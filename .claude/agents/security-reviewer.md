@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Adversarial security review of a Bearing PR. Use for changes to auth, ingest and webhooks, the adapter host and capabilities, secrets, compose and deployment, internal/surrealstore, pkg/store or .github/workflows (see .github/reviewers.yml). Returns APPROVE or REQUEST_CHANGES with blocking findings first.
+description: Adversarial security review of a Bearing PR. Use for changes to auth, ingest and webhooks, the adapter host and capabilities, secrets, compose and deployment, internal/pgstore, pkg/store or .github/workflows (see .github/reviewers.yml). Returns APPROVE or REQUEST_CHANGES with blocking findings first.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -31,8 +31,9 @@ a control it lacks; if the file is missing, write
   logs, span attributes, metric labels, error strings or test fixtures;
   URLs passed through `redact` (in `pkg/store`) before they reach an error
   or log.
-- **Injection:** queries to SurrealDB use bound variables, never string
-  concatenation of input; no shell construction from input; path joins
+- **Injection:** queries to PostgreSQL use bound parameters, never string
+  concatenation of input (identifiers that cannot be parameters are
+  validated against a name pattern first, C-STORE-5); no shell construction from input; path joins
   from input are cleaned and confined.
 - **AuthN/AuthZ:** every new endpoint, RPC or MCP tool states who may call
   it and checks it; ownership and policy decisions read only asserted facts
@@ -48,9 +49,8 @@ a control it lacks; if the file is missing, write
   contexts.
 - **Audit:** security-relevant actions are recorded per ADR 8.
 
-If the PR touches `internal/surrealstore`, check whether
-`make test-surrealdb` or `make test-embedded` was run; if not, that is a
-finding unless the PR says so plainly.
+If the PR touches `internal/pgstore`, check whether `make test-postgres` was
+run; if not, that is a finding unless the PR says so plainly.
 
 ## How to review
 

@@ -7,8 +7,8 @@ interface's conformance suite can replace it. The Go definitions are in
 
 | Interface | Responsibility | Default | Alternatives | Conformance suite |
 | --- | --- | --- | --- | --- |
-| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | SurrealDB (`mem://` for tests) | PostgreSQL, Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
-| `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | SurrealDB | Qdrant, pgvector, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
+| `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
+| `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventBus` | At-least-once delivery of CloudEvents between components | NATS JetStream | Kafka, SQS/SNS, Postgres queue | Planned |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
@@ -18,21 +18,18 @@ interface's conformance suite can replace it. The Go definitions are in
 
 ## One database to start
 
-A backend can serve more than one interface. By default SurrealDB backs
-both `GraphStore` and `VectorIndex`, so a small install runs one database, or
-none with an embedded build ([ADR 5](../adr/0005-one-store-to-start.md)).
+A backend can serve more than one interface. By default PostgreSQL backs
+both `GraphStore` and `VectorIndex` (the vectors use the pgvector extension),
+so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
 [`pkg/store`](../../pkg/store) opens backends from URLs:
 
 | URL | Backend | Needs |
 | --- | --- | --- |
 | `mem://` | In-memory reference store | Nothing; data is lost on exit |
 | `postgres://user@host/db?vector_dimensions=384` | PostgreSQL server (`GraphStore`; also `VectorIndex` when `vector_dimensions` is set) | PostgreSQL 16 or later, and pgvector 0.5 or later for vectors |
-| `surrealdb+ws://user@host:8000?ns=bearing&db=main` | SurrealDB server (also `wss`, `http`, `https`) | A running `surreal start` |
-| `surrealdb+mem://` | Embedded SurrealDB in memory | A `-tags surrealembed` build (CGO) |
-| `surrealkv:///var/lib/bearing` | Embedded SurrealDB on disk | A `-tags surrealembed` build (CGO) |
 
 `store.Config{Graph: url}` uses one backend for both. Setting
-`Config.Vectors` to a second URL splits them, for example a SurrealDB graph
+`Config.Vectors` to a second URL splits them, for example a PostgreSQL graph
 with Qdrant vectors, and nothing else changes. Passwords come from
 `BEARING_STORE_PASSWORD`, not the URL; opening a URL that carries a password
 MUST fail.
@@ -41,9 +38,9 @@ In a vector index, a point's kind is its `kind` payload field, which
 `VectorQuery.Kinds` filters on. When subjects merge, the core calls
 `Repoint` to move the merged subject's points to the survivor.
 
-The SurrealDB backend serves both `GraphStore` and `VectorIndex`: a
-SurrealDB store URL opens as either. It keeps the graph as rows and runs each
-operation on the reference store's rules (see `internal/surrealstore`).
+The PostgreSQL backend serves `GraphStore`, and `VectorIndex` too when the
+URL sets `vector_dimensions`. It keeps the graph as rows and runs each
+operation on the reference store's rules (see `internal/pgstore`).
 
 Beyond Go interfaces, components that run as separate services expose the
 same operations over a network protocol (gRPC or HTTP+JSON), so a backend can
@@ -438,5 +435,5 @@ every time and in every backend:
 
 [`internal/memstore`](../../internal/memstore) is the reference `GraphStore`
 and `VectorIndex` and shows the pattern.
-[`internal/surrealstore`](../../internal/surrealstore) passes the
-`VectorIndex` and `GraphStore` suites.
+[`internal/pgstore`](../../internal/pgstore) passes the `VectorIndex` and
+`GraphStore` suites.

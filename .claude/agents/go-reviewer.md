@@ -12,11 +12,11 @@ rules" 4 to 6 constrain dependencies and layering.
 
 - **Layering.** Code outside a backend depends on `pkg/contracts`
   interfaces only; backends depend on `pkg/contracts` and `pkg/model`,
-  nothing else in Bearing. CGO or BSL code is behind `//go:build
-  surrealembed` with a stub.
+  nothing else in Bearing. No CGO or BSL code, and no build-tag variants of
+  a backend (rule 5).
 - **Dependencies.** New third-party modules are justified in the commit
   message (significant ones need an ADR), Apache-2.0 compatible, added with
-  `go get`, and `go.mod` edits are minimal (no `go mod tidy`).
+  `go get`, and `go.mod` edits are minimal.
 - **Scope.** golangci-lint (`make lint`) enforces formatting and
   mechanical naming and error rules (initialisms, stutter, lower-case error
   strings, `errors.Is`, `ctx` first); this list is what it doesn't catch.
