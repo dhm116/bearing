@@ -150,7 +150,7 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	if o.AllowSuperuser {
 		log.WarnContext(ctx, "insecure_store_superuser is set: the store may connect as a role that administers the server", "store", safeName(u))
 	}
-	if !isLoopback(o.Host) && !strings.HasPrefix(o.Host, "/") && o.SSLMode != "verify-full" {
+	if u.Query().Get("insecure_store_plaintext") == "true" {
 		log.WarnContext(ctx, "insecure_store_plaintext is set: the store connection does not verify the server's certificate", "store", safeName(u))
 	}
 	st, err := pgstore.Open(ctx, o)
