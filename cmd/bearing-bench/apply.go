@@ -273,6 +273,11 @@ type resolveCost struct {
 	P50MS  float64 `json:"p50_ms"`
 	P99MS  float64 `json:"p99_ms"`
 	MeanMS float64 `json:"mean_ms"`
+	// TransactionsPerEvent and RowsPerEvent are what the database did for one
+	// event, from its counters (so they need the benchmark to be its only
+	// client).
+	TransactionsPerEvent float64 `json:"db_transactions_per_event,omitempty"`
+	RowsPerEvent         float64 `json:"db_rows_returned_per_event,omitempty"`
 }
 
 // resolveCosts times the resolver on events of each kind against the store
@@ -302,6 +307,7 @@ func (w *world) resolveCosts(rs *readSet, seq *extraSeq) ([]resolveCost, error) 
 	for _, k := range kinds {
 		var lats []float64
 		var sum float64
+		c0 := w.pg.counters(w.ctx)
 		for i := range 30 {
 			ev := k.ev(i)
 			t := w.now()
@@ -312,7 +318,14 @@ func (w *world) resolveCosts(rs *readSet, seq *extraSeq) ([]resolveCost, error) 
 			lats = append(lats, ms)
 			sum += ms
 		}
-		out = append(out, resolveCost{Event: k.name, Calls: len(lats), P50MS: quantile(lats, 0.5), P99MS: quantile(lats, 0.99), MeanMS: sum / float64(len(lats))})
+		rc := resolveCost{Event: k.name, Calls: len(lats), P50MS: quantile(lats, 0.5), P99MS: quantile(lats, 0.99), MeanMS: sum / float64(len(lats))}
+		if w.pg != nil {
+			time.Sleep(1200 * time.Millisecond) // the counters are flushed about once a second
+			c1 := w.pg.counters(w.ctx)
+			rc.TransactionsPerEvent = float64(c1.xacts-c0.xacts) / float64(len(lats))
+			rc.RowsPerEvent = float64(c1.tupReturned-c0.tupReturned) / float64(len(lats))
+		}
+		out = append(out, rc)
 	}
 	return out, nil
 }

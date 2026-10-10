@@ -175,6 +175,27 @@ func (w *world) measure(label string, facts int64, o suiteOptions) error {
 	return nil
 }
 
+// measureResolve is the part of measure that times the resolver, for a store
+// that was measured before the resolver's database work was counted.
+func (w *world) measureResolve(label string, facts int64) error {
+	rs, err := w.readSet(w.pastRecorded())
+	if err != nil {
+		return err
+	}
+	seq := &extraSeq{}
+	extra, err := w.pg.extra(w.ctx)
+	if err != nil {
+		return err
+	}
+	seq.n.Store(extra)
+	costs, err := w.resolveCosts(rs, seq)
+	if err != nil {
+		return err
+	}
+	w.out.put("resolve", label, facts, costs)
+	return nil
+}
+
 // pastRecorded is a record time before now, for bitemporal reads: the time of
 // the previous checkpoint, or, without one, half way between the start of the
 // load and now.
@@ -216,6 +237,9 @@ func (w *world) runMeasure(f flags) error {
 	label := f.label
 	if label == "" {
 		label = fmt.Sprintf("%d fact rows", facts)
+	}
+	if f.only == "resolve" {
+		return w.measureResolve(label, facts)
 	}
 	return w.measure(label, facts, defaultSuite(f.quick))
 }

@@ -2,7 +2,8 @@
 
 `cmd/bearing-bench` measures the PostgreSQL store ([ADR 14](../adr/0014-postgres-is-the-default-store.md))
 at its design target: thousands of repositories and people and about ten
-million facts. Results are in [`store-10m.md`](store-10m.md). This page says
+million facts. Results are in [`store-10m.md`](store-10m.md), with the raw lines under
+[`results/`](results). This page says
 how the benchmark works and how to run it again.
 
 ## What it does
@@ -65,3 +66,10 @@ full run is not part of `make check` or CI.
 Results are JSON lines: `run` (hardware, PostgreSQL version and settings),
 `rows`, `sizes`, `read`, `apply`, `resolve`, `statements`, `plans`,
 `load_window`, and the experiments' own records.
+
+Disk: a store takes about 4.5 KB per fact row, so 10 million fact rows need
+about 45 GB for the tables plus the write-ahead log (set `max_wal_size` to
+suit). The 2026-10-10 run stopped at 3 million for want of space.
+
+`measure --only resolve` runs only the resolver timings with the database's
+own transaction and row counters.

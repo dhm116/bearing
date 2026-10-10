@@ -60,7 +60,7 @@ func openPG(ctx context.Context, storeURL string) (*pg, error) {
 		return nil, fmt.Errorf("parse store URL: %w", err)
 	}
 	cfg.Password = os.Getenv("BEARING_STORE_PASSWORD")
-	cfg.RuntimeParams["search_path"] = schema
+	cfg.RuntimeParams["search_path"] = quoteIdent(schema) + ", public" // public: where extensions such as pg_stat_statements live
 	cfg.RuntimeParams["application_name"] = "bearing-bench"
 	c, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
