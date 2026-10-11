@@ -112,13 +112,13 @@ func (q *Querier) Changes(ctx context.Context, req ChangesRequest) (*Changes, er
 	case AxisRecord:
 		a = contracts.AxisRecord
 	default:
-		return nil, fmt.Errorf("unknown axis %q: want %s or %s", w.axis, AxisValid, AxisRecord)
+		return nil, fmt.Errorf("%w: unknown axis %q: want %s or %s", ErrInvalidRequest, w.axis, AxisValid, AxisRecord)
 	}
 	if req.Limit < 0 || req.Limit > contracts.MaxChangesLimit {
-		return nil, fmt.Errorf("limit %d: want 1 to %d", req.Limit, contracts.MaxChangesLimit)
+		return nil, fmt.Errorf("%w: limit %d: want 1 to %d", ErrInvalidRequest, req.Limit, contracts.MaxChangesLimit)
 	}
 	if w.since.After(w.until) {
-		return nil, errors.New("the window starts after it ends")
+		return nil, fmt.Errorf("%w: the window starts after it ends", ErrInvalidRequest)
 	}
 	end := pointAt(w.until, w.axis)
 	l := q.labeler(end)

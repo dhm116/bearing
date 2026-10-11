@@ -43,6 +43,11 @@ type Point struct {
 // point asked about.
 var ErrNotFound = errors.New("query: not found")
 
+// ErrInvalidRequest is wrapped by the errors that say a question is malformed
+// (an unknown axis, a limit out of range, a window that starts after it ends,
+// no subject), as opposed to one the store could not answer.
+var ErrInvalidRequest = errors.New("query: invalid request")
+
 // maxMergeHops bounds how far a subject ID is followed through merges.
 const maxMergeHops = 16
 
@@ -52,7 +57,7 @@ const maxMergeHops = 16
 // the same subject (and, before the rename, the new name finds nothing).
 func (q *Querier) Resolve(ctx context.Context, ref string, p Point) (contracts.SubjectID, error) {
 	if ref == "" {
-		return "", errors.New("a subject is required")
+		return "", fmt.Errorf("%w: a subject is required", ErrInvalidRequest)
 	}
 	if strings.Contains(ref, ":") {
 		s, err := q.Graph.ResolveKey(ctx, model.Key(ref), p.Valid, p.Recorded)

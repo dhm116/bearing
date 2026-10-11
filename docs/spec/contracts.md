@@ -1033,9 +1033,9 @@ subject, groups or client ID.
 
 **Methods and roles.** Each method of the API has one entry in the table in
 `contracts` (`RequiredRole`), and a method with no entry is denied for every
-caller, a local one included. When the server ships (issue #139), a test in it
-fails if a route has no entry, so a new method is denied until someone
-classifies it.
+caller, a local one included. A test in `pkg/server` fails if a route
+has no entry, or a method has no route, so a new method is denied until
+someone classifies it.
 
 | Method | Role | Notes |
 | --- | --- | --- |

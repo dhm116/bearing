@@ -305,6 +305,12 @@ func (s *Server) watchLock(ctx context.Context) error {
 	}
 }
 
+// HasSource reports whether name is a configured source.
+func (s *Server) HasSource(name string) bool {
+	_, ok := s.sources[name]
+	return ok
+}
+
 // RequestSync puts a SyncRequested event for source on the log and returns
 // its ID. The scheduler, the CLI and the API all start a sync this way; the
 // caller says who asked, and authorizes the request first.

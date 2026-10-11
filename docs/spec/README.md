@@ -13,6 +13,7 @@ alone.
 1. [Data model](data-model.md): subjects, aliases, facts over time, observations and resolver rules
 2. [Adapter protocol](adapter-protocol.md): how adapters and the core talk
 3. [Component contracts](contracts.md): the interfaces between core components
+4. [Server API](api.md): the routes a running server offers, their roles and limits
 
 ## Conventions
 
