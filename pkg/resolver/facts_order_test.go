@@ -121,10 +121,9 @@ const orderChunk = 25
 // checkApplyOrders applies the events in time order, then in 200 random orders
 // and 200 orders that keep each source's events in key order, and fails unless
 // every order gives the same facts at every valid time, given the same
-// identity decisions (docs/spec/data-model.md, "State, determinism and apply").
-// need are strings the in-order facts must show, so a scenario that stops
-// exercising a rule is noticed. The orders come from the seed up front and the
-// applies run in parallel subtests.
+// identity decisions. need are strings the in-order facts must show, so a
+// scenario that stops exercising a rule is noticed. The orders come from the
+// seed up front and the applies run in parallel subtests.
 func checkApplyOrders(t *testing.T, events []Event, seed int64, need ...string) {
 	t.Helper()
 	base := newEnv(t)
@@ -171,7 +170,7 @@ func checkApplyOrders(t *testing.T, events []Event, seed int64, need ...string) 
 			})
 		}
 	})
-	if same.Load() == 0 {
+	if !t.Failed() && same.Load() == 0 {
 		t.Fatalf("no order gave the facts of the in-order apply; %d ignored a claim", ignored.Load())
 	}
 
@@ -196,7 +195,8 @@ func checkApplyOrders(t *testing.T, events []Event, seed int64, need ...string) 
 }
 
 // Applying the same events in any order gives the same supports and statuses
-// at every valid time, given the same identity decisions.
+// at every valid time, given the same identity decisions
+// (docs/spec/data-model.md, "State, determinism and apply").
 func TestClaimsDoNotDependOnApplyOrder(t *testing.T) {
 	t.Parallel()
 	checkApplyOrders(t, claimScenario(), 3, "ASSERTED", "CONFLICTED")
