@@ -153,6 +153,11 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 	}
 
+	checkpoints, retention, err := auditConfig(s, c, st, env.Getenv)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := resolver.New(rcfg, st.Graph)
 	if err != nil {
 		return nil, fmt.Errorf("boot: resolver: %w", err)
@@ -166,6 +171,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	srv, err := server.New(server.Config{
 		Log: st.Events, Graph: st.Graph, Applier: res, Audit: st.Audit,
 		Sources: sources, Lock: lock, Clock: env.Clock,
+		AuditCheckpoints: checkpoints, AuditRetention: retention,
 	})
 	if err != nil {
 		return nil, err

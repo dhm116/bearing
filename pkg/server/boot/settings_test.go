@@ -192,6 +192,10 @@ func TestParseScheduleReadsISODurationsAndRefusesTheRest(t *testing.T) {
 		{"P1M", 0, true},
 		{"P400D", 0, true},
 		{"P99999999999D", 0, true},
+		// These wrap a 64-bit duration to a small positive value (72h25m26s,
+		// 25m26s) if multiplied before the limit is checked.
+		{"P30501W", 0, true},
+		{"P213504D", 0, true},
 		{"-PT1H", 0, true},
 	} {
 		got, err := ParseSchedule(tt.in)

@@ -1179,6 +1179,23 @@ Assets: A5, A2, A6, the container and host.
   on (C-API-3). Behind a proxy or ingress every client is one peer, so the
   defaults cap the whole API and the operator raises `max_conns`,
   `max_conns_per_peer` and `peer_rate_per_minute` instead.
+- **C-OPS-7** `bearing server --settings` runs the audit controls of C-AUDIT-3
+  and C-AUDIT-5 from one `audit` block. A durable store starts only with
+  `audit.checkpoints`, or with `audit.insecure_no_checkpoints`, which warns at
+  start: without checkpoints whoever can write the database rewrites the audit
+  log undetected. Checkpoints are signed unless `audit.insecure_unsigned_checkpoints`
+  is on, which retention refuses. The signing key is read from a variable
+  that must start with `BEARING_AUDIT_`; the secret allowlist cannot match it
+  (C-SECRET-1), so no source or adapter can name it, and the adapter's
+  environment never holds it (a test pins both). The key's errors name the
+  variable and never what it held. The checkpoint file's directory and the
+  file must be owned by the service user or root and not writable by others,
+  and the store's `AuditRetention` goes only to the retention job.
+  The key is in the server's environment, so an adapter that shares its UID
+  can read it from `/proc/<pid>/environ` like `BEARING_STORE_PASSWORD`; the
+  separate-UID rule (M4/M5) closes that, as C-OPS-5 records. Only the
+  checkpoint file's own directory is checked, once, at start, and a link in
+  place of the file is refused.
 - **C-OPS-4** Container images run as a non-root user with a read-only root
   filesystem, `no-new-privileges` and all Linux capabilities dropped.
 
