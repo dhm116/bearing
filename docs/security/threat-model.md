@@ -823,7 +823,8 @@ Assets: A3, A5, A4, A7.
     never a flag or URL, and goes only in the `Authorization` header of a
     request over TLS 1.2 or later, or to a literal loopback address. A name
     such as `localhost` is not accepted for plain http, since it is resolved
-    when the connection is made. The Unix socket gets no token.
+    when the connection is made. The Unix socket gets no token. The hint a
+    401 or 403 gets names the variable, never its contents.
   - A redirect is never followed, so the token cannot be carried to another
     host. `--server-ca` adds to the system roots; verification is never
     turned off.
@@ -831,12 +832,22 @@ Assets: A3, A5, A4, A7.
     timeout. Error text and the sync request's event ID are cleaned of control
     characters (C0 and C1), format characters such as bidi overrides, and line
     and paragraph separators before they are shown; the text renderer does the
-    same for every line it prints. `--json`, which is for machines, keeps
-    JSON's own escaping. Go's encoder passes C1 controls (U+0080 to U+009F,
-    including the 8-bit CSI, which some terminals act on) and format
-    characters such as bidi overrides, so a hostile server's text can reach a
-    terminal that prints it. That is no wider than `--json` from a store
-    today; #259 is the fix.
+    same for every line it prints. Every `--json` output of the command line,
+    a store's and the adapter commands' too, passes through one escaper (the
+    signed checkpoint lines of `audit checkpoint` and `audit reanchor` are not
+    `--json` and stay as signed). A server's body is indented only if that stays
+    under 64 MiB, since indenting multiplies a deeply nested body by its depth,
+    and is printed compact otherwise. Go's
+    encoder escapes C0 controls and the line and paragraph separators but
+    passes DEL, the C1 controls (U+0080 to U+009F, including the 8-bit CSI and
+    OSC, which some terminals act on) and format characters such as bidi
+    overrides, so the escaper writes those as `\uXXXX` as well. Through
+    `--server`, `--json` prints the body the server sent after that escaping, so
+    it is the server's text but cannot move the operator's terminal, if that
+    terminal is in UTF-8 mode. A terminal that is not reads the bytes 0x80 to
+    0x9F inside the multi-byte form of ordinary non-ASCII text as C1 controls;
+    escaping every non-ASCII character would close that, at a cost in
+    readability, and is open as #284.
   - Residual risks: a socket path is trusted as given, so a local user who
     plants a socket where `$BEARING_SERVER` points can forge answers (no token
     is exposed); the URL of each request, which holds the question and a page

@@ -179,9 +179,7 @@ func describe(ctx context.Context, args []string, stdout io.Writer) (err error) 
 	if err != nil {
 		return err
 	}
-	enc := json.NewEncoder(stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(d)
+	return writeJSON(stdout, d)
 }
 
 func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
@@ -217,7 +215,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 		if err != nil {
 			return err
 		}
-		_, err = w.Write(append(b, '\n'))
+		_, err = w.Write(append(jsonSafe(b), '\n'))
 		return err
 	})
 	telemetry.Logger("cmd/bearing").InfoContext(ctx, "observations written", "count", n)

@@ -460,3 +460,135 @@ func TestNewLeavesTheCallersHTTPClientAlone(t *testing.T) {
 		t.Fatalf("got timeout %v and redirect policy set %v, want the caller's client unchanged", h.Timeout, h.CheckRedirect != nil)
 	}
 }
+
+func TestANotFoundNamesWhatWasAskedAboutAndKeepsItsMeaning(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"not_found","message":"nothing matches","request_id":"r9"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	rec := time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)
+	p := query.Point{Valid: at, Recorded: rec}
+	for name, tt := range map[string]struct {
+		call func() error
+		want string
+	}{
+		"get":     {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", p); return err }, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known 2026-10-02T08:00:00Z: "},
+		"get now": {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", query.Point{}); return err }, "no subject matches github:repo/acme/gone at now, as known now: "},
+		"owner":   {func() error { _, err := c.Owners(t.Context(), "github:repo/acme/gone", p); return err }, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, "},
+		"related": {func() error { _, err := c.Related(t.Context(), "01a0", "", p); return err }, "no subject matches 01a0 at "},
+		"changes (valid)": {func() error {
+			_, err := c.Changes(t.Context(), query.ChangesRequest{Ref: "github:repo/acme/gone", Until: at})
+			return err
+		}, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known now: "},
+		"changes (record)": {func() error {
+			_, err := c.Changes(t.Context(), query.ChangesRequest{Ref: "github:repo/acme/gone", Until: at, Axis: query.AxisRecord})
+			return err
+		}, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known 2026-10-01T12:00:00Z: "},
+		"a ref with control characters": {func() error { _, err := c.Get(t.Context(), "x\x1b[2J\u009b\u202ey", p); return err }, "no subject matches x[2Jy at "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.call()
+			var apiErr *Error
+			if !errors.Is(err, query.ErrNotFound) || !errors.As(err, &apiErr) || apiErr.Code != "not_found" {
+				t.Fatalf("got %v, want it to match query.ErrNotFound and keep the *Error", err)
+			}
+			if !strings.HasPrefix(err.Error(), tt.want) || !strings.Contains(err.Error(), "request r9") {
+				t.Fatalf("got %q, want it to start %q and keep the server's text", err, tt.want)
+			}
+			if strings.ContainsAny(err.Error(), "\x1b\u009b\u202e") {
+				t.Fatalf("got %q, want control characters out of the ref", err)
+			}
+		})
+	}
+
+	// A page token carries its own question, so there is no ref to name.
+	_, err = c.Changes(t.Context(), query.ChangesRequest{PageToken: "abc"})
+	if !errors.Is(err, query.ErrNotFound) || strings.Contains(err.Error(), "no subject matches") {
+		t.Fatalf("got %v, want the server's own text for a question with no ref", err)
+	}
+	// A long ref is clipped, not repeated whole.
+	_, err = c.Get(t.Context(), strings.Repeat("a", 5000), p)
+	if err == nil || len(err.Error()) > 600 {
+		t.Fatalf("got %d bytes, want the ref clipped", len(err.Error()))
+	}
+}
+
+func TestOtherErrorsAreNotRewrittenAndAnUnknownSourceIsNamed(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/sources/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"unknown_source","message":"no such source","request_id":"r1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"forbidden","message":"the caller may not do this","request_id":"r2"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Get(t.Context(), "x", query.Point{})
+	if want := "server: the caller may not do this (forbidden, request r2)"; err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q unchanged", err, want)
+	}
+	_, err = c.RequestSync(t.Context(), "no-such-source\x1b")
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "unknown_source" || !strings.HasPrefix(err.Error(), "source no-such-source: server: no such source") {
+		t.Fatalf("got %v, want the source named and the *Error kept", err)
+	}
+}
+
+func TestKeepBodyHandsBackTheAnswerAsTheServerSentIt(t *testing.T) {
+	t.Parallel()
+	const body = `{"subject":{"subject_id":"s-1"},"a_later_field":{"x":[1,2]},"facts":[]}` + "\n"
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []byte
+	e, err := c.Get(KeepBody(t.Context(), &kept), "x", query.Point{})
+	if err != nil || e.Subject.ID != "s-1" {
+		t.Fatalf("got %+v, %v, want the typed answer as well", e, err)
+	}
+	if string(kept) != body {
+		t.Fatalf("got %q, want the body as sent, with the field this client has no type for", kept)
+	}
+	// Without the option nothing is kept, and a refusal keeps nothing.
+	var untouched []byte
+	if _, err := c.Get(t.Context(), "x", query.Point{}); err != nil || untouched != nil {
+		t.Fatalf("got %q, %v, want nothing kept", untouched, err)
+	}
+	status = http.StatusBadGateway
+	if _, err := c.Get(KeepBody(t.Context(), &untouched), "x", query.Point{}); err == nil || untouched != nil {
+		t.Fatalf("got %q, %v, want an error and nothing kept", untouched, err)
+	}
+}
+
+func TestOverSocketSaysWhichKindOfServerItTalksTo(t *testing.T) {
+	t.Parallel()
+	for server, want := range map[string]bool{"/run/bearing/api.sock": true, "unix:///run/bearing/api.sock": true, "https://bearing.example.com": false, "http://127.0.0.1:1": false} {
+		c, err := New(Config{Server: server})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.OverSocket(); got != want {
+			t.Errorf("%s: got %v, want %v", server, got, want)
+		}
+	}
+}

@@ -3,12 +3,12 @@ package main
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -185,6 +185,12 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	defer func() { err = errors.Join(err, closeSource(ctx)) }()
 	p := query.Point{Valid: asOf, Recorded: recorded}
 
+	// Through --server, --json passes on the body the server sent, so a field
+	// a newer server adds is not dropped by this client's types.
+	var raw []byte
+	if qf.json {
+		ctx = apiclient.KeepBody(ctx, &raw)
+	}
 	var answer any
 	var render func(io.Writer) error
 	switch name {
@@ -221,12 +227,13 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		}
 	}
 	if err != nil {
-		return err
+		return qf.explain(q, err)
 	}
 	if qf.json {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(answer)
+		if raw != nil {
+			return writeJSONBody(stdout, raw)
+		}
+		return writeJSON(stdout, answer)
 	}
 	return render(stdout)
 }
@@ -275,6 +282,32 @@ func (s *serverFlags) client(env queryEnv, server string) (*apiclient.Client, er
 			return "", fmt.Errorf("no token: set $%s to the bearer token, or name another variable with --token-env", name)
 		},
 	})
+}
+
+// explain adds to a refusal from the server what the operator can do about it.
+// The hint names the variable the token comes from and never its contents.
+// Anything that is not a 401 or 403 from a server comes back as it is.
+func (s *serverFlags) explain(from answerer, err error) error {
+	var apiErr *apiclient.Error
+	c, ok := from.(*apiclient.Client)
+	// Only the API's own refusals, which pair these codes with these statuses:
+	// a proxy's 401 says nothing about the token.
+	if !ok || !errors.As(err, &apiErr) || (apiErr.Status != http.StatusUnauthorized || apiErr.Code != "unauthenticated") && (apiErr.Status != http.StatusForbidden || apiErr.Code != "forbidden") {
+		return err
+	}
+	name := cmp.Or(s.tokenEnv, tokenEnv)
+	var hint string
+	switch {
+	case c.OverSocket() && apiErr.Status == http.StatusUnauthorized:
+		hint = "the server does not know the account this command runs as (the socket needs no token)"
+	case c.OverSocket():
+		hint = "the server knows the account this command runs as, but its role is not allowed to do this"
+	case apiErr.Status == http.StatusUnauthorized:
+		hint = "the server did not accept the token in $" + name + "; check that it is current and was issued by the identity provider the server trusts"
+	default:
+		hint = "the server accepted the token in $" + name + ", but its caller's role is not allowed to do this"
+	}
+	return fmt.Errorf("%w; hint: %s", err, hint)
 }
 
 // repoRef turns <org>/<name> into the repository's key in namespace, and
