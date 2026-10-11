@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 }
 
 const (
-	secret = "whsec-test-0001"
+	secret = "whsec-test-0001" //nolint:gosec // a fixture, not a credential
 	source = "github-acme"
 )
 
@@ -256,10 +256,8 @@ func (f failingLog) Append(context.Context, []contracts.Event) ([]contracts.Appe
 }
 
 func TestIngestAnswers503WhenTheLogFailsAndStoresNothing(t *testing.T) {
-	var inner *memstore.Store
 	r := newRig(t, func(c *IngestConfig) {
-		inner = c.Log.(*memstore.Store)
-		c.Log = failingLog{EventLog: inner, err: errors.New("connection reset")}
+		c.Log = failingLog{EventLog: c.Log, err: errors.New("connection reset")}
 	})
 	body := []byte(`{}`)
 	resp := r.post("/webhooks/"+source, body, signed(body))

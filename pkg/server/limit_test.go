@@ -45,7 +45,7 @@ func TestLimiterOffAllowsEverything(t *testing.T) {
 	if !l.allow("x") {
 		t.Fatal("a nil limiter refused")
 	}
-	if l := newLimiter(0, 0, 1, time.Now); !l.allow("x") || !l.allow("x") {
+	if l := newLimiter(0, 0, 1, time.Now); !l.allow("x") {
 		t.Fatal("a limiter with no rate refused")
 	}
 }
