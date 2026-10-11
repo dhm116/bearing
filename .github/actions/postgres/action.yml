@@ -10,7 +10,10 @@ runs:
     # A step rather than a `services:` container so that the data directory
     # can sit in memory: the suites make and drop thousands of tables, and
     # nothing here needs to survive. fsync and full-page writes are off for
-    # the same reason; the server is thrown away with the runner.
+    # the same reason; the server is thrown away with the runner. It runs on
+    # the host's network (the Docker port proxy cost a third of the suites'
+    # wall time) and listens on 127.0.0.1 only; the container holds nothing
+    # but PostgreSQL, and the runner is used once.
     - name: Start PostgreSQL
       shell: bash
       run: |

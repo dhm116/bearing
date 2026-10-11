@@ -202,14 +202,16 @@ jobs:
       # The profiles to merge are the Makefile's SHARDS, not whatever was
       # downloaded: a shard that did not run leaves a file missing, and the
       # gate fails on it. Without a baseline (a push to main) there is no
-      # merge base to compare with, and the gate skips; with one that the gate
-      # chose not to measure (only documentation changed), no shard wrote a
+      # merge base to compare with, and the gate skips; when it chose not to
+      # measure one (only documentation changed), it skips before it reads a
       # profile.
       - name: Compare coverage with the merge base
+        env:
+          BASELINE: ${{ needs.baseline.result }}
         run: |
           head=$(make -s shard-profiles DIR=cover PREFIX=cover-)
           base=
-          if ls baseline/base-*.out >/dev/null 2>&1; then
+          if [ "$BASELINE" = success ]; then
             base=$(make -s shard-profiles DIR=baseline PREFIX=base-)
           fi
           echo "head profiles: $head; baseline profiles: ${base:-none}"

@@ -310,9 +310,9 @@ Both are plain Markdown checklists; any agent can follow them.
   runner). The `pgstore` shard is `-skip` of the `random` one, so a
   new test lands in a shard by default; a new shard goes into the `Makefile`
   and the matrix of both jobs, and `check` fails on a missing profile. Keep
-  the whole run to about five minutes: a test that takes longer than a minute or two on its own gets split
-  up or made parallel (`t.Parallel` with a store per test), and nothing slow
-  should be added to `static`.
+  the whole run to about five minutes: a test that takes longer than a
+  minute or two on its own gets split up or made parallel (`t.Parallel` with
+  a store per test), and nothing slow should be added to `static`.
 
 ## Review and merge process
 

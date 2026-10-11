@@ -333,9 +333,8 @@ func newNumbering(on bool) *numbering {
 var factIDField = regexp.MustCompile(`"fact_id":\s*"([0-9a-f]{64})"`)
 
 // ids matches a subject ID and a 64-digit hash. replaceIDs finds the same
-// matches without the regexp engine, which was a third of the time these
-// tests spent in the dump; TestReplaceIDsFindsWhatTheRegexpFinds keeps the two
-// the same.
+// matches without the regexp engine, which is slow on the amount of text a
+// dump holds; TestReplaceIDsFindsWhatTheRegexpFinds keeps the two the same.
 var ids = regexp.MustCompile(uuidV7.String() + `|[0-9a-f]{64}`)
 
 func isHex(c byte) bool { return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' }
@@ -549,5 +548,25 @@ func TestReplaceIDsFindsWhatTheRegexpFinds(t *testing.T) {
 		if got != want || !slices.Equal(gotMatches, wantMatches) {
 			t.Fatalf("%q\n got %q %q\nwant %q %q", in, got, gotMatches, want, wantMatches)
 		}
+	}
+}
+
+// The sort keeps items whose masked forms are equal in the order given, and
+// puts the rest in the order of their masked forms.
+func TestNumberingSortMasksFactIDsAndIsStable(t *testing.T) {
+	t.Parallel()
+	hashA, hashB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	n := newNumbering(true)
+	n.facts[hashA], n.facts[hashB] = "", ""
+	items := []string{"z " + hashB, "m " + hashB, "z " + hashA, "a " + hashA, "m " + hashA}
+	n.sort(items)
+	want := []string{"a " + hashA, "m " + hashB, "m " + hashA, "z " + hashB, "z " + hashA}
+	if !slices.Equal(items, want) {
+		t.Fatalf("got %q, want %q", items, want)
+	}
+	off := []string{"b", "a"}
+	newNumbering(false).sort(off)
+	if !slices.Equal(off, []string{"a", "b"}) {
+		t.Fatalf("got %q, want a plain sort when numbering is off", off)
 	}
 }

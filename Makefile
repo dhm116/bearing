@@ -162,7 +162,7 @@ covergate-report: $(COVERGATE)
 
 # covergate-base runs the tests at the merge base and writes their profile to
 # BASE_PROFILE, unless covergate-report would skip the comparison.
-covergate-base: $(COVERGATE)
+covergate-base: shard-check $(COVERGATE)
 	test -n '$(BASE_PROFILE)'
 	$(COVERGATE) -base $(COVER_BASE) $(COVER_FLAGS) -measure-base $(BASE_PROFILE) -test '$(COVER_TEST)={profile} $(COVER_ARGS)'
 
