@@ -303,7 +303,8 @@ Assets: A1, A7, the event log.
   non-loopback address requires `insecure_ingest_plaintext` (for example
   behind a TLS-terminating proxy). While the webhook route shares the API's
   TCP listener, that listener's `insecure_api_plaintext` is the setting.
-- **C-INGEST-7** Ingest responses carry only a status code and a request ID.
+- **C-INGEST-7** Ingest responses carry only a status code and a request ID
+  (plus `Allow` on a 405 and `Retry-After` on a 503).
   An unknown route and a failed check get the same response. Everything
   before the signature check (method, per-peer limit, body limit) is the same
   for a configured Source and an unknown one, so the status of a request that

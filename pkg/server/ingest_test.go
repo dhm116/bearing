@@ -806,15 +806,30 @@ func TestIngestTurnsAwayDeliveriesPastTheInFlightCap(t *testing.T) {
 	}
 	<-gate.entered
 	<-gate.entered
+	var once sync.Once
+	releaseGate := func() { once.Do(func() { close(gate.release) }) }
+	t.Cleanup(releaseGate)
 
+	// A short deadline, so a cap that is not enforced fails the test instead of
+	// waiting on the gate.
+	quick := &http.Client{Timeout: 3 * time.Second}
 	for _, path := range []string{"/webhooks/" + source, "/webhooks/nowhere"} {
-		resp := r.post(path, first, signed(first))
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, r.srv.URL+path, bytes.NewReader(first))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header = signed(first)
+		resp, err := quick.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s past the cap: %v, want a 503 without waiting on the log", path, err)
+		}
 		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" || len(body) != 0 {
 			t.Fatalf("POST %s past the cap: got %d, Retry-After %q, %d body bytes, want 503 with Retry-After and no body", path, resp.StatusCode, resp.Header.Get("Retry-After"), len(body))
 		}
 	}
-	close(gate.release)
+	releaseGate()
 	for range 2 {
 		if code := <-done; code != http.StatusAccepted {
 			t.Fatalf("a delivery under the cap: got %d, want 202", code)

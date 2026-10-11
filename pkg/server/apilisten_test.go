@@ -477,6 +477,8 @@ func TestAPITCPListenerTakesSignedWebhooksWithoutAToken(t *testing.T) {
 		{http.MethodGet, "/webhooks", http.StatusNotFound},
 		{http.MethodPost, "/webhooks", http.StatusNotFound},
 		{http.MethodGet, "/Webhooks/" + source, http.StatusNotFound},
+		{http.MethodGet, "/v1/webhooks/" + source, http.StatusNotFound},
+		{http.MethodGet, "/v1/changes/webhooks/" + source, http.StatusNotFound},
 		{http.MethodGet, "/webhooks/" + source, http.StatusMethodNotAllowed},
 		{http.MethodGet, "/webhooks/../v1/changes", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/webhooks/../v1/changes", http.StatusUnauthorized},
