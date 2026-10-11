@@ -548,3 +548,63 @@ func TestHandleCheckedValidatesLikeTheClientDoes(t *testing.T) {
 		t.Fatalf("got %v, want ErrNotSupported passed through", err)
 	}
 }
+
+// envAdapter describes itself by the environment it was started with.
+type envAdapter struct{ pager }
+
+func (envAdapter) Describe(context.Context) (DescribeResult, error) {
+	return DescribeResult{Name: strings.Join(os.Environ(), "\n")}, nil
+}
+
+// hangAdapter never answers.
+type hangAdapter struct{ pager }
+
+func (hangAdapter) Describe(context.Context) (DescribeResult, error) { select {} }
+
+func TestStartWithGivesTheAdapterOnlyTheEnvironmentItIsGiven(t *testing.T) {
+	t.Setenv("BEARING_STORE_PASSWORD", "canary-password")
+	t.Setenv(childEnv, "inherited-and-ignored")
+	ctx := context.Background()
+	c, err := StartWith(ctx, StartConfig{Name: os.Args[0], Env: []string{childEnv + "=env", "KEEP=1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := c.Describe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	got := strings.Split(d.Name, "\n")
+	slices.Sort(got)
+	if want := []string{childEnv + "=env", "KEEP=1"}; !slices.Equal(got, want) {
+		t.Fatalf("got environment %q, want exactly %q", got, want)
+	}
+}
+
+func TestKillEndsACallBlockedOnAHungAdapter(t *testing.T) {
+	ctx := context.Background()
+	c, err := StartWith(ctx, StartConfig{Name: os.Args[0], Env: []string{childEnv + "=hang"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := c.Describe(ctx); done <- err }()
+	time.Sleep(100 * time.Millisecond) // let the call reach the adapter
+	if err := c.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a call to a killed adapter succeeded")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a call stayed blocked after the adapter was killed")
+	}
+	_ = c.Close() // the exit status of a killed process is an error
+	if err := NewClient("x", strings.NewReader(""), io.Discard).Kill(); err != nil {
+		t.Fatalf("Kill on a client with no process: %v", err)
+	}
+}

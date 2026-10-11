@@ -720,7 +720,8 @@ Assets: A3, A5, A4, A7.
   a token. Metrics are served on a separate
   listener, off by default.
 - **C-API-3** The TCP listener uses TLS 1.2 or later. Plaintext on a
-  non-loopback address requires `insecure_api_plaintext`.
+  non-loopback address requires `insecure_api_plaintext`, which the server
+  logs a warning for at start (C-OPS-6).
 - **C-API-4** Every request is checked by the `Authorizer` contract. The MVP
   backend maps IdP groups and client IDs to roles and denies callers with no
   mapping:
@@ -1137,7 +1138,43 @@ Assets: A5, A2, A6, the container and host.
 - **C-OPS-2** Config changes need the `admin` role (or the local socket),
   are versioned and are audited with the actor (C-AUDIT-1, C-AUDIT-6).
 - **C-OPS-3** `bearing server --config` warns if a config file or directory
-  is group- or world-writable.
+  is group- or world-writable. The M3 process settings file
+  (`bearing server --settings`, [docs/operations.md](../operations.md)) names
+  adapter commands and the identity provider, so write access to it is code
+  execution: the server refuses to start if it is writable by its group or by
+  others or owned by anyone but the service user or root, if an adapter
+  command is not an absolute path to an executable only its owner can change,
+  if a secret reference does not resolve, if a source's adapter is not
+  listed, or if a durable graph store is paired with an in-memory event log.
+  It takes the instance lock before it runs and refuses to start without it
+  (#176, #235).
+- **C-OPS-5** The M3 stdio adapter is started with a minimal environment: a
+  fixed `PATH`, the `env:` secrets its own Source names and the variables its
+  adapter entry lists, and nothing else, so the store password, the audit
+  signing key, the OIDC settings, a webhook secret and another source's token
+  never reach it. `env:` references must match an allowlist (default
+  `BEARING_SECRET_*`); `file:` and the other forms are refused until M5. A
+  canary test starts a stub adapter and fails if any other value appears in
+  its environment. This is the transitional form of C-ADAPTER-20 (secrets by
+  pipe, never the environment), which comes with the local-process adapter
+  service in M4. An adapter that crashes is started again after a growing
+  pause (one second doubling to one minute) and counted
+  (`bearing.adapter.restarts`); a call that outlasts its deadline costs the
+  process. Residual risk: the adapter is a child of the server and has its
+  UID. It can read the server's initial environment from `/proc` and call the
+  Unix socket as `local:<uid>`, an administrator whose only state-changing
+  route is the sync request (C-API-1). The minimal environment stops an honest
+  or buggy adapter leaking a secret; it does not contain a malicious one. So
+  the settings name only adapters the operator installed, by absolute path
+  (no discovery), the stdio adapter is first-party code until M4, and a
+  separate UID for adapters is the M4/M5 rule.
+- **C-OPS-6** `insecure_no_peer_rate` turns off the TCP listener's per-peer
+  request limit (C-API-6) and is the only way to: a limit that is present in
+  the settings must be positive, so a typo cannot disable one. The server
+  logs a warning at start when it is on, and when `insecure_api_plaintext` is
+  on (C-API-3). Behind a proxy or ingress every client is one peer, so the
+  defaults cap the whole API and the operator raises `max_conns`,
+  `max_conns_per_peer` and `peer_rate_per_minute` instead.
 - **C-OPS-4** Container images run as a non-root user with a read-only root
   filesystem, `no-new-privileges` and all Linux capabilities dropped.
 
