@@ -4,13 +4,18 @@
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
 //
-// and reads the graph store directly to answer questions about what Bearing
-// knows, with the source, event, confidence and observed time of each fact:
+// and answers questions about what Bearing knows, with the source, event,
+// confidence and observed time of each fact, from the graph store directly or
+// from a running server:
 //
 //	bearing get <subject>
 //	bearing owner <repo>
 //	bearing related <subject>
 //	bearing changes [--since <time>] [<subject>]
+//
+// and asks a running server to sync a source now:
+//
+//	bearing source sync github-acme --server /run/bearing/api.sock
 //
 // and checks the audit log against checkpoints kept outside the store:
 //
@@ -18,8 +23,11 @@
 //	bearing audit checkpoint --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
 //	bearing audit reanchor --expect-seq 120 --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
 //
-// Each takes --store (or $BEARING_STORE); the queries also take --as-of. Run
-// one with -h for its flags. A subject is a subject ID or a key such as
+// The queries take --store (or $BEARING_STORE) to read a store, or --server (or
+// $BEARING_SERVER) to ask a running server, which answers the same questions
+// the same way: its Unix socket, which needs no token, or https://host:port with
+// a bearer token in the variable --token-env names ($BEARING_TOKEN). They also
+// take --as-of. Run one with -h for its flags. A subject is a subject ID or a key such as
 // github:repo/acme/payments. For changes, --since and --as-of are the two
 // ends of the window, and the default end is now. Without --since it looks
 // at the last 24 hours, newest change first, 100 at a time; a page that is
@@ -47,11 +55,12 @@ import (
 const usage = `usage:
   bearing adapter describe -- <adapter command> [args]
   bearing adapter sync [--config cfg.json] [--max-pages N] -- <adapter command> [args]
-  bearing get <subject> [--store URL] [--as-of T] [--recorded-at T] [--json]
-  bearing owner <repo> [--store URL] [--as-of T] [--recorded-at T] [--json]
-  bearing related <subject> [--predicate P] [--store URL] [--as-of T] [--recorded-at T] [--json]
-  bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL] [--as-of T] [--json]
-  bearing changes --page-token TOKEN [--limit N] [--store URL] [--json]
+  bearing get <subject> [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
+  bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
+  bearing related <subject> [--predicate P] [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
+  bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing changes --page-token TOKEN [--limit N] [--store URL | --server ADDR] [--json]
+  bearing source sync <source> [--server ADDR] [--json]
   bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
   bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
   bearing audit reanchor [--store URL] [--out FILE] --expect-seq N --key-id ID --key-env VAR
@@ -101,7 +110,7 @@ var errUsage = errors.New("see usage below")
 // its subcommand. Arguments such as a subject never go in it.
 func spanName(args []string) string {
 	switch {
-	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "audit"):
+	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "audit" || args[0] == "source"):
 		return "bearing " + args[0] + " " + args[1]
 	case len(args) >= 1 && isQueryCommand(args[0]):
 		return "bearing " + args[0]
@@ -123,6 +132,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 	switch args[0] {
 	case "audit":
 		return auditCmd(ctx, env, args[1:], stdout)
+	case "source":
+		return sourceCmd(ctx, env, args[1:], stdout)
 	case "adapter":
 		if len(args) < 2 {
 			return errUsage

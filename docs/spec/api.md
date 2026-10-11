@@ -99,8 +99,22 @@ carries `Retry-After`, in seconds.
 | 503 | `busy`, `auth_unavailable`, `unavailable` (the event log refused a sync request) |
 | 504 | `timeout` |
 
+## The command line
+
+`bearing get`, `owner`, `related` and `changes` take `--server` (or
+`$BEARING_SERVER`) instead of `--store`, and print what they print from a
+store: the same answers, with the same errors. `--server` is the path of the
+Unix socket, which needs no token, or `https://host:port` with a bearer token
+read from the variable `--token-env` names (default `$BEARING_TOKEN`), never a
+value on the command line. `--server-ca` adds a certificate authority to trust.
+Plain `http://` is accepted for a loopback address only, the token is never sent
+anywhere else in clear, and a redirect is not followed. A flag beats a variable,
+the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`.
+
+`bearing source sync <source> --server ADDR` makes the sync request and prints
+the request's event ID and offset; the sync itself runs later.
+
 ## Not here yet
 
 Webhook deliveries (`POST /webhooks/{source}`, authenticated by the source's
-signature, not a token), the command line as a client of this API, the
-metrics listener and configuration routes.
+signature, not a token), the metrics listener and configuration routes.

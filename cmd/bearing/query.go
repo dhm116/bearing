@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/store"
@@ -56,7 +57,29 @@ func defaultQueryEnv() queryEnv {
 }
 
 // storeEnv is the variable that names the store when --store is not given.
-const storeEnv = "BEARING_STORE"
+// serverEnv names a server the same way, and tokenEnv is the variable that
+// holds the bearer token for a server on the network, unless --token-env names
+// another.
+const (
+	storeEnv  = "BEARING_STORE"
+	serverEnv = "BEARING_SERVER"
+	tokenEnv  = "BEARING_TOKEN"
+)
+
+// answerer is what the query commands ask: a *query.Querier over a store, or a
+// *apiclient.Client over a running server's API, which answers the same
+// questions with the same types.
+type answerer interface {
+	Get(ctx context.Context, ref string, p query.Point) (*query.Entity, error)
+	Owners(ctx context.Context, ref string, p query.Point) (*query.Ownership, error)
+	Related(ctx context.Context, ref, predicate string, p query.Point) (*query.Relations, error)
+	Changes(ctx context.Context, req query.ChangesRequest) (*query.Changes, error)
+}
+
+var (
+	_ answerer = (*query.Querier)(nil)
+	_ answerer = (*apiclient.Client)(nil)
+)
 
 // isQueryCommand reports whether name is one of the commands that read the
 // store.
@@ -70,14 +93,29 @@ func isQueryCommand(name string) bool {
 
 // queryFlags are the flags every query command takes.
 type queryFlags struct {
+	serverFlags
 	store    string
 	asOf     string
 	recorded string
 	json     bool
 }
 
+// serverFlags are the flags of a command that can talk to a running server.
+type serverFlags struct {
+	server   string
+	tokenEnv string
+	serverCA string
+}
+
+func (s *serverFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&s.server, "server", "", "a running server: the path of its Unix socket, or https://host:port (default $"+serverEnv+")")
+	fs.StringVar(&s.tokenEnv, "token-env", "", "the name of the variable that holds the bearer token for a server on the network, never the token itself (default $"+tokenEnv+")")
+	fs.StringVar(&s.serverCA, "server-ca", "", "a PEM file of certificate authorities to trust for the server, besides the system's")
+}
+
 func (q *queryFlags) register(fs *flag.FlagSet, name string) {
 	fs.StringVar(&q.store, "store", "", "graph store URL, such as postgres://user@host/bearing with the password in $BEARING_STORE_PASSWORD (default $"+storeEnv+")")
+	q.serverFlags.register(fs)
 	asOf := "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)"
 	if name == "changes" {
 		asOf = "end of the window (same forms; default now)"
@@ -132,10 +170,6 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		}
 	}
 
-	url := cmp.Or(qf.store, env.Getenv(storeEnv))
-	if url == "" {
-		return fmt.Errorf("no store: give --store or set %s", storeEnv)
-	}
 	asOf, err := parseTime(qf.asOf, env.Now)
 	if err != nil {
 		return fmt.Errorf("--as-of: %w", err)
@@ -144,12 +178,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	if err != nil {
 		return fmt.Errorf("--recorded-at: %w", err)
 	}
-	graph, closeStore, err := env.Open(ctx, url, env.Getenv)
+	q, closeSource, err := qf.answerer(ctx, env)
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	q := &query.Querier{Graph: graph, Now: env.Now}
+	defer func() { err = errors.Join(err, closeSource(ctx)) }()
 	p := query.Point{Valid: asOf, Recorded: recorded}
 
 	var answer any
@@ -196,6 +229,52 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		return enc.Encode(answer)
 	}
 	return render(stdout)
+}
+
+// answerer connects to where the answers come from: the server that --server or
+// $BEARING_SERVER names, or the store that --store or $BEARING_STORE names. A
+// flag beats a variable, and the two flags together are a mistake.
+func (q *queryFlags) answerer(ctx context.Context, env queryEnv) (answerer, func(context.Context) error, error) {
+	if q.store != "" && q.server != "" {
+		return nil, nil, fmt.Errorf("give --store or --server, not both: %w", errUsage)
+	}
+	server, storeURL := q.server, q.store
+	if server == "" && storeURL == "" {
+		if server = env.Getenv(serverEnv); server == "" {
+			storeURL = env.Getenv(storeEnv)
+		}
+	}
+	switch {
+	case server != "":
+		c, err := q.client(env, server)
+		return c, func(context.Context) error { return nil }, err
+	case storeURL != "":
+		graph, closeStore, err := env.Open(ctx, storeURL, env.Getenv)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &query.Querier{Graph: graph, Now: env.Now}, closeStore, nil
+	}
+	return nil, nil, fmt.Errorf("no store or server: give --store or --server, or set %s or %s", storeEnv, serverEnv)
+}
+
+// client connects to server. The token is read from the variable at each
+// request and goes only where the client allows it.
+func (s *serverFlags) client(env queryEnv, server string) (*apiclient.Client, error) {
+	name := cmp.Or(s.tokenEnv, tokenEnv)
+	if s.tokenEnv != "" && !validEnvName(s.tokenEnv) {
+		// Not repeated: someone who pasted the token here must not see it echoed.
+		return nil, fmt.Errorf("--token-env wants the name of an environment variable, never the token itself: %w", errUsage)
+	}
+	return apiclient.New(apiclient.Config{
+		Server: server, CAFile: s.serverCA,
+		Token: func() (string, error) {
+			if t := env.Getenv(name); t != "" {
+				return t, nil
+			}
+			return "", fmt.Errorf("no token: set $%s to the bearer token, or name another variable with --token-env", name)
+		},
+	})
 }
 
 // repoRef turns <org>/<name> into the repository's key in namespace, and
