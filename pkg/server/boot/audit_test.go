@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/store"
 )
 
@@ -241,18 +243,49 @@ func TestAuditSignerErrorsNeverCarryTheKeyMaterial(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), auditKeyVar) {
 				t.Fatalf("got %v, want a refusal naming %s", err, auditKeyVar)
 			}
-			if strings.Contains(err.Error(), canary) {
-				t.Errorf("the error carries the variable's contents: %v", err)
-			}
+			testkit.AssertNoLeaks(t, err.Error(), canary, tt.value)
 		})
 	}
 	// The key that loaded at the start and later stops loading.
 	w := auditWorld(t, false)
 	signer := signerFromEnv(auditKeyVar, auditKeyID, w.getenv)
 	w.env[auditKeyVar] = "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n"
-	if _, err := signer(); err == nil || strings.Contains(err.Error(), canary) {
-		t.Fatalf("got %v, want an error without the key material", err)
+	_, err := signer()
+	if err == nil {
+		t.Fatal("got nil, want an error from a key that does not load")
 	}
+	testkit.AssertNoLeaks(t, err.Error(), canary, w.env[auditKeyVar])
+}
+
+// A signing key that stops loading is reported by the running writer (a log
+// record, a span, the failed-run counter), and none of that holds what the
+// variable held: the closure built here is the only source of the error.
+func TestAuditSignerFailureAtRunTimeReachesNoLogSpanOrMetricWithTheKey(t *testing.T) {
+	installCapture()
+	const canary = "canary-key-material-7731"
+	w := auditWorld(t, false)
+	r := w.assemble(t)
+	pasted := "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n"
+	w.env[auditKeyVar] = pasted // after the start loaded the key, before the writer's first run
+	before := checkpointFailures(t, "key")
+	stop := run(t, r)
+	deadline := time.Now().Add(30 * time.Second)
+	for checkpointFailures(t, "key") <= before {
+		if time.Now().After(deadline) {
+			t.Fatal("the writer did not report that its key stopped loading")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	// The failure was reported, so a clean search below proves something.
+	if got := logs.all(); !strings.Contains(got, "writing the audit checkpoint failed") || !strings.Contains(got, auditKeyVar) {
+		t.Fatalf("the failure was not logged with the variable's name:\n%s", got)
+	}
+	testkit.AssertNoLeaks(t, logs.all(), canary, pasted)
+	testkit.AssertNoLeaks(t, spanText(), canary, pasted)
+	testkit.AssertNoLeaks(t, metricText(t), canary, pasted)
 }
 
 func TestAssembleRefusesACheckpointFileOthersCouldReplace(t *testing.T) {

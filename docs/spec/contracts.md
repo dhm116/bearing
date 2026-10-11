@@ -849,8 +849,9 @@ operator, not for a caller of the API.
 `bearing audit checkpoint [--out FILE] [--key-id ID --key-env VAR]` writes
 a checkpoint of the newest record, at the current time. Without `--out` it
 prints the line, and nothing else; with it, it appends the line to the file
-(created mode 0600, a newline first if the file ends in a cut-off line) and
-syncs it, and prints one sentence saying what it wrote. The signing key is
+(created mode 0600, under a lock on the file so that it can run beside a
+server; a last line without a newline is kept if it is a whole checkpoint and
+cut away if it is not) and syncs it, and prints one sentence saying what it wrote. The signing key is
 named by reference: `--key-env` names an environment variable that holds the
 PKCS #8 PEM, so the key is never an argument, never in a config file and
 never in the store (C-SECRET-1); a value that is not a variable name is
@@ -888,7 +889,9 @@ is, exit status 0), `chain_intact` (no problem with the records or against a
 checkpoint that could be trusted), `records`, `first` and `last` (the
 sequence numbers read, zero for an empty log), `checkpoints_given`,
 `checkpoints_agreeing`, `checkpoints_missing` (`--checkpoints` named a file
-with none), `stale` and `failures`, a list of `{seq, checkpoint, reason}`
+with none), `cut_off_line_ignored` (the file ended in a write that a crash cut
+off, which holds no checkpoint and was not read; the text report says so in a
+line), `stale` and `failures`, a list of `{seq, checkpoint, reason}`
 where `checkpoint` is true for a checkpoint that cannot be trusted.
 `newest_checkpoint` (`seq`, `time`, and `key_id` when signed) is present when
 one agrees, and `max_age` echoes the flag when it was given.

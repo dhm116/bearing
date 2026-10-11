@@ -115,6 +115,12 @@ longer matches the checkpoints, and `bearing audit verify` says where.
   or others, and so must the file. Keep it where the database's writers cannot
   reach: another host, an append-only mount, or a copy shipped off the host as
   often as you checkpoint. Whoever can edit this file can forge the evidence.
+  `bearing audit checkpoint --out` and `bearing audit verify` can run beside
+  the server: each locks the file for the moment it reads or appends. A crash
+  can leave a last line without its newline; `verify` then prints one line
+  saying the cut-off line was ignored, and the next append removes it (a whole
+  checkpoint that only lacks the newline is kept). A damaged line anywhere else
+  still fails and names the line.
 - **The key** is an Ed25519 key as a PKCS #8 PEM in the variable
   `signing_key_env` names (`openssl genpkey -algorithm ed25519`), with an ID
   for it in `signing_key_id`. The variable must start with `BEARING_AUDIT_`,

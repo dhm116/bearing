@@ -511,7 +511,7 @@ func TestAuditCheckpointRefusesAHeadNoRecordCarries(t *testing.T) {
 	}
 }
 
-func TestAuditCheckpointStartsANewLineAfterACutOffOne(t *testing.T) {
+func TestAuditCheckpointCutsAwayACutOffLastLineAndKeepsAWholeOne(t *testing.T) {
 	a := newAuditWorld(t)
 	a.record("e1")
 	if err := os.WriteFile(a.file("cp.ndjson"), []byte(`{"seq":"1"`), 0o600); err != nil { // cut off, no newline
@@ -521,11 +521,70 @@ func TestAuditCheckpointStartsANewLineAfterACutOffOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := readLines(t, a.file("cp.ndjson"))
-	if len(lines) != 2 || lines[0] != `{"seq":"1"` {
-		t.Fatalf("got %q, want the cut-off line kept and the checkpoint on a line of its own", lines)
+	if len(lines) != 1 {
+		t.Fatalf("got %q, want the cut-off line gone and the checkpoint on a line of its own", lines)
 	}
-	if cps, err := audit.ReadCheckpoints(strings.NewReader(lines[1])); err != nil || len(cps) != 1 {
+	if cps, err := audit.ReadCheckpoints(strings.NewReader(lines[0])); err != nil || len(cps) != 1 {
 		t.Fatalf("got %v, %v, want the new line to be one checkpoint", cps, err)
+	}
+	// A whole checkpoint that only lacks its newline stays.
+	whole := strings.TrimSpace(lines[0])
+	if err := os.WriteFile(a.file("cp.ndjson"), []byte(whole), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.run("checkpoint", "--out", a.file("cp.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readLines(t, a.file("cp.ndjson")); len(got) != 2 || got[0] != whole {
+		t.Fatalf("got %q, want the whole checkpoint kept and a new line after it", got)
+	}
+}
+
+func TestAuditVerifyIgnoresACutOffLastLineAndSaysSo(t *testing.T) {
+	a := newAuditWorld(t)
+	a.record("e1")
+	a.record("e2")
+	pub := a.keys("audit-1")
+	file := a.file("cp.ndjson")
+	if _, err := a.run("checkpoint", "--out", file, "--key-id", "audit-1", "--key-env", "KEY_VAR"); err != nil {
+		t.Fatal(err)
+	}
+	// A crash in the middle of the next write, made by hand.
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // G304: a file the test wrote
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"seq":"2","head_ha`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{"--key", "audit-1=" + pub}
+	out, err := a.run(append([]string{"verify", "--checkpoints", file}, keys...)...)
+	if err != nil || !strings.Contains(out, "1 of 1 agree") || strings.Count(out, "cut off") != 1 || !strings.Contains(out, "was ignored") {
+		t.Fatalf("got %q, %v, want the log verified, and one line saying a cut-off last line was ignored", out, err)
+	}
+	out, err = a.run(append([]string{"verify", "--checkpoints", file, "--json"}, keys...)...)
+	var got verifyJSON
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || !got.OK || !got.CutOffLineIgnored || got.Given != 1 {
+		t.Fatalf("got %+v from %q, %v, want ok and cut_off_line_ignored", got, out, err)
+	}
+	// A whole file says nothing of the kind.
+	if err := os.Truncate(file, int64(len(strings.Join(readLines(t, file)[:1], "\n")))+1); err != nil {
+		t.Fatal(err)
+	}
+	out, err = a.run(append([]string{"verify", "--checkpoints", file}, keys...)...)
+	if err != nil || strings.Contains(out, "cut off") {
+		t.Fatalf("got %q, %v, want no mention of a cut-off line", out, err)
+	}
+	// A torn line anywhere else is a hard error that names the line.
+	line := readLines(t, file)[0]
+	if err := os.WriteFile(file, []byte(line+"\n{\"seq\":\n"+line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := a.run(append([]string{"verify", "--checkpoints", file}, keys...)...); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("got %q, %v, want a refusal naming line 2", out, err)
 	}
 }
 
