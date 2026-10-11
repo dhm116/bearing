@@ -2,10 +2,12 @@
 
 Measured with `cmd/bearing-bench` ([method](README.md)) for
 [#141](https://github.com/dhm116/bearing/issues/141), on 2026-10-10 and 11,
-against `internal/pgstore` at commit `4f5a14a` (before the `bearing server`
-work). The issue asks for at least 200 events per second on PostgreSQL, with
+against `internal/pgstore` as it stood before the `bearing server` work. The issue asks for at least 200 events per second on PostgreSQL, with
 the audit log on and off, recorded and not gated. The raw lines are in
-[`results/2026-10-11/audit.ndjson`](results/2026-10-11/audit.ndjson).
+[`results/2026-10-11/audit.ndjson`](results/2026-10-11/audit.ndjson) (its
+`bench_commit` field reads `4f5a14a`, the commit the working tree was based
+on; the benchmark changes were not yet committed, so it is not the code that
+ran).
 
 ## Answers
 
@@ -26,8 +28,11 @@ and the whole org arrives at once (a full read of the generated org is about
 it does not grow with the log: the cost at 4.5 million records is the cost at
 180,000. In space it is large: **811 bytes a record**, 20% of the store at 3.0
 million fact rows (3.7 of 18.1 GB), so about 12 GB of a projected 60 GB at 10
-million fact rows. The cost is writing records, not chaining them: SHA-256 over
-all the records of the profile run was 0.5 s of 54 s of CPU.
+million fact rows. The cost is writing records, not chaining them: `audit.Seal` and
+`Hash` took 0.45 s of the profile run's 54 s of CPU (about 0.6%). The rest is
+building the records (cloning and encoding the entries and their before and
+after messages) and the insert, which is about 0.16 to 0.18 ms of database
+time plus one more round trip.
 
 **Are per-partition chains needed (ADR 8's fallback)?** No. The chain adds no
 waiting of its own: it is extended under the same head row lock every apply
@@ -69,20 +74,27 @@ building the ChangeSet (about 0.55 ms, decoding a template); "`Apply` calls per
 second" is one over the mean of the call alone. Each row averages three runs of
 11,000 to 13,000 applies. Single runs vary by ±10% (at 3.0M the off runs were
 127, 148 and 158 per second, and the first off run of a size was the slowest), so
-differences under about 10 between rows are noise; the gap between off and on
-shows in every pair of runs.
+differences under about 10 between rows are noise; on is slower than off, by the
+mean of `Apply`, in all 12 pairs of runs (four sizes, three rounds), by 0.2 to
+1.3 ms, 0.9 ms on average. A further run at 3,150,742 fact rows, with the CPU
+profile on and a cold cache, shows the same order with the two nearer each
+other, so take 0.7 to 1.0 ms as the size of the cost, not a precise figure.
 
-Each Change carries 7 audit records: a mint, a binding, and a status change
-for each of its five facts.
+Each Change carries 7 audit entries: a mint, a binding, and a status change
+for each of its five facts. Turning the log off applies the same ChangeSet
+with its `audit` field emptied (`--audit=false`); nothing else changes.
 
-**The audit entries are a stand-in.** The resolver does not yet write the
-entries that [`data-model.md`](../spec/data-model.md#audit) lists; it writes
-only the one for a dropped write (issue #218 adds the rest). So the benchmark
-adds, to each ChangeSet, the entries the spec says the resolver will write,
-derived from the ChangeSet (`cmd/bearing-bench/audit.go`): the same actions,
-targets and embedded messages, so the records are about the size the real ones
-will be. A resolver that audits more per event (conflicts, merges, overrides)
-pays more per event, roughly 0.1 ms and 0.8 KB a record.
+**Where the entries come from.** The benchmark's ChangeSet for a Change is
+the one the resolver writes, and a test (`TestSyntheticChangeMatchesResolver`)
+proves it. Since [#218](https://github.com/dhm116/bearing/issues/218) the
+resolver writes the audit entries that
+[`data-model.md`](../spec/data-model.md#audit) lists, so the template carries
+them. The runs here were taken before that change landed, with a stand-in the
+benchmark derived from the ChangeSet (the same actions, targets and before and
+after messages, and a status change for each fact). The resolver's entries for
+a Change are the same seven at the same size, so the numbers stand, and the
+stand-in is gone from the code. A resolver that audits more per event
+(conflicts, merges, overrides) pays more, roughly 0.1 ms and 0.8 KB a record.
 
 ## Space
 
@@ -92,6 +104,7 @@ pays more per event, roughly 0.1 ms and 0.8 KB a record.
 | its five indexes | 0.82 GB (`target` 0.40, `actor` 0.18, primary key 0.10, `event` 0.09, `time` 0.05) |
 | in all | 3.67 GB, 811 B a record, 20% of the schema (18.09 GB at 3.0M fact rows, against 13.64 GB without the log in the [store benchmark](store-10m.md)) |
 | per Change event | 7 records, about 5.7 KB |
+| the journal | also stores each ChangeSet's audit entries, about 0.3 KB more a Change; its insert went from 0.09 to 0.11 ms |
 | projected at 10M fact rows | 15.1M records, about 12 GB, of about 60 GB |
 
 The 10 million figures are projections from 3.0 million, as in the store
@@ -102,8 +115,10 @@ look if the size matters ([#239](https://github.com/dhm116/bearing/issues/239)).
 
 ## Compared with the store benchmark
 
-The suite's own writer rows, taken at the same checkpoints with the log on,
-agree: one writer lands 137 ChangeSets a second at 3.0M fact rows, against 65
+The store benchmark ran with an empty audit log (the resolver wrote no
+entries then); compare its numbers with this page's "off" figures, or run
+`bearing-bench` with `--audit=false`. The suite's own writer rows, taken at the
+same checkpoints with the log on, agree: one writer lands 137 ChangeSets a second at 3.0M fact rows, against 65
 in the [store benchmark](store-10m.md#applying). The store has changed since
 that run (resolver state grows far less after
 [#77](https://github.com/dhm116/bearing/issues/77) and
@@ -151,7 +166,8 @@ statement counts come from a further run at 3.0M (`measure --only audit
   server, the event log and the audit entries the resolver will write are not
   in this measurement and are the next thing to measure once they land
   ([#240](https://github.com/dhm116/bearing/issues/240)).
-- The statement times of the 100,000-row measurement include the earlier read
+- The `profile-3M` label in the raw file is a further run at 3,150,742 fact
+  rows. The statement times of the 100,000-row measurement include the earlier read
   measurements (the benchmark's role could not reset the statistics there);
   the other three sizes are clean.
 - Everything here is one writer. Several writers were measured in the store

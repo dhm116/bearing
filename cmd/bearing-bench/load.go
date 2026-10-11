@@ -115,9 +115,7 @@ func (w *world) applyItem(it item) (resolve, apply time.Duration, err error) {
 		}
 		cs = res.ChangeSet
 	}
-	if _, err := w.addAudit(cs); err != nil {
-		return 0, 0, err
-	}
+	stripAudit(cs, w.audit)
 	t1 := w.now()
 	got, err := w.graph.Apply(w.ctx, cs)
 	if errors.Is(err, contracts.ErrStale) {

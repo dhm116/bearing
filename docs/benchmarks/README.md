@@ -41,10 +41,10 @@ and analyzes the schema, then measures:
 | Applies per second | 1, 4 and 16 writers, at the store (ChangeSets built ahead) and through the resolver; waiters on the head row lock; stale retries |
 | Audit log on and off | one consumer holding the head, as the server's apply loop will, three pairs of 30-second runs in alternating order; `Apply` time and events per second with and without audit entries, and the statements it ran (`apply_audit`, `apply_audit_statements`) |
 
-The audit entries are the ones the spec says the resolver will write (a mint, a
-binding, a status change for each fact, ...), added by the benchmark to each
-ChangeSet (`audit.go`) because the resolver does not write them yet. `--audit=false`
-loads and measures a log that stays empty.
+Each ChangeSet carries the audit entries the resolver writes (a mint, a
+binding, a status change for each fact, ...). `--audit=false` strips them, so
+the log stays empty; the 2026-10-10 store benchmark ran that way, because the
+resolver wrote none then.
 
 Two experiments need a store of their own: `merges` (1,000, 10,000 and
 100,000 merge records) and `history` (series history against sync count).
@@ -86,5 +86,6 @@ suit). The 2026-10-10 run stopped at 3 million for want of space.
 `measure --only resolve` runs only the resolver timings with the database's
 own transaction and row counters. `measure --only audit` runs only the audit
 on/off comparison, with sizes of the tables; `--cpuprofile FILE` writes a CPU
-profile of the whole run (`go tool pprof`). The role needs `EXECUTE` on
+profile of the whole run into the working directory when the path is relative
+(`go tool pprof`). The role needs `EXECUTE` on
 `pg_stat_statements_reset(oid, oid, bigint)` for the per-run statements.

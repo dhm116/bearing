@@ -114,7 +114,11 @@ transaction as the change, and form a hash chain.
   below the 200 the plan asked for, and the log is not why: the call runs 20
   statements one after the other. The chain is extended under the head lock
   every apply already takes, so per-partition chains would not let applies
-  overlap; they are not needed, and are not proposed.
+  overlap; they are not needed, and are not proposed. That holds while applies
+  are serialised by the single apply clock (`data-model.md`, "Apply and
+  isolation"); if the clock is ever relaxed to one per partition, chains per
+  partition become worth another look. The 7 records are the entries the spec
+  lists for a Change.
 - Retention and privacy: records name people. Retention is configurable, and
   exports must respect the organization's data rules.
 - New `conformance.AuditLog` suite: one chained record per entry, nothing
