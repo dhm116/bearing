@@ -58,6 +58,9 @@ enum AuditAction {
   AUDIT_ACTION_CONFIG_APPLIED = 18;
   // A source's declarations changed with its adapter.
   AUDIT_ACTION_DECLARATION_CHANGED = 19;
+  // A worker gave up on an event after repeated failures and moved past it
+  // (rule: attempts_exhausted).
+  AUDIT_ACTION_EVENT_DEAD_LETTERED = 20;
 }
 
 // AuditActorKind says what kind of thing acted.

@@ -1274,6 +1274,60 @@ func (MergeReviewStatus) EnumDescriptor() ([]byte, []int) {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{19}
 }
 
+// WebhookScheme is how a source signs its webhook deliveries, so the host
+// can check one before anything is stored (ADR 7, ADR 9 A6). The host has
+// one verifier per scheme; a scheme it has no verifier for cannot be
+// declared.
+type WebhookScheme int32
+
+const (
+	// Not set. Rejected in a declaration that has a webhook.
+	WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED WebhookScheme = 0
+	// HMAC-SHA256 over the raw request body, as GitHub's
+	// X-Hub-Signature-256 and PagerDuty's X-PagerDuty-Signature do. A scheme
+	// that signs a timestamp (Stripe, Slack) needs its own value and fields.
+	WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 WebhookScheme = 1
+)
+
+// Enum value maps for WebhookScheme.
+var (
+	WebhookScheme_name = map[int32]string{
+		0: "WEBHOOK_SCHEME_UNSPECIFIED",
+		1: "WEBHOOK_SCHEME_HMAC_SHA256",
+	}
+	WebhookScheme_value = map[string]int32{
+		"WEBHOOK_SCHEME_UNSPECIFIED": 0,
+		"WEBHOOK_SCHEME_HMAC_SHA256": 1,
+	}
+)
+
+func (x WebhookScheme) Enum() *WebhookScheme {
+	p := new(WebhookScheme)
+	*p = x
+	return p
+}
+
+func (x WebhookScheme) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WebhookScheme) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[20].Descriptor()
+}
+
+func (WebhookScheme) Type() protoreflect.EnumType {
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[20]
+}
+
+func (x WebhookScheme) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WebhookScheme.Descriptor instead.
+func (WebhookScheme) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{20}
+}
+
 var File_bearing_model_v1alpha1_enums_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
@@ -1407,7 +1461,10 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x11MergeReviewStatus\x12#\n" +
 	"\x1fMERGE_REVIEW_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19MERGE_REVIEW_STATUS_HOLDS\x10\x01\x12$\n" +
-	" MERGE_REVIEW_STATUS_NEEDS_REVIEW\x10\x02B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
+	" MERGE_REVIEW_STATUS_NEEDS_REVIEW\x10\x02*O\n" +
+	"\rWebhookScheme\x12\x1e\n" +
+	"\x1aWEBHOOK_SCHEME_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aWEBHOOK_SCHEME_HMAC_SHA256\x10\x01B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
 
 var (
 	file_bearing_model_v1alpha1_enums_proto_rawDescOnce sync.Once
@@ -1421,7 +1478,7 @@ func file_bearing_model_v1alpha1_enums_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 20)
+var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 21)
 var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(SubjectStatus)(0),      // 0: bearing.model.v1alpha1.SubjectStatus
 	(MintRule)(0),           // 1: bearing.model.v1alpha1.MintRule
@@ -1443,6 +1500,7 @@ var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(IssueType)(0),          // 17: bearing.model.v1alpha1.IssueType
 	(RejectionCode)(0),      // 18: bearing.model.v1alpha1.RejectionCode
 	(MergeReviewStatus)(0),  // 19: bearing.model.v1alpha1.MergeReviewStatus
+	(WebhookScheme)(0),      // 20: bearing.model.v1alpha1.WebhookScheme
 }
 var file_bearing_model_v1alpha1_enums_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1462,7 +1520,7 @@ func file_bearing_model_v1alpha1_enums_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_enums_proto_rawDesc), len(file_bearing_model_v1alpha1_enums_proto_rawDesc)),
-			NumEnums:      20,
+			NumEnums:      21,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

@@ -47,6 +47,10 @@ func TestValidateDeclarationRejects(t *testing.T) {
 	field := func(f *modelv1alpha1.FieldDeclaration) *modelv1alpha1.AdapterDeclaration {
 		return kind(&modelv1alpha1.KindDeclaration{Kind: "Team", Keys: []*modelv1alpha1.KeyTypeDeclaration{id}, Fields: []*modelv1alpha1.FieldDeclaration{f}})
 	}
+	const hmacScheme = modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256
+	withWebhook := func(w *modelv1alpha1.WebhookSignature) *modelv1alpha1.AdapterDeclaration {
+		return &modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Webhook: w}
+	}
 	tests := []struct {
 		name string
 		d    *modelv1alpha1.AdapterDeclaration
@@ -67,6 +71,15 @@ func TestValidateDeclarationRejects(t *testing.T) {
 		{"attribute in", field(&modelv1alpha1.FieldDeclaration{Predicate: "name", Direction: modelv1alpha1.Direction_DIRECTION_IN}), codeMalformed},
 		{"members out", field(&modelv1alpha1.FieldDeclaration{Predicate: "member_of", Match: modelv1alpha1.MatchMethod_MATCH_METHOD_MEMBERS}), codeMalformed},
 		{"exists", field(&modelv1alpha1.FieldDeclaration{Predicate: "exists"}), codeMalformed},
+		{"webhook without a scheme", withWebhook(&modelv1alpha1.WebhookSignature{SignatureHeader: "X-Sig"}), codeMalformed},
+		{"webhook without a header", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme}), codeMalformed},
+		{"webhook header with a space", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X Sig"}), codeMalformed},
+		{"webhook prefix with a comma", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", SignaturePrefix: "v1,"}), codeMalformed},
+		{"webhook prefix too long", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", SignaturePrefix: strings.Repeat("a", MaxSignaturePrefixBytes+1)}), codeMalformed},
+		{"webhook scheme the host has no verifier for", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: 99, SignatureHeader: "X-Sig"}), codeMalformed},
+		{"webhook scheme below zero", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: -1, SignatureHeader: "X-Sig"}), codeMalformed},
+		{"webhook signature in Authorization", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "authorization"}), codeMalformed},
+		{"webhook signature in Content-Length", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "Content-Length"}), codeMalformed},
 		{"bad link", kind(&modelv1alpha1.KindDeclaration{Kind: "Team", Links: []*modelv1alpha1.LinkDeclaration{{IssuerType: "saml"}}}), codeMalformed},
 	}
 	for _, tt := range tests {
@@ -137,5 +150,19 @@ func TestValidateManualEvent(t *testing.T) {
 	}
 	for _, tt := range bad {
 		wantCode(t, ValidateManualEvent(tt.m), tt.want)
+	}
+}
+
+func TestValidateDeclarationAcceptsAWebhook(t *testing.T) {
+	for name, w := range map[string]*modelv1alpha1.WebhookSignature{
+		"GitHub":    {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Hub-Signature-256", SignaturePrefix: "sha256="},
+		"PagerDuty": {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-PagerDuty-Signature", SignaturePrefix: "v1="},
+		"bare":      {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Signature"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateDeclaration(&modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Webhook: w}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

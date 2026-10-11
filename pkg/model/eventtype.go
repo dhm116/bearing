@@ -24,6 +24,7 @@ var eventMessages = []protoreflect.Name{
 	"ValidTimeBoundaryReached", "SubjectDeletionDerived",
 	"ConflictOpened", "ConflictResolved", "OverrideStale",
 	"CompactionRequested", "DeclarationChanged", "ConfigApplied",
+	"EventDeadLettered",
 }
 
 // EventType returns the CloudEvents type of an event message:

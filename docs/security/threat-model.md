@@ -214,7 +214,11 @@ Assets: A1, A7, the event log.
   return 401, store nothing and increment a metric. WASM modules never
   verify deliveries or see webhook secrets: `Handle` receives only
   deliveries the host has authenticated, and there is no HMAC capability
-  (ADR 9 A6). A local-process adapter may also verify, as defense in
+  (ADR 9 A6). The key is the Source's `webhook_secret` reference, which only
+  the host resolves (C-SECRET-1); the scheme, signature header and prefix come
+  from the adapter's declaration (`AdapterDeclaration.webhook`), which holds no
+  secret. A header may carry several signatures and a delivery passes when one
+  matches ([rules](../spec/data-model.md#declarations)). A local-process adapter may also verify, as defense in
   depth, but the host authenticates first. Ingest stays off (C-INGEST-1)
   until the host verifier exists; it ships with the first ingest
   transport. Until then an adapter's `Handle` is reached only through
@@ -228,7 +232,8 @@ Assets: A1, A7, the event log.
   concurrent requests.
 - **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
   7): the delivery ID when the signature covers it, otherwise the SHA-256 of
-  the authenticated body. Where the sender signs a timestamp, events outside
+  the authenticated body. No declared scheme signs the delivery ID headers
+  GitHub and PagerDuty add, so for them the event ID is the body hash. Where the sender signs a timestamp, events outside
   a configured window (default 5 minutes) are rejected. Webhook payloads are
   change hints. Facts carry the source's own update time, and an older
   observation never replaces a newer assertion. Where the source gives no
@@ -248,6 +253,16 @@ Assets: A1, A7, the event log.
   a fixed Protobuf or JSON type, with depth and size limits.
 - **C-INGEST-10** Forwarded headers are ignored unless the peer is in
   `trusted_proxies`.
+- **C-INGEST-11** What an accepted delivery leaves in the log. A
+  `WebhookReceived` event records the request headers except `Authorization`,
+  `Proxy-Authorization`, `Cookie` and `Set-Cookie`, at most 64 headers and
+  16 KiB, so a credential a sender (or an OIDC or token method of C-INGEST-2)
+  used is never stored. The body and the signature header are kept: the adapter
+  needs them and a replay of them is dropped by C-INGEST-5. A dead-letter
+  record (contracts, "Dead letters") holds no event data, only the event's ID,
+  position, type, size and the last error cut to 1,024 bytes of valid UTF-8
+  with control characters replaced; the count of retained dead letters is a
+  gauge, so a flood of poison events is visible.
 
 ### B2. Adapter modules
 
@@ -605,7 +620,14 @@ Assets: A3, A5, A4, A7.
 
   A client-credentials token (no user subject) is identified by its
   `azp`/`client_id` and gets only the roles its client ID is mapped to; an
-  unmapped client is denied. An **agent** is a client whose only role is
+  unmapped client is denied. The authenticator sets a client ID only for such a
+  token: one with no subject, a subject equal to the client ID, or the
+  provider's marker for client credentials. A caller with a client ID is a
+  client and its groups claim is ignored, so a token cannot lift a client
+  above its mapping, and the application a user signed in through is not who
+  is asking. The authenticator also refuses a token whose subject begins
+  `system:` or `local:`, which are the audit log's names for components and
+  the socket (C-AUDIT-6). An **agent** is a client whose only role is
   `read`, for queries and MCP. A client may also be mapped to `ingest` for named Sources
   only. A mapping that gives a client `admin` is rejected at config apply.
 - **C-API-5** Each API method declares its required role in one table. A

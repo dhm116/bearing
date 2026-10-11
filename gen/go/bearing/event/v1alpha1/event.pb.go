@@ -1583,6 +1583,133 @@ func (x *ConfigApplied) GetChanges() []*ConfigChange {
 	return nil
 }
 
+// EventDeadLettered is the record of an event a worker gave up on after
+// repeated failures, appended to the core/dead_letter partition with Retain
+// (it holds no event data) so it outlives the retention window
+// (docs/spec/contracts.md, "Dead letters"). The worker audits the event,
+// marks it applied and commits past it, so one bad event cannot hold the log.
+type EventDeadLettered struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The ID of the event that could not be applied.
+	EventId string `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	// Its partition.
+	Partition string `protobuf:"bytes,2,opt,name=partition,proto3" json:"partition,omitempty"`
+	// Its offset in that partition.
+	Offset int64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	// Its CloudEvents type.
+	Type string `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	// Its time.
+	EventTime *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=event_time,json=eventTime,proto3" json:"event_time,omitempty"`
+	// The consumer group that gave up on it.
+	Group string `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	// How many times the group tried.
+	Attempts uint32 `protobuf:"varint,7,opt,name=attempts,proto3" json:"attempts,omitempty"`
+	// The last error, cut to 1,024 bytes of valid UTF-8 with control
+	// characters replaced. Source systems and adapters write error text, so it
+	// is never trusted to be free of data.
+	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	// The size of the event's data in bytes. The data itself is not copied: a
+	// webhook's headers and body are organization data and can carry
+	// credentials, and this record lives until someone releases it. The event
+	// stays in the log until retention removes it, and a sync can be run again.
+	DataBytes     uint64 `protobuf:"varint,9,opt,name=data_bytes,json=dataBytes,proto3" json:"data_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventDeadLettered) Reset() {
+	*x = EventDeadLettered{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventDeadLettered) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventDeadLettered) ProtoMessage() {}
+
+func (x *EventDeadLettered) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventDeadLettered.ProtoReflect.Descriptor instead.
+func (*EventDeadLettered) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *EventDeadLettered) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *EventDeadLettered) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *EventDeadLettered) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *EventDeadLettered) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *EventDeadLettered) GetEventTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EventTime
+	}
+	return nil
+}
+
+func (x *EventDeadLettered) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *EventDeadLettered) GetAttempts() uint32 {
+	if x != nil {
+		return x.Attempts
+	}
+	return 0
+}
+
+func (x *EventDeadLettered) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *EventDeadLettered) GetDataBytes() uint64 {
+	if x != nil {
+		return x.DataBytes
+	}
+	return 0
+}
+
 // ConfigChange is one resource set or deleted.
 type ConfigChange struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1600,7 +1727,7 @@ type ConfigChange struct {
 
 func (x *ConfigChange) Reset() {
 	*x = ConfigChange{}
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1739,7 @@ func (x *ConfigChange) String() string {
 func (*ConfigChange) ProtoMessage() {}
 
 func (x *ConfigChange) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[21]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1752,7 @@ func (x *ConfigChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigChange.ProtoReflect.Descriptor instead.
 func (*ConfigChange) Descriptor() ([]byte, []int) {
-	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{21}
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ConfigChange) GetType() ConfigChangeType {
@@ -1770,7 +1897,19 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\rConfigApplied\x123\n" +
 	"\x05actor\x18\x01 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12>\n" +
-	"\achanges\x18\x03 \x03(\v2$.bearing.event.v1alpha1.ConfigChangeR\achanges\"\xd5\x01\n" +
+	"\achanges\x18\x03 \x03(\v2$.bearing.event.v1alpha1.ConfigChangeR\achanges\"\x9a\x02\n" +
+	"\x11EventDeadLettered\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1c\n" +
+	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x12\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x129\n" +
+	"\n" +
+	"event_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\teventTime\x12\x14\n" +
+	"\x05group\x18\x06 \x01(\tR\x05group\x12\x1a\n" +
+	"\battempts\x18\a \x01(\rR\battempts\x12\x14\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x12\x1d\n" +
+	"\n" +
+	"data_bytes\x18\t \x01(\x04R\tdataBytes\"\xd5\x01\n" +
 	"\fConfigChange\x12<\n" +
 	"\x04type\x18\x01 \x01(\x0e2(.bearing.event.v1alpha1.ConfigChangeTypeR\x04type\x12#\n" +
 	"\rresource_kind\x18\x02 \x01(\tR\fresourceKind\x12#\n" +
@@ -1794,7 +1933,7 @@ func file_bearing_event_v1alpha1_event_proto_rawDescGZIP() []byte {
 }
 
 var file_bearing_event_v1alpha1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_bearing_event_v1alpha1_event_proto_goTypes = []any{
 	(ConfigChangeType)(0),               // 0: bearing.event.v1alpha1.ConfigChangeType
 	(*Observation)(nil),                 // 1: bearing.event.v1alpha1.Observation
@@ -1818,50 +1957,52 @@ var file_bearing_event_v1alpha1_event_proto_goTypes = []any{
 	(*CompactionRequested)(nil),         // 19: bearing.event.v1alpha1.CompactionRequested
 	(*DeclarationChanged)(nil),          // 20: bearing.event.v1alpha1.DeclarationChanged
 	(*ConfigApplied)(nil),               // 21: bearing.event.v1alpha1.ConfigApplied
-	(*ConfigChange)(nil),                // 22: bearing.event.v1alpha1.ConfigChange
-	(*timestamppb.Timestamp)(nil),       // 23: google.protobuf.Timestamp
-	(*v1alpha1.ObservationData)(nil),    // 24: bearing.model.v1alpha1.ObservationData
-	(*v1alpha1.CompleteSync)(nil),       // 25: bearing.model.v1alpha1.CompleteSync
-	(*v1alpha1.FactObject)(nil),         // 26: bearing.model.v1alpha1.FactObject
-	(*v1alpha1.Conflict)(nil),           // 27: bearing.model.v1alpha1.Conflict
-	(*v1alpha1.AdapterDeclaration)(nil), // 28: bearing.model.v1alpha1.AdapterDeclaration
-	(*v1alpha11.Resource)(nil),          // 29: bearing.config.v1alpha1.Resource
+	(*EventDeadLettered)(nil),           // 22: bearing.event.v1alpha1.EventDeadLettered
+	(*ConfigChange)(nil),                // 23: bearing.event.v1alpha1.ConfigChange
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*v1alpha1.ObservationData)(nil),    // 25: bearing.model.v1alpha1.ObservationData
+	(*v1alpha1.CompleteSync)(nil),       // 26: bearing.model.v1alpha1.CompleteSync
+	(*v1alpha1.FactObject)(nil),         // 27: bearing.model.v1alpha1.FactObject
+	(*v1alpha1.Conflict)(nil),           // 28: bearing.model.v1alpha1.Conflict
+	(*v1alpha1.AdapterDeclaration)(nil), // 29: bearing.model.v1alpha1.AdapterDeclaration
+	(*v1alpha11.Resource)(nil),          // 30: bearing.config.v1alpha1.Resource
 }
 var file_bearing_event_v1alpha1_event_proto_depIdxs = []int32{
-	23, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
-	24, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
+	24, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
+	25, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
 	6,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
 	4,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
-	23, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
+	24, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
 	1,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
-	25, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
+	26, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
 	6,  // 7: bearing.event.v1alpha1.MergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
 	6,  // 8: bearing.event.v1alpha1.UnmergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
 	6,  // 9: bearing.event.v1alpha1.DistinctFromSet.actor:type_name -> bearing.event.v1alpha1.Actor
 	6,  // 10: bearing.event.v1alpha1.DistinctFromCleared.actor:type_name -> bearing.event.v1alpha1.Actor
 	6,  // 11: bearing.event.v1alpha1.ClaimWithdrawn.actor:type_name -> bearing.event.v1alpha1.Actor
-	26, // 12: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
+	27, // 12: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
 	6,  // 13: bearing.event.v1alpha1.OverrideSet.actor:type_name -> bearing.event.v1alpha1.Actor
-	26, // 14: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
-	23, // 15: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
-	23, // 16: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
+	27, // 14: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
+	24, // 15: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
+	24, // 16: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
 	6,  // 17: bearing.event.v1alpha1.OverrideCleared.actor:type_name -> bearing.event.v1alpha1.Actor
-	23, // 18: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
-	23, // 19: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
-	27, // 20: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	27, // 21: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	23, // 22: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
+	24, // 18: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
+	24, // 19: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
+	28, // 20: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	28, // 21: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	24, // 22: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
 	6,  // 23: bearing.event.v1alpha1.CompactionRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	28, // 24: bearing.event.v1alpha1.DeclarationChanged.declaration:type_name -> bearing.model.v1alpha1.AdapterDeclaration
+	29, // 24: bearing.event.v1alpha1.DeclarationChanged.declaration:type_name -> bearing.model.v1alpha1.AdapterDeclaration
 	6,  // 25: bearing.event.v1alpha1.ConfigApplied.actor:type_name -> bearing.event.v1alpha1.Actor
-	22, // 26: bearing.event.v1alpha1.ConfigApplied.changes:type_name -> bearing.event.v1alpha1.ConfigChange
-	0,  // 27: bearing.event.v1alpha1.ConfigChange.type:type_name -> bearing.event.v1alpha1.ConfigChangeType
-	29, // 28: bearing.event.v1alpha1.ConfigChange.resource:type_name -> bearing.config.v1alpha1.Resource
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	23, // 26: bearing.event.v1alpha1.ConfigApplied.changes:type_name -> bearing.event.v1alpha1.ConfigChange
+	24, // 27: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
+	0,  // 28: bearing.event.v1alpha1.ConfigChange.type:type_name -> bearing.event.v1alpha1.ConfigChangeType
+	30, // 29: bearing.event.v1alpha1.ConfigChange.resource:type_name -> bearing.config.v1alpha1.Resource
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_bearing_event_v1alpha1_event_proto_init() }
@@ -1875,7 +2016,7 @@ func file_bearing_event_v1alpha1_event_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_event_v1alpha1_event_proto_rawDesc), len(file_bearing_event_v1alpha1_event_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   22,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

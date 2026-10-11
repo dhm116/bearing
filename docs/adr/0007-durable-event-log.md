@@ -99,7 +99,7 @@ A webhook delivery, end to end:
 - Every fact records the event ID that produced it, which links the graph,
   the log and the audit log (ADR 8).
 - Ingest needs a registry of host verifiers, one per signature scheme, and
-  the adapter manifest gains a field naming the scheme (tracked in
+  the adapter declaration names the scheme (`AdapterDeclaration.webhook`,
   [#58](https://github.com/dhm116/bearing/issues/58)). A scheme the host has
   no verifier for cannot be declared, so a Source using it cannot receive
   signed events.

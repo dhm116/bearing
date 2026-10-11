@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.EventDeadLettered.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n (it holds no event data) so it outlives the retention window\n (docs/spec/contracts.md, \"Dead letters\"). The worker audits the event,\n marks it applied and commits past it, so one bad event cannot hold the log.",
+      "patternProperties": {
+        "^(dataBytes)$": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The size of the event's data in bytes. The data itself is not copied: a\n webhook's headers and body are organization data and can carry\n credentials, and this record lives until someone releases it. The event\n stays in the log until retention removes it, and a sync can be run again."
+        },
+        "^(eventId)$": {
+          "default": "",
+          "description": "The ID of the event that could not be applied.",
+          "type": "string"
+        },
+        "^(eventTime)$": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Its time."
+        }
+      },
+      "properties": {
+        "attempts": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "How many times the group tried."
+        },
+        "data_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The size of the event's data in bytes. The data itself is not copied: a\n webhook's headers and body are organization data and can carry\n credentials, and this record lives until someone releases it. The event\n stays in the log until retention removes it, and a sync can be run again."
+        },
+        "error": {
+          "default": "",
+          "description": "The last error, cut to 1,024 bytes of valid UTF-8 with control\n characters replaced. Source systems and adapters write error text, so it\n is never trusted to be free of data.",
+          "type": "string"
+        },
+        "event_id": {
+          "default": "",
+          "description": "The ID of the event that could not be applied.",
+          "type": "string"
+        },
+        "event_time": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
+          "description": "Its time."
+        },
+        "group": {
+          "default": "",
+          "description": "The consumer group that gave up on it.",
+          "type": "string"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "pattern": "^-?[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "Its offset in that partition."
+        },
+        "partition": {
+          "default": "",
+          "description": "Its partition.",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "description": "Its CloudEvents type.",
+          "type": "string"
+        }
+      },
+      "title": "Event Dead Lettered",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.EventDeadLettered.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.EventDeadLettered.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

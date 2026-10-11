@@ -78,6 +78,10 @@
           "default": "",
           "description": "The adapter's name, e.g. \"github\".",
           "type": "string"
+        },
+        "webhook": {
+          "$ref": "#/$defs/bearing.model.v1alpha1.WebhookSignature.schema.json",
+          "description": "How the source signs its webhook deliveries; absent when the adapter\n takes no webhooks or the source does not sign them."
         }
       },
       "title": "Adapter Declaration",
@@ -408,6 +412,59 @@
         }
       },
       "title": "Link Declaration",
+      "type": "object"
+    },
+    "bearing.model.v1alpha1.WebhookSignature.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "WebhookSignature declares how a source signs its deliveries\n (docs/spec/adapter-protocol.md, \"bearing.describe\"). It never holds a\n secret: the Source supplies that by reference. It declares no delivery ID\n header: the host names a delivery by the SHA-256 of its body, because the\n IDs senders add (GitHub's X-GitHub-Delivery) are not covered by the\n signature, so a replay could change one and pass the dedupe (threat model\n C-INGEST-5). A scheme whose signature covers a delivery ID would add a\n field for it.",
+      "patternProperties": {
+        "^(signatureHeader)$": {
+          "default": "",
+          "description": "The request header that carries the signature, for example\n \"X-Hub-Signature-256\". Required.",
+          "type": "string"
+        },
+        "^(signaturePrefix)$": {
+          "default": "",
+          "description": "Text before the hex digest in the header, for example \"sha256=\" or\n \"v1=\". Empty when the header holds the bare digest.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "scheme": {
+          "anyOf": [
+            {
+              "pattern": "^WEBHOOK_SCHEME_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "WEBHOOK_SCHEME_HMAC_SHA256"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "The signature scheme. Required.",
+          "title": "Webhook Scheme"
+        },
+        "signature_header": {
+          "default": "",
+          "description": "The request header that carries the signature, for example\n \"X-Hub-Signature-256\". Required.",
+          "type": "string"
+        },
+        "signature_prefix": {
+          "default": "",
+          "description": "Text before the hex digest in the header, for example \"sha256=\" or\n \"v1=\". Empty when the header holds the bare digest.",
+          "type": "string"
+        }
+      },
+      "title": "Webhook Signature",
       "type": "object"
     }
   },

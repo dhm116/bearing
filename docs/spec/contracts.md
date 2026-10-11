@@ -14,7 +14,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
-| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md)) | OIDC group and client-ID to role mapping | OpenFGA, SpiceDB | Planned |
+| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md), [below](#authorizer)) | OIDC group and client-ID to role mapping (`auth.RoleAuthorizer`) | OpenFGA, SpiceDB | Yes (`conformance.Authorizer`) |
 | `Executor` | Plan, apply, verify and roll back actions durably | Temporal | Postgres-backed job runner | Planned |
 
 ## One database to start
@@ -595,6 +595,7 @@ Each event message in `proto/bearing/event/v1alpha1` has a CloudEvents type
 | `ValidTimeBoundaryReached`, `CompactionRequested` | `dev.bearing.<name>.v1` | `core/scheduler`, also when a person requests a compaction |
 | `ConflictOpened`, `ConflictResolved`, `OverrideStale` | `dev.bearing.<name>.v1` | `core/resolver` |
 | `ConfigApplied` | `dev.bearing.config_applied.v1` | `core/config` |
+| `EventDeadLettered` | `dev.bearing.event_dead_lettered.v1` | `core/dead_letter`, appended with `Retain` ([Dead letters](#dead-letters)) |
 
 `Observation` is the CloudEvent of one observation, as an adapter emits it
 ([Observations](data-model.md#observations)); the log carries it inside
@@ -605,9 +606,11 @@ here and its type is `model.ObservationType`.
 
 The local part of an ID depends on where the event comes from:
 
-- A delivery from a source: the source's delivery ID, else the lower-case
-  hex SHA-256 of the authenticated body (C-INGEST-5). A delivery ID that
-  holds a slash is replaced by the hex SHA-256 of its bytes.
+- A delivery from a source: the lower-case hex SHA-256 of the authenticated
+  body (C-INGEST-5), since the delivery IDs senders add are not covered by
+  their signatures. A delivery ID that is covered by a signature, once a scheme
+  declares one, is used instead, and one that holds a slash is replaced by the
+  hex SHA-256 of its bytes.
 - A request from a person, the scheduler or the CLI (`SyncRequested`,
   `CompactionRequested`, `ConfigApplied` and the manual operations): a fresh
   UUID, not a hash, so two identical requests are two events.
@@ -621,6 +624,44 @@ The local part of an ID depends on where the event comes from:
   what they report, by the same hash, so the same replay appends the same
   events and they dedupe. Whether the core appends them before or after the apply commits is
   the server's design (issue #139); the IDs make either order safe.
+
+### Dead letters
+
+An event that a required group cannot apply, because the adapter keeps
+failing on it or its `ChangeSet` is refused every time, must not hold the
+partition forever: `Trim` keeps an event until every required group has
+committed past it, so one stuck event would pin the log and everything behind
+it. After a configured number of attempts (default 5, with a pause between
+them) the worker gives up on the event in three steps, in this order, so a
+crash between any two leaves a state that repeats safely:
+
+1. It appends an `EventDeadLettered` event to `core/dead_letter`, with
+   `Retain`, so the record outlives the retention window until someone
+   releases it. Its ID is `core/dead_letter/<hex SHA-256 of the dead event's
+   ID>`, so a repeat appends nothing. It names the event, its partition,
+   offset and type, the group, the attempts, the last error and the size of
+   the event's data. It does not copy the data: a webhook's headers and body
+   are organization data, may carry credentials, and the record outlives the
+   window. The event itself stays in the log until retention removes it, and a
+   sync can be run again.
+2. It applies a `ChangeSet` for the dead event's ID that changes nothing and
+   carries one audit entry: `event_dead_lettered`, actor `system:worker`,
+   target the event, rule `attempts_exhausted`, `reason` the error. The
+   processed-event mark this writes means the event is never applied later by
+   mistake, and the entry makes the decision part of the tamper-evident log.
+3. It commits the group past the event.
+
+The error text comes from adapters and source systems, so the worker cuts it
+to 1,024 bytes, makes it valid UTF-8 and replaces control characters before it
+goes into the record and the audit entry's `reason`; the log does not check
+it. The number of retained dead letters is a gauge the server reports, so a
+flood of poison events is visible.
+The apply group reads `core/dead_letter` like any partition, since a required
+group reads every one, and commits past an `EventDeadLettered` event without
+applying anything.
+
+A dead letter is not retried by the server. An operator reads the
+`core/dead_letter` partition, fixes the cause and asks for a new sync.
 
 ## AuditLog
 
@@ -860,6 +901,79 @@ role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
   accepts only a log that starts at record 1.
 - Export to object storage or a SIEM (ADR 8).
 - Writers that change no graph state (policy decisions, executor actions).
+
+## Authorizer
+
+`Authorizer` decides whether a verified caller may call one method of
+Bearing's API ([ADR 12](../adr/0012-authentication-through-oidc.md), threat
+model C-API-4 and C-API-5). It answers who may call Bearing. `PolicyDecider`
+answers whether an action on the outside world may run, and the two stay
+separate. The Go definition is
+[`pkg/contracts/authz.go`](../../pkg/contracts/authz.go).
+
+The server authenticates first: it checks a token against the identity
+provider, or accepts a caller on the Unix socket, and builds a `Caller` from
+what that proved. The `Authorizer` never sees a token. A `Caller` holds the
+issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
+(`azp` or `client_id`) only for a token a client got for itself, the groups
+claim, and a `Local` flag only the server sets. The authenticator refuses a
+token whose subject begins `system:` or `local:`, which the audit log uses for
+components and the socket (C-AUDIT-6). The server also checks that a `Source`
+names a configured source before it asks, so the backend decides only who may
+act on it.
+
+| Type | Meaning |
+| --- | --- |
+| `Request` | The `Caller`, the `Method`, and for a method that acts on one source, the `Source`. |
+| `AuthDecision` | `Allowed`, the `Role` that allowed it (empty on a denial), and a `Reason` that is safe to log and show: it never contains a token, a group, a subject or a client ID. |
+
+`Authorize` returns a denial as a decision with a nil error. It returns an
+error only when the backend could not decide, and the caller then refuses the
+request. Its text goes to logs and spans, so it never repeats the caller's
+subject, groups or client ID.
+
+**Methods and roles.** Each method of the API has one entry in the table in
+`contracts` (`RequiredRole`), and a method with no entry is denied for every
+caller, a local one included. When the server ships (issue #139), a test in it
+fails if a route has no entry, so a new method is denied until someone
+classifies it.
+
+| Method | Role | Notes |
+| --- | --- | --- |
+| `query.get`, `query.owner`, `query.related`, `query.changes` | `read` | Queries. |
+| `sync.request` | `ingest` | Asks for a sync of one source; the request names it. |
+
+The roles are `read`, `ingest` (granted for named sources) and `admin`.
+`admin` holds `read` and `ingest` for every source. Roles from several grants
+add up. A local caller is an administrator without any grant (C-API-1).
+
+**The default backend** maps a group or a client ID to a role with a list of
+`Grant`s, built from configuration. `contracts.CheckGrants` refuses a list in
+which a grant names both a group and a client or neither, names a role the
+version does not know, gives `ingest` no source or another role a source, or
+makes a client an `admin`, or has a name over 256 bytes, that is not valid UTF-8, that has leading or trailing
+space or holds a control or format character, or lists more than 1,024
+sources in one grant. A caller with a client ID is a client: it
+gets the roles of that client ID and nothing from its groups claim, so a token
+cannot lift a client above its mapping. A caller without one gets the roles of
+its groups, and a user whose subject or group spells a client's ID gets nothing
+from it. Other claims never grant a role (C-IDP-3).
+Grants are scoped to the one configured issuer (ADR 12); a backend that serves
+several issuers must add the issuer to its grants, since `Caller.Issuer` is
+there for that.
+
+**Conformance.** The rule that an `Authorize` error never repeats the caller's
+identity cannot be tested, since a suite cannot make a backend fail; it is on
+the backend's author. `conformance.Authorizer` takes a function that builds a
+backend from a list of grants, so a relationship-based backend writes the
+grants as its own tuples first. It checks the rules above: invalid grants are
+refused (`ErrInvalidGrant`), each role reaches what it should and nothing
+more, ingest stops at its sources, a client is known by its client ID alone and its
+groups claim adds nothing,
+a local caller is an administrator and a name that looks local is not, an
+unlisted method is denied, and a denial's reason leaks nothing about the
+caller. `instrument.Authorizer` counts decisions by method and result
+without ever labelling a metric with the caller.
 
 ## Rules that apply to every component
 
