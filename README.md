@@ -40,6 +40,7 @@ keeps the adapters that fetch it small.
 | [`pkg/audit`](pkg/audit) | The audit log's hash chain, signed checkpoints and verifier |
 | [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, audit retention and checkpoints, the health checks and the API for callers |
 | [`pkg/auth`](pkg/auth) | OIDC bearer-token verification and the default `Authorizer`: IdP groups and client IDs to the `read`, `ingest` and `admin` roles |
+| [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers over a store, and requests a sync |
 | [`pkg/query`](pkg/query) | Answers questions from a graph store: get, owner, related and changes, each with its sources, events, confidence and observed times |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
@@ -51,7 +52,7 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
-| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, reads the store with `get`, `owner`, `related` and `changes`, and checks the audit log with `audit verify`, `audit checkpoint` and `audit reanchor` |
+| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related` and `changes` from the store or from a running server, asks a server to sync a source, and checks the audit log with `audit verify`, `audit checkpoint` and `audit reanchor` |
 | [`cmd/bearing-bench`](cmd/bearing-bench) | Store benchmark: a generated org loaded up to about 10 million facts, with the numbers in [`docs/benchmarks`](docs/benchmarks) |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
