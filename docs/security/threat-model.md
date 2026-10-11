@@ -288,9 +288,8 @@ Assets: A1, A7, the event log.
 - **C-INGEST-4** Limits per transport: maximum body size (default 1 MiB,
   enforced while reading), header size, read and idle timeouts, and maximum
   concurrent requests (`IngestConfig.MaxInFlight`, default 256, 503 with
-  `Retry-After` beyond it). One peer can still hold a share of the slots for a
-  read timeout until the connection and per-peer caps of the `bearing server`
-  wiring exist.
+  `Retry-After` beyond it). One peer's hold on the slots is
+  bounded by the TCP listener's connection caps (C-API-6).
 - **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
   7): the delivery ID when the signature covers it, otherwise the SHA-256 of
   the authenticated body. No declared scheme signs the delivery ID headers
@@ -764,7 +763,14 @@ Assets: A3, A5, A4, A7.
   a handshake and a header timeout that end a silent connection, HTTP/1.1 only
   (pinned by a test, so a connection is one request at a time), and a request
   rate per peer on the API routes. An IPv6 peer is keyed by its /64, and the
-  tables evict the key seen least recently, never refuse a new one.
+  tables evict the key seen least recently, never refuse a new one. Residual
+  risks: the total cap is shared with the webhook route, so enough source
+  addresses (16 at the default, or one host with an IPv6 prefix larger than a
+  /64, each /64 being a new key with a full burst) can fill it and make
+  deliveries fail at TCP; GitHub does not redeliver, so the next scheduled
+  sync is what recovers them (a webhook source needs a schedule). A second
+  tier keyed by a wider IPv6 prefix, and per-listener caps for operators, can
+  come later. Peers behind one NAT, NAT64 or proxy share a budget.
 - **C-API-7** Errors return a code, a message written for the caller and a
   request ID. Details go to logs, not responses.
   The server's `API` (`pkg/server`, routes in

@@ -237,7 +237,7 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("server: source %q has a negative sync interval", src.Name)
 		}
 		s.sources[src.Name] = &src
-		s.syncs[src.Name] = &syncSlot{}
+		s.syncs[src.Name] = &syncSlot{lock: make(chan struct{}, 1)}
 	}
 	return s, nil
 }
@@ -332,9 +332,9 @@ type SyncRequest struct {
 
 // syncSlot is a source's latest sync request.
 type syncSlot struct {
-	mu  sync.Mutex
-	id  string
-	off contracts.Offset
+	lock chan struct{} // one token; a channel so a waiter can give up with its context
+	id   string
+	off  contracts.Offset
 }
 
 // RequestSync puts a SyncRequested event for source on the log. The
@@ -351,8 +351,12 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 	if !ok {
 		return SyncRequest{}, fmt.Errorf("%w: %q", ErrUnknownSource, model.Clip(source))
 	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
+	select {
+	case slot.lock <- struct{}{}:
+		defer func() { <-slot.lock }()
+	case <-ctx.Done():
+		return SyncRequest{}, fmt.Errorf("wait for the source's sync slot: %w", ctx.Err())
+	}
 	if slot.off > 0 {
 		applied, err := s.cfg.Log.Committed(ctx, s.cfg.Group, contracts.Partition(source))
 		if err != nil {

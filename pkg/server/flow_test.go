@@ -887,3 +887,36 @@ func TestRequestSyncLogsOneRequestForCallersAskingTogether(t *testing.T) {
 		t.Fatalf("got %d events on the log, want 1", n)
 	}
 }
+
+func TestRequestSyncFailsClosedWhenTheLastRequestCannotBeLookedUp(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.log.failCommitted.Store(true)
+	if sr, err := h.s.RequestSync(t.Context(), testSource, nil); err == nil || sr.Pending {
+		t.Fatalf("got %+v, %v, want an error", sr, err)
+	}
+	if n := len(h.entries(testSource)); n != 1 {
+		t.Fatalf("got %d events on the log, want the one from before the failure", n)
+	}
+}
+
+func TestRequestSyncWaitingForTheSlotEndsWithItsContext(t *testing.T) {
+	h := newHarness(t)
+	slot := h.s.syncs[testSource]
+	slot.lock <- struct{}{} // a caller whose log call is hanging
+	defer func() { <-slot.lock }()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { _, err := h.s.RequestSync(ctx, testSource, nil); done <- err }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want the context's error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a waiting caller was held past its context")
+	}
+}

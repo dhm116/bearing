@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 )
 
@@ -100,10 +99,11 @@ func connPeerKey(a net.Addr) string {
 
 // withPeerRate limits the requests of each remote peer before anything else
 // is done for them, so a peer without a token cannot make the server spend
-// its authentication on every request it sends. The health endpoints and the
-// webhook route are not counted: the first must answer a probe, and the
-// second has its own per-peer limit (C-INGEST-4). Callers on the socket do
-// not pass through here.
+// its authentication on every request it sends. The health endpoints are not
+// counted, since they must answer a probe. The webhook route never gets
+// here when it is mounted (withWebhooks takes it, and it has its own per-peer
+// limit, C-INGEST-8); when it is not, its path is an unknown route like any
+// other. Callers on the socket do not pass through here.
 func (a *API) withPeerRate(next http.Handler, lim *limiter) http.Handler {
 	if lim == nil {
 		return next
@@ -112,7 +112,7 @@ func (a *API) withPeerRate(next http.Handler, lim *limiter) http.Handler {
 		switch r.URL.Path {
 		case "/healthz", "/readyz":
 		default:
-			if !strings.HasPrefix(r.URL.Path, routePrefix) && !lim.allow(peerOf(r)) {
+			if !lim.allow(peerOf(r)) {
 				reqID := a.cfg.NewRequestID()
 				w.Header().Set("X-Request-Id", reqID)
 				w.Header().Set("Retry-After", "10")

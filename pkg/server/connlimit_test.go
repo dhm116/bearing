@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -157,6 +158,14 @@ func TestAPITCPListenerLimitsAPeerBeforeAuthentication(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("a valid token past the peer's rate: got %d, want 429", resp.StatusCode)
 	}
+	// Without a webhook handler, /webhooks/ is an unknown route and counts.
+	if resp, err = client.Get(url + "/webhooks/" + testSource); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("an unmounted webhook path past the peer's rate: got %d, want 429", resp.StatusCode)
+	}
 	// Probes and the socket are not counted.
 	for _, path := range []string{"/healthz", "/readyz"} {
 		if code, _ := get(t, client, url+path); code == http.StatusTooManyRequests {
@@ -176,8 +185,15 @@ func TestAPITCPListenerLimitsAPeerBeforeAuthentication(t *testing.T) {
 	}
 
 	// Two idle connections are a peer's share; a third is closed unread.
-	dial(t, addr)
-	dial(t, addr)
+	keep1, keep2 := dial(t, addr), dial(t, addr)
+	for _, c := range []net.Conn{keep1, keep2} {
+		// A kept connection stays open and silent: the read times out
+		// instead of ending.
+		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		if _, err := c.Read(make([]byte, 1)); !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("got %v, want a connection within the peer's share to be kept", err)
+		}
+	}
 	if !refused(t, dial(t, addr)) {
 		t.Error("a third connection from the same peer was kept")
 	}
