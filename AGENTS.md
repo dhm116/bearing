@@ -307,7 +307,7 @@ Both are plain Markdown checklists; any agent can follow them.
   which compares the two profiles and fails unless the other jobs passed).
   `test` and `baseline` each run in shards on a runner apiece (`SHARDS` in
   the `Makefile`; the PostgreSQL suites alone are about 490 CPU-seconds on a
-  runner). `internal/pgstore`'s shard `pgstore` is `-skip` of the others, so a
+  runner). The `pgstore` shard is `-skip` of the `random` one, so a
   new test lands in a shard by default; a new shard goes into the `Makefile`
   and the matrix of both jobs, and `check` fails on a missing profile. Keep
   the whole run to about five minutes: a test that takes longer than a minute or two on its own gets split
