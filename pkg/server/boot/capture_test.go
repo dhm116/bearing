@@ -41,7 +41,7 @@ func (c *logCapture) Export(_ context.Context, recs []sdklog.Record) error {
 		var b strings.Builder
 		b.WriteString(recs[i].Body().String())
 		recs[i].WalkAttributes(func(kv attribute.KeyValue) bool {
-			fmt.Fprintf(&b, " %s=%s", kv.Key, kv.Value.Emit())
+			fmt.Fprintf(&b, " %s=%s", kv.Key, kv.Value.String())
 			return true
 		})
 		c.text = append(c.text, b.String())

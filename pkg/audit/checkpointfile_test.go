@@ -270,14 +270,14 @@ func TestCheckpointFilesOfSeveralProcessesNeverCrossLines(t *testing.T) {
 	t.Parallel()
 	s, _ := signer(t, "k1")
 	f := CheckpointFile{Path: filepath.Join(t.TempDir(), "cp.ndjson")}
-	const writers, each = 8, 20
+	const writers, each = 8, uint64(20)
 	var wg sync.WaitGroup
-	for w := range writers {
+	for w := range uint64(writers) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for i := range each {
-				if err := f.appendWith(cpAt(t, uint64(w*each+i+1), s), (*os.File).Write); err != nil {
+				if err := f.appendWith(cpAt(t, w*each+i+1, s), (*os.File).Write); err != nil {
 					t.Error(err)
 				}
 			}
@@ -285,7 +285,7 @@ func TestCheckpointFilesOfSeveralProcessesNeverCrossLines(t *testing.T) {
 	}
 	wg.Wait()
 	cps, cutOff, err := f.ReadTail(t.Context())
-	if err != nil || cutOff || len(cps) != writers*each {
+	if err != nil || cutOff || len(cps) != int(writers*each) {
 		t.Fatalf("got %d, cut off %v, %v, want %d checkpoints", len(cps), cutOff, err, writers*each)
 	}
 }

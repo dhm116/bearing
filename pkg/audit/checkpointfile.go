@@ -135,7 +135,7 @@ func (f CheckpointFile) appendWith(cp *modelv1alpha1.AuditCheckpoint, write func
 	line = append(line, '\n')
 	_, statErr := os.Stat(f.Path)
 	created := errors.Is(statErr, os.ErrNotExist)
-	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600) //nolint:gosec // G304: the operator names the checkpoint file
+	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
 		return err
 	}

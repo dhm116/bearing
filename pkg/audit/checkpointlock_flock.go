@@ -17,7 +17,7 @@ func lockFile(file *os.File, exclusive bool) error {
 		how = syscall.LOCK_EX
 	}
 	for {
-		err := syscall.Flock(int(file.Fd()), how) //nolint:gosec // G115: a file descriptor fits an int
+		err := syscall.Flock(int(file.Fd()), how)
 		if !errors.Is(err, syscall.EINTR) {
 			return err
 		}
