@@ -1,0 +1,91 @@
+name: pgstore-diag
+
+# TEMPORARY: measures why internal/pgstore takes 238 s on the runner.
+# Deleted before the pull request merges.
+on:
+  push:
+    branches: [claude/ci-pgstore-time-42i8z6]
+    paths: [.github/workflows/pgstore-diag.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BEARING_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/postgres
+  BEARING_TEST_POSTGRES_PASSWORD: postgres
+  BEARING_TEST_POSTGRES_SCOPED: "1"
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - uses: ./.github/actions/postgres
+
+      - name: Machine
+        run: |
+          nproc
+          lscpu | grep -E 'Model name|^CPU\(s\)|Thread|MHz'
+          free -m
+          docker exec postgres cat /sys/fs/cgroup/cpu.max || true
+          docker exec postgres psql -U postgres -c "select extversion from pg_available_extension_versions where name='vector'" || true
+
+      - name: Compile once
+        run: |
+          go test -c -o /tmp/plain.test ./internal/pgstore/
+          go test -c -coverpkg=./... -o /tmp/cover.test ./internal/pgstore/
+          go vet ./internal/pgstore/ >/dev/null
+          ls -la /tmp/*.test
+
+      # Same command as `make cover`, to reproduce 4m12 and read the
+      # per-package times.
+      - name: A. Whole suite as in the test job
+        run: |
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+          time go test -count=1 -timeout 15m -coverpkg=./... -coverprofile=/tmp/a.out ./... 2>&1 | grep -E '^(ok|FAIL|---|panic)' | tee /tmp/a.log
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+
+      - name: B. pgstore alone, no coverage
+        working-directory: internal/pgstore
+        run: |
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+          time /tmp/plain.test -test.count=1 -test.v -test.timeout 15m > /tmp/b.log 2>&1 || true
+          tail -3 /tmp/b.log
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+
+      - name: C. pgstore alone, -coverpkg=./...
+        working-directory: internal/pgstore
+        run: |
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+          time /tmp/cover.test -test.count=1 -test.v -test.timeout 15m -test.coverprofile=/tmp/c.out > /tmp/c.log 2>&1 || true
+          tail -3 /tmp/c.log
+          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
+
+      - name: D. pgstore alone, no coverage, one test at a time (-test.parallel 1) on the heaviest family
+        working-directory: internal/pgstore
+        run: |
+          time /tmp/plain.test -test.count=1 -test.parallel 1 -test.run 'TestRandomHistoriesMatchTheReference|TestKillingTheWorkerAtRandomMoments' -test.v > /tmp/d.log 2>&1 || true
+          grep -E '^\s*--- ' /tmp/d.log | head -20
+
+      - name: Summary
+        if: always()
+        run: |
+          for f in b c; do
+            echo "=== $f: slowest 25 tests (wall, parallel ones overlap) ==="
+            grep -E '^\s*--- (PASS|FAIL|SKIP)' /tmp/$f.log | sed -E 's/^\s*--- (PASS|FAIL|SKIP): ([^ ]+) \(([0-9.]+)s\)/\3 \1 \2/' | sort -rn | head -25
+            echo "=== $f: tests, skips ==="
+            grep -cE '^--- PASS' /tmp/$f.log || true
+            grep -E '^\s*--- SKIP' /tmp/$f.log || true
+          done
+          echo "=== a: packages ==="
+          cat /tmp/a.log
