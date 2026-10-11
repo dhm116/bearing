@@ -198,6 +198,7 @@ func aliasKeys(keys []string) []model.Key {
 // Applying the same events in any order gives the same identity store, up to
 // the IDs minted (docs/spec/data-model.md, "State, determinism and apply").
 func TestIdentityDoesNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
 	events := scenario()
 	keys := universe(events)
 	base := newEnv(t)

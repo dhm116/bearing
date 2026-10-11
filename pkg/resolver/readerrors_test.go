@@ -78,6 +78,7 @@ func (s *failingStore) State(ctx context.Context, keys []string, at time.Time) (
 // Every read the resolver makes can fail, and the failure is returned, never
 // swallowed into a ChangeSet that forgets what the store couldn't say.
 func TestResolveReturnsStoreReadErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("identity", func(t *testing.T) { failEveryRead(t, scenario()) })
 	t.Run("claims", func(t *testing.T) { failEveryRead(t, claimScenario()) })
 }
@@ -119,6 +120,7 @@ func failEveryReadWith(t *testing.T, config func(testing.TB) Config, events []Ev
 }
 
 func TestCorruptStateIsReportedNotUsed(t *testing.T) {
+	t.Parallel()
 	events := scenario()
 	e := newEnv(t)
 	for _, ev := range events[:3] {

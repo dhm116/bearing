@@ -36,6 +36,7 @@ func applyClean(e *env, source string, o *eventv1alpha1.Observation) {
 // repository by annotation and its team by label, and the claims resolve to
 // the GitHub repository and the namespace's Environment.
 func TestKubernetesWorkloadResolvesToItsRepositoryEnvironmentAndTeam(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, kubernetesConfig(t))
 	applyClean(e, "github-acme", fixture(t, "1-repository-codeowners.json"))
 	for _, name := range []string{"12-kubernetes-namespace.json", "13-kubernetes-team-label.json", "9-kubernetes-workload-annotation.json"} {
@@ -65,6 +66,7 @@ func TestKubernetesWorkloadResolvesToItsRepositoryEnvironmentAndTeam(t *testing.
 // A hint taken from the image is below the threshold, and a workload with
 // neither annotation nor label claims neither relation (fixtures 10 and 11).
 func TestKubernetesImageHintStaysACandidateAndAnUnlabelledWorkloadClaimsNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, kubernetesConfig(t))
 	applyClean(e, "kubernetes-acme", fixture(t, "10-kubernetes-workload-image-hint.json"))
 	applyClean(e, "kubernetes-acme", fixture(t, "11-kubernetes-workload-no-repository.json"))
@@ -84,6 +86,7 @@ func TestKubernetesImageHintStaysACandidateAndAnUnlabelledWorkloadClaimsNothing(
 // workload observation lists every repository, team and namespace it claims
 // (the snapshot over deployed_to, owned_by and defined_in).
 func TestKubernetesRemovedAnnotationAndLabelEndTheirClaims(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, kubernetesConfig(t))
 	applyClean(e, "github-acme", fixture(t, "1-repository-codeowners.json"))
 	first := fixture(t, "9-kubernetes-workload-annotation.json")
@@ -113,6 +116,7 @@ func TestKubernetesRemovedAnnotationAndLabelEndTheirClaims(t *testing.T) {
 // first: the repository the annotation names is a placeholder until GitHub
 // reports it, and then the same subject.
 func TestKubernetesRepositoryClaimDoesNotDependOnWhichSourceIsReadFirst(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, kubernetesConfig(t))
 	applyClean(e, "kubernetes-acme", fixture(t, "9-kubernetes-workload-annotation.json"))
 	w := "kubernetes:workload/k3d-acme/payments/deployment/payments-api(Component)"

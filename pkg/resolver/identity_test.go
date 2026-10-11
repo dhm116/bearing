@@ -18,6 +18,7 @@ const (
 )
 
 func TestRenamedRepositoryKeepsItsSubject(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", fixture(t, "1-repository-codeowners.json")))
 	r := e.resolveKey(repoNode, time.Time{})
@@ -43,6 +44,7 @@ func TestRenamedRepositoryKeepsItsSubject(t *testing.T) {
 }
 
 func TestReusedNameGetsANewSubject(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", fixture(t, "1-repository-codeowners.json")))
 	r := e.resolveKey(repoNode, time.Time{})
@@ -61,6 +63,7 @@ func TestReusedNameGetsANewSubject(t *testing.T) {
 }
 
 func TestTeamSlugRenameReleasesWithoutRedirect(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/sre")))
 	team := e.resolveKey("github:team_node/T1", time.Time{})
@@ -84,6 +87,7 @@ func TestTeamSlugRenameReleasesWithoutRedirect(t *testing.T) {
 }
 
 func TestSlugComparesCaseInsensitively(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/Acme/Payments")))
 	team := e.resolveKey("github:team_node/T1", time.Time{})
@@ -94,6 +98,7 @@ func TestSlugComparesCaseInsensitively(t *testing.T) {
 }
 
 func TestCoReportedIDsMerge(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("authentik-acme", obsAt("2026-10-01T00:00:00Z", "Person", "authentik:user/u1")))
 	e.apply(event("authentik-acme", obsAt("2026-10-01T01:00:00Z", "Person", "authentik-saml:name_id/jdoe")))
@@ -113,6 +118,7 @@ func TestCoReportedIDsMerge(t *testing.T) {
 }
 
 func TestIDKindMismatchRejectsTheObservation(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")))
 	// A repository claims the team's node ID as its own alias: the key type
@@ -128,6 +134,7 @@ func TestIDKindMismatchRejectsTheObservation(t *testing.T) {
 }
 
 func TestPlaceholderMergesWhicheverComesFirst(t *testing.T) {
+	t.Parallel()
 	// The repository references team platform by its slug; the team is
 	// observed by node ID with that slug. In either order the team has one
 	// subject, and the repository's reference is to it.
@@ -153,6 +160,7 @@ func TestPlaceholderMergesWhicheverComesFirst(t *testing.T) {
 }
 
 func TestPlaceholderIsReplacedByAnObservedBindingToAnotherSubject(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// The slug is referenced before any team has it: a placeholder.
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/svc"), "approves_changes", "github:team/acme/platform")))
@@ -170,6 +178,7 @@ func TestPlaceholderIsReplacedByAnObservedBindingToAnotherSubject(t *testing.T) 
 }
 
 func TestApplyingAnEventTwiceChangesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ev := event("github-acme", fixture(t, "1-repository-codeowners.json"))
 	first := e.apply(ev)
@@ -184,6 +193,7 @@ func TestApplyingAnEventTwiceChangesNothing(t *testing.T) {
 }
 
 func TestUnknownSourceIsAnError(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, err := e.r.Apply(context.Background(), event("nobody", fixture(t, "1-repository-codeowners.json")))
 	if !errors.Is(err, ErrUnknownSource) {

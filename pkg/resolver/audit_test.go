@@ -80,6 +80,7 @@ func wantResolverActor(t testing.TB, a *modelv1alpha1.AuditEntry) {
 }
 
 func TestMintsAreAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ev := event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/s1"))
 	got := e.audited(ev)
@@ -102,6 +103,7 @@ func TestMintsAreAudited(t *testing.T) {
 }
 
 func TestBindingChangesAreAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	first := e.audited(event("github-acme", fixture(t, "1-repository-codeowners.json")))
 	id := "github:repo_node/R_kgDOH1a2bw"
@@ -167,6 +169,7 @@ func ownedByConfig(t testing.TB) Config {
 }
 
 func TestMergesAreAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, ownedByConfig(t))
 	events := placeholderMerge()
 	e.apply(events[0])
@@ -205,6 +208,7 @@ func TestMergesAreAudited(t *testing.T) {
 // Two subjects that agree with themselves can disagree once they are one: the
 // merge opens a conflict, and the audit says so beside the merge.
 func TestMergeThatOpensAConflictIsAudited(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, true))
 	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
@@ -263,6 +267,7 @@ func ownedByConflictConfig(t testing.TB) Config {
 }
 
 func TestMergeThatRenamesAConflictsObjectAuditsNoConflict(t *testing.T) {
+	t.Parallel()
 	e := newEnvWith(t, ownedByConflictConfig(t))
 	events := renamedConflict()
 	for _, ev := range events[:4] {
@@ -282,6 +287,7 @@ func TestMergeThatRenamesAConflictsObjectAuditsNoConflict(t *testing.T) {
 
 // Every read the audit makes can fail, and the failure is returned.
 func TestAuditReadsReturnStoreErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("a merge that changes statuses", func(t *testing.T) { failEveryReadWith(t, ownedByConfig, placeholderMerge(), false) })
 	t.Run("a merge that renames a conflict", func(t *testing.T) { failEveryReadWith(t, ownedByConflictConfig, renamedConflict(), false) })
 	t.Run("claims withdrawn", func(t *testing.T) {
@@ -292,6 +298,7 @@ func TestAuditReadsReturnStoreErrors(t *testing.T) {
 // An alias has no length limit, an audit target has. The entry must not turn a
 // valid event into a rejection.
 func TestLongAliasDoesNotMakeAnEventUnappliable(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	long := "github:repo/acme/" + strings.Repeat("x", 3*contracts.MaxAuditIDBytes)
 	ev := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", long))
@@ -324,6 +331,7 @@ func TestLongAliasDoesNotMakeAnEventUnappliable(t *testing.T) {
 // The target of a long alias is its prefix cut on a character boundary, then
 // "#" and the first 16 hex digits of the SHA-256 of the whole alias.
 func TestAliasTargetOfALongAliasIsPrefixAndHash(t *testing.T) {
+	t.Parallel()
 	// A three-byte character straddles the cut.
 	long := strings.Repeat("a", contracts.MaxAuditIDBytes-17-1) + strings.Repeat("€", 10)
 	sum := sha256.Sum256([]byte(long))
@@ -339,6 +347,7 @@ func TestAliasTargetOfALongAliasIsPrefixAndHash(t *testing.T) {
 }
 
 func TestRejectionReasonIsCutAtTheAuditLimit(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("€", contracts.MaxAuditReasonBytes)
 	got := clipReason(long)
 	if len(got) > contracts.MaxAuditReasonBytes || !utf8.ValidString(got) || !strings.HasSuffix(got, "…") {
@@ -350,6 +359,7 @@ func TestRejectionReasonIsCutAtTheAuditLimit(t *testing.T) {
 }
 
 func TestFactStatusChangesAreAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	repo, team := "github:repo_node/R1", "github:team_node/T1"
 	// A fact of a subject the event mints has no ID yet; one of a known subject
@@ -393,6 +403,7 @@ func TestFactStatusChangesAreAudited(t *testing.T) {
 }
 
 func TestRetractedFactIsAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1", "T2"))
 	got := e.audited(syncOf(2, "T1"))
@@ -413,6 +424,7 @@ func TestRetractedFactIsAudited(t *testing.T) {
 }
 
 func TestWithdrawnClaimIsAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1", "T2"))
 	got := e.audited(syncOf(2, "T1"))
@@ -432,6 +444,7 @@ func TestWithdrawnClaimIsAudited(t *testing.T) {
 }
 
 func TestConflictsOpenedAndClosedAreAudited(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, true))
 	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
@@ -465,6 +478,7 @@ func TestConflictsOpenedAndClosedAreAudited(t *testing.T) {
 }
 
 func TestConflictDecidedByAuthorityIsNotOpened(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, false))
 	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
@@ -488,6 +502,7 @@ func TestConflictDecidedByAuthorityIsNotOpened(t *testing.T) {
 }
 
 func TestRejectionsAreAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// A claim outside the subject's domain is rejected; the rest applies.
 	ev := event("github-acme", model.NewObservation("adapter/test", ts("2026-10-01T00:00:00Z"), relData("Team", "github:team_node/T1", "approves_changes", "github:team/acme/x")))
@@ -517,6 +532,7 @@ func TestRejectionsAreAudited(t *testing.T) {
 }
 
 func TestEventOverTheLimitsAuditsItsRejection(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ev := coReportedPeople(e, contracts.MaxChangeSetMerges+2)
 	res, err := e.r.Resolve(context.Background(), ev)
@@ -538,6 +554,7 @@ func TestEventOverTheLimitsAuditsItsRejection(t *testing.T) {
 
 // Syncs that say what the last said, and a repeated delivery, audit nothing.
 func TestUnchangedSyncsAddNoAuditEntries(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1"))
 	for h := 2; h < 6; h++ {
@@ -549,6 +566,7 @@ func TestUnchangedSyncsAddNoAuditEntries(t *testing.T) {
 
 // The entries are a function of the event and the store.
 func TestAuditEntriesRepeatWhenAnEventIsResolvedAgain(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1", "T2"))
 	ev := syncOf(2, "T2", "T3")
@@ -576,6 +594,7 @@ func TestAuditEntriesRepeatWhenAnEventIsResolvedAgain(t *testing.T) {
 // The store takes the resolver's entries as they are, replaces their refs and
 // writes a record for each.
 func TestStoreRecordsTheResolversEntries(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newEnv(t)
 	ev := event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "approves_changes", "github:team/acme/s1"))
@@ -608,6 +627,7 @@ func TestStoreRecordsTheResolversEntries(t *testing.T) {
 // The audit log hashes the bytes of an entry, so packing a message with a map
 // in it (a qualifier is a Struct) must give the same bytes every time.
 func TestPackedEntriesHaveStableBytes(t *testing.T) {
+	t.Parallel()
 	q := map[string]any{}
 	for i := range 40 {
 		q[fmt.Sprintf("key%02d", i)] = fmt.Sprint(i)
@@ -635,6 +655,7 @@ func TestPackedEntriesHaveStableBytes(t *testing.T) {
 // An entry whose before or after can't be marshalled fails the trail instead
 // of being written without it.
 func TestTrailReportsAMessageThatCannotBePacked(t *testing.T) {
+	t.Parallel()
 	bad := &modelv1alpha1.Subject{Kind: "\xff"}
 	for name, args := range map[string][2]proto.Message{"before": {bad, nil}, "after": {nil, bad}} {
 		t.Run(name, func(t *testing.T) {
@@ -650,6 +671,7 @@ func TestTrailReportsAMessageThatCannotBePacked(t *testing.T) {
 // storedCanon follows the store's merges and ignores the ChangeSet's planned
 // ones; canon follows both.
 func TestStoredCanonIgnoresPlannedMerges(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newEnvWith(t, ownedByConfig(t))
 	events := placeholderMerge()

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,60 +114,99 @@ func factsOverTime(t testing.TB, e *env) string {
 	return b.String()
 }
 
-// Applying the same events in any order gives the same supports and statuses
-// at every valid time, given the same identity decisions
-// (docs/spec/data-model.md, "State, determinism and apply").
-func TestClaimsDoNotDependOnApplyOrder(t *testing.T) {
-	events := claimScenario()
+// orderChunk is how many shuffled orders one parallel subtest applies, so the
+// long order-independence tests use every core without shortening a run.
+const orderChunk = 25
+
+// checkApplyOrders applies the events in time order, then in 200 random orders
+// and 200 orders that keep each source's events in key order, and fails unless
+// every order gives the same facts at every valid time, given the same
+// identity decisions (docs/spec/data-model.md, "State, determinism and apply").
+// need are strings the in-order facts must show, so a scenario that stops
+// exercising a rule is noticed. The orders come from the seed up front and the
+// applies run in parallel subtests.
+func checkApplyOrders(t *testing.T, events []Event, seed int64, need ...string) {
+	t.Helper()
 	base := newEnv(t)
 	for _, ev := range events {
 		base.apply(ev)
 	}
 	want := factsOverTime(t, base)
-	if !strings.Contains(want, "ASSERTED") || !strings.Contains(want, "CONFLICTED") {
-		t.Fatalf("the scenario shows no asserted and conflicted facts:\n%s", want)
-	}
-	rng := rand.New(rand.NewSource(3)) //nolint:gosec // G404: a seeded shuffle, not security
-	same, ignored := 0, 0
-	for range 200 {
-		order := rng.Perm(len(events))
-		e := newEnv(t)
-		for _, j := range order {
-			e.apply(events[j])
-		}
-		got := factsOverTime(t, e)
-		ok, failed := e.sameOrDropped(got, want, sampleTimes())
-		if failed {
-			t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
-		}
-		if ok {
-			same++
-		} else {
-			ignored++
+	for _, n := range need {
+		if !strings.Contains(want, n) {
+			t.Fatalf("the scenario shows no %q:\n%s", n, want)
 		}
 	}
-	if same == 0 {
-		t.Fatalf("no order gave the facts of the in-order apply; %d ignored a claim", ignored)
+	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // G404: a seeded shuffle, not security
+	anyOrder := make([][]int, 200)
+	for i := range anyOrder {
+		anyOrder[i] = rng.Perm(len(events))
+	}
+	keyOrder := make([][]int, 200)
+	for i := range keyOrder {
+		keyOrder[i] = sourceOrderShuffle(rng, events)
+	}
+
+	var same, ignored atomic.Int64
+	t.Run("any order", func(t *testing.T) {
+		for i, orders := range slices.Collect(slices.Chunk(anyOrder, orderChunk)) {
+			t.Run(fmt.Sprintf("chunk-%d", i), func(t *testing.T) {
+				t.Parallel()
+				for _, order := range orders {
+					e := newEnv(t)
+					for _, j := range order {
+						e.apply(events[j])
+					}
+					got := factsOverTime(t, e)
+					ok, failed := e.sameOrDropped(got, want, sampleTimes())
+					if failed {
+						t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
+					}
+					if ok {
+						same.Add(1)
+					} else {
+						ignored.Add(1)
+					}
+				}
+			})
+		}
+	})
+	if same.Load() == 0 {
+		t.Fatalf("no order gave the facts of the in-order apply; %d ignored a claim", ignored.Load())
 	}
 
 	// With each source's events in key order no claim is ignored, so the facts
 	// are the same whatever the interleaving.
-	for range 200 {
-		order := sourceOrderShuffle(rng, events)
-		e := newEnv(t)
-		for _, j := range order {
-			e.apply(events[j])
+	t.Run("key order", func(t *testing.T) {
+		for i, orders := range slices.Collect(slices.Chunk(keyOrder, orderChunk)) {
+			t.Run(fmt.Sprintf("chunk-%d", i), func(t *testing.T) {
+				t.Parallel()
+				for _, order := range orders {
+					e := newEnv(t)
+					for _, j := range order {
+						e.apply(events[j])
+					}
+					if got := factsOverTime(t, e); got != want || e.dropped != 0 {
+						t.Fatalf("order %v (%d claims ignored) differs from time order:\n%s", order, e.dropped, lineDiff(want, got))
+					}
+				}
+			})
 		}
-		if got := factsOverTime(t, e); got != want || e.dropped != 0 {
-			t.Fatalf("order %v (%d claims ignored) differs from time order:\n%s", order, e.dropped, lineDiff(want, got))
-		}
-	}
+	})
+}
+
+// Applying the same events in any order gives the same supports and statuses
+// at every valid time, given the same identity decisions.
+func TestClaimsDoNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
+	checkApplyOrders(t, claimScenario(), 3, "ASSERTED", "CONFLICTED")
 }
 
 // The spec's worked examples, a snapshot, a rename, a snapshot that drops a
 // team and a deletion, give the same facts at every time in any order, as when
 // a sync and webhook deliveries race.
 func TestWorkedExamplesDoNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
 	names := []string{"1-repository-codeowners.json", "2-repository-rename.json", "3-codeowners-team-removed.json", "6-repository-deleted.json"}
 	var events []Event
 	for _, n := range names {

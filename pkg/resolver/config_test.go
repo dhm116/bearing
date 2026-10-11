@@ -8,6 +8,7 @@ import (
 )
 
 func TestNewRejectsInconsistentConfiguration(t *testing.T) {
+	t.Parallel()
 	gh, ak := readDeclaration(t, "github"), readDeclaration(t, "authentik")
 	decls := []*modelv1alpha1.AdapterDeclaration{gh, ak}
 	src := func(name, adapter string) *Source { return &Source{Name: name, Adapter: adapter} }

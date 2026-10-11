@@ -14,6 +14,7 @@ func okey(d int, id string) *resolverv1alpha1.OrderingKey {
 }
 
 func TestAddWriteKeepsOnlyRelevantWrites(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		have []write
@@ -86,6 +87,7 @@ func TestAddWriteKeepsOnlyRelevantWrites(t *testing.T) {
 }
 
 func TestAddMarkKeepsOnlyRelevantMarks(t *testing.T) {
+	t.Parallel()
 	ms, changed := addMark(nil, mark{at: ts(day(5)), key: okey(5, "a")})
 	if !changed || len(ms) != 1 {
 		t.Fatalf("got %v changed=%v, want one mark", ms, changed)
@@ -108,6 +110,7 @@ func TestAddMarkKeepsOnlyRelevantMarks(t *testing.T) {
 // bindingRows on a few hand-built timelines: the rules in the data model's
 // "Bindings" section, one by one.
 func TestBindingRowsApplyTheBindingRules(t *testing.T) {
+	t.Parallel()
 	noMarks := func(string, string) []mark { return nil }
 	same := func(s string) string { return s }
 	name := func(alias string, perSubject, redirects bool, ws ...write) *nameWrites {
@@ -195,6 +198,7 @@ func TestBindingRowsApplyTheBindingRules(t *testing.T) {
 }
 
 func TestFoldAndEscape(t *testing.T) {
+	t.Parallel()
 	// Targets as CaseFolding.txt gives them (statuses C and S).
 	for in, want := range map[string]string{
 		"ACME": "acme", "Acme/Pay": "acme/pay", "straße": "straße", "ǅ": "ǆ", "": "",
