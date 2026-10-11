@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Role is what a caller may do (ADR 12, threat model C-API-4).
@@ -121,7 +122,8 @@ type AuthDecision struct {
 	// Role is the role that allowed the call, empty for a denial.
 	Role Role
 	// Reason says why in words that are safe to log and to show the caller:
-	// it never holds a token, a group list or a secret.
+	// it never holds a token, a secret, or the caller's subject, client ID,
+	// issuer or groups.
 	Reason string
 }
 
@@ -159,10 +161,12 @@ const (
 	maxGrantSources = 1024
 )
 
-// goodName reports whether s is short and holds no control character. The
+// goodName reports whether s is short, valid UTF-8, trimmed, and holds no
+// control or format character (a bidi override can spoof a log line). The
 // empty string passes, since a grant leaves one of Group and Client empty.
 func goodName(s string) bool {
-	return len(s) <= maxGrantName && !strings.ContainsFunc(s, unicode.IsControl)
+	return len(s) <= maxGrantName && utf8.ValidString(s) && strings.TrimSpace(s) == s &&
+		!strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) })
 }
 
 // ErrInvalidGrant is returned by CheckGrants and wrapped in its errors.

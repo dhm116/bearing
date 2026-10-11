@@ -951,8 +951,9 @@ add up. A local caller is an administrator without any grant (C-API-1).
 `Grant`s, built from configuration. `contracts.CheckGrants` refuses a list in
 which a grant names both a group and a client or neither, names a role the
 version does not know, gives `ingest` no source or another role a source, or
-makes a client an `admin`, or has a name over 256 bytes, a control character in
-a name, or more than 1,024 sources. A caller with a client ID is a client: it
+makes a client an `admin`, or has a name over 256 bytes, that is not valid UTF-8, that has leading or trailing
+space or holds a control or format character, or lists more than 1,024
+sources in one grant. A caller with a client ID is a client: it
 gets the roles of that client ID and nothing from its groups claim, so a token
 cannot lift a client above its mapping. A caller without one gets the roles of
 its groups, and a user whose subject or group spells a client's ID gets nothing
@@ -961,7 +962,9 @@ Grants are scoped to the one configured issuer (ADR 12); a backend that serves
 several issuers must add the issuer to its grants, since `Caller.Issuer` is
 there for that.
 
-**Conformance.** `conformance.Authorizer` takes a function that builds a
+**Conformance.** The rule that an `Authorize` error never repeats the caller's
+identity cannot be tested, since a suite cannot make a backend fail; it is on
+the backend's author. `conformance.Authorizer` takes a function that builds a
 backend from a list of grants, so a relationship-based backend writes the
 grants as its own tuples first. It checks the rules above: invalid grants are
 refused (`ErrInvalidGrant`), each role reaches what it should and nothing

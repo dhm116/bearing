@@ -289,8 +289,10 @@ follows:
   digits (either case); any other candidate is skipped. The delivery passes
   when one candidate equals the HMAC of the raw body, compared in constant
   time across all of them.
-- `Host`, `Authorization`, `Cookie` and the headers that frame the request
-  cannot be the signature header.
+- The signature header cannot be `Host`, `Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `Content-Length`,
+  `Content-Type`, `Content-Encoding`, `Transfer-Encoding`, `Connection` or
+  `User-Agent`.
 - The host names a delivery by the SHA-256 of its body. The delivery ID
   headers senders add (GitHub's `X-GitHub-Delivery`) are not covered by the
   signature, so a replayed body with a new ID would pass the dedupe

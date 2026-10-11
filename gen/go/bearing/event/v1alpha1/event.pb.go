@@ -1585,9 +1585,9 @@ func (x *ConfigApplied) GetChanges() []*ConfigChange {
 
 // EventDeadLettered is the record of an event a worker gave up on after
 // repeated failures, appended to the core/dead_letter partition with Retain
-// (it holds no event data) so it outlives the retention window (docs/spec/contracts.md, "Dead
-// letters"). The worker audits the event, marks it applied and commits past
-// it, so one bad event cannot hold the log.
+// (it holds no event data) so it outlives the retention window
+// (docs/spec/contracts.md, "Dead letters"). The worker audits the event,
+// marks it applied and commits past it, so one bad event cannot hold the log.
 type EventDeadLettered struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The ID of the event that could not be applied.

@@ -3,7 +3,7 @@
     "bearing.event.v1alpha1.EventDeadLettered.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n (it holds no event data) so it outlives the retention window (docs/spec/contracts.md, \"Dead\n letters\"). The worker audits the event, marks it applied and commits past\n it, so one bad event cannot hold the log.",
+      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n (it holds no event data) so it outlives the retention window\n (docs/spec/contracts.md, \"Dead letters\"). The worker audits the event,\n marks it applied and commits past it, so one bad event cannot hold the log.",
       "patternProperties": {
         "^(dataBytes)$": {
           "anyOf": [

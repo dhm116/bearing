@@ -75,6 +75,9 @@ func (a *authzSuite) invalidGrants(t *testing.T) {
 		"admin with a source":      {Group: "eng", Role: contracts.RoleAdmin, Sources: []string{"github-acme"}},
 		"a long group name":        {Group: strings.Repeat("g", 257), Role: contracts.RoleRead},
 		"a control character":      {Group: "eng\n", Role: contracts.RoleRead},
+		"a bidi override":          {Group: "eng\u202e", Role: contracts.RoleRead},
+		"invalid UTF-8":            {Group: "eng\xff", Role: contracts.RoleRead},
+		"a padded name":            {Client: " ci", Role: contracts.RoleRead},
 		"a source with a control":  {Group: "eng", Role: contracts.RoleIngest, Sources: []string{"a\x00b"}},
 		"too many sources":         {Group: "eng", Role: contracts.RoleIngest, Sources: manySources()},
 	} {
