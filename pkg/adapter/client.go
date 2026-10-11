@@ -38,6 +38,7 @@ type Client struct {
 	sc     *bufio.Scanner
 	nextID int
 	close  func() error
+	kill   func() error
 }
 
 // NewClient speaks the protocol over an existing reader and writer, such as
@@ -51,11 +52,43 @@ func NewClient(name string, r io.Reader, w io.Writer) *Client {
 // Start launches an adapter executable and connects to its stdin and stdout.
 // The adapter's stderr, where its console telemetry goes, is passed through
 // to this process's stderr. The adapter inherits this process's environment,
-// including OTEL_* settings.
+// including OTEL_* settings. A host that runs adapters for other people's
+// sources uses StartWith and names the environment instead.
 func Start(ctx context.Context, name string, args ...string) (*Client, error) {
+	return start(ctx, StartConfig{Name: name, Args: args}, true)
+}
+
+// StartConfig is how StartWith launches an adapter.
+type StartConfig struct {
+	// Name is the executable; the host passes an absolute path.
+	Name string
+	// Args are its arguments.
+	Args []string
+	// Env is the adapter's whole environment, as KEY=value entries. Nothing is
+	// inherited from this process, so an empty Env is an empty environment.
+	Env []string
+	// Dir is the adapter's working directory; empty means this process's.
+	Dir string
+}
+
+// StartWith launches an adapter with exactly the environment in c, so a
+// variable the host did not name (a store password, a signing key, another
+// source's token) never reaches it. The stdio transport is retired when the
+// adapter service lands (docs/spec/adapter-protocol.md); nothing new is built
+// on it.
+func StartWith(ctx context.Context, c StartConfig) (*Client, error) {
+	return start(ctx, c, false)
+}
+
+func start(ctx context.Context, c StartConfig, inherit bool) (*Client, error) {
 	// Running the adapter the caller names is this function's job.
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: the adapter command is the caller's choice
+	cmd := exec.CommandContext(ctx, c.Name, c.Args...) //nolint:gosec // G204: the adapter command is the caller's choice
 	cmd.Stderr = os.Stderr
+	cmd.Dir = c.Dir
+	if !inherit {
+		// A nil Env would mean "inherit".
+		cmd.Env = append([]string{}, c.Env...)
+	}
 	stdin, err := cmd.StdinPipe()
 	var stdout io.ReadCloser
 	if err == nil {
@@ -65,17 +98,18 @@ func Start(ctx context.Context, name string, args ...string) (*Client, error) {
 		err = cmd.Start()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("adapter: start %s: %w", name, err)
+		return nil, fmt.Errorf("adapter: start %s: %w", c.Name, err)
 	}
 	telemetry.Logger(pkgName).InfoContext(ctx, "adapter started",
-		string(attrAdapter), filepath.Base(name), "pid", cmd.Process.Pid)
-	c := NewClient(filepath.Base(name), stdout, stdin)
-	c.close = func() error {
+		string(attrAdapter), filepath.Base(c.Name), "pid", cmd.Process.Pid)
+	cl := NewClient(filepath.Base(c.Name), stdout, stdin)
+	cl.close = func() error {
 		// Closing stdin tells the adapter to exit; Wait reports how it did.
 		closeErr := stdin.Close()
 		return errors.Join(cmd.Wait(), closeErr)
 	}
-	return c, nil
+	cl.kill = func() error { return cmd.Process.Kill() }
+	return cl, nil
 }
 
 // Name is the adapter's label in telemetry.
@@ -83,6 +117,16 @@ func (c *Client) Name() string { return c.name }
 
 // Close ends the session and, for started adapters, waits for the process.
 func (c *Client) Close() error { return c.close() }
+
+// Kill ends the process of a started adapter without waiting for it, so a
+// call that is blocked on a hung adapter returns with an error; Close still
+// reaps it. It does nothing for a client over a reader and writer.
+func (c *Client) Kill() error {
+	if c.kill == nil {
+		return nil
+	}
+	return c.kill()
+}
 
 func (c *Client) call(ctx context.Context, method string, params, result any) (err error) {
 	ctx, span := tracer.Start(ctx, method,
