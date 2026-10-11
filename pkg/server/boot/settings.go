@@ -136,7 +136,19 @@ type AdapterSettings struct {
 // service user or root, since it names the adapter commands and the identity
 // provider: write access to it is code execution (C-OPS-3).
 func Load(file string) (*Settings, error) {
-	f, err := os.Open(file) //nolint:gosec // G304: the operator names the settings file
+	b, err := readTrusted(file)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(b)
+}
+
+// readTrusted reads a file that names code or trust (the settings, an adapter
+// declaration) after checking, on the open descriptor so nothing can change
+// between the check and the read, that only the service user or root can
+// change it.
+func readTrusted(file string) ([]byte, error) {
+	f, err := os.Open(file) //nolint:gosec // G304: the operator names the file
 	if err != nil {
 		return nil, fmt.Errorf("boot: settings: %w", err)
 	}
@@ -155,7 +167,7 @@ func Load(file string) (*Settings, error) {
 	if len(b) > maxSettingsBytes {
 		return nil, fmt.Errorf("boot: settings: %s is larger than %d bytes", file, maxSettingsBytes)
 	}
-	return Parse(b)
+	return b, nil
 }
 
 // checkOwnership refuses a settings file that others could change.
@@ -283,8 +295,8 @@ func (s *Settings) checkListen() error {
 
 func (s *Settings) checkSecrets() error {
 	for _, p := range s.Secrets.EnvAllowlist {
-		if _, err := path.Match(p, ""); err != nil || !strings.HasSuffix(p, "*") || strings.Count(p, "*") != 1 {
-			return fmt.Errorf("boot: settings: secrets.env_allowlist: %q must be a name prefix followed by *", p)
+		if !allowlistPattern.MatchString(p) {
+			return fmt.Errorf("boot: settings: secrets.env_allowlist: %q must be a literal name prefix followed by *, with no other pattern characters", model.Clip(p))
 		}
 		if reserved(p) {
 			return fmt.Errorf("boot: settings: secrets.env_allowlist: %q would let a source read one of Bearing's own variables or the adapter's PATH", p)
@@ -292,6 +304,11 @@ func (s *Settings) checkSecrets() error {
 	}
 	return nil
 }
+
+// allowlistPattern is the one shape an allowlist entry may take. Anything
+// richer (a class, ?, \\) could name a Bearing variable that a literal prefix
+// check on the pattern would not see.
+var allowlistPattern = regexp.MustCompile(`^[A-Za-z0-9_]*\*$`)
 
 // reservedNames are variables a secret reference must never name: Bearing's
 // own configuration, and the PATH the server fixes for an adapter. Any other

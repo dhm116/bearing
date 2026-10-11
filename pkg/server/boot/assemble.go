@@ -332,7 +332,7 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 	decls := map[string]*modelv1alpha1.AdapterDeclaration{}
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
-		b, err := os.ReadFile(a.Declaration)
+		b, err := readTrusted(a.Declaration)
 		if err != nil {
 			return nil, fmt.Errorf("boot: settings: adapters[%d].declaration: %w", i, err)
 		}

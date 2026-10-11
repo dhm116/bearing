@@ -113,7 +113,7 @@ func TestSecretAllowlistIsAPrefixAndCanBeNarrowedOrMoved(t *testing.T) {
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "the secret allowlist") {
 		t.Fatalf("got %v, want the default prefix no longer allowed", err)
 	}
-	for _, bad := range []string{`"A*B*"`, `"NOSTAR"`, `"*"`, `"P*"`, `"BEARING_*"`, `"BEARING_STORE_*"`, `"BEARING_AUDIT_*"`} {
+	for _, bad := range []string{`"A*B*"`, `"NOSTAR"`, `"*"`, `"P*"`, `"BEARING_*"`, `"BEARING_STORE_*"`, `"BEARING_AUDIT_*"`, `"[B]EARING_AUDIT_*"`, `"BEARING?AUDIT_*"`, `"\\BEARING_AUDIT_*"`, `"BEAR[I]NG_AUDIT_*"`} {
 		s, err := Parse([]byte(strings.Replace(goodSettings, `"store"`, `"secrets": {"env_allowlist": [`+bad+`]}, "store"`, 1)))
 		if err != nil {
 			t.Fatal(err)

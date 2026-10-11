@@ -1147,8 +1147,9 @@ Assets: A5, A2, A6, the container and host.
   or root and not writable by its group or others (checked at start only: an
   adapter binary replaced while the server runs is started at the next
   restart of that adapter, which is why the file's owner must be trusted),
-  if a secret reference does not resolve, if a source's adapter is not
-  listed, or if a durable graph store is paired with an in-memory event log.
+  if an adapter's declaration file breaks the owner, mode and size rules of
+  the settings file, if a secret reference does not resolve, if a
+  source's adapter is not listed, or if a durable graph store is paired with an in-memory event log.
   It takes the instance lock before it runs and refuses to start without it
   (#176, #235).
 - **C-OPS-5** The M3 stdio adapter is started with a minimal environment: a

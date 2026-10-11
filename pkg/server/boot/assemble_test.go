@@ -262,6 +262,17 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			_ = os.Chmod(p, 0o777)                            //nolint:gosec // G302: the test needs a file anyone can write
 			s.Adapters[0].Command = p
 		}, "writable by its group or by others"},
+		{"a declaration others can write", func(s *Settings, w *world) {
+			p := filepath.Join(w.dir, "loose.json")
+			_ = os.WriteFile(p, []byte("{}"), 0o666) //nolint:gosec // G306: the test needs a file anyone can write
+			_ = os.Chmod(p, 0o666)                   //nolint:gosec // G302: the umask may have cleared the bits
+			s.Adapters[0].Declaration = p
+		}, "must not be writable"},
+		{"a declaration that is too large", func(s *Settings, w *world) {
+			p := filepath.Join(w.dir, "big.json")
+			_ = os.WriteFile(p, make([]byte, maxSettingsBytes+1), 0o600)
+			s.Adapters[0].Declaration = p
+		}, "is larger than"},
 		{"a missing declaration", func(s *Settings, _ *world) { s.Adapters[0].Declaration = "/nonexistent.json" }, "adapters[0].declaration"},
 		{"a declaration for another adapter", func(s *Settings, _ *world) { s.Adapters[0].Name = "gitlab"; s.Sources = nil }, "is for \"github\", not \"gitlab\""},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},

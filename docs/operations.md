@@ -75,13 +75,14 @@ programs the server runs.
   or others. That is checked once at start, so replace an adapter by stopping
   the server first; the server never looks one up on a `PATH` and never
   discovers one. `declaration` is the
-  adapter's `AdapterDeclaration` in ProtoJSON (the reference ones are in
-  `testdata/declarations/`), and its `name` must be the adapter's name. Until
+  adapter's `AdapterDeclaration` in ProtoJSON, a file held to the settings
+  file's rules (owned by the service user or root, not writable by others, at
+  most 1 MiB; the reference ones are in `testdata/declarations/`), and its `name` must be the adapter's name. Until
   the adapter service lands an adapter is a stdio child process, one for each
   source, started on its first use and started again, after a pause that grows
   from a second to a minute, if it fails.
 - **Secrets** are references, never values: `env:NAME`, where `NAME` matches
-  `secrets.env_allowlist` (default `BEARING_SECRET_*`). A reference to a
+  `secrets.env_allowlist` (default `BEARING_SECRET_*`; an entry is a literal name prefix followed by one `*`, and a prefix that could match one of Bearing's own variables is refused). A reference to a
   variable that is not set, or is empty, stops the start and names the
   variable. A source's adapter is started with a fixed `PATH`, the variables
   its own `spec.secrets` name, and the variables its adapter entry lists in
