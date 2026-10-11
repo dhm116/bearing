@@ -40,6 +40,8 @@ type Store struct {
 	IDs memstore.IDSource
 
 	db pool
+	// schema is the schema the tables live in; the instance lock is named for it.
+	schema string
 	// vec is set when Options.VectorDimensions is, and serves VectorIndex.
 	vec *vectorConfig
 	// changesBatch and changesHeld size the whole-graph change listings
@@ -152,7 +154,7 @@ func New(ctx context.Context, db pool, role string, o Options) (*Store, error) {
 	if err := migrate(ctx, db, schema); err != nil {
 		return nil, fmt.Errorf("pgstore: migrate: %w", err)
 	}
-	s := &Store{db: db, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader)}
+	s := &Store{db: db, schema: schema, Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader)}
 	if o.VectorDimensions != 0 {
 		var err error
 		if s.vec, err = setupVectors(ctx, db, schema, o.VectorDimensions); err != nil {

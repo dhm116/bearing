@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
 )
@@ -169,8 +170,30 @@ func (c *Client) Handle(ctx context.Context, p HandleParams) (HandleResult, erro
 	if err := c.call(ctx, MethodHandle, p, &res); err != nil {
 		return res, err
 	}
+	return checkHandled(ctx, c.name, res)
+}
+
+// Handler is anything that takes webhook deliveries: a Client, or an Adapter
+// called in-process.
+type Handler interface {
+	Handle(context.Context, HandleParams) (HandleResult, error)
+}
+
+// HandleChecked is what the host does with a delivery for an adapter that
+// runs in its process: it calls Handle and then validates every observation
+// as Client.Handle does, so both ways of running an adapter give the core the
+// same observations. name labels the adapter in telemetry.
+func HandleChecked(ctx context.Context, h Handler, name string, p HandleParams) (HandleResult, error) {
+	res, err := h.Handle(ctx, p)
+	if err != nil {
+		return res, err
+	}
+	return checkHandled(ctx, name, res)
+}
+
+func checkHandled(ctx context.Context, name string, res HandleResult) (HandleResult, error) {
 	for i, o := range res.Observations {
-		if err := checkObservation(ctx, c.name, o); err != nil {
+		if err := checkObservation(ctx, name, o); err != nil {
 			return HandleResult{}, fmt.Errorf("%s: observation %d: %w", MethodHandle, i, err)
 		}
 	}
@@ -256,6 +279,23 @@ func screenObservation(ctx context.Context, log *slog.Logger, adapterName string
 	return false, 0
 }
 
+// Page is one page of a sync after the host has screened it.
+type Page struct {
+	// Number is the page's place in the sync, from 1, counting pages with no
+	// observations. It is stable for a given adapter run, so a rerun repeats
+	// the event IDs the server derives from it.
+	Number int
+	// Observations are the page's accepted observations, with their rejected
+	// claims removed and their times truncated to microseconds.
+	Observations []*eventv1alpha1.Observation
+	// Done marks the last page.
+	Done bool
+	// CompleteSync is what the adapter declared on its last page, and nil if
+	// the sync skipped any observation so far: a sync that did not see every
+	// entity must not be counted as complete ([SyncSummary.Complete]).
+	CompleteSync *modelv1alpha1.CompleteSync
+}
+
 // SyncAll pages through a full sync, validating every observation
 // (model.ValidateAdapterObservation), truncating its times to microseconds
 // and passing it to emit. An observation that fails validation is skipped,
@@ -264,7 +304,22 @@ func screenObservation(ctx context.Context, log *slog.Logger, adapterName string
 // decoded (an unknown field, say) counts as rejected too. maxPages guards
 // against adapters that never finish. The whole sync runs in one span, with
 // each page as a child.
-func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (sum SyncSummary, err error) {
+func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
+	return SyncPages(ctx, a, config, maxPages, func(p Page) error {
+		for _, o := range p.Observations {
+			if err := emit(o); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// SyncPages is SyncAll for a caller that keeps a page together, as the
+// server does when it puts a page on the event log: emit gets each page once
+// it is screened, in order, and a page with no accepted observation is still
+// passed on, since it may be the last one. An error from emit stops the sync.
+func SyncPages(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -306,6 +361,7 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 				log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), name, "reason", "malformed: "+why)
 			}
 		}
+		kept := make([]*eventv1alpha1.Observation, 0, len(res.Observations))
 		for _, o := range res.Observations {
 			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
 			keep, claims := screenObservation(ctx, log, name, o, warn)
@@ -319,9 +375,14 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 			}
 			observationsReceived.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name), attrKind.String(o.GetData().GetEntity().GetKind())))
 			sum.Accepted++
-			if err := emit(o); err != nil {
-				return sum, err
-			}
+			kept = append(kept, o)
+		}
+		page := Page{Number: sum.Pages, Observations: kept, Done: res.Done}
+		if res.Done && sum.Complete() {
+			page.CompleteSync = res.CompleteSync
+		}
+		if err := emit(page); err != nil {
+			return sum, err
 		}
 		if res.Done {
 			return sum, nil

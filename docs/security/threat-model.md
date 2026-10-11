@@ -198,6 +198,7 @@ Assets: A1, A7, the event log.
 | T-INGEST-7 | I | Error responses reveal which sources exist or echo input | C-INGEST-7 |
 | T-INGEST-8 | D | An event is acknowledged but lost, so the sender never retries | C-INGEST-8 |
 | T-INGEST-9 | S | A forged `X-Forwarded-For` evades per-peer limits or poisons logs | C-INGEST-10 |
+| T-INGEST-10 | D, T | A poison event, or a source system that fails every call, stops a partition; or an outage of the store is mistaken for poison and its events are given up on | C-INGEST-12 |
 
 - **C-INGEST-1** Ingest is a separate surface from the API, made of pluggable
   transports (HTTP webhooks and CloudEvents in the MVP). Each transport is
@@ -274,6 +275,22 @@ Assets: A1, A7, the event log.
   position, type, size and the last error cut to 1,024 bytes of valid UTF-8
   with control characters replaced; the count of retained dead letters is a
   gauge, so a flood of poison events is visible.
+- **C-INGEST-12** The apply workers (`pkg/server`) read each partition in
+  order, one worker per partition, and commit an offset only after the event
+  is applied or recorded as a dead letter. A failing event is tried
+  `MaxAttempts` times (default 5) with a doubling pause; contention with
+  another apply (`ErrStale`) is retried without counting. After the last
+  attempt the worker gives up on the event in the order of the contract
+  (record, audit entry that marks it processed, commit), so the partition goes
+  on and a crash between the steps repeats safely. Before it gives up, it
+  checks that the store and the log answer: if either does not, the failures
+  may be theirs and not the event's, so it keeps waiting and never turns an
+  outage into lost data. Error text from an adapter or a source system is
+  untrusted: it is cut and cleaned (C-INGEST-11) before it reaches the log,
+  the audit entry, a metric or a log line, and never labels a metric. Events
+  of a type the server has no handler for are skipped, counted and logged once
+  per type, and an event whose source field disagrees with its partition is
+  refused, so one source's partition never runs another's adapter.
 
 ### B2. Adapter modules
 
@@ -732,6 +749,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 | T-STORE-10 | D, T | An oversized event, batch or read stalls the event log; an event is written into another source's partition; a stopped consumer makes the log grow without bound | C-STORE-11 |
+| T-STORE-11 | T, D | Two servers run against one store (a second start, a restart that overlaps the old process) and apply, trim and commit against each other | C-STORE-12 |
 
 **Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
@@ -910,6 +928,17 @@ reach, so they are retired and their numbers are not reused.
   message to the sender (C-INGEST-7). Because `Backup` leaves the log out, a
   restore into a fresh database loses retained manual events and any
   unapplied backlog; operators back up the database itself for those.
+
+- **C-STORE-12** One server uses a store at a time (the MVP runs a single
+  instance). `store.LockInstance` takes a PostgreSQL session-level advisory lock
+  named for the schema on a connection of its own; a second server fails at
+  start with `ErrInstanceLocked`. The server checks the lock every ten seconds
+  and on every readiness probe, and stops with `ErrLockLost` when it can no
+  longer show it holds it, since another server may have started. Only the
+  graph backend takes the lock; the in-memory store has one process by
+  construction. The lock does not stop a person from running `psql`, and
+  another process can still read the store: the lock keeps two writers of
+  workers from running, not two readers.
 
 ### B7. Operators and configuration
 

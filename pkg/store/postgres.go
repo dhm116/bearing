@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -164,7 +165,16 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	if err != nil {
 		return backend{}, fmt.Errorf("store: %w", err)
 	}
-	b := backend{name: "postgresql", graph: st, audit: st.AuditLog(), events: st, close: st.Close}
+	b := backend{name: "postgresql", graph: st, audit: st.AuditLog(), events: st, close: st.Close, lock: func(ctx context.Context) (InstanceLock, error) {
+		l, err := st.LockInstance(ctx)
+		if errors.Is(err, pgstore.ErrInstanceLocked) {
+			return nil, ErrInstanceLocked
+		}
+		if err != nil {
+			return nil, fmt.Errorf("store: %w", err)
+		}
+		return l, nil
+	}}
 	if o.VectorDimensions > 0 {
 		b.vector = st
 	}
