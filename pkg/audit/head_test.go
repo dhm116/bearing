@@ -77,6 +77,17 @@ func TestCheckpointFileStopsAtTheBoundItsReaderEnforces(t *testing.T) {
 	if err := os.Truncate(f.Path, MaxCheckpointFileBytes-10); err != nil {
 		t.Fatal(err)
 	}
+	// End the (sparse) file on a newline, as a file this size would.
+	big, err := os.OpenFile(f.Path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := big.WriteAt([]byte{'\n'}, MaxCheckpointFileBytes-11); err != nil {
+		t.Fatal(err)
+	}
+	if err := big.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.Append(t.Context(), cp); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("got %v, want a refusal at the file's limit", err)
 	}

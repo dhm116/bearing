@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"maps"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/audit"
@@ -426,5 +431,113 @@ func TestAuditCheckpointsNeedAKeyWhileRetentionSharesTheFile(t *testing.T) {
 	cfg.AuditRetention.Enabled = false
 	if _, err := New(cfg); err != nil {
 		t.Fatalf("got %v, want unsigned checkpoints allowed without retention", err)
+	}
+}
+
+// checkpointCounts reads bearing.audit.checkpoints from the package's metric
+// reader as "result" or "result/stage" to count.
+func checkpointCounts(t *testing.T) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(t.Context(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok || m.Name != "bearing.audit.checkpoints" {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				res, _ := dp.Attributes.Value(attribute.Key("bearing.result"))
+				key := res.AsString()
+				if st, ok := dp.Attributes.Value(attribute.Key("bearing.stage")); ok {
+					key += "/" + st.AsString()
+				}
+				out[key] += dp.Value
+			}
+		}
+	}
+	return out
+}
+
+// The counter is global to the package and its reader is shared, so this test
+// is not parallel: Go runs a package's parallel tests only after the serial
+// ones, so nothing else writes a checkpoint while it counts, and it asserts
+// on the change it caused.
+func TestAuditCheckpointsCountEveryRunByResultAndStage(t *testing.T) {
+	w := newCheckpointWorld(t, true)
+	before := checkpointCounts(t)
+	delta := func() map[string]int64 {
+		t.Helper()
+		out := map[string]int64{}
+		for k, v := range checkpointCounts(t) {
+			if d := v - before[k]; d != 0 {
+				out[k] = d
+			}
+		}
+		return out
+	}
+	want := func(step string, exp map[string]int64) {
+		t.Helper()
+		if got := delta(); !maps.Equal(got, exp) {
+			t.Fatalf("%s: got %v, want %v", step, got, exp)
+		}
+	}
+	var last checkpointState
+	w.write(t, 3)
+	w.s.auditCheckpointRun(t.Context(), &last)
+	want("a head that moved", map[string]int64{"written": 1})
+	w.s.auditCheckpointRun(t.Context(), &last)
+	want("a head that had not", map[string]int64{"written": 1, "unchanged": 1})
+	w.write(t, 1)
+	good := w.keyFn
+	w.keyFn = func() (*audit.Signer, error) { return nil, errors.New("key file is gone") }
+	w.s.auditCheckpointRun(t.Context(), &last)
+	want("a key that stopped loading", map[string]int64{"written": 1, "unchanged": 1, "failed/key": 1})
+	w.keyFn = good
+	w.dest.appendErr = errors.New("disk full")
+	w.s.auditCheckpointRun(t.Context(), &last)
+	want("a destination that refuses", map[string]int64{"written": 1, "unchanged": 1, "failed/key": 1, "failed/write": 1})
+	w.dest.appendErr = nil
+	w.dest.readErr = errors.New("unreadable")
+	var fresh checkpointState
+	w.s.auditCheckpointRun(t.Context(), &fresh)
+	want("a file that cannot be read", map[string]int64{"written": 1, "unchanged": 1, "failed/key": 1, "failed/write": 1, "failed/read": 1})
+	w.dest.readErr = nil
+	w.s.auditCheckpointRun(t.Context(), &last)
+	want("a destination that works again", map[string]int64{"written": 2, "unchanged": 1, "failed/key": 1, "failed/write": 1, "failed/read": 1})
+}
+
+// A crash that cut off the last line of the real checkpoint file does not stop
+// the writer: it starts from the newest whole checkpoint, its next append
+// removes the fragment, and the file verifies.
+func TestAuditCheckpointsGoOnAfterACutOffLastLine(t *testing.T) {
+	t.Parallel()
+	w := newCheckpointWorld(t, true)
+	w.write(t, 3)
+	var last checkpointState
+	w.s.auditCheckpointRun(t.Context(), &last)
+	f, err := os.OpenFile(w.file.Path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"seq":"3","head_ha`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A restart: the writer reads the file again.
+	w.write(t, 2)
+	var restarted checkpointState
+	w.s.auditCheckpointRun(t.Context(), &restarted)
+	cps, cutOff, err := w.file.ReadTail(t.Context())
+	if err != nil || cutOff || len(cps) != 2 || cps[1].GetSeq() != 5 {
+		t.Fatalf("got %d checkpoints, cut off %v, %v, want the fragment gone and checkpoints of records 3 and 5", len(cps), cutOff, err)
+	}
+	if rep := w.verifies(t); !rep.OK() {
+		t.Fatalf("got %+v, want the healed file to verify", rep)
 	}
 }

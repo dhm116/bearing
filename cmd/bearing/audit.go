@@ -92,8 +92,9 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 		return err
 	}
 	var cps []*modelv1alpha1.AuditCheckpoint
+	var cutOff bool
 	if *file != "" {
-		if cps, err = readCheckpointFile(*file); err != nil {
+		if cps, cutOff, err = audit.ReadCheckpointFile(ctx, *file); err != nil {
 			return err
 		}
 	}
@@ -110,7 +111,7 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 		return err
 	}
 	now := env.Now()
-	out := verifyOutput{Report: rep, Given: len(cps), Missing: missing, MaxAge: *maxAge, Now: now}
+	out := verifyOutput{Report: rep, Given: len(cps), Missing: missing, CutOff: cutOff, MaxAge: *maxAge, Now: now}
 	if age > 0 {
 		// Stale: nothing agrees, the newest is too old, or it is dated ahead
 		// of this host's clock (a skewed writer or a forged time), which
@@ -142,6 +143,9 @@ type verifyOutput struct {
 	// named a file that held none.
 	Given   int
 	Missing bool
+	// CutOff says the file's last line was a write that a crash cut off, and
+	// was ignored.
+	CutOff bool
 	// MaxAge is the flag as given; Stale says the newest agreeing checkpoint
 	// is older than it, dated ahead of the clock, or there is none.
 	MaxAge string
@@ -190,6 +194,9 @@ func (o verifyOutput) render(w io.Writer) error {
 	for _, f := range cps {
 		fmt.Fprintf(&b, "  checkpoint of record %d: %s\n", f.Seq, f.Reason)
 	}
+	if o.CutOff {
+		b.WriteString("checkpoints: the last line of the file is cut off (a write that a crash interrupted) and was ignored; it holds no checkpoint, and the next append removes it\n")
+	}
 	if n := o.Newest; n != nil {
 		signed := "unsigned"
 		if n.GetKeyId() != "" {
@@ -234,6 +241,7 @@ type verifyJSON struct {
 	Checkpoints        int           `json:"checkpoints_agreeing"`
 	Given              int           `json:"checkpoints_given"`
 	CheckpointsMissing bool          `json:"checkpoints_missing"`
+	CutOffLineIgnored  bool          `json:"cut_off_line_ignored"`
 	Newest             *newestJSON   `json:"newest_checkpoint,omitempty"`
 	MaxAge             string        `json:"max_age,omitempty"`
 	Stale              bool          `json:"stale"`
@@ -245,7 +253,7 @@ func (o verifyOutput) json() verifyJSON {
 	j := verifyJSON{
 		OK: o.OK() && !o.Stale && !o.Missing, ChainIntact: len(chain) == 0,
 		Records: o.Records, First: o.First, Last: o.Last,
-		Checkpoints: o.Checkpoints, Given: o.Given, CheckpointsMissing: o.Missing,
+		Checkpoints: o.Checkpoints, Given: o.Given, CheckpointsMissing: o.Missing, CutOffLineIgnored: o.CutOff,
 		MaxAge: o.MaxAge, Stale: o.Stale, Failures: []failureJSON{},
 	}
 	if n := o.Newest; n != nil {
@@ -417,16 +425,6 @@ func validEnvName(s string) bool {
 		}
 	}
 	return true
-}
-
-// readCheckpointFile reads a checkpoint file the operator named.
-func readCheckpointFile(path string) (cps []*modelv1alpha1.AuditCheckpoint, err error) {
-	f, err := os.Open(path) //nolint:gosec // G304: the operator names the checkpoint file
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-	return audit.ReadCheckpoints(f)
 }
 
 // readPublicKeys loads the --key ID=FILE flags. The verifier trusts exactly

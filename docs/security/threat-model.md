@@ -155,8 +155,18 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   unsigned lines and says so in the log, and `verify` refuses them unless
   allowed; it cannot be configured unsigned beside audit retention. The writer
   and the retention job share the file in one process and take turns to
-  read and append; the command line's `audit checkpoint` beside a running
-  server is not covered by that lock.
+  read and append, and every append and read also takes a `flock` on the file
+  (exclusive to append, shared to read, held from the size read to the sync
+  and the rollback of a failed write), so the command line's `audit
+  checkpoint` beside a running server can neither remove the server's line
+  nor read half of one; a lock held by another process is waited for up to 30 seconds and the append or read then fails and names the file, a file system without locks refuses an append but is read without one (an archived copy), and a platform without file locks refuses to append. A
+  crash can leave a last line without its newline. An append that finds one
+  keeps it if it is a whole checkpoint and cuts it away if not, because a cut
+  line carries no checkpoint (a cut marker is synced before the cut, so a cut
+  marker that is torn means no cut happened), and the readers ignore one such
+  fragment at the end of the file and say so (`bearing audit verify` prints a
+  line and sets `cut_off_line_ignored`); a bad line anywhere else, or one with
+  its newline, still fails and names the line.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
