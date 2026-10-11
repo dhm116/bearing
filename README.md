@@ -49,7 +49,7 @@ keeps the adapters that fetch it small.
 | [`internal/memstore`](internal/memstore) | In-memory graph store, vector index and event log, the reference implementation; also the rule engine the PostgreSQL backend runs on |
 | [`internal/pgstore`](internal/pgstore) | PostgreSQL backend for the graph, the event log and, with pgvector, the vector index |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
-| [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL) and Authentik-like directory servers sharing one fictional org, with a scripted timeline; its recorded directory feed is [`testdata/acme`](testdata/acme) |
+| [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, reads the store with `get`, `owner`, `related` and `changes`, and checks the audit log with `audit verify`, `audit checkpoint` and `audit reanchor` |
 | [`cmd/bearing-bench`](cmd/bearing-bench) | Store benchmark: a generated org loaded up to about 10 million facts, with the numbers in [`docs/benchmarks`](docs/benchmarks) |
