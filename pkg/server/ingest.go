@@ -34,6 +34,9 @@ const (
 	MaxStoredHeaders     = 64
 	MaxStoredHeaderBytes = 16 << 10
 
+	// DefaultMaxDeliveries is how many deliveries Ingest handles at once.
+	DefaultMaxDeliveries = 256
+
 	// Default rate limits, per source and per peer, a minute with a burst.
 	defaultPerMinute = 1200
 	defaultBurst     = 200
@@ -75,6 +78,10 @@ type IngestConfig struct {
 	Sources []WebhookSource
 	// MaxBodyBytes bounds a delivery's body; zero means DefaultMaxBodyBytes.
 	MaxBodyBytes int64
+	// MaxInFlight bounds the deliveries handled at once, since each holds its
+	// body in memory until it has been checked (C-INGEST-4); zero means
+	// DefaultMaxDeliveries. One more answers 503 with Retry-After.
+	MaxInFlight int
 	// PerSource and PerPeer limit deliveries (C-INGEST-8).
 	PerSource, PerPeer RateLimit
 	// Now returns the current time; nil means time.Now.
@@ -97,6 +104,7 @@ type Ingest struct {
 	newReqID func() string
 	perSrc   *limiter
 	perPeer  *limiter
+	slot     chan struct{}
 }
 
 type webhookRoute struct {
@@ -114,13 +122,16 @@ func NewIngest(cfg IngestConfig) (*Ingest, error) {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultMaxBodyBytes
 	}
+	if cfg.MaxInFlight <= 0 {
+		cfg.MaxInFlight = DefaultMaxDeliveries
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
 	if cfg.NewRequestID == nil {
 		cfg.NewRequestID = randomID
 	}
-	in := &Ingest{log: cfg.Log, sources: map[string]*webhookRoute{}, maxBody: cfg.MaxBodyBytes, now: cfg.Now, newReqID: cfg.NewRequestID}
+	in := &Ingest{log: cfg.Log, sources: map[string]*webhookRoute{}, maxBody: cfg.MaxBodyBytes, now: cfg.Now, newReqID: cfg.NewRequestID, slot: make(chan struct{}, cfg.MaxInFlight)}
 	for _, s := range cfg.Sources {
 		if err := checkSourceName(s.Name); err != nil {
 			return nil, err
@@ -188,6 +199,7 @@ const (
 	resultRateLimited  = "rate_limited"
 	resultUnavailable  = "unavailable"
 	resultBadRequest   = "bad_request"
+	resultBusy         = "busy"
 )
 
 // ServeHTTP implements http.Handler for POST /webhooks/<source>. It answers
@@ -199,6 +211,18 @@ func (in *Ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		trace.WithAttributes(attribute.String("bearing.request.id", reqID)))
 	defer span.End()
 
+	select {
+	case in.slot <- struct{}{}:
+		defer func() { <-in.slot }()
+	default:
+		// Over the cap, before the body is read or the route looked at, so
+		// the answer is the same for any path.
+		span.SetAttributes(attrResult.String(resultBusy))
+		deliveries.Add(ctx, 1, deliveryAttrs("", resultBusy))
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	source, status, result := in.serve(ctx, span, r)
 	span.SetAttributes(attrResult.String(result))
 	deliveries.Add(ctx, 1, deliveryAttrs(source, result))

@@ -258,7 +258,9 @@ Assets: A1, A7, the event log.
   In the MVP server the HTTP webhook transport is served by the API's TCP
   listener (`POST /webhooks/<source>`, same address and TLS), ahead of token
   authentication, since a delivery proves itself by its signature; the Unix
-  socket never serves it. A listener of its own is a later option.
+  socket never serves it. Since the TCP listener needs OIDC (C-API-2), a
+  server that takes webhooks must have OIDC configured too until ingest has a
+  listener of its own.
 - **C-INGEST-2** The host authenticates every pushed event for its Source
   before anything is stored or acknowledged, using the method the Source
   configures: an HMAC signature over the raw body; a client certificate
@@ -285,7 +287,10 @@ Assets: A1, A7, the event log.
   recorded on the event comes from the route, never from the payload.
 - **C-INGEST-4** Limits per transport: maximum body size (default 1 MiB,
   enforced while reading), header size, read and idle timeouts, and maximum
-  concurrent requests.
+  concurrent requests (`IngestConfig.MaxInFlight`, default 256, 503 with
+  `Retry-After` beyond it). One peer can still hold a share of the slots for a
+  read timeout until the connection and per-peer caps of the `bearing server`
+  wiring exist.
 - **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
   7): the delivery ID when the signature covers it, otherwise the SHA-256 of
   the authenticated body. No declared scheme signs the delivery ID headers
@@ -708,8 +713,10 @@ Assets: A3, A5, A4, A7.
   as `local:<uid>`.
 - **C-API-2** The TCP API listener is off by default and refuses to start
   unless OIDC authentication is configured. There is no setting for
-  unauthenticated TCP access. Only `/healthz` and `/readyz` are
-  unauthenticated, and they return no data. Metrics are served on a separate
+  unauthenticated TCP access. Only `/healthz` and `/readyz`, which return no
+  data, and the signed webhook route `POST /webhooks/<source>` (C-INGEST-1,
+  C-INGEST-2: it proves itself by its source's signature) are served without
+  a token. Metrics are served on a separate
   listener, off by default.
 - **C-API-3** The TCP listener uses TLS 1.2 or later. Plaintext on a
   non-loopback address requires `insecure_api_plaintext`.
@@ -754,7 +761,9 @@ Assets: A3, A5, A4, A7.
   request ID. Details go to logs, not responses.
   The server's `API` (`pkg/server`, routes in
   [docs/spec/api.md](../spec/api.md)) puts C-API-1 to C-API-7 in one wrapper
-  that every route goes through, in this order: in-flight cap,
+  that every route goes through (the webhook route is Ingest's own, outside
+  the wrapper and its in-flight cap, with its own limits and plain
+  status-only answers, C-INGEST-4 and C-INGEST-7), in this order: in-flight cap,
   authentication, per-caller rate limit, authorization, parameters. The
   routes are one table, built into the mux from the same list a test reads, so
   a route cannot skip a check, and a test fails for a route whose method has

@@ -466,10 +466,37 @@ func TestAPITCPListenerTakesSignedWebhooksWithoutAToken(t *testing.T) {
 		t.Fatalf("got %d events logged, want the delivery on the log before the 202", n)
 	}
 
-	// The API behind it keeps its own checks, however the path is spelled.
-	for _, path := range []string{"/v1/changes", "/webhooks/../v1/changes"} {
-		if code, _ := get(t, client, url+path); code == http.StatusOK {
-			t.Errorf("GET %s with no token: got %d, want it refused", path, code)
+	// The API behind it keeps all of its own checks, and only what is under
+	// /webhooks/ is the ingest handler's, with its own bare answers.
+	for _, tt := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/v1/changes", http.StatusUnauthorized},
+		{http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusUnauthorized},
+		{http.MethodGet, "/webhooks", http.StatusNotFound},
+		{http.MethodPost, "/webhooks", http.StatusNotFound},
+		{http.MethodGet, "/Webhooks/" + source, http.StatusNotFound},
+		{http.MethodGet, "/webhooks/" + source, http.StatusMethodNotAllowed},
+		{http.MethodGet, "/webhooks/../v1/changes", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/webhooks/../v1/changes", http.StatusUnauthorized},
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), tt.method, url+tt.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != tt.want {
+			t.Errorf("%s %s: got %d, want %d", tt.method, tt.path, resp.StatusCode, tt.want)
+		}
+		ingest := strings.HasPrefix(tt.path, "/webhooks/")
+		if ingest == strings.Contains(string(b), `"code"`) {
+			t.Errorf("%s %s: got body %q, want the ingest handler's empty answer under /webhooks/ and the API's JSON error elsewhere", tt.method, tt.path, b)
 		}
 	}
 	// The socket has no webhook route: a local caller is an administrator, and
