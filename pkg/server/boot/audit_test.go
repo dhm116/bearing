@@ -71,9 +71,11 @@ func TestAuditSettingsRefuseWhatLeavesTheLogForgeable(t *testing.T) {
 		{"a key and the unsigned switch", "", `"audit": {` + cp + `}, "insecure_unsigned_checkpoints": true}`, "choose one"},
 		{"a key variable an adapter could be given", "", `"audit": {"checkpoints": {"file": "/x/cp", "signing_key_env": "BEARING_SECRET_AUDIT", "signing_key_id": "k"}}`, "must name a variable that starts with BEARING_AUDIT_"},
 		{"a key pasted as the variable name", "", `"audit": {"checkpoints": {"file": "/x/cp", "signing_key_env": "-----BEGIN PRIVATE KEY-----", "signing_key_id": "k"}}`, "never hold the key"},
+		{"a variable name with a space", "", `"audit": {"checkpoints": {"file": "/x/cp", "signing_key_env": "BEARING_AUDIT_X Y", "signing_key_id": "k"}}`, "never hold the key"},
 		{"a key ID that is not one", "", `"audit": {"checkpoints": {"file": "/x/cp", "signing_key_env": "BEARING_AUDIT_SIGNING_KEY", "signing_key_id": "a b"}}`, "signing_key_id must be"},
 		{"a checkpoint interval under a minute", "", `"audit": {` + cp + `, "every": "PT10S"}}`, "audit.checkpoints.every"},
 		{"retention on unsigned checkpoints", "", `"audit": {"checkpoints": {"file": "/x/cp"}, "retention": {}, "insecure_unsigned_checkpoints": true}`, "needs a signed checkpoint file"},
+		{"retention checked more than once a minute", "", `"audit": {` + cp + `}, "retention": {"every": "PT10S"}}`, "audit.retention.every"},
 		{"retention younger than a day", "", `"audit": {` + cp + `}, "retention": {"age": "PT1H"}}`, "audit.retention.age"},
 		{"a zero batch", "", `"audit": {` + cp + `}, "retention": {"batch": 0}}`, "batch must be positive"},
 		{"the current key listed as an old one", "", `"audit": {` + cp + `}, "retention": {"public_keys": {"audit-2026": "/x/pub.pem"}}}`, "derived from its private half"},
@@ -198,17 +200,22 @@ func TestAuditSigningKeyNeverReachesAnAdapter(t *testing.T) {
 		t.Fatalf("the adapter's environment holds the audit signing key: %q", d.Name)
 	}
 
-	for name, mod := range map[string]func(*Settings){
-		"an adapter env list": func(s *Settings) { s.Adapters[0].Env = append(s.Adapters[0].Env, auditKeyVar) },
-		"a source secret": func(s *Settings) {
+	for _, tt := range []struct {
+		name string
+		mod  func(*Settings)
+	}{
+		{"an adapter env list", func(s *Settings) { s.Adapters[0].Env = append(s.Adapters[0].Env, auditKeyVar) }},
+		{"a source secret", func(s *Settings) {
 			s.Sources[0] = []byte(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:"+auditKeyVar, 1))
-		},
+		}},
 	} {
-		w := auditWorld(t, false)
-		mod(w.settings)
-		if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil {
-			t.Errorf("%s: the signing key's variable was accepted", name)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			w := auditWorld(t, false)
+			tt.mod(w.settings)
+			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil {
+				t.Error("the signing key's variable was accepted")
+			}
+		})
 	}
 	// An operator's allowlist cannot reach it either.
 	w2 := auditWorld(t, false)
@@ -222,22 +229,25 @@ func TestAuditSigningKeyNeverReachesAnAdapter(t *testing.T) {
 // reported, and neither says what the variable held.
 func TestAuditSignerErrorsNeverCarryTheKeyMaterial(t *testing.T) {
 	const canary = "canary-key-material-0451"
-	w := auditWorld(t, false)
-	for name, value := range map[string]string{
-		"not PEM":                 canary,
-		"a PEM that is not a key": "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n",
-		"unset":                   "",
+	for _, tt := range []struct{ name, value string }{
+		{"not PEM", canary},
+		{"a PEM that is not a key", "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n"},
+		{"unset", ""},
 	} {
-		w.env[auditKeyVar] = value
-		_, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
-		if err == nil || !strings.Contains(err.Error(), auditKeyVar) {
-			t.Fatalf("%s: got %v, want a refusal naming %s", name, err, auditKeyVar)
-		}
-		if strings.Contains(err.Error(), canary) {
-			t.Errorf("%s: the error carries the variable's contents: %v", name, err)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			w := auditWorld(t, false)
+			w.env[auditKeyVar] = tt.value
+			_, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+			if err == nil || !strings.Contains(err.Error(), auditKeyVar) {
+				t.Fatalf("got %v, want a refusal naming %s", err, auditKeyVar)
+			}
+			if strings.Contains(err.Error(), canary) {
+				t.Errorf("the error carries the variable's contents: %v", err)
+			}
+		})
 	}
 	// The key that loaded at the start and later stops loading.
+	w := auditWorld(t, false)
 	signer := signerFromEnv(auditKeyVar, auditKeyID, w.getenv)
 	w.env[auditKeyVar] = "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n"
 	if _, err := signer(); err == nil || strings.Contains(err.Error(), canary) {
@@ -246,25 +256,86 @@ func TestAuditSignerErrorsNeverCarryTheKeyMaterial(t *testing.T) {
 }
 
 func TestAssembleRefusesACheckpointFileOthersCouldReplace(t *testing.T) {
-	for name, mod := range map[string]func(*world){
-		"a directory others can write": func(w *world) {
+	for _, tt := range []struct {
+		name string
+		mod  func(*world)
+	}{
+		{"a directory others can write", func(w *world) {
 			dir := filepath.Join(w.dir, "loose")
 			_ = os.Mkdir(dir, 0o777) //nolint:gosec // G301: the test needs a directory anyone can write
 			_ = os.Chmod(dir, 0o777) //nolint:gosec // G302: the umask may have cleared the bits
 			w.settings.Audit.Checkpoints.File = filepath.Join(dir, "cp.ndjson")
-		},
-		"a directory that is not there": func(w *world) {
+		}},
+		{"a directory that is not there", func(w *world) {
 			w.settings.Audit.Checkpoints.File = filepath.Join(w.dir, "missing", "cp.ndjson")
-		},
-		"a file others can write": func(w *world) {
+		}},
+		{"a file others can write", func(w *world) {
 			_ = os.WriteFile(w.settings.Audit.Checkpoints.File, nil, 0o666) //nolint:gosec // G306: the test needs a file anyone can write
 			_ = os.Chmod(w.settings.Audit.Checkpoints.File, 0o666)          //nolint:gosec // G302: the umask may have cleared the bits
-		},
+		}},
+		{"a link to a file elsewhere", func(w *world) {
+			target := filepath.Join(w.dir, "elsewhere.ndjson")
+			_ = os.WriteFile(target, nil, 0o600)
+			if err := os.Symlink(target, w.settings.Audit.Checkpoints.File); err != nil {
+				t.Skipf("no symlinks here: %v", err)
+			}
+		}},
 	} {
-		w := auditWorld(t, false)
-		mod(w)
-		if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "audit.checkpoints.file") {
-			t.Errorf("%s: got %v, want the checkpoint file refused", name, err)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			w := auditWorld(t, false)
+			tt.mod(w)
+			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "audit.checkpoints.file") {
+				t.Errorf("got %v, want the checkpoint file refused", err)
+			}
+		})
+	}
+}
+
+// Retention's earlier public keys are held to the settings file's rules and
+// must be public keys.
+func TestAssembleRefusesAnEarlierKeyItCannotTrust(t *testing.T) {
+	priv, pub := newKey(t)
+	for _, tt := range []struct {
+		name  string
+		write func(path string)
+	}{
+		{"a file others can write", func(p string) {
+			_ = os.WriteFile(p, []byte(pub), 0o666) //nolint:gosec // G306: the test needs a file anyone can write
+			_ = os.Chmod(p, 0o666)                  //nolint:gosec // G302: the umask may have cleared the bits
+		}},
+		{"a private key", func(p string) { _ = os.WriteFile(p, []byte(priv), 0o600) }},
+		{"text that is not a key", func(p string) { _ = os.WriteFile(p, []byte("not a key"), 0o600) }},
+		{"a file that is not there", func(string) {}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := auditWorld(t, true)
+			p := filepath.Join(w.dir, "old.pem")
+			tt.write(p)
+			w.settings.Audit.Retention.PublicKeys = map[string]string{"audit-2025": p}
+			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "public_keys[audit-2025]") {
+				t.Errorf("got %v, want the earlier key refused", err)
+			}
+		})
+	}
+}
+
+func TestAuditWarningsNameWhatTheSettingsGaveUp(t *testing.T) {
+	t.Parallel()
+	s := &Settings{Store: StoreSettings{Graph: "postgres://bearing@db/bearing"}}
+	if got := auditWarnings(s); len(got) != 0 {
+		t.Fatalf("got warnings %q for the safe defaults, want none", got)
+	}
+	s.Audit = AuditSettings{InsecureNoCheckpoints: true}
+	if got := auditWarnings(s); len(got) != 1 || !strings.Contains(got[0], "insecure_no_checkpoints") {
+		t.Fatalf("got %q, want the warning for insecure_no_checkpoints", got)
+	}
+	s.Audit = AuditSettings{InsecureUnsignedCheckpoints: true}
+	if got := auditWarnings(s); len(got) != 1 || !strings.Contains(got[0], "insecure_unsigned_checkpoints") {
+		t.Fatalf("got %q, want the warning for insecure_unsigned_checkpoints", got)
+	}
+	// An in-memory store has no audit log worth pinning, so opting out is not news.
+	mem := &Settings{Store: StoreSettings{Graph: "mem://"}, Audit: AuditSettings{InsecureNoCheckpoints: true}}
+	if got := auditWarnings(mem); len(got) != 0 {
+		t.Fatalf("got %q for an in-memory store, want none", got)
 	}
 }

@@ -25,6 +25,14 @@ func ParseSchedule(s string) (time.Duration, error) {
 	return parseISO(s, minSchedule, 366*24*time.Hour)
 }
 
+// humanLimit names a duration limit the way an operator thinks of it.
+func humanLimit(d time.Duration) string {
+	if d%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%d days", d/(24*time.Hour))
+	}
+	return d.String()
+}
+
 // parseISO reads an ISO 8601 duration of weeks, days, hours, minutes and
 // seconds that lies between lo and hi.
 func parseISO(s string, lo, hi time.Duration) (time.Duration, error) {
@@ -42,9 +50,13 @@ func parseISO(s string, lo, hi time.Duration) (time.Duration, error) {
 		if err != nil {
 			return 0, errors.New("a number in the duration is too large")
 		}
+		// Checked before the multiplication, which would wrap for a large n.
+		if n > int64(hi/u) {
+			return 0, fmt.Errorf("%q is longer than %s", s, humanLimit(hi))
+		}
 		d += time.Duration(n) * u
-		if d < 0 || d > hi {
-			return 0, fmt.Errorf("%q is longer than %s", s, hi)
+		if d > hi {
+			return 0, fmt.Errorf("%q is longer than %s", s, humanLimit(hi))
 		}
 	}
 	if d < lo {

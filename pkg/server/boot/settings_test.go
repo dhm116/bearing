@@ -192,6 +192,7 @@ func TestParseScheduleReadsISODurationsAndRefusesTheRest(t *testing.T) {
 		{"P1M", 0, true},
 		{"P400D", 0, true},
 		{"P99999999999D", 0, true},
+		{"P30908W", 0, true}, // would wrap past the limit if multiplied first
 		{"-PT1H", 0, true},
 	} {
 		got, err := ParseSchedule(tt.in)

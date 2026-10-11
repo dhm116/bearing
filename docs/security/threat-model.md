@@ -1172,6 +1172,13 @@ Assets: A5, A2, A6, the container and host.
   the settings name only adapters the operator installed, by absolute path
   (no discovery), the stdio adapter is first-party code until M4, and a
   separate UID for adapters is the M4/M5 rule.
+- **C-OPS-6** `insecure_no_peer_rate` turns off the TCP listener's per-peer
+  request limit (C-API-6) and is the only way to: a limit that is present in
+  the settings must be positive, so a typo cannot disable one. The server
+  logs a warning at start when it is on, and when `insecure_api_plaintext` is
+  on (C-API-3). Behind a proxy or ingress every client is one peer, so the
+  defaults cap the whole API and the operator raises `max_conns`,
+  `max_conns_per_peer` and `peer_rate_per_minute` instead.
 - **C-OPS-7** `bearing server --settings` runs the audit controls of C-AUDIT-3
   and C-AUDIT-5 from one `audit` block. A durable store starts only with
   `audit.checkpoints`, or with `audit.insecure_no_checkpoints`, which warns at
@@ -1184,13 +1191,11 @@ Assets: A5, A2, A6, the container and host.
   variable and never what it held. The checkpoint file's directory and the
   file must be owned by the service user or root and not writable by others,
   and the store's `AuditRetention` goes only to the retention job.
-- **C-OPS-6** `insecure_no_peer_rate` turns off the TCP listener's per-peer
-  request limit (C-API-6) and is the only way to: a limit that is present in
-  the settings must be positive, so a typo cannot disable one. The server
-  logs a warning at start when it is on, and when `insecure_api_plaintext` is
-  on (C-API-3). Behind a proxy or ingress every client is one peer, so the
-  defaults cap the whole API and the operator raises `max_conns`,
-  `max_conns_per_peer` and `peer_rate_per_minute` instead.
+  The key is in the server's environment, so an adapter that shares its UID
+  can read it from `/proc/<pid>/environ` like `BEARING_STORE_PASSWORD`; the
+  separate-UID rule (M4/M5) closes that, as C-OPS-5 records. Only the
+  checkpoint file's own directory is checked, once, at start, and a link in
+  place of the file is refused.
 - **C-OPS-4** Container images run as a non-root user with a read-only root
   filesystem, `no-new-privileges` and all Linux capabilities dropped.
 

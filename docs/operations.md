@@ -120,11 +120,14 @@ longer matches the checkpoints, and `bearing audit verify` says where.
   for it in `signing_key_id`. The variable must start with `BEARING_AUDIT_`,
   which the secret allowlist (`BEARING_SECRET_*`) can never match, so no
   source and no adapter can be given it. The server reads it again at every
-  write: a rotated key is used from the next checkpoint, and one that stops
-  loading writes nothing and counts a failure (`bearing.audit.checkpoints`),
-  never an unsigned line. Keep the public half for `bearing audit verify
-  --key ID=FILE`. Unsigned checkpoints need `audit.insecure_unsigned_checkpoints`
-  and cannot be combined with retention.
+  write, so a key that stops loading writes nothing and counts a failure
+  (`bearing.audit.checkpoints`), never an unsigned line. To rotate, restart
+  with the new key under a **new** `signing_key_id` and list the old public key
+  under `retention.public_keys`; reusing an ID makes the older checkpoints fail
+  verification. Keep the public half for `bearing audit verify --key ID=FILE`.
+  The key sits in the server's environment, so an adapter running as the same
+  user could read it from `/proc` (C-OPS-5). Unsigned checkpoints need
+  `audit.insecure_unsigned_checkpoints` and cannot be combined with retention.
 - **Retention** (`audit.retention`) is off unless the block is present. It cuts
   records older than `age` (default a year, at least a day) in batches, and
   before every cut it appends a signed marker to the same file and verifies the
@@ -142,8 +145,11 @@ which.
    it fails.
 2. If the log is the genuine one (a restore you meant to do), archive the file
    (keep it; it is the evidence) and start a new one at the same path.
-3. If retention had cut the log, run `bearing audit reanchor` for the new file,
-   so `verify` accepts the log's start.
+3. If retention had cut the log, run `bearing audit reanchor --expect-seq N
+   --key-id ID --key-env VAR --out FILE` for the new file (N is the number of
+   the last record that was cut, from the archived file or a backup; the
+   command needs the signing key in `VAR`, a `BEARING_AUDIT_` variable), so
+   `verify` accepts the log's start.
 4. Restart the server: the writer keeps the newest pinned head in memory and
    reads the file only at its first run.
 

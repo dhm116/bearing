@@ -161,10 +161,10 @@ func auditDuration(s string, def, lo time.Duration) (time.Duration, error) {
 // read side of the log and nothing else.
 func auditConfig(s *Settings, c *checked, st *store.Store, getenv func(string) string) (server.AuditCheckpoints, server.AuditRetention, error) {
 	cp := s.Audit.Checkpoints
+	for _, w := range auditWarnings(s) {
+		telemetry.Logger(pkgName).Warn(w)
+	}
 	if cp == nil {
-		if !inMemory(s.Store.Graph) {
-			telemetry.Logger(pkgName).Warn("insecure_no_checkpoints is on: whoever can write the database can rewrite the audit log undetected")
-		}
 		return server.AuditCheckpoints{}, server.AuditRetention{}, nil
 	}
 	if err := checkCheckpointFile(cp.File); err != nil {
@@ -213,9 +213,22 @@ func auditConfig(s *Settings, c *checked, st *store.Store, getenv func(string) s
 	return writer, retention, nil
 }
 
+// auditWarnings says at start what the audit settings gave up (C-GEN-1).
+func auditWarnings(s *Settings) []string {
+	var out []string
+	if s.Audit.InsecureNoCheckpoints && !inMemory(s.Store.Graph) {
+		out = append(out, "insecure_no_checkpoints is on: whoever can write the database can rewrite the audit log undetected")
+	}
+	if s.Audit.InsecureUnsignedCheckpoints {
+		out = append(out, "insecure_unsigned_checkpoints is on: whoever can write the checkpoint file can forge the checkpoints")
+	}
+	return out
+}
+
 // signerFromEnv returns a function that reads the signing key from the
-// variable each time it is called, so a rotated key is used and one that stops
-// loading is noticed. Its errors name the variable, never the key material or
+// variable each time it is called, so a key that stops loading is noticed (a
+// running process's environment does not change, so a rotation takes a
+// restart with a new key ID). Its errors name the variable, never the key material or
 // what the parser saw.
 func signerFromEnv(name, id string, getenv func(string) string) func() (*audit.Signer, error) {
 	return func() (*audit.Signer, error) {
@@ -248,14 +261,14 @@ func checkCheckpointFile(file string) error {
 	if err := checkOwner(di); err != nil {
 		return fmt.Errorf("boot: audit.checkpoints.file: %s: %w", dir, err)
 	}
-	fi, err := os.Stat(file)
+	fi, err := os.Lstat(file) // not Stat: a link could point where others can write
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	case err != nil:
 		return fmt.Errorf("boot: audit.checkpoints.file: %w", err)
 	case !fi.Mode().IsRegular():
-		return fmt.Errorf("boot: audit.checkpoints.file: %s is not a regular file", filepath.Base(file))
+		return fmt.Errorf("boot: audit.checkpoints.file: %s is not a regular file (a link is refused)", filepath.Base(file))
 	case fi.Mode().Perm()&0o022 != 0:
 		return fmt.Errorf("boot: audit.checkpoints.file: %s is writable by its group or by others", filepath.Base(file))
 	}
