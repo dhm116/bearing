@@ -37,7 +37,7 @@
           "type": "string"
         },
         "headers": {
-          "description": "The request headers, in the order received.",
+          "description": "The request headers, in the order received, as the host stored them: the\n signature header first, then others up to 64 headers and 16 KiB. Headers\n that carry credentials (Authorization, Proxy-Authorization, Cookie,\n Set-Cookie) are never stored.",
           "items": {
             "$ref": "#/$defs/bearing.event.v1alpha1.Header.schema.json"
           },
