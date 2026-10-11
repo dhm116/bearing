@@ -3,8 +3,12 @@ package audit
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -53,4 +57,79 @@ func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 		return nil, fmt.Errorf("audit: checkpoint file is over %d bytes", MaxCheckpointFileBytes)
 	}
 	return out, nil
+}
+
+// CheckpointFile is a file of checkpoints on disk: the place the operator
+// keeps them where the store's writers can't change them (threat model
+// C-AUDIT-3). It is the destination `bearing audit checkpoint` appends to and
+// the one the server's retention job writes its cut checkpoints to.
+type CheckpointFile struct{ Path string }
+
+// Append writes cp as a line of the file, created with mode 0600, and syncs
+// it before it returns: a checkpoint that is lost in a crash pins nothing,
+// and a cut marker must be on disk before the cut. If the file ends in a
+// cut-off line, a newline goes first, so cp is its own line.
+func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpoint) (err error) {
+	line, err := MarshalCheckpoint(cp)
+	if err != nil {
+		return err
+	}
+	line = append(line, '\n')
+	_, statErr := os.Stat(f.Path)
+	created := errors.Is(statErr, os.ErrNotExist)
+	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
+	if size > 0 {
+		last := make([]byte, 1)
+		if _, err := file.ReadAt(last, size-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			line = append([]byte{'\n'}, line...)
+		}
+	}
+	if _, err := file.Write(line); err != nil {
+		// A torn line (a full disk) would fail every later Read, so put the
+		// file back as it was.
+		return errors.Join(err, file.Truncate(size))
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if created {
+		return syncDir(filepath.Dir(f.Path))
+	}
+	return nil
+}
+
+// syncDir makes a new file's directory entry durable, so a marker that was
+// synced is still there after a crash.
+func syncDir(dir string) error {
+	d, err := os.Open(dir) //nolint:gosec // G304: the directory of the operator's checkpoint file
+	if err != nil {
+		return err
+	}
+	return errors.Join(d.Sync(), d.Close())
+}
+
+// Read returns every checkpoint in the file (ReadCheckpoints). A file that
+// does not exist yet holds none.
+func (f CheckpointFile) Read(_ context.Context) (cps []*modelv1alpha1.AuditCheckpoint, err error) {
+	file, err := os.Open(f.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	return ReadCheckpoints(file)
 }

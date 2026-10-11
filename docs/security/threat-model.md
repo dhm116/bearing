@@ -186,7 +186,13 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   passing, and it stays in the checkpoint file for good; so the job must not
   leave markers behind (a failed `Cut` is retried through the same record
   before another is chosen, and a marker that cannot be completed is
-  reported). The link between the marker and `Cut` is the job's discipline:
+  reported). The server's job (`pkg/server`, `Config.AuditRetention`) does
+  this in one function in that order, and stops at the first failure: a key
+  that stops loading, a checkpoint file that cannot be read or written, or a
+  log that does not verify signs and cuts nothing, and none of them falls back
+  to an unsigned marker. It is off by default, refuses to start without a
+  key, a checkpoint destination and an age of at least a day, and counts every
+  stop in `bearing.retention.audit_cuts`. The link between the marker and `Cut` is the job's discipline:
   `Cut` compares the hash it is given with the stored record and with that
   record's own content, and refuses on a difference, but it never sees the
   marker, and `store.Store.AuditRetention` is a field like the others, so

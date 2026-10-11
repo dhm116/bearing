@@ -312,16 +312,15 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 	if err != nil {
 		return err
 	}
-	line, err := audit.MarshalCheckpoint(cp)
-	if err != nil {
-		return err
-	}
-	line = append(line, '\n')
 	if *out == "" {
-		_, err = stdout.Write(line)
+		line, err := audit.MarshalCheckpoint(cp)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(append(line, '\n'))
 		return err
 	}
-	if err := appendFile(*out, line); err != nil {
+	if err := (audit.CheckpointFile{Path: *out}).Append(ctx, cp); err != nil {
 		return err
 	}
 	signed := "unsigned"
@@ -408,46 +407,19 @@ func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.W
 	if err != nil {
 		return err
 	}
-	line, err := audit.MarshalCheckpoint(cp)
-	if err != nil {
-		return err
-	}
-	line = append(line, '\n')
 	if *out == "" {
-		_, err = stdout.Write(line)
+		line, err := audit.MarshalCheckpoint(cp)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(append(line, '\n'))
 		return err
 	}
-	if err := appendFile(*out, line); err != nil {
+	if err := (audit.CheckpointFile{Path: *out}).Append(ctx, cp); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "wrote the cut checkpoint of record %d (hash %s, signed by %s) to %s; the log now starts at record %d. Compare the hash with the one in an earlier checkpoint or a backup\n", cp.GetSeq(), hex.EncodeToString(cp.GetHeadHash()), signer.KeyID, *out, recs[0].GetSeq())
 	return err
-}
-
-// appendFile appends b to the file at path, creating it private, and syncs:
-// a checkpoint that is lost in a crash pins nothing. If the file ends in a
-// cut-off line, a newline goes first, so the new checkpoint is its own line.
-func appendFile(path string, b []byte) (err error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600) //nolint:gosec // G304: the operator names the checkpoint file
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-	if info, err := f.Stat(); err != nil {
-		return err
-	} else if info.Size() > 0 {
-		last := make([]byte, 1)
-		if _, err := f.ReadAt(last, info.Size()-1); err != nil {
-			return err
-		}
-		if last[0] != '\n' {
-			b = append([]byte{'\n'}, b...)
-		}
-	}
-	if _, err := f.Write(b); err != nil {
-		return err
-	}
-	return f.Sync()
 }
 
 // validEnvName reports whether s is a plausible environment variable name,

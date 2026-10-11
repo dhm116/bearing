@@ -95,6 +95,8 @@ type Config struct {
 	// letter's audit entry and its commit (docs/spec/contracts.md, "Dead
 	// letters"). Without it that event is tried again.
 	Audit contracts.AuditLog
+	// AuditRetention, if enabled, cuts the oldest audit records.
+	AuditRetention AuditRetention
 	// Sources are the configured sources.
 	Sources []Source
 	// Lock, if set, is checked every LockCheck; when it is no longer held
@@ -205,6 +207,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
+	if err := checkAuditRetention(&cfg); err != nil {
+		return nil, err
+	}
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
 		inflight: map[contracts.Partition]bool{}, lastSync: map[string]contracts.Offset{},
@@ -262,6 +267,7 @@ func (s *Server) Run(ctx context.Context) error {
 	run("workers", s.runWorkers)
 	run("scheduler", s.runScheduler)
 	run("retention", s.runRetention)
+	run("audit retention", s.runAuditRetention)
 	run("lock", s.watchLock)
 	<-ctx.Done()
 	wg.Wait()

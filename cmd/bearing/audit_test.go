@@ -547,11 +547,7 @@ func (a *auditWorld) cut(seq uint64, file string) {
 		if err != nil {
 			a.t.Fatal(err)
 		}
-		line, err := audit.MarshalCheckpoint(cp)
-		if err != nil {
-			a.t.Fatal(err)
-		}
-		if err := appendFile(file, append(line, '\n')); err != nil {
+		if err := (audit.CheckpointFile{Path: file}).Append(context.Background(), cp); err != nil {
 			a.t.Fatal(err)
 		}
 	}
