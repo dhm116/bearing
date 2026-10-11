@@ -50,7 +50,8 @@ func (s *Server) Ready(ctx context.Context) error {
 	// that the next prober is given.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), healthTimeout)
 	defer cancel()
-	s.readyAt, s.readyErr = now, s.storeDown(ctx)
+	s.readyErr = s.storeDown(ctx)
+	s.readyAt = s.clk.Now()
 	return s.readyErr
 }
 

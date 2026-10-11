@@ -63,6 +63,13 @@ func (s *Server) runWorkers(ctx context.Context) error {
 			go func() {
 				defer wg.Done()
 				err := s.drain(ctx, p)
+				if err != nil {
+					// The partition is read again from its committed offset, and
+					// that event may be one just given up on.
+					s.mu.Lock()
+					delete(s.resumed, p)
+					s.mu.Unlock()
+				}
 				s.release(p)
 				if err != nil && ctx.Err() == nil {
 					log.WarnContext(ctx, "applying a partition stopped; it is read again", "partition", string(p), "error", cleanErrorText(err.Error()))

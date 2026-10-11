@@ -834,3 +834,18 @@ func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheAuditEntry(t *testing.T
 		t.Errorf("%d dead letters after the retry, want the same record once", n)
 	}
 }
+
+func TestServerDoesNotTryAGivenUpEventAgainWhenTheCommitWasRefused(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
+	h.emitted(testSource, "a", 1)
+	h.log.failCommit.Store(true)
+	h.start()
+	waitFor(t, "the dead letter", func() bool { return len(h.entries("core/dead_letter")) == 1 })
+	time.Sleep(100 * time.Millisecond) // the partition is read again, and the commit refused again
+	h.log.failCommit.Store(false)
+	waitFor(t, "the event to be committed", func() bool { return h.drained(testSource) })
+	if got := len(h.ap.called()); got != 1 {
+		t.Fatalf("the event was tried %d times, want once: it was already given up on", got)
+	}
+}
