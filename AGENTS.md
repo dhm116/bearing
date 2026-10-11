@@ -24,12 +24,13 @@ Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 
 | Command | What it does |
 | --- | --- |
-| `make check` | Everything CI runs, in order: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `build`, `vuln`. CI runs the same steps as parallel jobs (see below), so it finishes sooner than this does |
+| `make check` | Everything CI runs, in order: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `race`, `build`, `vuln`. CI runs the same steps as parallel jobs (see below), so it finishes sooner than this does |
 | `make generate` | After editing `proto/`: `buf format`, `buf lint`, then `buf generate` into `gen/go` and `gen/jsonschema` (buf and plugins pinned in `tools/go.mod`). Commit the output |
 | `make generate-check` | Fails if `proto/` isn't formatted or doesn't lint, or if `gen/` differs from what `buf generate` writes. `buf breaking` turns on when the MVP closes |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
 | `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
+| `make race` | `go test -race` on the packages that take locks or run goroutines (`RACE_PKGS`: `pkg/server`, `pkg/auth`, `pkg/audit`, `pkg/store`, `internal/memstore`, `internal/fakes`, `internal/testkit`); needs cgo and a C compiler. `internal/pgstore` (PostgreSQL) and `pkg/resolver` (about 450 s under `-race`) are left out |
 | `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
 | `make build` | Builds `bin/bearing`, `bin/bearing-adapter-github` and `bin/bearing-bench` |
@@ -300,8 +301,8 @@ Both are plain Markdown checklists; any agent can follow them.
   that run side by side so a push gets its answer in minutes: `static`
   (`make static`: everything but the tests), `test` (`make cover`, with
   PostgreSQL), `baseline` (the same tests at the merge base, `make
-  covergate-base`) and `check` (`make covergate-report`, which compares the
-  two profiles and fails unless the other jobs passed). Keep the whole run to about five
+  covergate-base`), `race` (`make race`) and `check` (`make covergate-report`,
+  which compares the two profiles and fails unless the other jobs passed). Keep the whole run to about five
   minutes: a test that takes longer than a minute or two on its own gets split
   up or made parallel (`t.Parallel` with a store per test), and nothing slow
   should be added to `static`.
