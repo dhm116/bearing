@@ -243,7 +243,10 @@ Assets: A1, A7, the event log.
   behind a TLS-terminating proxy).
 - **C-INGEST-7** Ingest responses carry only a status code and a request ID.
   An unknown route and a failed check get the same response.
-- **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
+- **C-INGEST-8** Per-Source and per-peer rate limits return 429. They apply
+  before the signature check and a refused delivery spends a token, so
+  guessing signatures is limited too; the tables of per-peer buckets are
+  bounded. The 2xx is
   sent only after the event is appended to the log (ADR 7); if the log is
   unavailable, ingest returns 503 so the sender retries. Retention then
   keeps the event until the apply workers have processed it (`Trim` takes

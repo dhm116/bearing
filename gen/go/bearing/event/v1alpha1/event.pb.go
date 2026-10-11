@@ -256,7 +256,10 @@ type WebhookReceived struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The configured source the delivery is for.
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
-	// The request headers, in the order received.
+	// The request headers, in the order received, as the host stored them: the
+	// signature header first, then others up to 64 headers and 16 KiB. Headers
+	// that carry credentials (Authorization, Proxy-Authorization, Cookie,
+	// Set-Cookie) are never stored.
 	Headers []*Header `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty"`
 	// The request body, unchanged.
 	Body []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`

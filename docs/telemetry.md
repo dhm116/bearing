@@ -44,6 +44,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.describe`, `bearing.sync`, `bearing.handle` | client | core, per protocol call | `rpc.system.name=jsonrpc`, `rpc.method`, `jsonrpc.request.id` |
 | `bearing.describe`, `bearing.sync`, `bearing.handle` | server | adapter, per request | same, plus `rpc.response.status_code` on error |
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.phase`, `bearing.github.sync.page` |
+| `ingest.webhook` | server | core, one per webhook delivery, whatever its result | `bearing.source` (the configured source; absent for an unknown route), `bearing.result` |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.unmerges`, `graph.supports`, `graph.as_of`, `graph.changes`, `graph.changes_page`, `graph.last_change`, `graph.conflicts`, `graph.data_quality`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
@@ -67,6 +68,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.adapter.observations.received` | counter | {observation} | `bearing.adapter.name`, `bearing.entity.kind` | What the core accepted |
 | `bearing.adapter.observations.invalid` | counter | {observation} | `bearing.adapter.name` | Adapters emitting schema-invalid data; should be zero |
 | `bearing.adapter.claims.rejected` | counter | {claim} | `bearing.adapter.name` | Claims removed from accepted observations; an adapter losing most of its claims is alertable |
+| `bearing.ingest.deliveries` | counter | {delivery} | `bearing.source` (`unknown` for a route that is not configured, never the caller's text), `bearing.result` (`accepted`, `duplicate`, `unauthorized`, `too_large`, `rate_limited`, `unavailable`, `bad_request`) | Webhook deliveries at the host. A rise in `unauthorized` for one source is a wrong or leaked key; `unavailable` means the event log refused and senders will retry; `rate_limited` is a flood or a too-low limit |
 | `bearing.github.webhooks` | counter | {delivery} | `bearing.github.webhook.event`, `bearing.result` | Accepted, ignored and rejected deliveries; rejections can mean a wrong secret or spoofing |
 | `bearing.github.codeowners.lookups` | counter | {repository} | `bearing.result` (`found`, `missing`, `unreadable`) | Ownership coverage: repos with no CODEOWNERS have no declared owner; `unreadable` is a binary or truncated file, whose facts are left as they are |
 | `bearing.github.ratelimit.remaining` | gauge | {request} | `bearing.github.ratelimit.resource` | Headroom before GitHub starts refusing requests |
