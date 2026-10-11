@@ -159,7 +159,7 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   (exclusive to append, shared to read, held from the size read to the sync
   and the rollback of a failed write), so the command line's `audit
   checkpoint` beside a running server can neither remove the server's line
-  nor read half of one; a platform without file locks refuses to append. A
+  nor read half of one; a lock held by another process is waited for up to 30 seconds and the append or read then fails and names the file, a file system without locks refuses an append but is read without one (an archived copy), and a platform without file locks refuses to append. A
   crash can leave a last line without its newline. An append that finds one
   keeps it if it is a whole checkpoint and cuts it away if not, because a cut
   line carries no checkpoint (a cut marker is synced before the cut, so a cut

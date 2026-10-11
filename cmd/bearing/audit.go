@@ -94,7 +94,7 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 	var cps []*modelv1alpha1.AuditCheckpoint
 	var cutOff bool
 	if *file != "" {
-		if cps, cutOff, err = audit.ReadCheckpointFile(*file); err != nil {
+		if cps, cutOff, err = audit.ReadCheckpointFile(ctx, *file); err != nil {
 			return err
 		}
 	}

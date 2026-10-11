@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -199,10 +200,10 @@ func TestCheckpointFileAnotherProcessCannotRemoveALineThatIsAppendedWhileAWriteF
 	}
 	started, release := make(chan struct{}), make(chan struct{})
 	failed := make(chan error, 1)
-	go func() { failed <- f.appendWith(cpAt(t, 2, s), breakingWrite(started, release)) }()
+	go func() { failed <- f.appendWith(t.Context(), cpAt(t, 2, s), breakingWrite(started, release)) }()
 	<-started // the first write is half done and holds the lock
 	other := make(chan error, 1)
-	go func() { other <- f.appendWith(cpAt(t, 3, s), (*os.File).Write) }()
+	go func() { other <- f.appendWith(t.Context(), cpAt(t, 3, s), (*os.File).Write) }()
 	var otherErr error
 	early := false
 	select {
@@ -234,7 +235,7 @@ func TestCheckpointFileReadWaitsForAnAppendInAnotherProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
-	go func() { _ = f.appendWith(cpAt(t, 2, s), breakingWrite(started, release)) }()
+	go func() { _ = f.appendWith(t.Context(), cpAt(t, 2, s), breakingWrite(started, release)) }()
 	t.Cleanup(func() { // never leave the writer waiting if the test fails
 		select {
 		case <-release:
@@ -277,7 +278,7 @@ func TestCheckpointFilesOfSeveralProcessesNeverCrossLines(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := range each {
-				if err := f.appendWith(cpAt(t, w*each+i+1, s), (*os.File).Write); err != nil {
+				if err := f.appendWith(t.Context(), cpAt(t, w*each+i+1, s), (*os.File).Write); err != nil {
 					t.Error(err)
 				}
 			}
@@ -318,5 +319,122 @@ func TestCheckpointFileReportsAWriteThatFails(t *testing.T) {
 	}
 	if err := (CheckpointFile{Path: "/dev/full"}).Append(t.Context(), cp); err == nil {
 		t.Fatal("got nil, want an error when the disk is full")
+	}
+}
+
+// A write that fails after the file was healed rolls back to the healed size,
+// not the size it had before: no zero bytes, no fragment, and no newline that
+// was only added for the line.
+func TestCheckpointFileRollsBackToTheHealedFile(t *testing.T) {
+	t.Parallel()
+	s, _ := signer(t, "k1")
+	whole, err := MarshalCheckpoint(cpAt(t, 2, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tt := range map[string]struct {
+		tail string
+		want []uint64
+	}{
+		"a fragment cut away":                     {`{"seq":"2","head`, []uint64{1}},
+		"a whole checkpoint kept, no newline yet": {string(whole), []uint64{1, 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := CheckpointFile{Path: filepath.Join(t.TempDir(), "cp.ndjson")}
+			if err := f.Append(t.Context(), cpAt(t, 1, s)); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := os.ReadFile(f.Path)
+			if err := os.WriteFile(f.Path, append(before, tt.tail...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			started, release := make(chan struct{}), make(chan struct{})
+			close(release)
+			if err := f.appendWith(t.Context(), cpAt(t, 3, s), breakingWrite(started, release)); err == nil {
+				t.Fatal("got nil, want the broken write to fail")
+			}
+			raw, _ := os.ReadFile(f.Path)
+			if strings.ContainsRune(string(raw), 0) || strings.Contains(string(raw), `"head"`) {
+				t.Fatalf("got %q, want no zero bytes and no fragment", raw)
+			}
+			cps, cutOff, err := f.ReadTail(t.Context())
+			if err != nil || !slices.Equal(seqs(cps), tt.want) || cutOff {
+				t.Fatalf("got %v, cut off %v, %v, want %v", seqs(cps), cutOff, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckpointFileHealsTheEdgesOfACutOffLine(t *testing.T) {
+	t.Parallel()
+	s, _ := signer(t, "k1")
+	one, err := MarshalCheckpoint(cpAt(t, 1, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut, err := NewCutCheckpoint(contracts.AuditHead{Seq: 5, Hash: make([]byte, HashSize)}, time.Now(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := MarshalCheckpoint(cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tt := range map[string]struct {
+		content string
+		want    []uint64
+	}{
+		"a whole checkpoint followed by spaces":   {string(one) + "  ", []uint64{1, 9}},
+		"a whole checkpoint followed by a return": {string(one) + "\r", []uint64{1, 9}},
+		"a file that is only a fragment":          {`{"seq":"1"`, []uint64{9}},
+		"a fragment right after a cut marker":     {string(marker) + "\n{\"seq\":\"6\",\"hea", []uint64{5, 9}},
+		"a tail of zero bytes":                    {string(one) + "\n" + strings.Repeat("\x00", 100), []uint64{1, 9}},
+		"a fragment of exactly the line limit":    {string(one) + "\n" + strings.Repeat("x", MaxCheckpointLineBytes), []uint64{1, 9}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := CheckpointFile{Path: filepath.Join(t.TempDir(), "cp.ndjson")}
+			if err := os.WriteFile(f.Path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Append(t.Context(), cpAt(t, 9, s)); err != nil {
+				t.Fatal(err)
+			}
+			cps, cutOff, err := f.ReadTail(t.Context())
+			if err != nil || cutOff || !slices.Equal(seqs(cps), tt.want) {
+				t.Fatalf("got %v, cut off %v, %v, want %v", seqs(cps), cutOff, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLockFileGivesUpWhenItsContextIsDone(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cp.ndjson")
+	holder, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if err := lockFile(t.Context(), holder, true); err != nil {
+		t.Skipf("no file locks here: %v", err)
+	}
+	waiter, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer waiter.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if err := lockFile(ctx, waiter, false); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v, want the wait to end with the context", err)
+	}
+	// And the same through Append: it returns the error instead of hanging.
+	s, _ := signer(t, "k1")
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel2()
+	if err := (CheckpointFile{Path: path}).Append(ctx2, cpAt(t, 1, s)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v, want Append to give up with the context", err)
 	}
 }

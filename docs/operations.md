@@ -121,6 +121,9 @@ longer matches the checkpoints, and `bearing audit verify` says where.
   saying the cut-off line was ignored, and the next append removes it (a whole
   checkpoint that only lacks the newline is kept). A damaged line anywhere else
   still fails and names the line.
+  A process that holds the file's lock for over 30 seconds (a stopped command, a
+  hung network mount) makes a write or a read fail and name the file. Archive the
+  file only with the server stopped or after it has restarted on the new one.
 - **The key** is an Ed25519 key as a PKCS #8 PEM in the variable
   `signing_key_env` names (`openssl genpkey -algorithm ed25519`), with an ID
   for it in `signing_key_id`. The variable must start with `BEARING_AUDIT_`,

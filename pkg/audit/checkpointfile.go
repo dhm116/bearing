@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -22,6 +23,10 @@ const MaxCheckpointLineBytes = 64 << 10
 // MaxCheckpointFileBytes bounds a checkpoint file. One a day for a century is
 // a few megabytes.
 const MaxCheckpointFileBytes = 64 << 20
+
+// MaxLockWait bounds how long a read or an append waits for another process
+// that holds the lock on a checkpoint file.
+const MaxLockWait = 30 * time.Second
 
 // MarshalCheckpoint returns cp as one line of ProtoJSON without its newline.
 // A file of checkpoints is these lines, one per line (NDJSON), appended as
@@ -80,9 +85,10 @@ func ReadCheckpointsTail(r io.Reader) (cps []*modelv1alpha1.AuditCheckpoint, cut
 }
 
 // ReadCheckpointFile reads the checkpoint file at path under a shared lock, so
-// it never sees an append half done (ReadCheckpointsTail). A file that does
+// it never sees an append half done (ReadCheckpointsTail), unless the file
+// system has no locks. A file that does
 // not exist is an error.
-func ReadCheckpointFile(path string) (cps []*modelv1alpha1.AuditCheckpoint, cutOff bool, err error) {
+func ReadCheckpointFile(ctx context.Context, path string) (cps []*modelv1alpha1.AuditCheckpoint, cutOff bool, err error) {
 	appendMu.Lock()
 	defer appendMu.Unlock()
 	file, err := os.Open(path) //nolint:gosec // G304: the operator names the checkpoint file
@@ -90,7 +96,9 @@ func ReadCheckpointFile(path string) (cps []*modelv1alpha1.AuditCheckpoint, cutO
 		return nil, false, err
 	}
 	defer func() { err = errors.Join(err, file.Close()) }()
-	if err := lockFile(file, false); err != nil {
+	// A file system with no locks (an archived copy on a read-only or network
+	// mount) is read without one: a half-written tail is tolerated anyway.
+	if err := lockFile(ctx, file, false); err != nil && !lockUnsupported(err) {
 		return nil, false, err
 	}
 	return ReadCheckpointsTail(file)
@@ -117,17 +125,17 @@ var appendMu sync.Mutex
 // that is a checkpoint gets one, and one that is not (a write a crash cut
 // off, which carries no checkpoint) is cut away first. On a platform without
 // file locks it refuses to append.
-func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpoint) (err error) {
+func (f CheckpointFile) Append(ctx context.Context, cp *modelv1alpha1.AuditCheckpoint) (err error) {
 	// The server's checkpoint writer and its retention job append to the same
 	// file; one failing write must not truncate the other's line.
 	appendMu.Lock()
 	defer appendMu.Unlock()
-	return f.appendWith(cp, (*os.File).Write)
+	return f.appendWith(ctx, cp, (*os.File).Write)
 }
 
 // appendWith is Append without the in-process lock, writing through write: a
 // test stands in for a second process with it, and breaks a write in two.
-func (f CheckpointFile) appendWith(cp *modelv1alpha1.AuditCheckpoint, write func(*os.File, []byte) (int, error)) (err error) {
+func (f CheckpointFile) appendWith(ctx context.Context, cp *modelv1alpha1.AuditCheckpoint, write func(*os.File, []byte) (int, error)) (err error) {
 	line, err := MarshalCheckpoint(cp)
 	if err != nil {
 		return err
@@ -140,7 +148,7 @@ func (f CheckpointFile) appendWith(cp *modelv1alpha1.AuditCheckpoint, write func
 		return err
 	}
 	defer func() { err = errors.Join(err, file.Close()) }()
-	if err := lockFile(file, true); err != nil {
+	if err := lockFile(ctx, file, true); err != nil {
 		return err
 	}
 	info, err := file.Stat()
@@ -222,8 +230,8 @@ func (f CheckpointFile) Read(ctx context.Context) ([]*modelv1alpha1.AuditCheckpo
 }
 
 // ReadTail is Read that also says whether a cut-off last line was ignored.
-func (f CheckpointFile) ReadTail(_ context.Context) ([]*modelv1alpha1.AuditCheckpoint, bool, error) {
-	cps, cutOff, err := ReadCheckpointFile(f.Path)
+func (f CheckpointFile) ReadTail(ctx context.Context) ([]*modelv1alpha1.AuditCheckpoint, bool, error) {
+	cps, cutOff, err := ReadCheckpointFile(ctx, f.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}

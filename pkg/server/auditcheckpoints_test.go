@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"maps"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -507,4 +508,36 @@ func TestAuditCheckpointsCountEveryRunByResultAndStage(t *testing.T) {
 	w.dest.readErr = nil
 	w.s.auditCheckpointRun(t.Context(), &last)
 	want("a destination that works again", map[string]int64{"written": 2, "unchanged": 1, "failed/key": 1, "failed/write": 1, "failed/read": 1})
+}
+
+// A crash that cut off the last line of the real checkpoint file does not stop
+// the writer: it starts from the newest whole checkpoint, its next append
+// removes the fragment, and the file verifies.
+func TestAuditCheckpointsGoOnAfterACutOffLastLine(t *testing.T) {
+	t.Parallel()
+	w := newCheckpointWorld(t, true)
+	w.write(t, 3)
+	var last checkpointState
+	w.s.auditCheckpointRun(t.Context(), &last)
+	f, err := os.OpenFile(w.file.Path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"seq":"3","head_ha`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A restart: the writer reads the file again.
+	w.write(t, 2)
+	var restarted checkpointState
+	w.s.auditCheckpointRun(t.Context(), &restarted)
+	cps, cutOff, err := w.file.ReadTail(t.Context())
+	if err != nil || cutOff || len(cps) != 2 || cps[1].GetSeq() != 5 {
+		t.Fatalf("got %d checkpoints, cut off %v, %v, want the fragment gone and checkpoints of records 3 and 5", len(cps), cutOff, err)
+	}
+	if rep := w.verifies(t); !rep.OK() {
+		t.Fatalf("got %+v, want the healed file to verify", rep)
+	}
 }
