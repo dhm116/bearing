@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"bearing.example/pkg/query"
 )
@@ -16,8 +17,20 @@ type out struct{ b strings.Builder }
 
 func (o *out) line(indent int, format string, args ...any) {
 	o.b.WriteString(strings.Repeat("  ", indent))
-	fmt.Fprintf(&o.b, format, args...)
+	o.b.WriteString(terminalSafe(fmt.Sprintf(format, args...)))
 	o.b.WriteByte('\n')
+}
+
+// terminalSafe drops what a terminal would act on, so text that came from a
+// source system, or from a server, cannot move the cursor, retitle the window
+// or reorder what the operator reads. --json is untouched: JSON escapes it.
+func terminalSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func (o *out) flush(w io.Writer) error {
@@ -271,7 +284,7 @@ func renderChanges(w io.Writer, c *query.Changes, continued bool) error {
 	}
 	if c.NextPageToken != "" {
 		o.line(0, "")
-		o.line(0, "%d changes shown, newest first. For the next page, run bearing changes --page-token %s with the same --store", len(c.Changes), c.NextPageToken)
+		o.line(0, "%d changes shown, newest first. For the next page, run bearing changes --page-token %s with the same --store or --server", len(c.Changes), c.NextPageToken)
 	}
 	return o.flush(w)
 }

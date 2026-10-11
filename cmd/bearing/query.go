@@ -108,7 +108,7 @@ type serverFlags struct {
 }
 
 func (s *serverFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&s.server, "server", "", "a running server: the path of its Unix socket, or https://host:port (default $"+serverEnv+")")
+	fs.StringVar(&s.server, "server", "", "a running server: the absolute path of its Unix socket, or https://host:port (default $"+serverEnv+")")
 	fs.StringVar(&s.tokenEnv, "token-env", "", "the name of the variable that holds the bearer token for a server on the network, never the token itself (default $"+tokenEnv+")")
 	fs.StringVar(&s.serverCA, "server-ca", "", "a PEM file of certificate authorities to trust for the server, besides the system's")
 }

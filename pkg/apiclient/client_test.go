@@ -61,7 +61,7 @@ func TestNewAcceptsOnlyAddressesItWillTalkTo(t *testing.T) {
 		"https with a port":            {"https://bearing.example.com:8443", true},
 		"https with a trailing slash":  {"https://bearing.example.com/", true},
 		"http on loopback":             {"http://127.0.0.1:8080", true},
-		"http on localhost":            {"http://localhost:8080", true},
+		"http on localhost":            {"http://localhost:8080", false},
 		"http on IPv6 loopback":        {"http://[::1]:8080", true},
 		"http on another host":         {"http://bearing.example.com", false},
 		"empty":                        {"", false},
@@ -295,6 +295,7 @@ func TestErrorsKeepTheirCodeAndMeanWhatQueryErrorsMean(t *testing.T) {
 		},
 		"unauthenticated":    {401, `{"code":"unauthenticated","message":"sign in","request_id":"r5"}`, nil, "unauthenticated", nil, "sign in"},
 		"control characters": {500, "{\"code\":\"internal\",\"message\":\"bad\\u001b[31m news\\u0007\",\"request_id\":\"r6\"}", nil, "internal", nil, "bad[31m news"},
+		"C1 and bidi":        {500, "{\"code\":\"internal\",\"message\":\"a\\u009b2Jb\\u202eevil\\u2028x\",\"request_id\":\"r8\"}", nil, "internal", nil, "a2Jbevilx"},
 		"a proxy's page":     {502, "<html>upstream secret-host.internal refused</html>", nil, "", nil, "502 Bad Gateway"},
 		"an empty body":      {503, "", map[string]string{"X-Request-Id": "r7"}, "", nil, "503 Service Unavailable"},
 	} {
@@ -426,5 +427,36 @@ func TestACanceledContextStopsTheRequest(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), srv.URL) {
 		t.Fatalf("got %q, want the URL kept out of the error", err)
+	}
+}
+
+func TestRequestSyncCleansTheEventIDForTheTerminal(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("{\"event_id\":\"src/\\u001b]0;pwn\\u0007\\u009b31m\\u202eabc\",\"offset\":1}"))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, err := c.RequestSync(t.Context(), "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "src/]0;pwn31mabc"; acc.EventID != want {
+		t.Fatalf("got %q, want %q", acc.EventID, want)
+	}
+}
+
+func TestNewLeavesTheCallersHTTPClientAlone(t *testing.T) {
+	t.Parallel()
+	h := &http.Client{Timeout: time.Hour}
+	if _, err := New(Config{Server: "https://bearing.example.com", HTTP: h}); err != nil {
+		t.Fatal(err)
+	}
+	if h.Timeout != time.Hour || h.CheckRedirect != nil {
+		t.Fatalf("got timeout %v and redirect policy set %v, want the caller's client unchanged", h.Timeout, h.CheckRedirect != nil)
 	}
 }

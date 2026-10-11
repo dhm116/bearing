@@ -691,6 +691,7 @@ Assets: A3, A5, A4, A7.
 | T-API-6 | I | Errors expose queries, stack traces or internal hosts | C-API-7 |
 | T-API-7 | R | Nobody can tell who changed config | C-AUDIT-1, C-OPS-2 |
 | T-API-8 | I | Credentials or data cross the wire in clear text | C-API-3 |
+| T-API-9 | I, S | The command line sends its token to the wrong host, or prints a server's text that moves the operator's terminal | C-API-8 |
 | T-MCP-1 | E, T | A prompt-injected agent uses Bearing to act | C-MCP-1, C-MCP-2 |
 | T-MCP-2 | S | A web page uses DNS rebinding or cross-site requests against a local MCP server | C-MCP-3 |
 | T-MCP-3 | I, E | The caller's token is passed on to another service | C-MCP-4 |
@@ -777,6 +778,25 @@ Assets: A3, A5, A4, A7.
   - The per-caller rate limit is applied after authentication, so it does not
     slow an attacker who sends bad tokens; token checking is bounded by the
     verifier (C-IDP-1) and the in-flight cap.
+- **C-API-8** The command line (`pkg/apiclient`, `bearing --server`) treats the
+  server's answers as input it does not trust:
+  - The bearer token comes from an environment variable the operator names,
+    never a flag or URL, and goes only in the `Authorization` header of a
+    request over TLS 1.2 or later, or to a literal loopback address. A name
+    such as `localhost` is not accepted for plain http, since it is resolved
+    when the connection is made. The Unix socket gets no token.
+  - A redirect is never followed, so the token cannot be carried to another
+    host. `--server-ca` adds to the system roots; verification is never
+    turned off.
+  - Answers are read to 32 MiB and error bodies to 64 KiB, within the client's
+    timeout. Error text and the sync request's event ID are cleaned of control
+    characters (C0 and C1), format characters such as bidi overrides, and line
+    and paragraph separators before they are shown; the text renderer does the
+    same for every line it prints, and `--json` is left to JSON's own escaping.
+  - Residual risks: a socket path is trusted as given, so a local user who
+    plants a socket where `$BEARING_SERVER` points can forge answers (no token
+    is exposed); the URL of each request, which holds the question and a page
+    token, goes to the trace backend through `otelhttp`.
 - **C-MCP-1** MCP is read-only. It exposes only query tools that need the
   `read` role: no config, sync, ingest or action tools.
 - **C-MCP-2** Source text in MCP results is returned only as objects

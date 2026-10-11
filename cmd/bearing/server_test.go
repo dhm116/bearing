@@ -292,6 +292,19 @@ func TestSourceSyncQueuesARequestOnTheServer(t *testing.T) {
 	}
 }
 
+func TestSourceSyncShowsTheEventIDWithoutControlCharacters(t *testing.T) {
+	w := newWorld(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.WriteHeader(http.StatusAccepted)
+		_, _ = rw.Write([]byte(`{"event_id":"src/\u001b]0;pwn\u0007","offset":2}`))
+	}))
+	t.Cleanup(srv.Close)
+	out, err := w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", githubSource, "--server", srv.URL)
+	if err != nil || strings.ContainsAny(out, "\x1b\x07") || !strings.Contains(out, "src/]0;pwn") {
+		t.Fatalf("got %q, %v, want the event ID with its control characters dropped", out, err)
+	}
+}
+
 func TestServerOverTLSTrustsOnlyTheCAItIsGiven(t *testing.T) {
 	w := newWorld(t)
 	w.play(fakes.Start)

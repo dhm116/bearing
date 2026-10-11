@@ -61,6 +61,7 @@ const usage = `usage:
   bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing changes --page-token TOKEN [--limit N] [--store URL | --server ADDR] [--json]
   bearing source sync <source> [--server ADDR] [--json]
+  (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
   bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
   bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
   bearing audit reanchor [--store URL] [--out FILE] --expect-seq N --key-id ID --key-env VAR

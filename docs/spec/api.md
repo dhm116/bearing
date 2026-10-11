@@ -103,16 +103,24 @@ carries `Retry-After`, in seconds.
 
 `bearing get`, `owner`, `related` and `changes` take `--server` (or
 `$BEARING_SERVER`) instead of `--store`, and print what they print from a
-store: the same answers, with the same errors. `--server` is the path of the
-Unix socket, which needs no token, or `https://host:port` with a bearer token
+store: the same answers, and errors of the same kinds: not found, invalid
+request and bad page token match `query`'s with `errors.Is`, and the exit codes
+are the same. The server's messages are generic (C-API-7) and carry a request
+ID, so their text differs from a store's. `--server` is the absolute path of
+the Unix socket (or `unix:///path`), which needs no token, or `https://host:port` with a bearer token
 read from the variable `--token-env` names (default `$BEARING_TOKEN`), never a
 value on the command line. `--server-ca` adds a certificate authority to trust.
-Plain `http://` is accepted for a loopback address only, the token is never sent
-anywhere else in clear, and a redirect is not followed. A flag beats a variable,
+Plain `http://` is accepted for a literal loopback address only (`127.0.0.1`,
+`[::1]`; not a name such as `localhost`), the token is never sent anywhere
+else in clear, and a redirect is not followed. A flag beats a variable,
 the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`.
 
-`bearing source sync <source> --server ADDR` makes the sync request and prints
-the request's event ID and offset; the sync itself runs later.
+`bearing source sync <source> [--server ADDR] [--json]` takes the same
+`--server`, `--token-env` and `--server-ca` flags and `$BEARING_SERVER`. It
+makes the sync request and prints the request's event ID and offset (or them as
+JSON); the sync itself runs later. `--json` through `--server` prints the
+fields this client's types know, so a field a newer server adds shows only once
+the client is updated.
 
 ## Not here yet
 

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -83,7 +84,7 @@ func New(cfg Config) (*Client, error) {
 	default:
 		u, err := url.Parse(s)
 		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-			return nil, errors.New("apiclient: the server must be a socket path, or an https:// address of the form https://host:port")
+			return nil, errors.New("apiclient: the server must be an absolute socket path (or unix:///path), or an https:// address of the form https://host:port")
 		}
 		switch u.Scheme {
 		case "https":
@@ -92,7 +93,7 @@ func New(cfg Config) (*Client, error) {
 				return nil, errors.New("apiclient: plain http is only for a loopback address; use https")
 			}
 		default:
-			return nil, errors.New("apiclient: the server must be a socket path, or an https:// address of the form https://host:port")
+			return nil, errors.New("apiclient: the server must be an absolute socket path (or unix:///path), or an https:// address of the form https://host:port")
 		}
 		c.base = u.Scheme + "://" + u.Host
 		if cfg.HTTP == nil {
@@ -103,10 +104,11 @@ func New(cfg Config) (*Client, error) {
 			cfg.HTTP = h
 		}
 	}
-	cfg.HTTP.Timeout = orDefault(cfg.Timeout, DefaultTimeout)
+	h := *cfg.HTTP // a copy, so a client the caller shares keeps its own settings
+	h.Timeout = orDefault(cfg.Timeout, DefaultTimeout)
 	// A redirect would carry the token to another host, and the API has none.
-	cfg.HTTP.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	c.http = cfg.HTTP
+	h.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	c.http = &h
 	return c, nil
 }
 
@@ -118,9 +120,8 @@ func orDefault(d, def time.Duration) time.Duration {
 }
 
 func isLoopback(host string) bool {
-	if host == "localhost" {
-		return true
-	}
+	// Only a literal address: a name is resolved at dial time, and the token
+	// would go in clear to wherever the resolver sends it.
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
@@ -277,6 +278,7 @@ func (c *Client) RequestSync(ctx context.Context, source string) (*SyncAccepted,
 	if err := c.do(ctx, http.MethodPost, "/v1/sources/"+url.PathEscape(source)+"/sync", nil, &a); err != nil {
 		return nil, err
 	}
+	a.EventID = cleanText(a.EventID, 64)
 	return &a, nil
 }
 
@@ -376,10 +378,12 @@ func readError(resp *http.Response) error {
 	return e
 }
 
-// cleanText drops what a terminal would act on, and clips.
+// cleanText drops what a terminal would act on, and clips: control
+// characters (C0 and C1), format characters such as bidi overrides, and line
+// and paragraph separators, the set the server drops from its own logs.
 func cleanText(s string, limit int) string {
 	s = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || r == 0xfffd {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == 0xfffd {
 			return -1
 		}
 		return r
