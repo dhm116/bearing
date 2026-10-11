@@ -22,6 +22,12 @@ func ParseSchedule(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil
 	}
+	return parseISO(s, minSchedule, 366*24*time.Hour)
+}
+
+// parseISO reads an ISO 8601 duration of weeks, days, hours, minutes and
+// seconds that lies between lo and hi.
+func parseISO(s string, lo, hi time.Duration) (time.Duration, error) {
 	m := isoDuration.FindStringSubmatch(s)
 	if m == nil || s == "P" || s[len(s)-1] == 'T' {
 		return 0, fmt.Errorf("%q is not an ISO 8601 duration of weeks, days, hours, minutes or seconds, such as PT1H", s)
@@ -37,12 +43,12 @@ func ParseSchedule(s string) (time.Duration, error) {
 			return 0, errors.New("a number in the duration is too large")
 		}
 		d += time.Duration(n) * u
-		if d < 0 || d > 366*24*time.Hour {
-			return 0, errors.New("the duration is longer than a year")
+		if d < 0 || d > hi {
+			return 0, fmt.Errorf("%q is longer than %s", s, hi)
 		}
 	}
-	if d < minSchedule {
-		return 0, fmt.Errorf("%q is shorter than %s", s, minSchedule)
+	if d < lo {
+		return 0, fmt.Errorf("%q is shorter than %s", s, lo)
 	}
 	return d, nil
 }

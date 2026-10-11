@@ -41,6 +41,7 @@ type Settings struct {
 	Auth     AuthSettings      `json:"auth"`
 	Webhooks WebhookSettings   `json:"webhooks"`
 	Secrets  SecretSettings    `json:"secrets"`
+	Audit    AuditSettings     `json:"audit"`
 	Adapters []AdapterSettings `json:"adapters"`
 	// Sources are Source resources in ProtoJSON (kind Source, apiVersion
 	// bearing/v1alpha1): the same objects M5 reads from the store.
@@ -222,6 +223,7 @@ type checked struct {
 	sources  []*configv1alpha1.Source
 	schedule map[string]time.Duration
 	adapters map[string]*AdapterSettings
+	audit    checkedAudit
 }
 
 // Validate checks the settings that need no environment, file or network.
@@ -245,6 +247,10 @@ func (s *Settings) check() (*checked, error) {
 		return nil, err
 	}
 	if err := s.checkWebhooks(); err != nil {
+		return nil, err
+	}
+	var err error
+	if c.audit, err = s.checkAudit(); err != nil {
 		return nil, err
 	}
 	for i := range s.Adapters {

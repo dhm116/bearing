@@ -35,6 +35,14 @@ programs the server runs.
       { "client": "ci", "role": "ingest", "sources": ["github-acme"] }
     ]
   },
+  "audit": {
+    "checkpoints": {
+      "file": "/var/lib/bearing/audit/checkpoints.ndjson",
+      "signing_key_env": "BEARING_AUDIT_SIGNING_KEY",
+      "signing_key_id": "audit-2026"
+    },
+    "retention": { "age": "P365D" }
+  },
   "adapters": [
     {
       "name": "github",
@@ -91,6 +99,54 @@ programs the server runs.
   variable. A `webhook_secret` is read only by the server, which checks each
   delivery with it; the adapter never receives it.
 
+## The audit log
+
+Every change to the graph leaves a record in a hash chain. A chain alone does
+not stop someone who can write the database from rewriting all of it, so the
+server also writes a signed **checkpoint** of the chain's head, every 15
+minutes by default, to a file outside the database. A rewritten chain no
+longer matches the checkpoints, and `bearing audit verify` says where.
+
+- **A durable store needs `audit.checkpoints`.** The server refuses to start
+  without it, unless `audit.insecure_no_checkpoints` is true (a warning at
+  start says what that gives up). An in-memory store needs none.
+- **The file** (`checkpoints.file`) is an absolute path. Its directory must
+  exist, be owned by the service user or root and not be writable by its group
+  or others, and so must the file. Keep it where the database's writers cannot
+  reach: another host, an append-only mount, or a copy shipped off the host as
+  often as you checkpoint. Whoever can edit this file can forge the evidence.
+- **The key** is an Ed25519 key as a PKCS #8 PEM in the variable
+  `signing_key_env` names (`openssl genpkey -algorithm ed25519`), with an ID
+  for it in `signing_key_id`. The variable must start with `BEARING_AUDIT_`,
+  which the secret allowlist (`BEARING_SECRET_*`) can never match, so no
+  source and no adapter can be given it. The server reads it again at every
+  write: a rotated key is used from the next checkpoint, and one that stops
+  loading writes nothing and counts a failure (`bearing.audit.checkpoints`),
+  never an unsigned line. Keep the public half for `bearing audit verify
+  --key ID=FILE`. Unsigned checkpoints need `audit.insecure_unsigned_checkpoints`
+  and cannot be combined with retention.
+- **Retention** (`audit.retention`) is off unless the block is present. It cuts
+  records older than `age` (default a year, at least a day) in batches, and
+  before every cut it appends a signed marker to the same file and verifies the
+  log against the file's checkpoints. The signing key is the writer's. List
+  the public keys of earlier keys still in the file under `public_keys`
+  (`{"audit-2025": "/etc/bearing/audit-2025.pem"}`); after a rotation keep
+  them until their checkpoints are archived.
+
+If the writer's metric reports `diverged`, the log's head no longer extends the
+newest checkpoint in the file: a restore, a truncated tail, a rewritten chain,
+or a stray line with a high number in the file. Do not clear it before you know
+which.
+
+1. Run `bearing audit verify --checkpoints FILE --key ID=FILE ...` and read where
+   it fails.
+2. If the log is the genuine one (a restore you meant to do), archive the file
+   (keep it; it is the evidence) and start a new one at the same path.
+3. If retention had cut the log, run `bearing audit reanchor` for the new file,
+   so `verify` accepts the log's start.
+4. Restart the server: the writer keeps the newest pinned head in memory and
+   reads the file only at its first run.
+
 ## Starting and stopping
 
 The server takes the store's instance lock before it runs anything and gives it
@@ -100,7 +156,8 @@ adapter to exit and kills one that does not, then releases the lock.
 
 At start it warns about settings that loosen a control: `insecure_api_plaintext`
 (tokens cross the network unencrypted unless a proxy terminates TLS),
-`insecure_no_peer_rate`, and a webhook source with no schedule. GitHub does not
+`insecure_no_peer_rate`, `audit.insecure_no_checkpoints`, unsigned checkpoints,
+and a webhook source with no schedule. GitHub does not
 resend a delivery the server refused, so a source that takes webhooks should
 also have a `schedule` that catches up on what was missed.
 

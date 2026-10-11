@@ -1172,6 +1172,18 @@ Assets: A5, A2, A6, the container and host.
   the settings name only adapters the operator installed, by absolute path
   (no discovery), the stdio adapter is first-party code until M4, and a
   separate UID for adapters is the M4/M5 rule.
+- **C-OPS-7** `bearing server --settings` runs the audit controls of C-AUDIT-3
+  and C-AUDIT-5 from one `audit` block. A durable store starts only with
+  `audit.checkpoints`, or with `audit.insecure_no_checkpoints`, which warns at
+  start: without checkpoints whoever can write the database rewrites the audit
+  log undetected. Checkpoints are signed unless `audit.insecure_unsigned_checkpoints`
+  is on, which retention refuses. The signing key is read from a variable
+  that must start with `BEARING_AUDIT_`; the secret allowlist cannot match it
+  (C-SECRET-1), so no source or adapter can name it, and the adapter's
+  environment never holds it (a test pins both). The key's errors name the
+  variable and never what it held. The checkpoint file's directory and the
+  file must be owned by the service user or root and not writable by others,
+  and the store's `AuditRetention` goes only to the retention job.
 - **C-OPS-6** `insecure_no_peer_rate` turns off the TCP listener's per-peer
   request limit (C-API-6) and is the only way to: a limit that is present in
   the settings must be positive, so a typo cannot disable one. The server
