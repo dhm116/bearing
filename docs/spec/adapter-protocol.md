@@ -318,9 +318,17 @@ workload observation carries a snapshot over `deployed_to`, `owned_by` and
 last page declares `complete_sync` for `Component` and `Environment` only if
 every list in the sync succeeded, so a workload that is gone ends after two
 consecutive complete syncs ([Sync completeness](data-model.md#sync-completeness)).
-A list that errors, including an expired `continue` token (`410 Gone`),
-fails the sync's completeness for all namespaces, and a namespace added to
-`exclude_namespaces` ends its workloads the same way. `Team` is never
+Lists are per namespace: one list of namespaces, then, for each namespace
+not in `exclude_namespaces`, one list of each workload kind. There is no
+cluster-wide workload list, so an excluded namespace is never requested. A
+list that errors fails the sync's completeness for every namespace. The one
+exception is a `410 Gone` on a `continue` token, which the adapter may retry
+once per list in the same sync: it discards the token and starts that list
+again from its first page, observations already sent stay, and a relist that
+finishes counts as success. A second 410, or any other failed read, fails
+completeness, and the next sync starts clean. A namespace added to
+`exclude_namespaces` ends its Environment and its workloads the same way,
+since both kinds are declared complete. `Team` is never
 declared complete: a label value no workload uses any more says nothing about
 the team, so a label value nobody uses any more leaves its `Team` behind. The sync's cadence is the source's schedule. Each sync stores one
 watermark per snapshot scope (issue #136), so a short interval costs storage

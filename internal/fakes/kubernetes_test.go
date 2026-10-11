@@ -952,3 +952,35 @@ func TestClusterIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestKubernetesRequestLogShowsARelist plays what the spec lets an adapter do
+// on a 410 (docs/spec/adapter-protocol.md, Sync): start the list again from
+// its first page. The log has what a test of the adapter needs to tell that
+// apart from a second failure: the path (so the namespace and whether the
+// list was cluster-wide), the limit and the continue token.
+func TestKubernetesRequestLogShowsARelist(t *testing.T) {
+	kb, k, _ := newKubernetes(t, KubernetesOptions{ExpireContinue: true})
+	if err := k.AddWorkload(Workload{Kind: KindDeployment, Namespace: "payments", Name: "ledger", Replicas: 1, Containers: []Container{{Name: "l", Image: "x:1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	const path = "/apis/apps/v1/namespaces/payments/deployments"
+	first := kubeGet(t, kb, path+"?limit=1")
+	tok, _ := field(first, "metadata", "continue").(string)
+	if status, _ := kubeDo(t, kb, http.MethodGet, path+"?limit=1&continue="+url.QueryEscape(tok), kubeToken); status != http.StatusGone {
+		t.Fatalf("got %d, want 410", status)
+	}
+	kb.ExpireContinue(false)
+	if got := kubeNames(t, kubeGet(t, kb, path)); !slices.Equal(got, []string{"payments/ledger", "payments/payments-api"}) {
+		t.Fatalf("relist: got %v", got)
+	}
+
+	type entry struct{ path, limit, cont string }
+	var got []entry
+	for _, r := range kb.Requests() {
+		got = append(got, entry{r.Path, r.Query.Get("limit"), r.Query.Get("continue")})
+	}
+	want := []entry{{path, "1", ""}, {path, "1", tok}, {path, "", ""}}
+	if !slices.Equal(got, want) {
+		t.Errorf("request log: got %v, want %v", got, want)
+	}
+}
