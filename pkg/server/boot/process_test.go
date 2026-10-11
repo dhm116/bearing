@@ -263,9 +263,11 @@ func (s *stuckProc) Close() error {
 func TestManagedDoesNotCountACancelledCallAsAFailure(t *testing.T) {
 	t.Parallel()
 	var p *fakeProc
+	inCall := make(chan struct{})
 	l := &launches{next: func() *fakeProc {
 		p = newFakeProc(nil)
 		p.describe = func(context.Context) (adapter.DescribeResult, error) {
+			close(inCall)
 			<-p.release
 			return adapter.DescribeResult{}, io.ErrClosedPipe
 		}
@@ -274,7 +276,7 @@ func TestManagedDoesNotCountACancelledCallAsAFailure(t *testing.T) {
 	m := newManaged(t.Context(), "s", l.launch, testkit.NewClock(epoch))
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		<-inCall // the call is under way, so the cancel abandons it
 		cancel()
 	}()
 	if _, err := m.Describe(ctx); !errors.Is(err, context.Canceled) {

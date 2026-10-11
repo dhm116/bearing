@@ -67,6 +67,11 @@ type RetentionSettings struct {
 	PublicKeys map[string]string `json:"public_keys,omitempty"`
 }
 
+// Every error these settings raise starts "boot: settings: audit." and names
+// the setting, like the rest of the settings file's, so an operator sees which
+// line of the file to fix. The helpers here write the whole message because
+// they are the only ones who know the setting.
+
 // auditKeyEnvPrefix is the one prefix the signing key's variable may have.
 const auditKeyEnvPrefix = "BEARING_AUDIT_"
 
@@ -87,7 +92,7 @@ func (s *Settings) checkAudit() (checkedAudit, error) {
 	case cp == nil && ret != nil:
 		return out, errors.New("boot: settings: audit.retention needs audit.checkpoints: it cuts only behind a signed checkpoint in the file")
 	case cp == nil && !inMemory(s.Store.Graph) && !a.InsecureNoCheckpoints:
-		return out, errors.New("boot: settings: store.graph is durable, so audit.checkpoints is required: without them whoever can write the database can rewrite the audit log undetected (or set audit.insecure_no_checkpoints)")
+		return out, errors.New("boot: settings: audit.checkpoints is required: store.graph is durable, and without them whoever can write the database can rewrite the audit log undetected (or set audit.insecure_no_checkpoints)")
 	case cp != nil && a.InsecureNoCheckpoints:
 		return out, errors.New("boot: settings: audit.checkpoints and audit.insecure_no_checkpoints contradict each other")
 	case cp == nil && a.InsecureUnsignedCheckpoints:
@@ -167,7 +172,7 @@ func auditConfig(s *Settings, c *checked, st *store.Store, getenv func(string) s
 	if cp == nil {
 		return server.AuditCheckpoints{}, server.AuditRetention{}, nil
 	}
-	if err := checkCheckpointFile(cp.File); err != nil {
+	if err := checkCheckpointFile(cp.File, checkOwner); err != nil {
 		return server.AuditCheckpoints{}, server.AuditRetention{}, err
 	}
 	file := audit.CheckpointFile{Path: cp.File}
@@ -178,7 +183,7 @@ func auditConfig(s *Settings, c *checked, st *store.Store, getenv func(string) s
 	signer := signerFromEnv(cp.SigningKeyEnv, cp.SigningKeyID, getenv)
 	current, err := signer()
 	if err != nil {
-		return writer, server.AuditRetention{}, fmt.Errorf("boot: audit: %w", err)
+		return writer, server.AuditRetention{}, fmt.Errorf("boot: settings: audit.checkpoints.signing_key_env: %w", err)
 	}
 	writer.Signer = signer
 	ret := s.Audit.Retention
@@ -186,7 +191,7 @@ func auditConfig(s *Settings, c *checked, st *store.Store, getenv func(string) s
 		return writer, server.AuditRetention{}, nil
 	}
 	if st.AuditRetention == nil {
-		return writer, server.AuditRetention{}, errors.New("boot: audit.retention is set but the store has no audit retention")
+		return writer, server.AuditRetention{}, errors.New("boot: settings: audit.retention: the store has no audit retention to cut with")
 	}
 	keys := map[string]ed25519.PublicKey{}
 	for id, f := range ret.PublicKeys {
@@ -247,33 +252,34 @@ func signerFromEnv(name, id string, getenv func(string) string) func() (*audit.S
 // checkCheckpointFile refuses a checkpoint file that others could replace: its
 // directory must be a directory only the service user or root can write, and
 // an existing file must not be writable by its group or by others (C-AUDIT-3).
-func checkCheckpointFile(file string) error {
+// owner is checkOwner; tests pass another to refuse a file they cannot chown.
+func checkCheckpointFile(file string, owner func(os.FileInfo) error) error {
 	dir := filepath.Dir(file)
 	di, err := os.Stat(dir)
 	switch {
 	case err != nil:
-		return fmt.Errorf("boot: audit.checkpoints.file: %w", err)
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %w", err)
 	case !di.IsDir():
-		return fmt.Errorf("boot: audit.checkpoints.file: %s is not a directory", dir)
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s is not a directory", dir)
 	case di.Mode().Perm()&0o022 != 0:
-		return fmt.Errorf("boot: audit.checkpoints.file: %s is writable by its group or by others, so the checkpoints could be replaced", dir)
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s is writable by its group or by others, so the checkpoints could be replaced", dir)
 	}
-	if err := checkOwner(di); err != nil {
-		return fmt.Errorf("boot: audit.checkpoints.file: %s: %w", dir, err)
+	if err := owner(di); err != nil {
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s: %w", dir, err)
 	}
 	fi, err := os.Lstat(file) // not Stat: a link could point where others can write
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	case err != nil:
-		return fmt.Errorf("boot: audit.checkpoints.file: %w", err)
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %w", err)
 	case !fi.Mode().IsRegular():
-		return fmt.Errorf("boot: audit.checkpoints.file: %s is not a regular file (a link is refused)", filepath.Base(file))
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s is not a regular file (a link is refused)", filepath.Base(file))
 	case fi.Mode().Perm()&0o022 != 0:
-		return fmt.Errorf("boot: audit.checkpoints.file: %s is writable by its group or by others", filepath.Base(file))
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s is writable by its group or by others", filepath.Base(file))
 	}
-	if err := checkOwner(fi); err != nil {
-		return fmt.Errorf("boot: audit.checkpoints.file: %s: %w", filepath.Base(file), err)
+	if err := owner(fi); err != nil {
+		return fmt.Errorf("boot: settings: audit.checkpoints.file: %s: %w", filepath.Base(file), err)
 	}
 	return nil
 }

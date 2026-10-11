@@ -6,15 +6,25 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
+	"bearing.example/pkg/audit"
+	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/store"
 )
+
+// auditErrPrefix starts every error the audit settings raise.
+const auditErrPrefix = "boot: settings: audit."
 
 const (
 	auditKeyVar = "BEARING_AUDIT_SIGNING_KEY"
@@ -99,6 +109,9 @@ func TestAuditSettingsRefuseWhatLeavesTheLogForgeable(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
+			if !strings.HasPrefix(err.Error(), auditErrPrefix) {
+				t.Errorf("got %v, want an error starting %q", err, auditErrPrefix)
+			}
 			if strings.Contains(err.Error(), "BEGIN PRIVATE KEY") {
 				t.Errorf("the error echoes what was written: %v", err)
 			}
@@ -182,6 +195,94 @@ func TestAuditWriterAndRetentionShareOneKeyAndOneFile(t *testing.T) {
 	}
 }
 
+// auditRecord adds one record to the audit log by applying a change set.
+func auditRecord(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	cs := &modelv1alpha1.ChangeSet{EventId: id, Audit: []*modelv1alpha1.AuditEntry{{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/" + id},
+	}}}
+	head, err := st.Graph.Head(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !head.IsZero() {
+		cs.BaseRecordedAt = timestamppb.New(head)
+	}
+	if _, err := st.Graph.Apply(t.Context(), cs); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The audit settings reach the running server: its checkpoint writer pins the
+// log's head in the file, signed with the key the variable holds, at the start
+// and again once its interval has passed, and its retention job signs a cut
+// marker and cuts once a record is older than the age. This is what fails if
+// Assemble stops passing AuditCheckpoints or AuditRetention to server.New.
+func TestAssemblePassesTheAuditSettingsToTheServer(t *testing.T) {
+	w := auditWorld(t, true)
+	w.settings.Audit.Retention = &RetentionSettings{Age: "P1D", Every: "PT1H"}
+	clk := testkit.NewClock(time.Now())
+	r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv, Clock: clk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := audit.ParsePrivateKey([]byte(w.env[auditKeyVar]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]ed25519.PublicKey{auditKeyID: key.Public().(ed25519.PublicKey)} //nolint:errcheck,forcetypeassert // an Ed25519 key's public half
+	file := audit.CheckpointFile{Path: w.settings.Audit.Checkpoints.File}
+	checkpoints := func() []*modelv1alpha1.AuditCheckpoint {
+		cps, err := file.Read(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cps
+	}
+	verifies := func() {
+		t.Helper()
+		rep, err := audit.Verify(t.Context(), r.st.Audit, checkpoints(), audit.Options{Keys: keys})
+		if err != nil || !rep.OK() {
+			t.Fatalf("got %+v, %v, want every checkpoint in the file to verify against the log", rep.Failures, err)
+		}
+	}
+
+	auditRecord(t, r.st, "first")
+	run(t, r)
+	waitFor(t, "the checkpoint at start", func() bool { return len(checkpoints()) == 1 })
+	if cp := checkpoints()[0]; cp.GetSeq() != 1 || cp.GetCut() || cp.GetKeyId() != auditKeyID || len(cp.GetSignature()) == 0 {
+		t.Fatalf("got %v, want a signed checkpoint of record 1", cp)
+	}
+	verifies()
+
+	// A second record is pinned once the interval has passed. The first
+	// advance may come before the writer's ticker exists, so advance until
+	// the file shows it.
+	auditRecord(t, r.st, "second")
+	waitFor(t, "a checkpoint of the second record after an interval", func() bool {
+		clk.Advance(15 * time.Minute)
+		cps := checkpoints()
+		return len(cps) >= 2 && cps[len(cps)-1].GetSeq() == 2
+	})
+	verifies()
+
+	// Two days on, both records are older than the day the retention job
+	// keeps, so it signs a cut marker and cuts.
+	waitFor(t, "a signed cut marker from the retention job", func() bool {
+		clk.Advance(48 * time.Hour)
+		return slices.ContainsFunc(checkpoints(), func(cp *modelv1alpha1.AuditCheckpoint) bool {
+			return cp.GetCut() && cp.GetKeyId() == auditKeyID && len(cp.GetSignature()) > 0
+		})
+	})
+	waitFor(t, "the cut", func() bool {
+		recs, err := r.st.Audit.Query(t.Context(), contracts.AuditFilter{Limit: 1})
+		return err == nil && (len(recs) == 0 || recs[0].Seq > 1)
+	})
+	verifies()
+}
+
 func TestAssembleStartsWithSignedCheckpointsAndRetention(t *testing.T) {
 	w := auditWorld(t, true)
 	r := w.assemble(t)
@@ -240,8 +341,8 @@ func TestAuditSignerErrorsNeverCarryTheKeyMaterial(t *testing.T) {
 			w := auditWorld(t, false)
 			w.env[auditKeyVar] = tt.value
 			_, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
-			if err == nil || !strings.Contains(err.Error(), auditKeyVar) {
-				t.Fatalf("got %v, want a refusal naming %s", err, auditKeyVar)
+			if err == nil || !strings.Contains(err.Error(), auditKeyVar) || !strings.HasPrefix(err.Error(), auditErrPrefix) {
+				t.Fatalf("got %v, want a refusal naming %s that starts %q", err, auditKeyVar, auditErrPrefix)
 			}
 			testkit.AssertNoLeaks(t, err.Error(), canary, tt.value)
 		})
@@ -269,13 +370,7 @@ func TestAuditSignerFailureAtRunTimeReachesNoLogSpanOrMetricWithTheKey(t *testin
 	w.env[auditKeyVar] = pasted // after the start loaded the key, before the writer's first run
 	before := checkpointFailures(t, "key")
 	stop := run(t, r)
-	deadline := time.Now().Add(30 * time.Second)
-	for checkpointFailures(t, "key") <= before {
-		if time.Now().After(deadline) {
-			t.Fatal("the writer did not report that its key stopped loading")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, "the writer to report that its key stopped loading", func() bool { return checkpointFailures(t, "key") > before })
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +412,8 @@ func TestAssembleRefusesACheckpointFileOthersCouldReplace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := auditWorld(t, false)
 			tt.mod(w)
-			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "audit.checkpoints.file") {
-				t.Errorf("got %v, want the checkpoint file refused", err)
+			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.HasPrefix(err.Error(), auditErrPrefix+"checkpoints.file: ") {
+				t.Errorf("got %v, want the checkpoint file refused with an error starting %q", err, auditErrPrefix+"checkpoints.file: ")
 			}
 		})
 	}
@@ -345,8 +440,8 @@ func TestAssembleRefusesAnEarlierKeyItCannotTrust(t *testing.T) {
 			p := filepath.Join(w.dir, "old.pem")
 			tt.write(p)
 			w.settings.Audit.Retention.PublicKeys = map[string]string{"audit-2025": p}
-			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "public_keys[audit-2025]") {
-				t.Errorf("got %v, want the earlier key refused", err)
+			if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.HasPrefix(err.Error(), auditErrPrefix+"retention.public_keys[audit-2025]: ") {
+				t.Errorf("got %v, want the earlier key refused with an error starting %q", err, auditErrPrefix+"retention.public_keys[audit-2025]: ")
 			}
 		})
 	}
@@ -370,5 +465,63 @@ func TestAuditWarningsNameWhatTheSettingsGaveUp(t *testing.T) {
 	mem := &Settings{Store: StoreSettings{Graph: "mem://"}, Audit: AuditSettings{InsecureNoCheckpoints: true}}
 	if got := auditWarnings(mem); len(got) != 0 {
 		t.Fatalf("got %q for an in-memory store, want none", got)
+	}
+}
+
+// Each way a checkpoint file can be refused names the setting and carries the
+// error prefix, whoever owns the files.
+func TestCheckCheckpointFileRefusesWhatOthersCouldReplace(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a private directory needs the execute bit
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plain, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	foreign := func(os.FileInfo) error { return errors.New("owned by someone else") }
+	mine := func(os.FileInfo) error { return nil }
+	for _, tt := range []struct {
+		name  string
+		file  string
+		owner func(os.FileInfo) error
+		want  string
+	}{
+		{"a directory that is a file", filepath.Join(plain, "cp.ndjson"), mine, "is not a directory"},
+		{"a directory another user owns", filepath.Join(dir, "cp.ndjson"), foreign, "owned by someone else"},
+		{"a file another user owns", plain, func(fi os.FileInfo) error {
+			if fi.IsDir() {
+				return nil
+			}
+			return foreign(fi)
+		}, "plain: owned by someone else"},
+		{"a name the file system cannot look up", filepath.Join(dir, strings.Repeat("a", 5000)), mine, "audit.checkpoints.file"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := checkCheckpointFile(tt.file, tt.owner)
+			if err == nil || !strings.HasPrefix(err.Error(), auditErrPrefix+"checkpoints.file: ") || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("got %v, want a refusal starting %q and containing %q", err, auditErrPrefix+"checkpoints.file: ", tt.want)
+			}
+		})
+	}
+	if err := checkCheckpointFile(plain, mine); err != nil {
+		t.Fatalf("got %v, want a private file in a private directory accepted", err)
+	}
+}
+
+// Retention needs the store's cut; a store without one is refused rather than
+// left to fail at the first run.
+func TestAuditConfigRefusesRetentionOnAStoreThatCannotCut(t *testing.T) {
+	t.Parallel()
+	w := auditWorld(t, true)
+	c, err := w.settings.check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = auditConfig(w.settings, c, &store.Store{}, w.getenv)
+	if err == nil || !strings.HasPrefix(err.Error(), auditErrPrefix+"retention: ") {
+		t.Fatalf("got %v, want a refusal starting %q", err, auditErrPrefix+"retention: ")
 	}
 }

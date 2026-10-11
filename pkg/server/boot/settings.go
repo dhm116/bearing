@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
@@ -181,19 +180,6 @@ func checkOwnership(file string, fi os.FileInfo) error {
 	}
 	if err := checkOwner(fi); err != nil {
 		return fmt.Errorf("boot: settings: %s: %w", file, err)
-	}
-	return nil
-}
-
-// checkOwner refuses a file owned by anyone but the service user or root: the
-// owner can swap its contents for code that runs as the service.
-func checkOwner(fi os.FileInfo) error {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return errors.New("cannot tell who owns it on this platform")
-	}
-	if uid := int(st.Uid); uid != os.Geteuid() && uid != 0 {
-		return fmt.Errorf("must be owned by the service user or root, not uid %d", uid)
 	}
 	return nil
 }

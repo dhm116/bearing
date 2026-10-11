@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,6 +30,12 @@ import (
 
 // childPath is the only PATH an adapter gets.
 const childPath = "/usr/bin:/bin"
+
+// childDir is where an adapter starts, so it does not inherit whatever
+// directory the server was started in (a home directory, a checkout, a
+// directory others can write). Its arguments are resolved from here, so an
+// operator names absolute paths.
+const childDir = "/"
 
 // releaseTimeout bounds giving the instance lock up and closing the store
 // when the server stops.
@@ -299,7 +306,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			}
 			p.config = b
 		}
-		cfg := adapter.StartConfig{Name: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv)}
+		cfg := adapter.StartConfig{Name: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
 		p.launcher = func(ctx context.Context) (Process, error) { return adapter.StartWith(ctx, cfg) }
 		plans = append(plans, p)
 	}
@@ -455,18 +462,42 @@ func roleAuthorizer(s *Settings) (contracts.Authorizer, error) {
 	return a, nil
 }
 
-// warnLimits says at start what the settings loosened.
+// warnLimits logs what limitWarnings says at start.
 func warnLimits(s *Settings) {
-	log := telemetry.Logger(pkgName)
+	for _, w := range limitWarnings(s) {
+		telemetry.Logger(pkgName).Warn(w)
+	}
+}
+
+// limitWarnings says what the listen settings loosened. The proxy warning is
+// a hint, not a check: the server cannot tell a proxy from a client, so it
+// speaks whenever plain HTTP is on a non-loopback address and a limit still
+// has the default, which is sized for peers that connect directly.
+func limitWarnings(s *Settings) []string {
+	var out []string
 	l := s.Listen
-	defaults := l.MaxConns == nil && l.MaxConnsPerPeer == nil && l.PeerRatePerMinute == nil
 	if l.InsecureAPIPlaintext && l.Addr != "" {
-		log.Warn("insecure_api_plaintext is on: tokens cross the network unencrypted unless a TLS-terminating proxy sits in front")
-		if defaults {
-			log.Warn("behind a proxy every client is one peer, so the default connection and request limits cap the whole API: raise max_conns, max_conns_per_peer and peer_rate_per_minute")
+		out = append(out, "insecure_api_plaintext is on: tokens cross the network unencrypted unless a TLS-terminating proxy sits in front")
+		if !loopbackAddr(l.Addr) && (l.MaxConns == nil || l.MaxConnsPerPeer == nil || (l.PeerRatePerMinute == nil && !l.InsecureNoPeerRate)) {
+			out = append(out, "behind a proxy every client is one peer, so a default connection or request limit caps the whole API: raise max_conns, max_conns_per_peer and peer_rate_per_minute")
 		}
 	}
 	if l.InsecureNoPeerRate {
-		log.Warn("insecure_no_peer_rate is on: a peer without a token can send requests as fast as the server answers")
+		out = append(out, "insecure_no_peer_rate is on: a peer without a token can send requests as fast as the server answers")
 	}
+	return out
+}
+
+// loopbackAddr reports whether a host:port address names a loopback IP or
+// "localhost". An address that does not parse counts as not loopback.
+func loopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

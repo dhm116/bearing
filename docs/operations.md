@@ -88,7 +88,8 @@ programs the server runs.
   most 1 MiB; the reference ones are in `testdata/declarations/`), and its `name` must be the adapter's name. Until
   the adapter service lands an adapter is a stdio child process, one for each
   source, started on its first use and started again, after a pause that grows
-  from a second to a minute, if it fails.
+  from a second to a minute, if it fails. It starts in `/`, not in the
+  directory the server was started in, so name absolute paths in `args`.
 - **Secrets** are references, never values: `env:NAME`, where `NAME` matches
   `secrets.env_allowlist` (default `BEARING_SECRET_*`; an entry is a literal name prefix followed by one `*`, and a prefix that could match one of Bearing's own variables is refused). A reference to a
   variable that is not set, or is empty, stops the start and names the
@@ -170,7 +171,9 @@ SIGINT or SIGTERM, lets requests in flight finish for a few seconds, asks each
 adapter to exit and kills one that does not, then releases the lock.
 
 At start it warns about settings that loosen a control: `insecure_api_plaintext`
-(tokens cross the network unencrypted unless a proxy terminates TLS),
+(tokens cross the network unencrypted unless a proxy terminates TLS; when the
+address is not a loopback one and any of the three limits below is still at its
+default, it also says the defaults cap the whole API behind a proxy),
 `insecure_no_peer_rate`, `audit.insecure_no_checkpoints`, unsigned checkpoints,
 and a webhook source with no schedule. GitHub does not
 resend a delivery the server refused, so a source that takes webhooks should
@@ -185,7 +188,11 @@ also have a `schedule` that catches up on what was missed.
   (default 64; an IPv6 peer counts as its /64), and answers each peer at most
   `peer_rate_per_minute` requests (default 1,200) before it looks at a token.
   Behind a proxy or ingress every client is one peer, so these defaults cap the
-  whole API: raise all three. A limit that is present must be positive;
+  whole API: raise all three. The server cannot tell a proxy from a client, so
+  its start-up warning about this is a hint, not a check: it appears for plain
+  HTTP on a non-loopback address while any one limit is at its default, and
+  never for a listener that serves TLS itself, even behind a proxy that
+  re-encrypts. A limit that is present must be positive;
   turning the per-peer rate off takes `insecure_no_peer_rate: true`.
 - **Webhooks.** `webhooks.max_in_flight` (default 256) deliveries are held at
   once, each up to `webhooks.max_body_bytes` (default 1 MiB), so the worst case
