@@ -756,7 +756,11 @@ extend the newest checkpoint in the file: one behind it, or one whose record
 at that checkpoint's number has another hash. It counts the failure and signs
 nothing, so a chain rewritten end to end, or a tail cut off and the head
 mended, is not vouched for by the next checkpoint. After a deliberate restore
-the operator investigates with `bearing audit verify` and starts a new file.
+the operator investigates with `bearing audit verify` first, since a stray
+line with a high number in the file stops the writer the same way, and only
+then archives the file (never deletes it: it holds the evidence) and starts a
+new one; on a log that retention has cut, the new file needs
+`bearing audit reanchor` before `verify` accepts the log's start.
 It signs when a key is configured. With no key configured it writes unsigned
 checkpoints, which `verify` refuses unless the operator allows them, and the
 server will not start with unsigned checkpoints while audit retention is on,

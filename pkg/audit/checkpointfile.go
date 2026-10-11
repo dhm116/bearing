@@ -97,11 +97,6 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		return err
 	}
 	size := info.Size()
-	if size+int64(len(line)) > MaxCheckpointFileBytes {
-		// Past the bound Read refuses the file, and with it Verify and the
-		// retention job, so stop before the file is one nobody can read.
-		return fmt.Errorf("audit: checkpoint file %s is at its limit of %d bytes: move it aside and start a new one", f.Path, MaxCheckpointFileBytes)
-	}
 	if size > 0 {
 		last := make([]byte, 1)
 		if _, err := file.ReadAt(last, size-1); err != nil {
@@ -110,6 +105,11 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		if last[0] != '\n' {
 			line = append([]byte{'\n'}, line...)
 		}
+	}
+	if size+int64(len(line)) > MaxCheckpointFileBytes {
+		// Past the bound Read refuses the file, and with it Verify and the
+		// retention job, so stop before the file is one nobody can read.
+		return fmt.Errorf("audit: checkpoint file %s is at its limit of %d bytes: archive it (keep it: it holds the evidence) and, if the log was cut, run bearing audit reanchor for the new one", f.Path, MaxCheckpointFileBytes)
 	}
 	if _, err := file.Write(line); err != nil {
 		// A torn line (a full disk) would fail every later Read, so put the

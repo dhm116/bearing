@@ -109,7 +109,10 @@ func (s *Server) runAuditCheckpoints(ctx context.Context) error {
 // checkpointState is what the writer knows between runs: the newest head the
 // checkpoint file pins. It is read from the file at the first run, so a
 // restart neither repeats a line nor forgets what the file already holds, and
-// moves on with every checkpoint the writer appends.
+// moves on with every checkpoint the writer appends. A line another process
+// appends later (a cut marker, the command line) is not seen until a restart.
+// Every line counts, signed or not: a stray line with a high number stops the
+// writer at diverged until the operator investigates (see the contracts).
 type checkpointState struct {
 	pinned contracts.AuditHead
 	seeded bool
@@ -162,16 +165,15 @@ func (s *Server) auditCheckpoint(ctx context.Context, st *checkpointState) (resu
 	if err != nil {
 		return "", "head", err
 	}
-	if head.Seq == 0 {
-		return "unchanged", "", nil
-	}
+	// An empty log is checked too: a wiped log under a file that pins records
+	// is the extreme case of a head behind the file.
 	if err := s.extends(ctx, head, st.pinned); err != nil {
 		if errors.Is(err, errDiverged) {
 			return "", "diverged", err
 		}
 		return "", "head", err
 	}
-	if head.Seq == st.pinned.Seq {
+	if head.Seq == st.pinned.Seq || head.Seq == 0 {
 		return "unchanged", "", nil
 	}
 	cp, err := audit.NewCheckpoint(head, now, signer)
@@ -209,7 +211,7 @@ func (s *Server) extends(ctx context.Context, head, pinned contracts.AuditHead) 
 	case pinned.Seq == 0:
 		return nil
 	case head.Seq < pinned.Seq:
-		return fmt.Errorf("%w: the head is record %d and the file pins record %d (a restore, a truncated tail); run bearing audit verify", errDiverged, head.Seq, pinned.Seq)
+		return fmt.Errorf("%w: the head is record %d and the file pins record %d (a restore, a wiped log, a truncated tail); run bearing audit verify", errDiverged, head.Seq, pinned.Seq)
 	case head.Seq == pinned.Seq:
 		if !bytes.Equal(head.Hash, pinned.Hash) {
 			return fmt.Errorf("%w: record %d has a different hash than the file pins (the chain was rewritten or replaced); run bearing audit verify", errDiverged, head.Seq)

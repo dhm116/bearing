@@ -308,6 +308,7 @@ func TestAuditCheckpointsRefuseAHeadThatDoesNotExtendWhatTheFilePins(t *testing.
 		n    int
 		want string
 	}{
+		"an empty log":                           {0, "file pins record 3"},
 		"the same record with another hash":      {3, "different hash"},
 		"a head behind the pinned record":        {2, "file pins record 3"},
 		"a longer chain that rewrote the pinned": {6, "different hash"},
