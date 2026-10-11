@@ -1,8 +1,10 @@
 // Package fakes holds httptest fakes of the systems Bearing's adapters
-// read: a GitHub API ([NewGitHub], REST and GraphQL) and an Authentik-like
-// identity directory ([NewDirectory]). Both serve one fictional
-// organization, an [Org], so the two systems can't drift apart. Tests,
-// golden tests and demos use it; production code never imports it.
+// read: a GitHub API ([NewGitHub], REST and GraphQL), an Authentik-like
+// identity directory ([NewDirectory]) and a Kubernetes API
+// ([NewKubernetes]). The first two serve one fictional organization, an
+// [Org], so the two systems can't drift apart; the third serves the
+// company's cluster, a [Cluster]. Tests, golden tests and demos use them;
+// production code never imports them.
 //
 // # The fictional org
 //
@@ -114,4 +116,68 @@
 // A directory adapter reads the OAuth connections for authoritative
 // links, deriving the next-format GitHub node ID from the identifier, and
 // attributes.github.login for the non-authoritative login links.
+//
+// # The fictional cluster
+//
+// Acme's k3d cluster, [ClusterID] "k3d-acme", has the namespaces payments,
+// billing and kube-system (the only one the adapter's default
+// exclude_namespaces covers here; default, kube-public and kube-node-lease
+// are left out). Its workloads:
+//
+//   - payments-api, a Deployment in payments: the spec's example input
+//     (docs/spec/adapter-protocol.md). Labels team=payments and tier=gold,
+//     annotations github.com/project-slug=acme/payments-api and the
+//     Deployment controller's revision, one container with a fake token
+//     argument and a fake password variable. It starts at image 1.4.1 on 2
+//     replicas and is what sample 9 reports once the story has run to
+//     [ImageBumpedAt]. Its team label stays payments while its repository's
+//     CODEOWNERS moves to @acme/platform at [CodeownersChangedAt], so the
+//     two disagree from then on.
+//   - legacy-billing, a Deployment in billing: no team label, no
+//     annotation, an image from a registry the adapter doesn't map.
+//   - billing-core, a StatefulSet in billing: label team=billing, no
+//     annotation, a ghcr.io image (the image hint), an init container, and
+//     the canary: a fake password in an environment variable, in a
+//     command-line argument and in the name of the Secret its envFrom
+//     reads. [Canaries] lists every such value, payments-api's included.
+//   - svclb-traefik (a DaemonSet) and coredns (a Deployment) in
+//     kube-system, which the adapter does not read.
+//
+// [KubernetesStory] lists the changes, at [ReplicasScaledAt] (payments-api
+// goes from 2 replicas to 3), [ImageBumpedAt] (1.4.1 to 1.4.2, the Tuesday
+// the spec's samples use), [TeamLabelClearedAt] (billing-core's team label
+// becomes ""), [AnnotationEditedAt] (payments-api's annotation becomes
+// TODO), [WorkloadDeletedAt] (legacy-billing) and [NamespaceExcludedAt]
+// (billing joins the adapter's exclude_namespaces: nothing changes in the
+// cluster, so [ExcludedNamespaces] gives the setting at a time). Mutations
+// ([Cluster.SetImage], [Cluster.SetReplicas], [Cluster.SetLabel],
+// [Cluster.SetAnnotation], [Cluster.DeleteWorkload], [Cluster.AddWorkload],
+// [Cluster.AddNamespace]) take their time from the Cluster's clock and
+// stamp it in the object's metadata.managedFields. The lists as the
+// adapter reads them at [ImageBumpedAt] are recorded in
+// testdata/acme/kubernetes.ndjson at the repository root.
+//
+// # Kubernetes endpoints
+//
+// Bearer tokens only: a request with none, or with a token other than
+// [KubernetesOptions.Token], gets the API server's 401 Status. The token
+// is the adapter's read-only one ([ServiceAccountUser]): it may list
+// namespaces and Deployments, StatefulSets and DaemonSets, and every other
+// call is a 403 Status naming what was refused, whether a Secret, a
+// ConfigMap, a Pod, a get of one workload, a watch or a write. All of it,
+// the refusals included, is in the request log.
+//
+//   - GET /api/v1/namespaces
+//   - GET /apis/apps/v1/deployments, /statefulsets and /daemonsets, and the
+//     same under /apis/apps/v1/namespaces/{namespace}/. A namespace that
+//     doesn't exist lists as empty.
+//
+// Lists are Kubernetes Lists (items without kind or apiVersion, a
+// resourceVersion) in key order, paged by limit and continue: the token is
+// opaque, names the last item served so a change between pages moves
+// nothing already read, and belongs to one list (another list's token is a
+// 400). With [KubernetesOptions.ExpireContinue] or [Kubernetes.ExpireContinue]
+// a continue token gets 410 Gone. Objects carry more than the adapter may
+// read (status, managedFields, the pod template's environment and
+// arguments), as a real cluster's do.
 package fakes
