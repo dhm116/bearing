@@ -94,3 +94,24 @@ func TestPeerOfIgnoresForwardedHeaders(t *testing.T) {
 		t.Fatalf("got %q for an address with no port", got)
 	}
 }
+
+// endlessBody is a body that never ends and counts what was read.
+type endlessBody struct{ read *int64 }
+
+func (e endlessBody) Read(p []byte) (int, error) {
+	*e.read += int64(len(p))
+	return len(p), nil
+}
+
+func TestReadBodyStopsReadingOnceTheLimitIsPassed(t *testing.T) {
+	var read int64
+	r := httptest.NewRequest(http.MethodPost, "/", endlessBody{&read})
+	r.ContentLength = -1
+	if _, err := readBody(r, 1000); !errors.Is(err, errBodyTooLarge) {
+		t.Fatalf("got %v, want errBodyTooLarge", err)
+	}
+	// io.ReadAll reads in growing chunks, so allow for one past the limit.
+	if read > 4096 {
+		t.Fatalf("read %d bytes of an endless body, want about the limit of 1000", read)
+	}
+}

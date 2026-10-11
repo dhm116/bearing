@@ -33,11 +33,11 @@ func (v hmacSHA256) verify(h http.Header, body []byte) bool {
 
 	seen, ok := 0, 0
 	for _, line := range h.Values(v.header) {
-		for _, c := range strings.Split(line, ",") {
-			if seen == maxSignatureCandidates {
-				return ok == 1
-			}
-			seen++
+		// Cut one value at a time: splitting the whole line would allocate
+		// for every comma of a header sent before authentication.
+		for rest, more := line, true; more && seen < maxSignatureCandidates; seen++ {
+			var c string
+			c, rest, more = strings.Cut(rest, ",")
 			digest, found := strings.CutPrefix(strings.TrimSpace(c), v.prefix)
 			if !found || len(digest) != 2*sha256.Size {
 				continue

@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
@@ -160,20 +161,18 @@ func TestIngestRefusesWhatItCannotTrustAndStoresNone(t *testing.T) {
 	}
 }
 
-func TestIngestAnswersAnUnknownSourceLikeAFailedCheck(t *testing.T) {
+func TestIngestAnswersWithAStatusAndARequestIDOnly(t *testing.T) {
 	r := newRig(t)
 	body := []byte("{}")
-	bad := r.post("/webhooks/"+source, body, http.Header{})
-	unknown := r.post("/webhooks/nobody", body, signed(body))
-	if bad.StatusCode != unknown.StatusCode || bad.ContentLength != unknown.ContentLength {
-		t.Fatalf("a failed check (%d, %d bytes) and an unknown route (%d, %d bytes) differ", bad.StatusCode, bad.ContentLength, unknown.StatusCode, unknown.ContentLength)
-	}
-	for _, resp := range []*http.Response{bad, unknown} {
+	for _, path := range []string{"/webhooks/" + source, "/webhooks/nobody"} {
+		resp := r.post(path, body, http.Header{})
 		if resp.Header.Get("X-Request-Id") == "" {
-			t.Error("no request ID")
+			t.Errorf("%s: no request ID", path)
 		}
-		if b := new(bytes.Buffer); func() bool { _, _ = b.ReadFrom(resp.Body); return b.Len() > 0 }() {
-			t.Errorf("the response has a body: %q", b.String())
+		b := new(bytes.Buffer)
+		_, _ = b.ReadFrom(resp.Body)
+		if b.Len() > 0 {
+			t.Errorf("%s: the response has a body: %q", path, b.String())
 		}
 	}
 }
@@ -316,6 +315,9 @@ func TestIngestAcceptsAnyOfSeveralSignatures(t *testing.T) {
 	}{
 		{"one good value", http.Header{"X-Hub-Signature-256": {good}}, http.StatusAccepted},
 		{"a bad then a good value in one line", http.Header{"X-Hub-Signature-256": {bad + ", " + good}}, http.StatusAccepted},
+		{"a good value then a bad one in one line", http.Header{"X-Hub-Signature-256": {good + ", " + bad}}, http.StatusAccepted},
+		{"a good value on the first line", http.Header{"X-Hub-Signature-256": {good, bad}}, http.StatusAccepted},
+		{"a good value in the middle", http.Header{"X-Hub-Signature-256": {bad + "," + good + "," + bad}}, http.StatusAccepted},
 		{"a good value on the second line", http.Header{"X-Hub-Signature-256": {bad, good}}, http.StatusAccepted},
 		{"garbage then a good value", http.Header{"X-Hub-Signature-256": {"v0=abc," + good}}, http.StatusAccepted},
 		{"eight bad values then a good one", http.Header{"X-Hub-Signature-256": {strings.Repeat(bad+",", 8) + good}}, http.StatusUnauthorized},
@@ -332,47 +334,114 @@ func TestIngestAcceptsAnyOfSeveralSignatures(t *testing.T) {
 	}
 }
 
-func TestIngestRateLimitsASourceAndAPeer(t *testing.T) {
+func TestIngestRateLimitsAPeerBeforeItLooksAtTheRoute(t *testing.T) {
 	body := []byte(`{}`)
-	t.Run("per source", func(t *testing.T) {
-		r := newRig(t, func(c *IngestConfig) {
-			c.PerSource = RateLimit{PerMinute: 60, Burst: 2}
-			c.PerPeer = RateLimit{PerMinute: -1}
-		})
-		var got []int
-		for range 4 {
-			got = append(got, r.post("/webhooks/"+source, body, signed(body)).StatusCode)
-		}
-		if want := []int{202, 202, 429, 429}; !equalInts(got, want) {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-		r.clock.Advance(2 * time.Second)
-		if got := r.post("/webhooks/"+source, body, signed(body)).StatusCode; got != http.StatusAccepted {
-			t.Fatalf("after the bucket refilled: got %d, want 202", got)
-		}
+	r := newRig(t, func(c *IngestConfig) {
+		c.PerPeer = RateLimit{PerMinute: 60, Burst: 2}
+		c.PerSource = RateLimit{PerMinute: -1}
 	})
-	t.Run("per peer", func(t *testing.T) {
-		r := newRig(t, func(c *IngestConfig) {
-			c.PerPeer = RateLimit{PerMinute: 60, Burst: 1}
-			c.PerSource = RateLimit{PerMinute: -1}
-		})
-		first := r.post("/webhooks/"+source, body, signed(body)).StatusCode
-		second := r.post("/webhooks/"+source, body, signed(body)).StatusCode
-		if first != http.StatusAccepted || second != http.StatusTooManyRequests {
-			t.Fatalf("got %d then %d, want 202 then 429", first, second)
-		}
+	var got []int
+	// The first two are refused for their signature and still spend tokens, so
+	// guessing signatures is limited too.
+	got = append(got, r.post("/webhooks/"+source, body, http.Header{}).StatusCode)
+	got = append(got, r.post("/webhooks/nobody", body, http.Header{}).StatusCode)
+	got = append(got, r.post("/webhooks/"+source, body, signed(body)).StatusCode)
+	if want := []int{401, 401, 429}; !equalInts(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	r.clock.Advance(time.Minute)
+	if got := r.post("/webhooks/"+source, body, signed(body)).StatusCode; got != http.StatusAccepted {
+		t.Fatalf("after the bucket refilled: got %d, want 202", got)
+	}
+}
+
+func TestIngestRateLimitsASourceOnlyForSignedDeliveries(t *testing.T) {
+	r := newRig(t, func(c *IngestConfig) {
+		c.PerSource = RateLimit{PerMinute: 60, Burst: 2}
+		c.PerPeer = RateLimit{PerMinute: -1}
 	})
-	t.Run("a refused delivery spends a token too", func(t *testing.T) {
-		r := newRig(t, func(c *IngestConfig) {
-			c.PerSource = RateLimit{PerMinute: 60, Burst: 2}
-			c.PerPeer = RateLimit{PerMinute: -1}
-		})
-		r.post("/webhooks/"+source, body, http.Header{})
-		r.post("/webhooks/"+source, body, http.Header{})
-		if got := r.post("/webhooks/"+source, body, signed(body)).StatusCode; got != http.StatusTooManyRequests {
-			t.Fatalf("got %d, want 429: guessing signatures must be rate limited", got)
+	for i := range 20 {
+		body := []byte(`{"n":` + strconv.Itoa(i) + `}`)
+		if got := r.post("/webhooks/"+source, body, http.Header{}).StatusCode; got != http.StatusUnauthorized {
+			t.Fatalf("unsigned delivery %d: got %d, want 401", i, got)
 		}
+	}
+	var got []int
+	for i := range 4 {
+		body := []byte(`{"signed":` + strconv.Itoa(i) + `}`)
+		got = append(got, r.post("/webhooks/"+source, body, signed(body)).StatusCode)
+	}
+	if want := []int{202, 202, 429, 429}; !equalInts(got, want) {
+		t.Fatalf("got %v, want %v: unsigned traffic must not spend the source's allowance", got, want)
+	}
+	r.clock.Advance(2 * time.Second)
+	body := []byte(`{"after":true}`)
+	if got := r.post("/webhooks/"+source, body, signed(body)).StatusCode; got != http.StatusAccepted {
+		t.Fatalf("after the bucket refilled: got %d, want 202", got)
+	}
+}
+
+func TestIngestLimitsPeersSeparately(t *testing.T) {
+	r := newRig(t, func(c *IngestConfig) {
+		c.PerPeer = RateLimit{PerMinute: 60, Burst: 1}
+		c.PerSource = RateLimit{PerMinute: -1}
 	})
+	body := []byte(`{}`)
+	serveFrom := func(peer string) int {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/"+source, bytes.NewReader(body))
+		req.RemoteAddr = peer
+		req.Header = signed(body)
+		rec := httptest.NewRecorder()
+		r.in.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	got := []int{serveFrom("192.0.2.1:1000"), serveFrom("192.0.2.1:1001"), serveFrom("192.0.2.2:1000")}
+	if want := []int{202, 429, 202}; !equalInts(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestIngestAnswersAnUnknownSourceLikeAKnownOne is C-INGEST-7: nothing a
+// caller can send before it signs tells it which sources exist.
+func TestIngestAnswersAnUnknownSourceLikeAKnownOne(t *testing.T) {
+	big := bytes.Repeat([]byte("a"), DefaultMaxBodyBytes+1)
+	for _, tt := range []struct {
+		name   string
+		body   []byte
+		length int64 // -1 for a streamed body of unknown length
+		mod    func(*IngestConfig)
+		repeat int
+	}{
+		{"an oversized declared body", big, 0, nil, 1},
+		{"an oversized streamed body", big, -1, nil, 1},
+		{"a bad signature", []byte("{}"), 0, nil, 1},
+		{"a flood from one peer", []byte("{}"), 0, func(c *IngestConfig) { c.PerPeer = RateLimit{PerMinute: 60, Burst: 1} }, 3},
+		{"a flood that would exhaust the source", []byte("{}"), 0, func(c *IngestConfig) { c.PerSource = RateLimit{PerMinute: 60, Burst: 1} }, 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			statuses := func(path string) (out []int) {
+				var mod []func(*IngestConfig)
+				if tt.mod != nil {
+					mod = append(mod, tt.mod)
+				}
+				r := newRig(t, mod...)
+				for range tt.repeat {
+					req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(tt.body))
+					if tt.length != 0 {
+						req.ContentLength = tt.length
+					}
+					rec := httptest.NewRecorder()
+					r.in.ServeHTTP(rec, req)
+					out = append(out, rec.Code)
+				}
+				return out
+			}
+			known, unknown := statuses("/webhooks/"+source), statuses("/webhooks/nobody")
+			if !equalInts(known, unknown) {
+				t.Fatalf("a configured source answers %v, an unknown one %v", known, unknown)
+			}
+		})
+	}
 }
 
 func equalInts(a, b []int) bool {
@@ -448,6 +517,11 @@ func TestNewIngestRefusesWhatCannotBeRouted(t *testing.T) {
 		{"no log", IngestConfig{Sources: []WebhookSource{ok}}},
 		{"a reserved name", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "manual", Signature: decl, Secret: []byte(secret)}}}},
 		{"a core name", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "core/scheduler", Signature: decl, Secret: []byte(secret)}}}},
+		{"a name that starts like a core name", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "corex", Signature: decl, Secret: []byte(secret)}}}},
+		{"a name with a control character", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "a\nb", Signature: decl, Secret: []byte(secret)}}}},
+		{"a name that is not UTF-8", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "a\xffb", Signature: decl, Secret: []byte(secret)}}}},
+		{"an unspecified scheme", IngestConfig{Log: log, Sources: []WebhookSource{{Name: source, Secret: []byte(secret), Signature: &modelv1alpha1.WebhookSignature{SignatureHeader: "X-Hub-Signature-256"}}}}},
+		{"no signature header", IngestConfig{Log: log, Sources: []WebhookSource{{Name: source, Secret: []byte(secret), Signature: &modelv1alpha1.WebhookSignature{Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256}}}}},
 		{"a name with a slash", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "a/b", Signature: decl, Secret: []byte(secret)}}}},
 		{"an empty name", IngestConfig{Log: log, Sources: []WebhookSource{{Name: "", Signature: decl, Secret: []byte(secret)}}}},
 		{"the same source twice", IngestConfig{Log: log, Sources: []WebhookSource{ok, ok}}},
@@ -464,15 +538,20 @@ func TestNewIngestRefusesWhatCannotBeRouted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(in)
-	defer srv.Close()
-	resp, err := srv.Client().Post(srv.URL+"/webhooks/"+source, "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatal(err)
+	// Anyone can sign with an empty key, so a source with no secret must have
+	// no route at all.
+	for _, key := range []string{"", "another-secret"} {
+		body := []byte("{}")
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/"+source, bytes.NewReader(body))
+		req.Header.Set("X-Hub-Signature-256", fakes.Sign(key, body))
+		rec := httptest.NewRecorder()
+		in.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("a source with no secret, signed with %q: got %d, want 401", key, rec.Code)
+		}
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("a source with no secret: got %d, want 401", resp.StatusCode)
+	if es, err := log.Read(t.Context(), source, 0, 10); err != nil || len(es) != 0 {
+		t.Errorf("got %d entries, %v, want none", len(es), err)
 	}
 }
 
@@ -554,5 +633,144 @@ func TestIngestHandlesDeliveriesConcurrently(t *testing.T) {
 	wg.Wait()
 	if n := len(r.logged()); n != 5 {
 		t.Fatalf("%d events for 5 distinct bodies, want 5", n)
+	}
+}
+
+// decodeStored returns the WebhookReceived event the one logged delivery left.
+func (r *rig) decodeStored() *eventv1alpha1.WebhookReceived {
+	r.t.Helper()
+	es := r.logged()
+	if len(es) != 1 {
+		r.t.Fatalf("%d events logged, want 1", len(es))
+	}
+	msg := &eventv1alpha1.WebhookReceived{}
+	if err := model.DecodeJSON(es[0].Data, msg); err != nil {
+		r.t.Fatal(err)
+	}
+	return msg
+}
+
+func TestIngestStoresHeadersSignatureFirstThenByNameWithoutCredentials(t *testing.T) {
+	r := newRig(t)
+	body := []byte(`{}`)
+	h := signed(body)
+	h.Set("X-GitHub-Delivery", "d-1")
+	h.Set("Authorization", "Bearer a")
+	h.Set("Proxy-Authorization", "Basic b")
+	h.Set("Cookie", "c=1")
+	h.Set("Set-Cookie", "d=2")
+	h.Add("A-Multi", "one")
+	h.Add("A-Multi", "two")
+	if got := r.post("/webhooks/"+source, body, h).StatusCode; got != http.StatusAccepted {
+		t.Fatalf("got %d, want 202", got)
+	}
+	var got []string
+	for _, hd := range r.decodeStored().GetHeaders() {
+		got = append(got, hd.GetName()+"="+hd.GetValue())
+	}
+	// Go adds Accept-Encoding, Content-Length and User-Agent on the way, so
+	// compare the names this test set.
+	want := []string{"X-Hub-Signature-256=" + h.Get("X-Hub-Signature-256"), "A-Multi=one", "A-Multi=two"}
+	if len(got) < len(want) || !equalStrings(got[:3], want) {
+		t.Fatalf("got headers %v, want them to start %v", got, want)
+	}
+	for _, g := range got {
+		for _, banned := range []string{"Authorization=", "Proxy-Authorization=", "Cookie=", "Set-Cookie="} {
+			if strings.HasPrefix(g, banned) {
+				t.Errorf("stored %s", g)
+			}
+		}
+	}
+	sigs := 0
+	for _, g := range got {
+		if strings.HasPrefix(g, "X-Hub-Signature-256=") {
+			sigs++
+		}
+	}
+	if sigs != 1 {
+		t.Errorf("the signature header is stored %d times, want once", sigs)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestIngestCapsTheNumberOfStoredHeaders(t *testing.T) {
+	r := newRig(t)
+	body := []byte(`{}`)
+	h := signed(body)
+	for i := range 100 {
+		h.Set("X-F-"+strconv.Itoa(1000+i), "v")
+	}
+	r.post("/webhooks/"+source, body, h)
+	if n := len(r.decodeStored().GetHeaders()); n != MaxStoredHeaders {
+		t.Fatalf("stored %d headers, want %d", n, MaxStoredHeaders)
+	}
+}
+
+func TestIngestStoresAHeaderThatIsNotUTF8(t *testing.T) {
+	r := newRig(t)
+	body := []byte(`{}`)
+	h := signed(body)
+	h.Set("X-Odd", "a\xff\xfeb")
+	if got := r.post("/webhooks/"+source, body, h).StatusCode; got != http.StatusAccepted {
+		t.Fatalf("got %d, want 202: a retry would fail the same way", got)
+	}
+	for _, hd := range r.decodeStored().GetHeaders() {
+		if hd.GetName() == "X-Odd" && hd.GetValue() != "a\uFFFDb" {
+			t.Errorf("got %q", hd.GetValue())
+		}
+	}
+}
+
+func TestIngestSaysWhichMethodItTakes(t *testing.T) {
+	r := newRig(t)
+	req := httptest.NewRequest(http.MethodGet, "/webhooks/"+source, http.NoBody)
+	rec := httptest.NewRecorder()
+	r.in.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != http.MethodPost {
+		t.Fatalf("got %d with Allow %q, want 405 with POST", rec.Code, rec.Header().Get("Allow"))
+	}
+}
+
+// emptyAppendLog answers an append with no positions.
+type emptyAppendLog struct{ contracts.EventLog }
+
+func (emptyAppendLog) Append(context.Context, []contracts.Event) ([]contracts.Appended, error) {
+	return nil, nil
+}
+
+func TestIngestDoesNotAcknowledgeWhatTheLogDidNotPosition(t *testing.T) {
+	r := newRig(t, func(c *IngestConfig) { c.Log = emptyAppendLog{c.Log} })
+	body := []byte(`{}`)
+	if got := r.post("/webhooks/"+source, body, signed(body)).StatusCode; got != http.StatusServiceUnavailable {
+		t.Fatalf("got %d, want 503", got)
+	}
+}
+
+func TestIngestDefaultRateLimitAppliesWhenNoneIsSet(t *testing.T) {
+	r := newRig(t)
+	body := []byte(`{}`)
+	for i := range defaultBurst {
+		if got := r.post("/webhooks/"+source, body, http.Header{}).StatusCode; got != http.StatusUnauthorized {
+			t.Fatalf("request %d: got %d, want 401", i, got)
+		}
+	}
+	if got := r.post("/webhooks/"+source, body, http.Header{}).StatusCode; got != http.StatusTooManyRequests {
+		t.Fatalf("after the default burst: got %d, want 429", got)
+	}
+	// 1,200 a minute is 20 a second: a second later there is room again.
+	r.clock.Advance(time.Second)
+	if got := r.post("/webhooks/"+source, body, http.Header{}).StatusCode; got != http.StatusUnauthorized {
+		t.Fatalf("a second later: got %d, want 401", got)
 	}
 }

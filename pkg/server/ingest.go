@@ -84,6 +84,8 @@ type IngestConfig struct {
 	NewRequestID func() string
 }
 
+var _ http.Handler = (*Ingest)(nil)
+
 // Ingest takes webhook deliveries: it routes each to one source, authenticates
 // it with that source's key, and appends it to the event log before it
 // answers 2xx (C-INGEST-2, C-INGEST-8). Create it with NewIngest.
@@ -132,7 +134,7 @@ func NewIngest(cfg IngestConfig) (*Ingest, error) {
 			continue
 		}
 		w := s.Signature
-		if w == nil || w.GetScheme() != modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 {
+		if w == nil || w.GetScheme() != modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 || w.GetSignatureHeader() == "" {
 			return nil, fmt.Errorf("server: source %q: its adapter declares no webhook signature this version can verify", s.Name)
 		}
 		in.sources[s.Name] = &webhookRoute{
@@ -163,7 +165,7 @@ func newRateLimiter(r RateLimit, now func() time.Time) *limiter {
 // reserves.
 func checkSourceName(name string) error {
 	switch {
-	case name == "" || len(name) > contracts.MaxNameBytes || strings.ContainsAny(name, "/\x00"):
+	case contracts.CheckPartition(contracts.Partition(name)) != nil || strings.Contains(name, "/"):
 		return fmt.Errorf("server: source name %q is not usable", model.Clip(name))
 	case name == model.SourceManual || strings.HasPrefix(name, "core"):
 		return fmt.Errorf("server: source name %q is reserved", name)
@@ -200,31 +202,40 @@ func (in *Ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	source, status, result := in.serve(ctx, span, r)
 	span.SetAttributes(attrResult.String(result))
 	deliveries.Add(ctx, 1, deliveryAttrs(source, result))
+	if status == http.StatusMethodNotAllowed {
+		w.Header().Set("Allow", http.MethodPost)
+	}
 	w.WriteHeader(status)
 }
 
 // serve handles one request and returns the source it was routed to (empty
 // for an unknown one), the status to answer and the result label.
+//
+// Everything before the signature check answers the same for a configured
+// source and for one that is not, so a caller cannot find out which sources
+// exist (C-INGEST-7): the per-peer limit, the method and the body limit come
+// first and do not look at the route. The per-source limit comes after the
+// signature check, so a peer that cannot sign cannot use up a source's
+// allowance and make the real sender's deliveries 429 (C-INGEST-8).
 func (in *Ingest) serve(ctx context.Context, span trace.Span, r *http.Request) (source string, status int, result string) {
 	if r.Method != http.MethodPost {
 		return "", http.StatusMethodNotAllowed, resultBadRequest
 	}
-	name, ok := strings.CutPrefix(r.URL.Path, routePrefix)
-	route := in.sources[name]
-	if !ok || route == nil {
-		// An unknown route and a failed check get the same answer, so the
-		// response does not tell which sources exist (C-INGEST-7). The body
-		// is not read.
-		return "", http.StatusUnauthorized, resultUnauthorized
+	if !in.perPeer.allow(peerOf(r)) {
+		return "", http.StatusTooManyRequests, resultRateLimited
 	}
-	source = route.name
-	span.SetAttributes(attrSourceName.String(source))
-
-	if !in.perSrc.allow(source) || !in.perPeer.allow(peerOf(r)) {
-		return source, http.StatusTooManyRequests, resultRateLimited
+	name, ok := strings.CutPrefix(r.URL.Path, routePrefix)
+	var route *webhookRoute
+	if ok {
+		route = in.sources[name]
+	}
+	if route != nil {
+		source = route.name
+		span.SetAttributes(attrSourceName.String(source))
 	}
 	// The limit is enforced while reading, so a body that lies about its
-	// length or has none is cut off at the same point.
+	// length or has none is cut off at the same point. An unknown route reads
+	// the body the same way before it answers.
 	body, err := readBody(r, in.maxBody)
 	switch {
 	case errors.Is(err, errBodyTooLarge):
@@ -232,14 +243,17 @@ func (in *Ingest) serve(ctx context.Context, span trace.Span, r *http.Request) (
 	case err != nil:
 		return source, http.StatusBadRequest, resultBadRequest
 	}
-	if !route.verifier.verify(r.Header, body) {
+	if route == nil || !route.verifier.verify(r.Header, body) {
 		return source, http.StatusUnauthorized, resultUnauthorized
 	}
 	// Everything below runs only for an authenticated delivery (C-INGEST-9).
+	if !in.perSrc.allow(source) {
+		return source, http.StatusTooManyRequests, resultRateLimited
+	}
 	ev, err := in.event(route, r.Header, body)
 	if err != nil {
 		_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "webhook event not built", err, attrSourceName.String(source))
-		return source, http.StatusInternalServerError, resultUnavailable
+		return source, http.StatusServiceUnavailable, resultUnavailable
 	}
 	got, err := in.log.Append(ctx, []contracts.Event{ev})
 	if err != nil || len(got) != 1 {
@@ -312,6 +326,9 @@ func storedHeaders(h http.Header, signatureHeader string) []*eventv1alpha1.Heade
 	size := 0
 	for _, name := range names {
 		for _, v := range h[name] {
+			// A value that is not UTF-8 would fail the event's JSON
+			// encoding and make every retry of the delivery fail.
+			v = strings.ToValidUTF8(v, "\uFFFD")
 			if len(out) == MaxStoredHeaders || size+len(name)+len(v) > MaxStoredHeaderBytes {
 				return out
 			}

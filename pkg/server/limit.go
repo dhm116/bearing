@@ -35,9 +35,9 @@ func (l *limiter) allow(key string) bool {
 	if l == nil || l.rate <= 0 {
 		return true
 	}
-	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	now := l.now()
 	b, ok := l.buckets[key]
 	if !ok {
 		if len(l.buckets) >= l.max {
