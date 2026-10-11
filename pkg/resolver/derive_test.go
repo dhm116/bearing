@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"testing"
@@ -86,6 +85,7 @@ const (
 // team is a confident ownership claim, any other file with a `*` line a
 // weaker one, and path-only files none (docs/spec/data-model.md, "CODEOWNERS").
 func TestCodeownersOwnershipFollowsTheFileShape(t *testing.T) {
+	t.Parallel()
 	const derived = "core/derive/codeowners/github-acme"
 	for _, tc := range []struct {
 		name  string
@@ -143,6 +143,7 @@ func TestCodeownersOwnershipFollowsTheFileShape(t *testing.T) {
 // the next snapshot, while another configured source's claim to the same fact
 // survives.
 func TestRemovedCodeownersTeamStopsOwningWhileAnotherSourceSurvives(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	cfg.Declarations = append(cfg.Declarations, catalogDeclaration(t, false))
 	cfg.Sources["catalog-acme"] = &Source{Name: "catalog-acme", Adapter: "catalog", Issues: []Namespace{{Name: "github", IssuerType: "github"}}}
@@ -174,6 +175,7 @@ func TestRemovedCodeownersTeamStopsOwningWhileAnotherSourceSurvives(t *testing.T
 // A derived support follows its inputs on valid time: the file's shape is
 // read at each time.
 func TestDerivedOwnershipFollowsTheFileOverValidTime(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	e.apply(event("github-acme", codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})))
@@ -199,6 +201,7 @@ func TestDerivedOwnershipFollowsTheFileOverValidTime(t *testing.T) {
 // The derived support carries the claim it was derived from and the evidence
 // a person checks.
 func TestDerivedSupportCarriesItsInputsProvenance(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	in := codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})
@@ -228,6 +231,7 @@ func TestDerivedSupportCarriesItsInputsProvenance(t *testing.T) {
 // observed; the derived ownership moves to the team when the placeholder
 // merges into it.
 func TestDerivedOwnershipMovesWithAMergedOwner(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})))
 	want := payments + "(Team) CANDIDATE/UNOBSERVED_OBJECT 950000 [core/derive/codeowners/github-acme:950000]"
@@ -244,6 +248,7 @@ func TestDerivedOwnershipMovesWithAMergedOwner(t *testing.T) {
 // Merging a repository under another subject takes its derived ownership with
 // it, once.
 func TestDerivedOwnershipMovesWithAMergedRepository(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	e.apply(event("github-acme", obsAt("2026-10-01T12:00:00Z", "Repository", "github:repo_node/R0")))
@@ -273,6 +278,7 @@ func TestDerivedOwnershipMovesWithAMergedRepository(t *testing.T) {
 
 // A deleted repository or owner ends the ownership derived from them.
 func TestDerivedOwnershipEndsWithItsRepositoryOrOwner(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	e.apply(event("github-acme", codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})))
@@ -290,6 +296,7 @@ func TestDerivedOwnershipEndsWithItsRepositoryOrOwner(t *testing.T) {
 // A derived support whose inputs vanish entirely, because a deletion
 // observed later ends them from before they start, is ended too.
 func TestDerivedOwnershipEndsWhenItsInputsNeverStarted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	in := codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}})
@@ -308,6 +315,7 @@ func TestDerivedOwnershipEndsWhenItsInputsNeverStarted(t *testing.T) {
 
 // The confidences are configuration.
 func TestCodeownersConfidencesAreConfigurable(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	cfg.Codeowners = Codeowners{SoleTeam: 800_000, Mixed: 920_000}
 	e := newEnvWith(t, cfg)
@@ -331,6 +339,7 @@ func TestCodeownersConfidencesAreConfigurable(t *testing.T) {
 // Two sources that report the same file derive the same ownership, which
 // counts once toward confidence because they are one system.
 func TestDerivedOwnershipOfTwoSourcesCountsOnce(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	for _, src := range []string{"github-acme", "github-mirror"} {
@@ -372,50 +381,6 @@ func codeownersScenario() []Event {
 // The ownership derived from inputs that arrive in any order is the same at
 // every valid time.
 func TestDerivedOwnershipDoesNotDependOnApplyOrder(t *testing.T) {
-	events := codeownersScenario()
-	base := newEnv(t)
-	for _, ev := range events {
-		base.apply(ev)
-	}
-	want := factsOverTime(t, base)
-	for _, need := range []string{"owned_by", "CANDIDATE/BELOW_THRESHOLD 700000", "ASSERTED/NONE 950000"} {
-		if !strings.Contains(want, need) {
-			t.Fatalf("the scenario shows no %q:\n%s", need, want)
-		}
-	}
-	rng := rand.New(rand.NewSource(7)) //nolint:gosec // G404: a seeded shuffle, not security
-	same, ignored := 0, 0
-	for range 200 {
-		order := rng.Perm(len(events))
-		e := newEnv(t)
-		for _, j := range order {
-			e.apply(events[j])
-		}
-		got := factsOverTime(t, e)
-		ok, failed := e.sameOrDropped(got, want, sampleTimes())
-		if failed {
-			t.Fatalf("order %v differs from time order:\n%s", order, lineDiff(want, got))
-		}
-		if ok {
-			same++
-		} else {
-			ignored++
-		}
-	}
-	if same == 0 {
-		t.Fatalf("no order gave the facts of the in-order apply; %d ignored a claim", ignored)
-	}
-
-	// With each source's events in key order no claim is ignored, so the facts
-	// are the same whatever the interleaving.
-	for range 200 {
-		order := sourceOrderShuffle(rng, events)
-		e := newEnv(t)
-		for _, j := range order {
-			e.apply(events[j])
-		}
-		if got := factsOverTime(t, e); got != want || e.dropped != 0 {
-			t.Fatalf("order %v (%d claims ignored) differs from time order:\n%s", order, e.dropped, lineDiff(want, got))
-		}
-	}
+	t.Parallel()
+	checkApplyOrders(t, codeownersScenario(), 7, "owned_by", "CANDIDATE/BELOW_THRESHOLD 700000", "ASSERTED/NONE 950000")
 }

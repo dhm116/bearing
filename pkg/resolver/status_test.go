@@ -10,6 +10,7 @@ import (
 
 // The worked table of docs/spec/data-model.md, "Confidence".
 func TestNoisyORMatchesTheSpecTable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		groups []uint32
@@ -34,6 +35,7 @@ func TestNoisyORMatchesTheSpecTable(t *testing.T) {
 }
 
 func TestNoisyORRoundsHalfToEven(t *testing.T) {
+	t.Parallel()
 	// P = 1 * 500000; 0.5 rounds to 0, so C = 1000000. P = 3 * 500000; 1.5
 	// rounds to 2, so C = 999998. P = 5 * 500000; 2.5 rounds to 2, so C =
 	// 999998.
@@ -80,6 +82,7 @@ const (
 )
 
 func TestStatusesNeedAThresholdAndFollowValidTime(t *testing.T) {
+	t.Parallel()
 	facts := []candidateFact{
 		{object: "a", supports: []support{sup("github", hour(0), hour(10), 1_000_000)}},
 		{object: "b", supports: []support{sup("github", hour(0), posInf, 800_000), sup("catalog", hour(5), posInf, 700_000)}},
@@ -92,6 +95,7 @@ func TestStatusesNeedAThresholdAndFollowValidTime(t *testing.T) {
 }
 
 func TestStatusesLeaveOutTimeWithoutSupport(t *testing.T) {
+	t.Parallel()
 	facts := []candidateFact{{object: "a", supports: []support{sup("g", hour(2), hour(4), 1_000_000), sup("g", hour(6), hour(8), 1_000_000)}}}
 	got := showSpans(statuses(rules(noneC, false), facts, nil))
 	want := "0:[2,4)=ASSERTED/NONE/1000000 0:[6,8)=ASSERTED/NONE/1000000"
@@ -101,6 +105,7 @@ func TestStatusesLeaveOutTimeWithoutSupport(t *testing.T) {
 }
 
 func TestStatusesNeedAnObservedObjectWhereConflictsCanHappen(t *testing.T) {
+	t.Parallel()
 	facts := []candidateFact{{object: "T", supports: []support{sup("catalog", hour(0), posInf, 1_000_000)}}}
 	seen := map[string][]interval{"T": {{from: hour(3), to: posInf}}}
 	observed := func(o string) []interval { return seen[o] }
@@ -116,6 +121,7 @@ func TestStatusesNeedAnObservedObjectWhereConflictsCanHappen(t *testing.T) {
 }
 
 func TestStatusesFindConflictsAndLetAuthorityDecide(t *testing.T) {
+	t.Parallel()
 	always := func(group string, auth bool, conf uint32) support {
 		s := sup(group, negInf, posInf, conf)
 		s.authoritative = auth
@@ -172,6 +178,7 @@ func TestStatusesFindConflictsAndLetAuthorityDecide(t *testing.T) {
 // store refuses a conflict without one, and the event would be retried for
 // ever.
 func TestStandingConflictOfWeakSystemsHasPositions(t *testing.T) {
+	t.Parallel()
 	weak := func(group string) support { return sup(group, negInf, posInf, 700_000) }
 	facts := []candidateFact{
 		{object: "main", supports: []support{weak("github"), weak("catalog")}},

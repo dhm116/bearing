@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,7 +105,8 @@ func joined(e *env) string {
 // the resolver ignores explains any difference
 // (docs/spec/data-model.md, "State, determinism and apply").
 func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
-	compared, sourceOrdered := 0, 0
+	t.Parallel()
+	var compared, sourceOrdered atomic.Int64
 	// The first seeds, and the ones that once found a write lost without a
 	// report (1242) or answers differing after a future-dated confirmation
 	// (245, 438, 1373).
@@ -115,59 +117,82 @@ func TestRandomEventsDoNotDependOnApplyOrder(t *testing.T) {
 			}
 		}
 	}), []int64{245, 438, 1242, 1373})
-	for _, seed := range seeds {
-		rng := rand.New(rand.NewSource(seed)) //nolint:gosec // G404: a seeded shuffle, not security
-		var events []Event
-		seen := map[string]bool{}
-		for _, ev := range randomEvents(rng, 8) {
-			if !seen[ev.ID] {
-				seen[ev.ID] = true
-				events = append(events, ev)
+	// Each seed is its own story, so chunks of seeds run as parallel subtests.
+	t.Run("seeds", func(t *testing.T) {
+		for i, chunk := range slices.Collect(slices.Chunk(seeds, seedChunk)) {
+			t.Run(fmt.Sprintf("chunk-%d", i), func(t *testing.T) {
+				t.Parallel()
+				for _, seed := range chunk {
+					c, so := checkRandomSeed(t, seed)
+					compared.Add(c)
+					sourceOrdered.Add(so)
+				}
+			})
+		}
+	})
+	if compared.Load() < 100 || sourceOrdered.Load() < 100 {
+		t.Fatalf("compared %d orders and %d in source order; the generator no longer makes comparable runs", compared.Load(), sourceOrdered.Load())
+	}
+}
+
+// seedChunk is how many seeds one parallel subtest of
+// TestRandomEventsDoNotDependOnApplyOrder runs.
+const seedChunk = 20
+
+// checkRandomSeed applies the story of one seed in 8 orders against its
+// in-order apply and returns how many orders it compared and how many of those
+// kept each source's events in key order.
+func checkRandomSeed(t *testing.T, seed int64) (compared, sourceOrdered int64) {
+	t.Helper()
+	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // G404: a seeded shuffle, not security
+	var events []Event
+	seen := map[string]bool{}
+	for _, ev := range randomEvents(rng, 8) {
+		if !seen[ev.ID] {
+			seen[ev.ID] = true
+			events = append(events, ev)
+		}
+	}
+	// The in-order apply: every source's events, and so all of them, in
+	// observed_at order.
+	inOrder := sourceOrderShuffle(rng, events)
+	slices.SortStableFunc(inOrder, func(a, b int) int {
+		x, y := events[a].Observation, events[b].Observation
+		return cmp.Or(x.GetTime().AsTime().Compare(y.GetTime().AsTime()), strings.Compare(x.GetId(), y.GetId()), strings.Compare(events[a].ID, events[b].ID))
+	})
+	base := newEnv(t)
+	for _, i := range inOrder {
+		base.apply(events[i])
+	}
+	if base.dropped != 0 {
+		t.Fatalf("seed %d: the in-order apply ignored %d claims", seed, base.dropped)
+	}
+	want, wantJoined := factsOverTime(t, base), joined(base)
+	for range 4 {
+		sourceOrder := sourceOrderShuffle(rng, events)
+		for _, order := range [][]int{rng.Perm(len(events)), sourceOrder} {
+			e := newEnv(t)
+			for _, i := range order {
+				e.apply(events[i])
 			}
-		}
-		// The in-order apply: every source's events, and so all of them, in
-		// observed_at order.
-		inOrder := sourceOrderShuffle(rng, events)
-		slices.SortStableFunc(inOrder, func(a, b int) int {
-			x, y := events[a].Observation, events[b].Observation
-			return cmp.Or(x.GetTime().AsTime().Compare(y.GetTime().AsTime()), strings.Compare(x.GetId(), y.GetId()), strings.Compare(events[a].ID, events[b].ID))
-		})
-		base := newEnv(t)
-		for _, i := range inOrder {
-			base.apply(events[i])
-		}
-		if base.dropped != 0 {
-			t.Fatalf("seed %d: the in-order apply ignored %d claims", seed, base.dropped)
-		}
-		want, wantJoined := factsOverTime(t, base), joined(base)
-		for range 4 {
-			sourceOrder := sourceOrderShuffle(rng, events)
-			for _, order := range [][]int{rng.Perm(len(events)), sourceOrder} {
-				e := newEnv(t)
-				for _, i := range order {
-					e.apply(events[i])
-				}
-				if joined(e) != wantJoined {
-					continue
-				}
-				got := factsOverTime(t, e)
-				ok, failed := e.sameOrDropped(got, want, sampleTimes())
-				if failed {
-					t.Fatalf("seed %d, order %v:\n%s\nwant:\n%s", seed, order, got, want)
-				}
-				if ok {
-					compared++
-				}
-				if slices.Equal(order, sourceOrder) {
-					sourceOrdered++
-					if e.dropped != 0 {
-						t.Fatalf("seed %d, order %v: %d claims ignored with each source in key order", seed, order, e.dropped)
-					}
+			if joined(e) != wantJoined {
+				continue
+			}
+			got := factsOverTime(t, e)
+			ok, failed := e.sameOrDropped(got, want, sampleTimes())
+			if failed {
+				t.Fatalf("seed %d, order %v:\n%s\nwant:\n%s", seed, order, got, want)
+			}
+			if ok {
+				compared++
+			}
+			if slices.Equal(order, sourceOrder) {
+				sourceOrdered++
+				if e.dropped != 0 {
+					t.Fatalf("seed %d, order %v: %d claims ignored with each source in key order", seed, order, e.dropped)
 				}
 			}
 		}
 	}
-	if compared < 100 || sourceOrdered < 100 {
-		t.Fatalf("compared %d orders and %d in source order; the generator no longer makes comparable runs", compared, sourceOrdered)
-	}
+	return compared, sourceOrdered
 }

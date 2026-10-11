@@ -41,6 +41,7 @@ func issuesAt(t testing.TB, e *env, v time.Time) []string {
 // A relation to a name nothing observes (a misspelled team in CODEOWNERS)
 // mints a placeholder: it is listed until the team is observed, and not after.
 func TestRelationToAnUnobservedTeamIsListedUntilItIsObserved(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/typo")))
 	want := "UNOBSERVED_OBJECT subjects=[github:team/acme/typo(Team) github:repo_node/R1(Repository)] aliases=[github:team/acme/typo] sources=[github-acme]"
@@ -62,6 +63,7 @@ func TestRelationToAnUnobservedTeamIsListedUntilItIsObserved(t *testing.T) {
 // For a team that was observed and is gone, only a relation that conflict
 // resolution depends on counts: ownership does, an approval does not.
 func TestOwnershipOfADeletedTeamIsListedButApprovalIsNot(t *testing.T) {
+	t.Parallel()
 	e := catalogEnv(t, false)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")))
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")))
@@ -80,6 +82,7 @@ func TestOwnershipOfADeletedTeamIsListedButApprovalIsNot(t *testing.T) {
 // The merge guard's refusal is listed: the pair, the clashing ids and the
 // link that asked for the merge.
 func TestGuardedPairIsListedAsAnIDConflict(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
 	e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U1")))
@@ -102,6 +105,7 @@ func TestGuardedPairIsListedAsAnIDConflict(t *testing.T) {
 // One observation whose links clash merges none of them and lists the two
 // ids that clash, whichever order the links come in.
 func TestClashingLinksAreListedAsOneIDConflict(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U2")))
@@ -116,6 +120,7 @@ func TestClashingLinksAreListedAsOneIDConflict(t *testing.T) {
 // The issue is keyed by the clashing ids, so merging a subject that holds one
 // of them and observing the link again doesn't list the pair twice.
 func TestIDConflictSurvivesAMergeOfItsSubjects(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Person", "github:user_node/U1")))
 	e.apply(event("authentik-acme", linked("2026-10-02T00:00:00Z", "authentik:user/u1", "github:user_node/U1")))
@@ -134,6 +139,7 @@ func TestIDConflictSurvivesAMergeOfItsSubjects(t *testing.T) {
 // Merging two placeholders into the team both were named for keeps each
 // alias on the one issue, and the merged-away subject's issue is gone.
 func TestMergedPlaceholdersKeepTheirAliasesOnOneIssue(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/s1")))
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")))
@@ -167,6 +173,7 @@ func coReportedPeople(e *env, n int) Event {
 // host would retry for ever: the event is recorded as processed, changes
 // nothing, and is rejected with the limit it tripped.
 func TestEventOverTheChangeSetLimitsIsRejectedAndChangesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ev := coReportedPeople(e, contracts.MaxChangeSetMerges+2)
 	head, err := e.store.Head(t.Context())
@@ -191,6 +198,7 @@ func TestEventOverTheChangeSetLimitsIsRejectedAndChangesNothing(t *testing.T) {
 
 // At the limit the same event applies.
 func TestEventAtTheChangeSetLimitsApplies(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	got := e.apply(coReportedPeople(e, contracts.MaxChangeSetMerges+1))
 	if len(got.Rejections) != 0 || len(got.Merges) != contracts.MaxChangeSetMerges {

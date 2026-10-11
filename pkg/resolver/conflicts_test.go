@@ -57,6 +57,7 @@ func catalogEnv(t testing.TB, authoritative bool) *env {
 // authority can decide without ending it: the disagreement stays queryable
 // with the rule that decided it (docs/spec/data-model.md, "Conflicts").
 func TestConflictsAreRecordedWithTheirPositionsAndResolution(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name          string
 		authoritative bool
@@ -82,6 +83,7 @@ func TestConflictsAreRecordedWithTheirPositionsAndResolution(t *testing.T) {
 // A conflict ends when the supports stop disagreeing, and no longer answers
 // for the time after.
 func TestConflictEndsWhenTheSupportsAgree(t *testing.T) {
+	t.Parallel()
 	e := catalogEnv(t, true)
 	e.apply(event("github-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "default_branch", "main")))
 	e.apply(event("catalog-acme", withAttr(obsAt("2026-10-02T00:00:00Z", "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "default_branch", "master")))
@@ -97,6 +99,7 @@ func TestConflictEndsWhenTheSupportsAgree(t *testing.T) {
 // Ownership from a CODEOWNERS file and from a catalog that name different
 // teams is a conflict between the two systems.
 func TestDerivedOwnershipConflictsWithAnotherSystem(t *testing.T) {
+	t.Parallel()
 	e := catalogEnv(t, false)
 	observeOwners(e, "2026-10-01T00:00:00Z")
 	e.apply(event("github-acme", withAlias(codeownersObs("2026-10-02T00:00:00Z", "github:repo_node/R1", 1, codeLine{"*", []string{payments}}), "github:repo/acme/a")))
@@ -113,6 +116,7 @@ func TestDerivedOwnershipConflictsWithAnotherSystem(t *testing.T) {
 // Merging two subjects moves their conflicts to the survivor: the merged
 // subject's timeline is retracted, so a caller doesn't see it twice.
 func TestMergeMovesConflictsToTheSurvivor(t *testing.T) {
+	t.Parallel()
 	e := catalogEnv(t, true)
 	e.apply(event("github-acme", withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "default_branch", "main")))
 	e.apply(event("catalog-acme", withAttr(obsAt("2026-10-02T00:00:00Z", "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "default_branch", "master")))

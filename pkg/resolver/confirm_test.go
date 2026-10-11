@@ -59,6 +59,7 @@ func keyAt(ev Event) string { return ev.Observation.GetId() }
 // was last confirmed, and the name's binding write starts where the first
 // did.
 func TestConfirmationsJoinIntoOneRecord(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	var syncs []Event
 	for h := 1; h <= 5; h++ {
@@ -118,6 +119,7 @@ func TestConfirmationsJoinIntoOneRecord(t *testing.T) {
 // A change keeps its record: the team leaves and returns, and each stretch
 // stays its own.
 func TestChangesKeepTheirRecords(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for h, teams := range [][]string{{"T1"}, {"T1"}, {}, {}, {"T1"}, {"T1"}} {
 		e.apply(syncOf(h+1, teams...))
@@ -142,6 +144,7 @@ func TestChangesKeepTheirRecords(t *testing.T) {
 // else between two syncs that agree: then the resolver reports the claim it
 // ignored.
 func TestSyncsWithChangesDoNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
 	syncs := []Event{syncOf(1, "T1"), syncOf(2, "T1"), syncOf(3), syncOf(4, "T1"), syncOf(5, "T1"), syncOf(6, "T1", "T2")}
 	base := newEnv(t)
 	for _, ev := range syncs {
@@ -201,6 +204,7 @@ func factsOverTimes(t testing.TB, e *env, n int) string {
 // A sync that lists a team once, then misses it and lists it again leaves the
 // team's absence in the record, so the two stretches aren't joined.
 func TestAbsenceBetweenSyncsIsNotJoinedAway(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for h, teams := range [][]string{{"T1"}, {}, {"T1"}} {
 		e.apply(syncOf(h+1, teams...))
@@ -214,6 +218,7 @@ func TestAbsenceBetweenSyncsIsNotJoinedAway(t *testing.T) {
 // A write stamped between two syncs that agree and delivered after the later
 // one loses to them, and the resolver says so.
 func TestWriteAmongConfirmationsIsReported(t *testing.T) {
+	t.Parallel()
 	first, third := syncOf(1, "T1"), syncOf(3, "T1")
 	between := syncOf(2, "T2")
 	deletion := event("github-acme", deletedAt(t0.Add(150*time.Minute).Format(time.RFC3339), "Repository", "github:repo_node/R1"))
@@ -257,6 +262,7 @@ func TestWriteAmongConfirmationsIsReported(t *testing.T) {
 // after, never report a claim as ignored when each source's syncs arrive in
 // key order.
 func TestSyncsInKeyOrderIgnoreNothing(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(11)) //nolint:gosec // G404: a seeded shuffle, not security
 	for range 20 {
 		var events []Event
@@ -283,6 +289,7 @@ func TestSyncsInKeyOrderIgnoreNothing(t *testing.T) {
 // to it is ignored when it arrives last, and reported: the subject holds one
 // name of the family, and the confirmations' key is the greater.
 func TestRenameAmongConfirmationsIsReported(t *testing.T) {
+	t.Parallel()
 	seen := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
 	again := event("github-acme", obsAt("2026-10-05T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
 	renamed := event("github-acme", obsAt("2026-10-03T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/old"))
@@ -314,6 +321,7 @@ func TestRenameAmongConfirmationsIsReported(t *testing.T) {
 // The ChangeSet audits what it ignores, as the spec's write into a compacted
 // period, and the store takes the entry.
 func TestIgnoredWriteIsAudited(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1"))
 	e.apply(syncOf(3, "T1"))
@@ -348,6 +356,7 @@ func TestIgnoredWriteIsAudited(t *testing.T) {
 // dropped write: the facts are those of the in-order apply, so nothing is
 // reported or audited.
 func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
+	t.Parallel()
 	for _, teams := range [][]string{{"T1"}, {"T1", "T2"}} {
 		e := newEnv(t)
 		e.apply(syncOf(1, "T1"))
@@ -367,6 +376,7 @@ func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
 // supports of other sources about the same fact, and the ones the core
 // derives, keep every write.
 func TestOtherSourcesAndDerivedSupportsAreNeverDropped(t *testing.T) {
+	t.Parallel()
 	events := codeownersScenario()
 	rng := rand.New(rand.NewSource(5)) //nolint:gosec // G404: a seeded shuffle, not security
 	seen := 0
@@ -389,6 +399,7 @@ func TestOtherSourcesAndDerivedSupportsAreNeverDropped(t *testing.T) {
 
 // Writes of another source are not joined with a source's confirmations.
 func TestBindingsOfDifferentSourcesAreNotJoined(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
 	e.apply(event("github-mirror", obsAt("2026-10-02T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))

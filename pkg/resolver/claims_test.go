@@ -19,6 +19,7 @@ import (
 // A claim the declarations don't allow is rejected on its own; the entity
 // and the other claims still go through, and nothing is minted for it.
 func TestClaimRejectionsLeaveTheRestOfTheObservation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// source defaults to the GitHub source.
@@ -74,6 +75,7 @@ func relData(kind, key, typ, other string) *modelv1alpha1.ObservationData {
 }
 
 func TestIncomingRelationAndLinkedIDGetPlaceholders(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// A team whose member (the `from` end) isn't known yet.
 	in := model.NewObservation("adapter/test", ts("2026-10-01T00:00:00Z"), &modelv1alpha1.ObservationData{
@@ -111,6 +113,7 @@ func TestIncomingRelationAndLinkedIDGetPlaceholders(t *testing.T) {
 // Text that isn't UTF-8 is a rejection, never an error: an error would leave
 // the event unprocessed and the host retrying it.
 func TestInvalidUTF8IsRejectedNotAnError(t *testing.T) {
+	t.Parallel()
 	bad := "github:team/acme/a\xff"
 	tests := map[string]*modelv1alpha1.ObservationData{
 		"entity key":   {Entity: &modelv1alpha1.Entity{Kind: "Team", Key: bad}},
@@ -136,6 +139,7 @@ func TestInvalidUTF8IsRejectedNotAnError(t *testing.T) {
 // couldn't admit might have been part of that list, so the predicate isn't
 // ended on the strength of an observation that failed to say it.
 func TestRejectedClaimLeavesItsPredicateOutOfTheSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	repo := func(at string) *eventv1alpha1.Observation {
 		return obsAt(at, "Repository", "github:repo_node/R1", "github:repo/acme/a")
@@ -160,6 +164,7 @@ func TestRejectedClaimLeavesItsPredicateOutOfTheSnapshot(t *testing.T) {
 // An attribute the registry doesn't know is stored under the namespace of
 // the system that reads it, so two systems' attributes can't collide.
 func TestUnregisteredAttributesAreStoredUnderTheReadNamespace(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	o := withAttr(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "codeowners_rules", 3)
 	e.apply(event("github-acme", o))
@@ -172,6 +177,7 @@ func TestUnregisteredAttributesAreStoredUnderTheReadNamespace(t *testing.T) {
 // A relation listed twice is one claim whose support keeps both qualifier
 // sets, once each, in a fixed order.
 func TestRelationListedTwiceJoinsItsQualifiers(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	role := func(r string) *structpb.Value { return structpb.NewStringValue(r) }
 	team := obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1")
@@ -198,6 +204,7 @@ func TestRelationListedTwiceJoinsItsQualifiers(t *testing.T) {
 // A team's observation can list its members, the incoming side of
 // member_of; a later list without a member ends that membership.
 func TestIncomingSnapshotEndsMembersItNoLongerLists(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	team := func(at string) *eventv1alpha1.Observation {
 		return withScope(obsAt(at, "Team", "github:team_node/T1"), true, "member_of")

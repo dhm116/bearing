@@ -21,6 +21,7 @@ import (
 )
 
 func TestApplyingTheScenarioAgainChangesNothing(t *testing.T) {
+	t.Parallel()
 	events := scenario()
 	e := newEnv(t)
 	for _, ev := range events {
@@ -50,6 +51,7 @@ func TestApplyingTheScenarioAgainChangesNothing(t *testing.T) {
 // What the resolver remembers is in the store, so a store restored from a
 // backup resolves the next events as the original does.
 func TestResolverStateSurvivesBackupAndRestore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	events := scenario()
 	orig := newEnv(t)
@@ -85,6 +87,7 @@ func TestResolverStateSurvivesBackupAndRestore(t *testing.T) {
 }
 
 func TestStateKeysEscapeSourceText(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// The slug's last segment equals the ref the resolver mints for the
 	// entity (and "%" and ":" are source text too). Unescaped, the store
@@ -109,6 +112,7 @@ func TestStateKeysEscapeSourceText(t *testing.T) {
 }
 
 func TestPackedStateRoundTrips(t *testing.T) {
+	t.Parallel()
 	ws := []write{
 		{key: okey(3, "a"), from: ts(day(3)), subject: "S1"},
 		{key: okey(2, "t"), subject: "S1", tentative: true},
@@ -151,6 +155,7 @@ func TestPackedStateRoundTrips(t *testing.T) {
 }
 
 func TestCorruptStateIsAnError(t *testing.T) {
+	t.Parallel()
 	pack := func(m proto.Message) *anypb.Any {
 		a, err := anypb.New(m)
 		if err != nil {
@@ -184,6 +189,7 @@ func TestCorruptStateIsAnError(t *testing.T) {
 }
 
 func TestRejectedObservationsAreMarkedProcessed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		source string
@@ -223,6 +229,7 @@ func TestRejectedObservationsAreMarkedProcessed(t *testing.T) {
 }
 
 func TestInvalidObservationIsRejectedWithTheValidationProblems(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	o := obsAt("2026-10-01T00:00:00Z", "Team", "not a key")
 	got := e.apply(event("github-acme", o))
@@ -233,6 +240,7 @@ func TestInvalidObservationIsRejectedWithTheValidationProblems(t *testing.T) {
 }
 
 func TestIngestTimeBoundsObservedAt(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ev := event("github-acme", obsAt("2030-01-01T00:00:00Z", "Team", "github:team_node/T1"))
 	ev.IngestedAt = ts("2026-10-01T00:00:00Z")
@@ -243,6 +251,7 @@ func TestIngestTimeBoundsObservedAt(t *testing.T) {
 }
 
 func TestBadEventsAreErrors(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	if _, err := e.r.Apply(context.Background(), Event{Source: "github-acme"}); err == nil {
 		t.Error("an event with no ID or observation was accepted")
@@ -268,6 +277,7 @@ func (s *staleStore) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (co
 }
 
 func TestApplyRecomputesWhenStale(t *testing.T) {
+	t.Parallel()
 	base := newEnv(t)
 	st := &staleStore{GraphStore: base.store, n: 3}
 	r, err := New(testConfig(t), st)
@@ -292,6 +302,7 @@ func TestApplyRecomputesWhenStale(t *testing.T) {
 }
 
 func TestResolveWritesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	res, err := e.r.Resolve(context.Background(), event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/a")))
 	if err != nil {
@@ -306,6 +317,7 @@ func TestResolveWritesNothing(t *testing.T) {
 }
 
 func TestDeletionReleasesNamesFromThen(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/a")))
 	team := e.resolveKey("github:team_node/T1", time.Time{})
@@ -327,6 +339,7 @@ func TestDeletionReleasesNamesFromThen(t *testing.T) {
 }
 
 func TestDeletionMarksFollowAMerge(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ak := func(o *eventv1alpha1.Observation) Applied { return e.apply(event("authentik-acme", o)) }
 	ak(obsAt("2026-10-01T00:00:00Z", "Person", "authentik:user/u1", "authentik:username/jdoe"))

@@ -60,6 +60,7 @@ func wantFacts(t testing.TB, e *env, v time.Time, want ...string) {
 }
 
 func TestObservationClaimsExistsAndRelations(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1", "github:repo/acme/a"), "approves_changes", "github:team/acme/s1")))
 	wantFacts(t, e, ts("2026-10-02T00:00:00Z"),
@@ -73,6 +74,7 @@ func TestObservationClaimsExistsAndRelations(t *testing.T) {
 // observation1 and its successors are the spec's worked examples (fixtures
 // 1 and 3): a repository with a CODEOWNERS team, then the team replaced.
 func TestRemovedCodeownersTeamStopsApprovingWhileAnotherSourceSurvives(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	first := fixture(t, "1-repository-codeowners.json")
 	e.apply(event("github-acme", first))
@@ -111,6 +113,7 @@ func TestRemovedCodeownersTeamStopsApprovingWhileAnotherSourceSurvives(t *testin
 // A renamed repository keeps its subject and what is known about it
 // (fixtures 1 and 2).
 func TestRenamedRepositoryKeepsItsSubjectAndFacts(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", fixture(t, "1-repository-codeowners.json")))
 	before := e.resolveKey("github:repo_node/R_kgDOH1a2bw", time.Time{})
@@ -136,6 +139,7 @@ func TestRenamedRepositoryKeepsItsSubjectAndFacts(t *testing.T) {
 }
 
 func TestDeletedEntityEndsItsFactsAndThoseThatPointToIt(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// A repository that a team approves, and the team.
 	e.apply(event("github-acme", withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")))
@@ -156,6 +160,7 @@ func TestDeletedEntityEndsItsFactsAndThoseThatPointToIt(t *testing.T) {
 
 // Merging two subjects makes the facts about the merged one the survivor's.
 func TestMergeMovesFactsToTheSurvivor(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		events func() []Event
@@ -212,6 +217,7 @@ func TestMergeMovesFactsToTheSurvivor(t *testing.T) {
 // An event delivered again, any number of times, changes nothing; the same
 // observation under another event ID only confirms what is known.
 func TestRepeatedClaimsChangeNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newEnv(t)
 	first := fixture(t, "1-repository-codeowners.json")
@@ -247,6 +253,7 @@ func TestRepeatedClaimsChangeNothing(t *testing.T) {
 // been observed, and becomes asserted when it is, though the repository
 // hasn't changed (docs/spec/data-model.md, "Status", step 5).
 func TestRelationToAnUnobservedObjectWaitsForIt(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	for _, d := range cfg.Declarations {
 		for _, k := range d.GetKinds() {
@@ -277,6 +284,7 @@ func TestRelationToAnUnobservedObjectWaitsForIt(t *testing.T) {
 // before the snapshot replaces the old value from then on, not from the time
 // of the snapshot, so the source doesn't conflict with itself in between.
 func TestBackdatedValueOfASingleValuedPredicateReplacesTheOldOne(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	repo := func(at string) *eventv1alpha1.Observation {
 		return obsAt(at, "Repository", "github:repo_node/R1")
@@ -299,6 +307,7 @@ func TestBackdatedValueOfASingleValuedPredicateReplacesTheOldOne(t *testing.T) {
 // 600000 don't add up to more, and the configured threshold decides whether
 // that is enough.
 func TestConfidenceCountsEachSystemOnceAndTheThresholdIsConfigurable(t *testing.T) {
+	t.Parallel()
 	claim := func() *eventv1alpha1.Observation {
 		o := withRelation(obsAt("2026-10-01T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")
 		o.Data.Relations[0].ConfidencePpm = new(uint32(600_000))
@@ -329,6 +338,7 @@ func TestConfidenceCountsEachSystemOnceAndTheThresholdIsConfigurable(t *testing.
 // The snapshots a merged subject's observations made keep ending what they
 // didn't list after the merge, whichever of the two subjects survives.
 func TestMergeMovesSnapshotWatermarks(t *testing.T) {
+	t.Parallel()
 	const (
 		user = "authentik:user/u1"
 		saml = "authentik-saml:name_id/jdoe"
@@ -401,6 +411,7 @@ func catalogDeclaration(t testing.TB, authoritative bool) *modelv1alpha1.Adapter
 // declared its authority decides; if both or neither are, it stays a
 // conflict (docs/spec/data-model.md, "Conflicts").
 func TestAuthorityDeclaredByAdaptersDecidesConflicts(t *testing.T) {
+	t.Parallel()
 	const (
 		main   = `catalog:repo_id/C1(Repository) default_branch -> {"type":"VALUE_TYPE_STRING","value":"main"} %s 1000000 [github-acme:1000000]`
 		master = `catalog:repo_id/C1(Repository) default_branch -> {"type":"VALUE_TYPE_STRING","value":"master"} %s 1000000 [catalog-acme:1000000]`
@@ -433,6 +444,7 @@ func TestAuthorityDeclaredByAdaptersDecidesConflicts(t *testing.T) {
 // Systems that copy each other count once toward confidence; independent
 // ones add up.
 func TestConfidenceGroupsCountCopyingSystemsOnce(t *testing.T) {
+	t.Parallel()
 	branch := func(at string, ppm uint32) *eventv1alpha1.Observation {
 		o := withClaim(obsAt(at, "Repository", "catalog:repo_id/C1", "github:repo/acme/a"), "default_branch", "main", "", false)
 		o.Data.AttributeClaims[0].ConfidencePpm = &ppm
@@ -470,6 +482,7 @@ func TestConfidenceGroupsCountCopyingSystemsOnce(t *testing.T) {
 // The adapter an event names is recorded on the supports it makes; without
 // one, the source's adapter is.
 func TestSupportsRecordTheEventsAdapter(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, adapter, want string }{
 		{"the source's adapter by default", "", "github"},
 		{"the event's adapter when it names one", "github@v2", "github@v2"},
@@ -493,6 +506,7 @@ func TestSupportsRecordTheEventsAdapter(t *testing.T) {
 // Merging a subject whose fact two sources support retracts the old fact
 // once, however many sources held it.
 func TestMergeOfAFactSeveralSourcesSupport(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.apply(event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1")))
 	for _, source := range []string{"github-acme", "github-mirror"} {
@@ -511,6 +525,7 @@ func TestMergeOfAFactSeveralSourcesSupport(t *testing.T) {
 // A source the configuration dropped has supports in the store; events that
 // touch its facts still resolve, counting it as a system of its own.
 func TestSupportsOfADroppedSourceStillCount(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	repo := func(at string) *eventv1alpha1.Observation {
 		return withRelation(obsAt(at, "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1")
@@ -536,6 +551,7 @@ func TestSupportsOfADroppedSourceStillCount(t *testing.T) {
 // ends was claimed through another kind's observation. Merging the subject
 // before or after the snapshot gives the same state.
 func TestMergeMovesSnapshotsOverUndeclaredPredicates(t *testing.T) {
+	t.Parallel()
 	claim := event("github-acme", withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team/acme/old"))
 	// The team is first seen under its id alone, so the merge below is a change
 	// to its names, not a write among confirmations of one name.
@@ -565,6 +581,7 @@ func TestMergeMovesSnapshotsOverUndeclaredPredicates(t *testing.T) {
 // different confidences. Whether the team is known before the observation or
 // the two keys are joined after it, the stronger claim decides.
 func TestOneFactClaimedUnderTwoKeysDoesNotDependOnApplyOrder(t *testing.T) {
+	t.Parallel()
 	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
 	for _, tc := range []struct{ name, stronger string }{
 		{"the slug is stronger", "github:team/acme/s1"},
@@ -602,6 +619,7 @@ func TestOneFactClaimedUnderTwoKeysDoesNotDependOnApplyOrder(t *testing.T) {
 // and an open one by slug are the same fact, and it holds from the earlier
 // start to the open end whichever is applied first.
 func TestOneFactClaimedUnderTwoKeysWithDifferentTimes(t *testing.T) {
+	t.Parallel()
 	team := event("github-acme", obsAt("2026-10-01T00:00:00Z", "Team", "github:team_node/T1", "github:team/acme/s1"))
 	repo := withRelation(withRelation(obsAt("2026-10-02T00:00:00Z", "Repository", "github:repo_node/R1"), "approves_changes", "github:team_node/T1"), "approves_changes", "github:team/acme/s1")
 	short, open := repo.Data.Relations[0], repo.Data.Relations[1]
@@ -633,6 +651,7 @@ func TestOneFactClaimedUnderTwoKeysWithDifferentTimes(t *testing.T) {
 // everything makes) and of attributes only the source declares move with a
 // merge as well, whichever subject the snapshot was made under.
 func TestMergeMovesAllPredicateAndDeclaredAttributeSnapshots(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	for _, d := range cfg.Declarations {
 		for _, k := range d.GetKinds() {

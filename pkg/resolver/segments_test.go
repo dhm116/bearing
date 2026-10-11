@@ -64,6 +64,7 @@ func bound(us int64) string {
 // 10:05, to a webhook ending it at 10:05, in either apply order
 // (docs/spec/data-model.md, "Ordering and idempotency").
 func TestOverlayStaleWriteCannotUndoNewerEnd(t *testing.T) {
+	t.Parallel()
 	page := liveSeg(0, "page", hour(0), posInf, 1_000_000)
 	hook := endSeg(5, "hook", hour(5))
 	a := series(nil).overlay(page).overlay(hook)
@@ -75,6 +76,7 @@ func TestOverlayStaleWriteCannotUndoNewerEnd(t *testing.T) {
 }
 
 func TestOverlayJoinsOnlyIdenticalNeighbours(t *testing.T) {
+	t.Parallel()
 	a := liveSeg(1, "a", hour(0), hour(4), 1_000_000)
 	// The same write split by a later one that says the same joins up again.
 	var s series
@@ -99,6 +101,7 @@ func TestOverlayJoinsOnlyIdenticalNeighbours(t *testing.T) {
 }
 
 func TestVersionsSplitWhereConfidenceChanges(t *testing.T) {
+	t.Parallel()
 	s := series(nil).overlay(liveSeg(1, "a", hour(0), posInf, 1_000_000)).overlay(liveSeg(2, "b", hour(3), hour(6), 500_000))
 	vs := s.versions()
 	if len(vs) != 3 {
@@ -107,6 +110,7 @@ func TestVersionsSplitWhereConfidenceChanges(t *testing.T) {
 }
 
 func TestEffectiveWatermarkEndsWhatItsObservationDidNotClaim(t *testing.T) {
+	t.Parallel()
 	wm := watermark{at: hour(5), key: model.NewOrderingKey(t0.Add(5*time.Hour), "snap", "src/snap", ""), reason: modelv1alpha1.SupportReason_SUPPORT_REASON_SNAPSHOT}
 	older := series(nil).overlay(liveSeg(1, "old", hour(0), posInf, 1_000_000))
 	if got := show(older.effective([]watermark{wm})); got != "[0,5)=live(1000000)@old [5,+)=end@snap" {
@@ -129,6 +133,7 @@ func TestEffectiveWatermarkEndsWhatItsObservationDidNotClaim(t *testing.T) {
 // The same writes in any order give one series, and the series is what a
 // fact's support is read from.
 func TestOverlayDoesNotDependOnOrder(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(7)) //nolint:gosec // G404: a seeded shuffle, not security
 	for range 200 {
 		var writes []seg
@@ -168,6 +173,7 @@ func TestOverlayDoesNotDependOnOrder(t *testing.T) {
 }
 
 func TestSeriesStateRoundTripsAndRefusesDamage(t *testing.T) {
+	t.Parallel()
 	s := series(nil).overlay(liveSeg(1, "a", hour(0), hour(4), 1_000_000)).overlay(endSeg(2, "b", hour(4)))
 	back, err := seriesOf(s.state())
 	if err != nil || show(back) != show(s) {
@@ -189,6 +195,7 @@ func TestSeriesStateRoundTripsAndRefusesDamage(t *testing.T) {
 // subject claiming a fact at different times and confidences) still give one
 // series in every order, with endings and watermarks among them.
 func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(11)) //nolint:gosec // G404: a seeded shuffle, not security
 	// full describes a series down to what each support says of its keys and
 	// qualifiers, which show leaves out.
@@ -250,6 +257,7 @@ func TestOverlayOfEqualKeysDoesNotDependOnOrder(t *testing.T) {
 // Neighbours that say the same join into one segment with the later key,
 // unless a watermark could still tell them apart.
 func TestSettledJoinsConfirmationsUnlessAWatermarkSeparatesThem(t *testing.T) {
+	t.Parallel()
 	a := liveSeg(1, "a", hour(0), hour(2), 1_000_000)
 	b := liveSeg(3, "b", hour(2), posInf, 1_000_000)
 	if got, want := show(series{a, b}.settled(nil)), "[0,+)=live(1000000)@b"; got != want {
@@ -278,6 +286,7 @@ func TestSettledJoinsConfirmationsUnlessAWatermarkSeparatesThem(t *testing.T) {
 }
 
 func TestSettledKeepsChangesAndEndings(t *testing.T) {
+	t.Parallel()
 	a := liveSeg(1, "a", hour(0), hour(2), 1_000_000)
 	changed := liveSeg(3, "b", hour(2), hour(4), 800_000)
 	back := liveSeg(5, "c", hour(4), posInf, 1_000_000)
@@ -305,6 +314,7 @@ func TestSettledKeepsChangesAndEndings(t *testing.T) {
 // A write among the confirmations that a segment joins and that says
 // something else is the one the series drops.
 func TestSeriesDroppedFindsWritesAmongConfirmations(t *testing.T) {
+	t.Parallel()
 	joined := series{liveSeg(1, "a", hour(0), hour(2), 1_000_000), liveSeg(5, "b", hour(2), posInf, 1_000_000)}.settled(nil)
 	among := liveSeg(3, "m", hour(1), posInf, 800_000)
 	for _, tc := range []struct {
