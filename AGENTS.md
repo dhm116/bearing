@@ -65,7 +65,9 @@ minimal.
 | `pkg/adapter` | Adapter protocol: `Adapter` interface, `ServeStdio` for adapter authors, client for the core. |
 | `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventLog`, `Judge`, …). |
 | `pkg/contracts/conformance` | Test suites every backend must pass. |
-| `pkg/audit` | What makes the audit log tamper evident: the bytes of a record that are hashed, `Seal` for the chain, checkpoints and their Ed25519 signatures, and `Verify` (behind `bearing audit verify`). The `AuditLog` interface is in `pkg/contracts`. |
+| `pkg/audit` | What makes the audit log tamper evident: the bytes of a record that are hashed, `Seal` for the chain, checkpoints (and the signed cut checkpoints that retention leaves) and their Ed25519 signatures, and `Verify` (behind `bearing audit verify`). The `AuditLog` interface is in `pkg/contracts`. |
+| `pkg/server` | The `bearing server` parts ([ADR 7](docs/adr/0007-durable-event-log.md)): `Ingest`, the webhook route (host-side HMAC check, per-source and per-peer rate limits, 2xx only after the event is in the log). The `Server` runs the apply workers (one per partition, retries, dead letters), the scheduler, event-log retention, the instance-lock check and health (`Live`, `Ready`, `HealthHandler`). API listeners join it in M3. |
+| `pkg/auth` | Who may call Bearing ([ADR 12](docs/adr/0012-authentication-through-oidc.md)): `Verifier` checks OIDC bearer tokens against the issuer's keys and builds the `Caller`; the default `Authorizer` maps IdP groups and client IDs to roles. |
 | `pkg/query` | The CLI's query layer: `get`, `owner`, `related` and `changes` over a `GraphStore`, each answer with its sources, events, confidence and observed times. `cmd/bearing` reads the graph only through it. Not a stable API yet; M3's server will answer the same questions. |
 | `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
 | `pkg/store` | Opens graph store, audit log, vector index and event log from URLs (`mem://`, `postgres://`); the audit log is the graph backend's. |
@@ -76,7 +78,7 @@ minimal.
 | `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
 | `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock. Its recorded directory feed is `testdata/acme/directory.ndjson`. Tests only. |
 | `adapters/github` | GitHub adapter, the worked example for new adapters. |
-| `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, optionally `--as-of` and `--recorded-at`, and `audit verify` and `audit checkpoint` (`audit.go`), which read the store's audit log and the checkpoint file. |
+| `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, optionally `--as-of` and `--recorded-at`, and `audit verify`, `audit checkpoint` and `audit reanchor` (`audit.go`), which read the store's audit log and the checkpoint file. |
 | `cmd/bearing-bench` | Store benchmark (`make bench`): loads a generated org into a store up to ~10M facts and measures sizes, reads, applies and plans. Takes hours at full size, so never part of `make check` or CI. Results and method in `docs/benchmarks/`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
 | `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
@@ -108,7 +110,7 @@ new ADR.
    against their source. WASM adapters never hold credentials; the host
    injects them. The host verifies webhook signatures before a delivery is
    logged, with one verifier per signature scheme that the adapter's
-   manifest will declare (field tracked in
+   declaration declares (`AdapterDeclaration.webhook`, issue
    [#58](https://github.com/dhm116/bearing/issues/58)), and WASM adapters
    never see webhook secrets. Ingest stays off until that verifier exists;
    until then the adapter's own verification is the check (ADR 9 A15).

@@ -149,7 +149,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
-  log must start at record 1. `--max-age` finds withheld newest checkpoints
+  log must start at record 1 or right after a signed cut checkpoint (C-AUDIT-5).
+  `--max-age` finds withheld newest checkpoints
   (and one dated ahead of the clock); a `--checkpoints` file that holds none
   fails the run, so emptying it does not turn verify into a chain-only check.
   `bearing audit checkpoint` is an operator-run command that holds the signing
@@ -164,11 +165,44 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   record from a filtered read without breaking the chain, so a filtered
   answer is not evidence that no record exists. Re-deriving those columns
   from the records is a later mode of `bearing audit verify`.
-- **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
-  removes only the oldest records, after writing a checkpoint at the cut.
-  Until a signed marker says a checkpoint was written at a cut (with
-  retention, #139), the verifier accepts no log that starts after record 1,
-  so a deleted prefix is found.
+- **C-AUDIT-5** The `AuditLog` contract has no update or delete; the handlers
+  that serve reads and the API hold only it. Retention is a separate
+  interface, `AuditRetention`, with one method, `Cut`, which only the
+  server's retention job holds. It removes only the oldest records and always
+  keeps the newest. The job writes a cut checkpoint, signed and flagged `cut`
+  (the flag is under the signature), to the checkpoint destination and waits
+  until it is durable there before every `Cut` call, one marker per call
+  carrying that call's last removed record, and `Cut` refuses unless the
+  record it was given has the hash the marker holds. The verifier accepts a
+  log that starts after record 1 only when a trusted, signed cut checkpoint
+  names the record before the oldest one and holds its hash; an unsigned
+  marker never counts, even when the operator allows unsigned checkpoints, so
+  retention is refused without a signing key and is off by default. Any other
+  deleted prefix is found, and so is a cut that went further than its marker.
+  Residual risks: a marker authorizes removing records up to it, so whoever
+  holds the signing key can bless a deleted prefix. Until a cut through the
+  marker's record completes, the marker is a standing licence for anyone with
+  store access to delete records 1 to that record with `Verify` still
+  passing, and it stays in the checkpoint file for good; so the job must not
+  leave markers behind (a failed `Cut` is retried through the same record
+  before another is chosen, and a marker that cannot be completed is
+  reported). The link between the marker and `Cut` is the job's discipline:
+  `Cut` compares the hash it is given with the stored record and with that
+  record's own content, and refuses on a difference, but it never sees the
+  marker, and `store.Store.AuditRetention` is a field like the others, so
+  keeping it away from everything but the job is a matter of wiring. The job
+  also signs the hash it reads from the store, so before signing it runs
+  `Verify` against the checkpoints it holds; a rewritten prefix that a cut
+  then removes would otherwise hide, and `Verify` finds checkpoints that
+  disagree about a record that is gone. `bearing audit reanchor` signs the
+  marker for the log's current start when an earlier marker is lost (a
+  rotated key, a lost file): it vouches that what came before was removed on
+  purpose, which the operator must have checked by other means, such as an
+  earlier checkpoint file or a backup, so it takes the number of the last
+  removed record (`--expect-seq`) and prints the hash it signed for. Retention bounds the audit table
+  only: the journal, `Restore` and backups still hold the entries, and a
+  restore rebuilds the whole chain, so a cut is not a way to erase a person's
+  name from the system.
 - **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
   (the OIDC subject, client ID, `local:<uid>`) or, for a component,
   `system:<name>`, which only the core sets; the API rejects an
@@ -198,6 +232,7 @@ Assets: A1, A7, the event log.
 | T-INGEST-7 | I | Error responses reveal which sources exist or echo input | C-INGEST-7 |
 | T-INGEST-8 | D | An event is acknowledged but lost, so the sender never retries | C-INGEST-8 |
 | T-INGEST-9 | S | A forged `X-Forwarded-For` evades per-peer limits or poisons logs | C-INGEST-10 |
+| T-INGEST-10 | D, T | A poison event, or a source system that fails every call, stops a partition; or an outage of the store is mistaken for poison and its events are given up on | C-INGEST-12 |
 
 - **C-INGEST-1** Ingest is a separate surface from the API, made of pluggable
   transports (HTTP webhooks and CloudEvents in the MVP). Each transport is
@@ -214,7 +249,11 @@ Assets: A1, A7, the event log.
   return 401, store nothing and increment a metric. WASM modules never
   verify deliveries or see webhook secrets: `Handle` receives only
   deliveries the host has authenticated, and there is no HMAC capability
-  (ADR 9 A6). A local-process adapter may also verify, as defense in
+  (ADR 9 A6). The key is the Source's `webhook_secret` reference, which only
+  the host resolves (C-SECRET-1); the scheme, signature header and prefix come
+  from the adapter's declaration (`AdapterDeclaration.webhook`), which holds no
+  secret. A header may carry several signatures and a delivery passes when one
+  matches ([rules](../spec/data-model.md#declarations)). A local-process adapter may also verify, as defense in
   depth, but the host authenticates first. Ingest stays off (C-INGEST-1)
   until the host verifier exists; it ships with the first ingest
   transport. Until then an adapter's `Handle` is reached only through
@@ -228,7 +267,8 @@ Assets: A1, A7, the event log.
   concurrent requests.
 - **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
   7): the delivery ID when the signature covers it, otherwise the SHA-256 of
-  the authenticated body. Where the sender signs a timestamp, events outside
+  the authenticated body. No declared scheme signs the delivery ID headers
+  GitHub and PagerDuty add, so for them the event ID is the body hash. Where the sender signs a timestamp, events outside
   a configured window (default 5 minutes) are rejected. Webhook payloads are
   change hints. Facts carry the source's own update time, and an older
   observation never replaces a newer assertion. Where the source gives no
@@ -237,17 +277,75 @@ Assets: A1, A7, the event log.
   non-loopback address requires `insecure_ingest_plaintext` (for example
   behind a TLS-terminating proxy).
 - **C-INGEST-7** Ingest responses carry only a status code and a request ID.
-  An unknown route and a failed check get the same response.
-- **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
-  sent only after the event is appended to the log (ADR 7); if the log is
-  unavailable, ingest returns 503 so the sender retries. Retention then
-  keeps the event until the apply workers have processed it (`Trim` takes
-  the required groups, [contracts](../spec/contracts.md#retention)), so an
-  acknowledged event is not deleted unapplied.
+  An unknown route and a failed check get the same response. Everything
+  before the signature check (method, per-peer limit, body limit) is the same
+  for a configured Source and an unknown one, so the status of a request that
+  is not signed does not reveal which Sources exist. The check is on
+  responses; an unknown route skips the HMAC, a difference of microseconds
+  that is accepted.
+- **C-INGEST-8** The per-peer limit returns 429 before ingest looks at the
+  route, and a refused delivery spends a token, so guessing signatures is
+  limited. The per-Source limit counts only deliveries that passed the
+  signature check, so a peer that cannot sign cannot use up a Source's
+  allowance and make the real sender's deliveries 429. The tables of buckets
+  are bounded. Until `trusted_proxies` exists (C-INGEST-10), senders behind
+  one proxy share a peer bucket. The 2xx is sent only after the event is
+  appended to the log (ADR 7); if the log is unavailable, ingest returns 503
+  so the sender retries. Retention then keeps the event until the apply
+  workers have processed it (`Trim` takes the required groups,
+  [contracts](../spec/contracts.md#retention)), so an acknowledged event is
+  not deleted unapplied.
 - **C-INGEST-9** The body is parsed only after authentication succeeds, into
   a fixed Protobuf or JSON type, with depth and size limits.
 - **C-INGEST-10** Forwarded headers are ignored unless the peer is in
   `trusted_proxies`.
+- **C-INGEST-11** What an accepted delivery leaves in the log. A
+  `WebhookReceived` event records the request headers except `Authorization`,
+  `Proxy-Authorization`, `Cookie` and `Set-Cookie`, at most 64 headers and
+  16 KiB, so a credential a sender (or an OIDC or token method of C-INGEST-2)
+  used is never stored. The body and the signature header are kept: the adapter
+  needs them and a replay of them is dropped by C-INGEST-5. A dead-letter
+  record (contracts, "Dead letters") holds no event data, only the event's ID,
+  position, type, size and the last error cut to 1,024 bytes of valid UTF-8
+  with control characters replaced; the count of retained dead letters is a
+  gauge, so a flood of poison events is visible.
+- **C-INGEST-12** The apply workers (`pkg/server`) read each partition in
+  order, one worker per partition, and commit an offset only after the event
+  is applied or recorded as a dead letter. A failing event is tried
+  `MaxAttempts` times (default 5) with a doubling pause; contention with
+  another apply (`ErrStale`) is retried without counting. After the last
+  attempt the worker gives up on the event in the order of the contract
+  (record, audit entry that marks it processed, commit), so the partition goes
+  on and a crash between the steps repeats safely: the first event a worker
+  meets after a start is looked up in the audit log, and one that was already
+  given up on is only committed. Before it gives up, the worker checks that the
+  store and the log answer: if either does not, the failures may be theirs and
+  not the event's, so it keeps waiting and never turns an outage into lost
+  data. A panic in an in-process adapter, the resolver or a decoder is caught
+  and handled as that event's failure, so a poison event cannot crash-loop the
+  server. Each attempt runs under `EventTimeout` (default 30 minutes) and holds
+  one of `Workers` slots only while it runs, not while it waits to try again or
+  while its partition has more events, so an adapter that hangs, or a
+  partition with a long backlog, delays the other sources by at most one
+  timeout per attempt and never stops them. Error text from an adapter or a
+  source system is untrusted: in the dead-letter record, the audit entry and
+  the worker's own log lines it is cut and cleaned (C-INGEST-11, and format
+  and separator characters that reorder or hide text are replaced too), and
+  it never labels a metric. The adapter client's span and log for a failed
+  sync carry the error as the adapter returned it. Events of a type the
+  server has no handler for are skipped, counted and logged once per type,
+  except in the `manual` partition, where an operator's request that nothing
+  can carry out becomes a dead letter with an audit entry instead of being
+  acknowledged and dropped. An event whose source field disagrees with its
+  partition is refused, so one source's partition never runs another's
+  adapter. If a failed sync is run again and a page of it is already on the
+  log, the rerun never claims `complete_sync` (the log keeps the first copy of
+  a page, so its pages may mix two runs), and the next scheduled sync starts
+  over. The look-up of an event already given up on reads the audit log, so
+  once a retention cut (C-AUDIT-5) removes that entry, an event that was
+  dead-lettered but never committed is retried and dead-lettered again after a
+  restart instead of only committed; rare and harmless. Not yet bounded: the
+  pages and bytes one sync may put on the log.
 
 ### B2. Adapter modules
 
@@ -605,7 +703,16 @@ Assets: A3, A5, A4, A7.
 
   A client-credentials token (no user subject) is identified by its
   `azp`/`client_id` and gets only the roles its client ID is mapped to; an
-  unmapped client is denied. An **agent** is a client whose only role is
+  unmapped client is denied. The authenticator sets a client ID only for such a
+  token: one with no subject, a subject equal to the client ID, or the
+  claim `gty` equal to `client-credentials`. A caller with a client ID is a
+  client, the verifier does not pass on its groups claim and an `Authorizer`
+  ignores it, so a token cannot lift a client
+  above its mapping, and the application a user signed in through is not who
+  is asking. The authenticator also refuses a token whose subject or client ID begins
+  `system:` or `local:`, which are the audit log's names for components and
+  the socket (C-AUDIT-6), or is longer than 1,024 bytes, which the audit log
+  could not record as an actor. An **agent** is a client whose only role is
   `read`, for queries and MCP. A client may also be mapped to `ingest` for named Sources
   only. A mapping that gives a client `admin` is rejected at config apply.
 - **C-API-5** Each API method declares its required role in one table. A
@@ -662,7 +769,12 @@ Assets: caller identity, role mapping, A7 (API availability).
   whose `issuer` must equal the configured issuer exactly. Fetches have
   timeouts and size limits. Keys are cached; an unknown `kid` triggers at
   most one refresh per minute, and keys missing from a refreshed JWKS are
-  dropped. With no valid keys, verification fails closed. The Unix socket
+  dropped. Keys are refreshed after an hour; while the IdP cannot be reached
+  the cached keys are used for up to 24 hours. A revoked key can therefore
+  still verify tokens for up to an hour, or up to a day while the IdP is
+  down. The `jwks_uri` may be any https host the issuer's document names.
+  A refresh is not cancelled with the request that started it, and one that
+  yields no usable key keeps the old keys. With no valid keys, verification fails closed. The Unix socket
   keeps working while the IdP is down.
 - **C-IDP-3** Roles come only from the configured groups claim (and, for
   clients, client ID) through the configured mapping. Other claims never
@@ -692,6 +804,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 | T-STORE-10 | D, T | An oversized event, batch or read stalls the event log; an event is written into another source's partition; a stopped consumer makes the log grow without bound | C-STORE-11 |
+| T-STORE-11 | T, D | Two servers run against one store (a second start, a restart that overlaps the old process) and apply, trim and commit against each other | C-STORE-12 |
 
 **Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
@@ -870,6 +983,25 @@ reach, so they are retired and their numbers are not reused.
   message to the sender (C-INGEST-7). Because `Backup` leaves the log out, a
   restore into a fresh database loses retained manual events and any
   unapplied backlog; operators back up the database itself for those.
+
+- **C-STORE-12** One server uses a store at a time (the MVP runs a single
+  instance). `store.LockInstance` takes a PostgreSQL session-level advisory lock
+  named for the schema on a connection of its own; a second server fails at
+  start with `ErrInstanceLocked`. The server checks the lock every ten seconds
+  and on every readiness probe, and stops with `ErrLockLost` when it can no
+  longer show it holds it, since another server may have started. Only the
+  graph backend takes the lock; the in-memory store has one process by
+  construction. The lock does not stop a person from running `psql`, and
+  another process can still read the store: the lock keeps two writers of
+  workers from running, not two readers. Only the server's own loop asks the
+  database about the lock, serialized on the lock's connection and on its own
+  deadline that a caller's cancellation does not shorten, because a query
+  cancelled in flight ends the session and with it the lock; readiness
+  probes (unauthenticated, C-API-2) read the loop's last answer and a store
+  check reused for a second, so a flood of probes cannot reach the
+  connection. The lock does not fence writes: between a loss and the next
+  check (ten seconds, plus a hung connection until its deadline) the workers
+  may still write.
 
 ### B7. Operators and configuration
 

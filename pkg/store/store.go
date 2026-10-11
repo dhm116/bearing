@@ -60,13 +60,42 @@ type Store struct {
 	// Audit is the graph store's audit log, which the graph store writes
 	// itself inside Apply (ADR 8); this reads it.
 	Audit contracts.AuditLog
+	// AuditRetention removes the audit log's oldest records. Only the
+	// server's retention job takes it, so the handlers that read the log hold
+	// nothing that can delete (threat model C-AUDIT-5).
+	AuditRetention contracts.AuditRetention
 	// Events is the durable event log (ADR 7).
 	Events contracts.EventLog
 	// Vectors is nil when the graph backend does not serve vectors (a
 	// PostgreSQL graph store without vector_dimensions) and no vector URL
 	// was given; check before use.
 	Vectors contracts.VectorIndex
+	lock    func(context.Context) (InstanceLock, error)
 	closers []func(context.Context) error
+}
+
+// ErrInstanceLocked is returned by LockInstance when another server already
+// uses the store.
+var ErrInstanceLocked = errors.New("store: another server is using this store")
+
+// InstanceLock is held by the one server that uses a store.
+type InstanceLock interface {
+	// Held reports an error when the lock is no longer certain to be held,
+	// for example because the database connection that holds it was lost. A
+	// server that cannot show it stops, since another may have started.
+	Held(ctx context.Context) error
+	// Release gives the lock up.
+	Release(ctx context.Context) error
+}
+
+// LockInstance takes the lock that keeps a second server from using the
+// graph store at the same time, without waiting. Until the event log has a
+// lease for each partition, a second server could apply a source's events
+// out of order (docs/spec/contracts.md, "EventLog"). It returns
+// ErrInstanceLocked when another server holds it. The in-memory store has
+// one user by construction, so its lock always succeeds.
+func (s *Store) LockInstance(ctx context.Context) (InstanceLock, error) {
+	return s.lock(ctx)
 }
 
 // Close releases every backend connection.
@@ -84,8 +113,10 @@ type backend struct {
 	name   string // for telemetry: "memory", "postgresql"
 	graph  contracts.GraphStore
 	audit  contracts.AuditLog
+	retain contracts.AuditRetention
 	vector contracts.VectorIndex
 	events contracts.EventLog
+	lock   func(context.Context) (InstanceLock, error)
 	close  func(context.Context) error
 }
 
@@ -131,7 +162,9 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
 	s.Audit = instrument.AuditLog(g.audit, g.name)
+	s.AuditRetention = instrument.AuditRetention(g.retain, g.name)
 	s.Events = instrument.EventLog(e.events, e.name)
+	s.lock = g.lock
 	if v.vector != nil {
 		s.Vectors = instrument.VectorIndex(v.vector, v.name)
 	}
@@ -146,7 +179,10 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	switch u.Scheme {
 	case "mem":
 		m := memstore.New()
-		return backend{name: "memory", graph: m, audit: m.AuditLog(), vector: m, events: m, close: func(context.Context) error { return nil }}, nil
+		return backend{
+			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), vector: m, events: m, close: func(context.Context) error { return nil },
+			lock: func(context.Context) (InstanceLock, error) { return noLock{}, nil },
+		}, nil
 	case "postgres", "postgresql":
 		return openPostgres(ctx, u, getenv)
 	}
@@ -194,3 +230,9 @@ func safeName(u *url.URL) string {
 	}
 	return u.Scheme + "://" + u.Host
 }
+
+// noLock is the lock of a store that only one process can use.
+type noLock struct{}
+
+func (noLock) Held(context.Context) error    { return nil }
+func (noLock) Release(context.Context) error { return nil }

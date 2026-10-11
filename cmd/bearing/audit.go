@@ -31,7 +31,7 @@ type keyFlags []string
 func (k *keyFlags) String() string     { return strings.Join(*k, ",") }
 func (k *keyFlags) Set(v string) error { *k = append(*k, v); return nil }
 
-// auditCmd runs `bearing audit verify` or `bearing audit checkpoint`.
+// auditCmd runs `bearing audit verify`, `checkpoint` or `reanchor`.
 func auditCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return errUsage
@@ -41,6 +41,8 @@ func auditCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 		return auditVerify(ctx, env, args[1:], stdout)
 	case "checkpoint":
 		return auditCheckpoint(ctx, env, args[1:], stdout)
+	case "reanchor":
+		return auditReanchor(ctx, env, args[1:], stdout)
 	}
 	return errUsage
 }
@@ -177,6 +179,9 @@ func (o verifyOutput) render(w io.Writer) error {
 		b.WriteString("audit log: empty\n")
 	default:
 		fmt.Fprintf(&b, "audit log: %d records, %d to %d, intact\n", o.Records, o.First, o.Last)
+		if c := o.Cut; c != nil {
+			fmt.Fprintf(&b, "  records 1 to %d were removed by a retention cut, signed by %s on %s\n", c.GetSeq(), c.GetKeyId(), c.GetTime().AsTime().Format(time.RFC3339))
+		}
 	}
 	switch {
 	case o.Missing:
@@ -275,24 +280,9 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 	if len(pos) != 0 {
 		return fmt.Errorf("audit checkpoint takes flags only: %w", errUsage)
 	}
-	if (*keyID == "") != (*keyEnv == "") {
-		return errors.New("--key-id and --key-env go together: sign with both, or write an unsigned checkpoint with neither")
-	}
-	var signer *audit.Signer
-	if *keyEnv != "" {
-		if !validEnvName(*keyEnv) {
-			// Not repeated: an operator who pasted the key here must not see it echoed.
-			return errors.New("--key-env takes the name of an environment variable, such as AUDIT_SIGNING_KEY, not the key")
-		}
-		pemText := env.Getenv(*keyEnv)
-		if pemText == "" {
-			return fmt.Errorf("$%s is not set or empty", *keyEnv)
-		}
-		key, err := audit.ParsePrivateKey([]byte(pemText))
-		if err != nil {
-			return fmt.Errorf("$%s: %w", *keyEnv, err)
-		}
-		signer = &audit.Signer{KeyID: *keyID, Key: key}
+	signer, err := loadSigner(env, *keyID, *keyEnv)
+	if err != nil {
+		return err
 	}
 	log, closeStore, err := openAudit(ctx, env, *storeURL)
 	if err != nil {
@@ -339,6 +329,98 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 		signed = "signed by " + signer.KeyID
 	}
 	_, err = fmt.Fprintf(stdout, "wrote the checkpoint of record %d (hash %s, %s) to %s\n", cp.GetSeq(), hex.EncodeToString(cp.GetHeadHash())[:12], signed, *out)
+	return err
+}
+
+// loadSigner reads the signing key that --key-id and --key-env name, or
+// returns nil if neither is given.
+func loadSigner(env queryEnv, keyID, keyEnv string) (*audit.Signer, error) {
+	if (keyID == "") != (keyEnv == "") {
+		return nil, errors.New("--key-id and --key-env go together: sign with both, or write an unsigned checkpoint with neither")
+	}
+	if keyEnv == "" {
+		return nil, nil
+	}
+	if !validEnvName(keyEnv) {
+		// Not repeated: an operator who pasted the key here must not see it echoed.
+		return nil, errors.New("--key-env takes the name of an environment variable, such as AUDIT_SIGNING_KEY, not the key")
+	}
+	pemText := env.Getenv(keyEnv)
+	if pemText == "" {
+		return nil, fmt.Errorf("$%s is not set or empty", keyEnv)
+	}
+	key, err := audit.ParsePrivateKey([]byte(pemText))
+	if err != nil {
+		return nil, fmt.Errorf("$%s: %w", keyEnv, err)
+	}
+	return &audit.Signer{KeyID: keyID, Key: key}, nil
+}
+
+// auditReanchor writes the signed cut checkpoint for the log's current
+// start, for a log that was cut and lost the marker (a rotated key, a lost
+// checkpoint file): the record that marker named is gone, but the oldest
+// record's prev_hash is its hash. Signing it says the removed prefix went
+// deliberately, which the operator must have checked by other means, such as a
+// backup or the earlier checkpoints (threat model C-AUDIT-5).
+func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.Writer) (err error) {
+	fs := flag.NewFlagSet("audit reanchor", flag.ContinueOnError)
+	storeURL := fs.String("store", "", storeFlagHelp)
+	out := fs.String("out", "", "append the checkpoint to this file (created with mode 0600); default stdout")
+	keyID := fs.String("key-id", "", "the signing key's ID, a label that verifiers know the public key by")
+	keyEnv := fs.String("key-env", "", "the name of the environment variable that holds the signing key as a PKCS #8 PEM (never the key itself)")
+	expect := fs.Uint64("expect-seq", 0, "the number of the last record that was removed, which you know from an earlier checkpoint or a backup; must be the log's oldest record minus one")
+	pos, err := parseFlags(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", err, errUsage)
+	}
+	if len(pos) != 0 {
+		return fmt.Errorf("audit reanchor takes flags only: %w", errUsage)
+	}
+	if *keyID == "" || *keyEnv == "" {
+		return errors.New("audit reanchor signs, so it needs --key-id and --key-env: an unsigned marker never counts")
+	}
+	if *expect == 0 {
+		return errors.New("audit reanchor needs --expect-seq: the number of the last record that was removed, which only an earlier checkpoint file or a backup can tell you; signing the start of a log you have not checked would bless a deleted prefix")
+	}
+	signer, err := loadSigner(env, *keyID, *keyEnv)
+	if err != nil {
+		return err
+	}
+	log, closeStore, err := openAudit(ctx, env, *storeURL)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, closeStore(ctx)) }()
+	recs, err := log.Query(ctx, contracts.AuditFilter{Limit: 1})
+	if err != nil {
+		return err
+	}
+	if len(recs) == 0 {
+		return errors.New("the audit log is empty, so there is no start to anchor")
+	}
+	if recs[0].GetSeq() != *expect+1 {
+		return fmt.Errorf("the log starts at record %d, so the last removed record is %d, not --expect-seq %d: run `bearing audit verify` and investigate before signing", recs[0].GetSeq(), recs[0].GetSeq()-1, *expect)
+	}
+	cp, err := audit.NewStartCheckpoint(recs[0], env.Now(), signer)
+	if err != nil {
+		return err
+	}
+	line, err := audit.MarshalCheckpoint(cp)
+	if err != nil {
+		return err
+	}
+	line = append(line, '\n')
+	if *out == "" {
+		_, err = stdout.Write(line)
+		return err
+	}
+	if err := appendFile(*out, line); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "wrote the cut checkpoint of record %d (hash %s, signed by %s) to %s; the log now starts at record %d. Compare the hash with the one in an earlier checkpoint or a backup\n", cp.GetSeq(), hex.EncodeToString(cp.GetHeadHash()), signer.KeyID, *out, recs[0].GetSeq())
 	return err
 }
 

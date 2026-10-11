@@ -83,12 +83,20 @@ func TestResolveReturnsStoreReadErrors(t *testing.T) {
 }
 
 func failEveryRead(t *testing.T, events []Event) {
-	e := newEnv(t)
+	failEveryReadWith(t, testConfig, events, true)
+}
+
+// failEveryReadWith is failEveryRead for a configuration other than the
+// default. With strict false it accepts a Resolve that succeeds after a read
+// failed: canonicalizing a subject the run already read (mustCanon) ignores
+// the error, and the reads that follow are the ones this exercises.
+func failEveryReadWith(t *testing.T, config func(testing.TB) Config, events []Event, strict bool) {
+	e := newEnvWith(t, config(t))
 	for i, ev := range events {
 		ctx := context.Background()
 		for k := 1; ; k++ {
 			st := &failingStore{GraphStore: e.store, failAt: k}
-			r, err := New(testConfig(t), st)
+			r, err := New(config(t), st)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +105,10 @@ func failEveryRead(t *testing.T, events []Event) {
 				if st.reads < k {
 					break // fewer reads than k: all of them have been failed in turn
 				}
-				t.Fatalf("event %d: read %d failed but Resolve succeeded", i, k)
+				if strict {
+					t.Fatalf("event %d: read %d failed but Resolve succeeded", i, k)
+				}
+				continue
 			}
 			if !errors.Is(err, errInjected) {
 				t.Fatalf("event %d, read %d: got %v, want the store's error", i, k, err)

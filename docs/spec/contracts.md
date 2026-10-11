@@ -10,11 +10,11 @@ interface's conformance suite can replace it. The Go definitions are in
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
-| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Yes (`conformance.AuditLog`) |
+| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Yes (`conformance.AuditLog`, and `conformance.AuditRetention` for the cut of its oldest records, [below](#audit-retention)) |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
-| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md)) | OIDC group and client-ID to role mapping | OpenFGA, SpiceDB | Planned |
+| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md), [below](#authorizer)) | OIDC group and client-ID to role mapping (`auth.RoleAuthorizer`) | OpenFGA, SpiceDB | Yes (`conformance.Authorizer`) |
 | `Executor` | Plan, apply, verify and roll back actions durably | Temporal | Postgres-backed job runner | Planned |
 
 ## One database to start
@@ -595,6 +595,7 @@ Each event message in `proto/bearing/event/v1alpha1` has a CloudEvents type
 | `ValidTimeBoundaryReached`, `CompactionRequested` | `dev.bearing.<name>.v1` | `core/scheduler`, also when a person requests a compaction |
 | `ConflictOpened`, `ConflictResolved`, `OverrideStale` | `dev.bearing.<name>.v1` | `core/resolver` |
 | `ConfigApplied` | `dev.bearing.config_applied.v1` | `core/config` |
+| `EventDeadLettered` | `dev.bearing.event_dead_lettered.v1` | `core/dead_letter`, appended with `Retain` ([Dead letters](#dead-letters)) |
 
 `Observation` is the CloudEvent of one observation, as an adapter emits it
 ([Observations](data-model.md#observations)); the log carries it inside
@@ -605,9 +606,11 @@ here and its type is `model.ObservationType`.
 
 The local part of an ID depends on where the event comes from:
 
-- A delivery from a source: the source's delivery ID, else the lower-case
-  hex SHA-256 of the authenticated body (C-INGEST-5). A delivery ID that
-  holds a slash is replaced by the hex SHA-256 of its bytes.
+- A delivery from a source: the lower-case hex SHA-256 of the authenticated
+  body (C-INGEST-5), since the delivery IDs senders add are not covered by
+  their signatures. A delivery ID that is covered by a signature, once a scheme
+  declares one, is used instead, and one that holds a slash is replaced by the
+  hex SHA-256 of its bytes.
 - A request from a person, the scheduler or the CLI (`SyncRequested`,
   `CompactionRequested`, `ConfigApplied` and the manual operations): a fresh
   UUID, not a hash, so two identical requests are two events.
@@ -621,6 +624,44 @@ The local part of an ID depends on where the event comes from:
   what they report, by the same hash, so the same replay appends the same
   events and they dedupe. Whether the core appends them before or after the apply commits is
   the server's design (issue #139); the IDs make either order safe.
+
+### Dead letters
+
+An event that a required group cannot apply, because the adapter keeps
+failing on it or its `ChangeSet` is refused every time, must not hold the
+partition forever: `Trim` keeps an event until every required group has
+committed past it, so one stuck event would pin the log and everything behind
+it. After a configured number of attempts (default 5, with a pause between
+them) the worker gives up on the event in three steps, in this order, so a
+crash between any two leaves a state that repeats safely:
+
+1. It appends an `EventDeadLettered` event to `core/dead_letter`, with
+   `Retain`, so the record outlives the retention window until someone
+   releases it. Its ID is `core/dead_letter/<hex SHA-256 of the dead event's
+   ID>`, so a repeat appends nothing. It names the event, its partition,
+   offset and type, the group, the attempts, the last error and the size of
+   the event's data. It does not copy the data: a webhook's headers and body
+   are organization data, may carry credentials, and the record outlives the
+   window. The event itself stays in the log until retention removes it, and a
+   sync can be run again.
+2. It applies a `ChangeSet` for the dead event's ID that changes nothing and
+   carries one audit entry: `event_dead_lettered`, actor `system:worker`,
+   target the event, rule `attempts_exhausted`, `reason` the error. The
+   processed-event mark this writes means the event is never applied later by
+   mistake, and the entry makes the decision part of the tamper-evident log.
+3. It commits the group past the event.
+
+The error text comes from adapters and source systems, so the worker cuts it
+to 1,024 bytes, makes it valid UTF-8 and replaces control characters before it
+goes into the record and the audit entry's `reason`; the log does not check
+it. The number of retained dead letters is a gauge the server reports, so a
+flood of poison events is visible.
+The apply group reads `core/dead_letter` like any partition, since a required
+group reads every one, and commits past an `EventDeadLettered` event without
+applying anything.
+
+A dead letter is not retried by the server. An operator reads the
+`core/dead_letter` partition, fixes the cause and asks for a new sync.
 
 ## AuditLog
 
@@ -638,8 +679,10 @@ entries, so no change commits without its record and no record exists for a
 change that did not commit. There is no separate append call: a record
 written apart from its change could be lost or orphaned. (Writers that change
 no graph state, such as policy decisions and executor actions in ADR 8, get
-an append when the first of them exists.) Nothing updates or deletes a
-record. Because the log lives in the graph's backend, `store.Store.Audit` is
+an append when the first of them exists.) Nothing updates a record, and the
+only delete is the retention cut of the oldest ones, on a separate
+`AuditRetention` interface that only the server's retention job holds
+([Audit retention](#audit-retention)). Because the log lives in the graph's backend, `store.Store.Audit` is
 that backend; it has no URL of its own. A backend whose `GraphStore` already
 has a `Head` method offers the log through an `AuditLog()` method, since the
 two `Head`s differ.
@@ -697,8 +740,8 @@ recompute the hashes, and the result verifies. Checkpoints close that gap.
 ### Checkpoints
 
 A checkpoint is an `AuditCheckpoint`: the `seq` and `hash` of a record, the
-time it was written, and, when a signing key is configured, the key's ID and
-a signature. The core writes one at an interval and at every retention cut
+time it was written, a `cut` flag, and, when a signing key is configured, the
+key's ID and a signature. The core writes one at an interval and at every retention cut
 (the server schedules them, issue #139; `bearing audit checkpoint` writes one
 now). It writes them **outside the store**: to the log stream, a file or an
 exporter, never to a table the store's writers can edit. The operator keeps
@@ -754,9 +797,12 @@ what it finds, naming the first bad record by `seq`:
 - a record whose hash doesn't match its content (an edit);
 - a gap (records missing: a deletion), or a record whose `prev_hash` isn't
   the one before it (an insertion or a replaced record);
-- an oldest record that isn't record 1 (a cut-off start). No checkpoint
-  excuses a missing start, since nothing marks one as written at a retention
-  cut; that marker, a signed field of the checkpoint, comes with retention;
+- an oldest record that isn't record 1 (a cut-off start), unless a signed
+  cut checkpoint (`cut` set) names the record before it, `seq` minus one, and
+  holds its hash as the oldest record's `prev_hash` ([Audit
+  retention](#audit-retention)). No other checkpoint excuses a missing start,
+  and checkpoints for records the log no longer holds, below the oldest, are
+  not checked against anything;
 - a checkpoint whose hash differs from the record at its `seq` (a chain
   rewritten end to end);
 - a checkpoint newer than the log's newest record (a cut-off tail);
@@ -772,7 +818,7 @@ newest checkpoint still held if the newer ones were withheld.
 
 ### The commands
 
-Both read the store given by `--store` or `$BEARING_STORE` and are for the
+All read the store given by `--store` or `$BEARING_STORE` and are for the
 operator, not for a caller of the API.
 
 `bearing audit checkpoint [--out FILE] [--key-id ID --key-env VAR]` writes
@@ -852,14 +898,178 @@ when both are set. `Head` returns the newest record's `seq`, hash and
 `recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin
 role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
+`bearing audit reanchor [--out FILE] --expect-seq N --key-id ID --key-env VAR` writes the
+cut checkpoint for the log's current start, for a log that was cut and lost
+its marker (a rotated key, a lost checkpoint file): the record the old marker
+named is gone, but the oldest record's `prev_hash` is its hash. It always
+signs (an unsigned marker never counts), takes the key as `checkpoint` does,
+refuses a log that starts at record 1, an empty one and an oldest record that
+does not match its hash, and writes the line as `checkpoint` does. It does not
+delete anything. Signing it says the records before the start were removed on
+purpose, which only the operator can know, so `--expect-seq` is required: the
+number of the last removed record, taken from an earlier checkpoint file or a
+backup, which must be the oldest record's number minus one. The command prints
+the hash it signed for; compare it with that earlier checkpoint (C-AUDIT-5).
+
+### Audit retention
+
+Records name people, so the log can't grow without end (ADR 8).
+`AuditRetention` removes the oldest records, and nothing else:
+
+```go
+type AuditRetention interface {
+	Cut(ctx context.Context, c AuditCut) (removed uint64, err error)
+}
+type AuditCut struct {
+	Through uint64 // the last record to remove
+	Hash    []byte // that record's hash
+}
+```
+
+It is separate from `AuditLog` so that the API's handlers, which read the log,
+hold nothing that deletes, and `store.Store.AuditRetention` is for the
+server's retention job alone (threat model C-AUDIT-5).
+
+- `Cut` removes the records from the oldest through `Through` and returns how
+  many. It checks first that the record at `Through` has `Hash`, and
+  refuses with `ErrAuditCutMismatch` if it differs or is missing from inside
+  the log, since then the log is not the one the caller's checkpoint
+  describes. Nothing is removed on a refusal.
+- It always keeps the newest record: `Through` at or past the head, an empty
+  log, a `Through` of 0 or a hash that is not 32 bytes is `ErrInvalidAuditCut`.
+- A cut that is already done, because `Through` is below the oldest record the
+  log holds, removes nothing and succeeds, so a retry after a crash is safe.
+- It is atomic with `Apply` and `Restore`: it takes the same head lock, so it
+  runs between applies and is refused while a restore runs, the chain stays
+  unbroken from the first record left, and the head is unchanged. It also
+  recomputes the hash of the record at `Through` and refuses to cut one that
+  does not match it, so a cut never launders a tampered prefix. The contract
+  sets no maximum on a cut and its cost, and the time it holds the lock, grow
+  with what it removes, so the caller cuts in bounded batches.
+
+A cut goes in this order, for each call:
+
+1. The retention job picks the last record to remove, by age, never the
+   newest and never more than a batch.
+2. It writes a **cut checkpoint** for that record (`audit.NewCutCheckpoint`):
+   a checkpoint with `cut` set, signed, to the checkpoint destination, and
+   waits until it is durable there (synced, or acknowledged for a remote
+   destination). A destination that is full or unreachable stops retention; it
+   never causes a delete. One marker goes with each `Cut` call: a marker for a
+   whole batched run would leave the log half cut, failing to verify until the
+   run ended and for good if the server stopped partway.
+3. It calls `Cut` with the same record number and hash.
+
+A crash between 2 and 3 leaves a marker with nothing missing, which `Verify`
+accepts: it checks a cut checkpoint against a record still in the log like any
+checkpoint. Until the cut completes, though, that marker is a standing licence
+for anyone with store access to delete the records up to it without `Verify`
+noticing, so the job repeats the cut through the same record before choosing
+another and reports a marker it cannot complete. The job also runs `Verify`
+against the checkpoints it holds before step 2, since it signs the hash it
+reads from the store; and `Verify` fails when two trusted checkpoints disagree
+about a record that has been cut. `Cut` does not see the marker: pairing them is
+the job's discipline. Records missing with no marker are what `Verify` finds.
+`Verify` reads the log in pages and assumes no cut lands while it runs; one
+that does can show as a gap, so rerun it.
+
+What the marker means to `Verify`: the log may start at record `S + 1` when a
+trusted cut checkpoint with `seq = S` holds the oldest record's `prev_hash`.
+The marker needs a signature that verifies against a key the verifier holds;
+`AllowUnsigned` does not cover it, because an unsigned marker would let whoever
+controls the checkpoint file excuse any deleted prefix. So retention needs a
+signing key and is off by default. Old checkpoints and old markers below the new
+start are not errors; only the cut at the oldest record's predecessor licenses
+the start. If that marker is lost, `bearing audit reanchor` makes a new one
+for the current start.
+
+Retention bounds the audit table and nothing else. The journal still holds the
+audit entries of every `ChangeSet`, so `Restore` rebuilds the whole chain from
+record 1, and backups hold the entries too. A cut is not a way to erase a
+person's name from the system.
+
 ### Not implemented yet
 
-- Retention. The contract has no delete. The cut that removes the oldest
-  records comes with the server (issue #139), together with the signed marker
-  on a checkpoint that says it was written at a cut; until then `Verify`
-  accepts only a log that starts at record 1.
+- The server's retention job: choosing what to cut by age, writing the
+  markers and calling `Cut` (issue #139). The contract, the verifier's rule
+  and the command are here.
 - Export to object storage or a SIEM (ADR 8).
 - Writers that change no graph state (policy decisions, executor actions).
+
+## Authorizer
+
+`Authorizer` decides whether a verified caller may call one method of
+Bearing's API ([ADR 12](../adr/0012-authentication-through-oidc.md), threat
+model C-API-4 and C-API-5). It answers who may call Bearing. `PolicyDecider`
+answers whether an action on the outside world may run, and the two stay
+separate. The Go definition is
+[`pkg/contracts/authz.go`](../../pkg/contracts/authz.go).
+
+The server authenticates first: it checks a token against the identity
+provider, or accepts a caller on the Unix socket, and builds a `Caller` from
+what that proved. The `Authorizer` never sees a token. A `Caller` holds the
+issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
+(`azp` or `client_id`) only for a token a client got for itself (no subject, a
+subject equal to the client ID, or `gty` equal to `client-credentials`), the groups
+claim, and a `Local` flag only the server sets. The authenticator refuses a
+token whose subject or client ID begins `system:` or `local:` (the audit log's
+names for components and the socket, C-AUDIT-6), or is longer than 1,024 bytes
+(the audit log refuses a longer actor). The server also checks that a `Source`
+names a configured source before it asks, so the backend decides only who may
+act on it.
+
+| Type | Meaning |
+| --- | --- |
+| `Request` | The `Caller`, the `Method`, and for a method that acts on one source, the `Source`. |
+| `AuthDecision` | `Allowed`, the `Role` that allowed it (empty on a denial), and a `Reason` that is safe to log and show: it never contains a token, a group, a subject or a client ID. |
+
+`Authorize` returns a denial as a decision with a nil error. It returns an
+error only when the backend could not decide, and the caller then refuses the
+request. Its text goes to logs and spans, so it never repeats the caller's
+subject, groups or client ID.
+
+**Methods and roles.** Each method of the API has one entry in the table in
+`contracts` (`RequiredRole`), and a method with no entry is denied for every
+caller, a local one included. When the server ships (issue #139), a test in it
+fails if a route has no entry, so a new method is denied until someone
+classifies it.
+
+| Method | Role | Notes |
+| --- | --- | --- |
+| `query.get`, `query.owner`, `query.related`, `query.changes` | `read` | Queries. |
+| `sync.request` | `ingest` | Asks for a sync of one source; the request names it. |
+
+The roles are `read`, `ingest` (granted for named sources) and `admin`.
+`admin` holds `read` and `ingest` for every source. Roles from several grants
+add up. A local caller is an administrator without any grant (C-API-1).
+
+**The default backend** maps a group or a client ID to a role with a list of
+`Grant`s, built from configuration. `contracts.CheckGrants` refuses a list in
+which a grant names both a group and a client or neither, names a role the
+version does not know, gives `ingest` no source or another role a source, or
+makes a client an `admin`, or has a name over 256 bytes, that is not valid UTF-8, that has leading or trailing
+space or holds a control or format character, or lists more than 1,024
+sources in one grant. A caller with a client ID is a client: it
+gets the roles of that client ID and nothing from its groups claim, so a token
+cannot lift a client above its mapping. A caller without one gets the roles of
+its groups, and a user whose subject or group spells a client's ID gets nothing
+from it. Other claims never grant a role (C-IDP-3).
+Grants are scoped to the one configured issuer (ADR 12); a backend that serves
+several issuers must add the issuer to its grants, since `Caller.Issuer` is
+there for that.
+
+**Conformance.** The rule that an `Authorize` error never repeats the caller's
+identity cannot be tested, since a suite cannot make a backend fail; it is on
+the backend's author. `conformance.Authorizer` takes a function that builds a
+backend from a list of grants, so a relationship-based backend writes the
+grants as its own tuples first. It checks the rules above: invalid grants are
+refused (`ErrInvalidGrant`), each role reaches what it should and nothing
+more, ingest stops at its sources, a client is known by its client ID alone and its
+groups claim adds nothing,
+a local caller is an administrator and a name that looks local is not, an
+unlisted method is denied, and a denial's reason leaks nothing about the
+caller. `instrument.Authorizer` counts decisions by method and result
+without ever labelling a metric with the caller.
 
 ## Rules that apply to every component
 

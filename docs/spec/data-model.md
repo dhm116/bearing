@@ -275,6 +275,32 @@ declares, per kind it emits:
 | `fields` | Every predicate it claims with this kind as the observed entity: `predicate`, optional `direction` (`in` for relations given with `from`; default `out`), `match` (`exact`, `email`, `name` or `members`, if the field is [identity evidence](#matching)) and `authority` (`{ "authoritative": true }`; default not authoritative). An unregistered attribute also gives `type` (`string`, `float`, `bool`, `time`, `json`) and `cardinality`; it is stored as `<namespace>.<attribute>`. |
 | `links` | Key types of other systems that this system records for the entity (`linked_ids`), with `authority`. |
 
+An adapter that takes webhooks also declares, once for the adapter, how its
+source signs them (`webhook`): the `scheme` (`WEBHOOK_SCHEME_HMAC_SHA256`:
+HMAC-SHA256 over the raw body, hex), the `signature_header` that carries it
+and the `signature_prefix` before the digest (`sha256=` for GitHub, `v1=` for
+PagerDuty). The declaration never holds a secret: the source supplies that by
+reference (`webhook_secret`), and the host verifies each delivery before it is
+logged ([ADR 7](../adr/0007-durable-event-log.md)). The rules the verifier
+follows:
+
+- The values of every line of the signature header are split on commas into
+  at most 8 candidates. A candidate is the prefix and then exactly 64 hex
+  digits (either case); any other candidate is skipped. The delivery passes
+  when one candidate equals the HMAC of the raw body, compared in constant
+  time across all of them.
+- The signature header cannot be `Host`, `Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `Content-Length`,
+  `Content-Type`, `Content-Encoding`, `Transfer-Encoding`, `Connection` or
+  `User-Agent`.
+- The host names a delivery by the SHA-256 of its body. The delivery ID
+  headers senders add (GitHub's `X-GitHub-Delivery`) are not covered by the
+  signature, so a replayed body with a new ID would pass the dedupe
+  (C-INGEST-5); a scheme whose signature covers an ID would add a field for it.
+- A scheme that signs a timestamp (Stripe, Slack) is not expressible yet: it
+  needs a new `WebhookScheme` value and fields for the timestamp and the
+  window, which is an addition.
+
 A **field** is `(source, kind, predicate, direction)`. A support's
 **authority** is evaluated at read time `r` from the declarations and
 `authority` overrides in force at `r`; it is not stored on the claim. A
@@ -1315,7 +1341,7 @@ target or in `before` and `after`, and the store replaces it
 | `unmerge` | the subject split from | | `after`: the `MergeRecord`, where one exists |
 | `distinct_from_set`, `distinct_from_cleared` | the `distinct_from` fact | | |
 | `claim_withdrawn` | the fact (a `(subject, predicate)` when the subject is minted in the same event) | | the source's `SupportTimeline` |
-| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of a subject this event mints, since its ID can't be known before the apply | the `status_reason` | the `FactTimeline` |
+| `fact_status_changed` | the fact; the `(subject, predicate)` for a fact of, or about, a subject this event mints, since its ID can't be known before the apply | the `status_reason` of the first new span; `no_support` when the change only ends spans or ends them earlier | the `FactTimeline` |
 | `conflict_opened`, `conflict_closed` | the `(subject, predicate)` | the `resolution`, on close | the `Conflict` |
 | `override_set`, `override_cleared`, `override_stale` | the `(subject, predicate)` | | |
 | `compaction` | the `(subject, predicate)` | the tier's `detail` | `after`: the `CompactionSummary` |
@@ -1323,6 +1349,32 @@ target or in `before` and `after`, and the store replaces it
 | `rejection` | the event; `reason` names the scope | | `rejection_code` and `reason` |
 | `config_applied` | the resource (`<kind>/<name>`) | | the `Resource`: before, if there was one; after, unless deleted |
 | `declaration_changed` | the source | | the `AdapterDeclaration`, before and after |
+| `event_dead_lettered` | the event | `attempts_exhausted` | `reason` is the last error, cut short |
+
+The resolver writes these entries as `system:resolver`, in an order a caller
+can rely on: rejections first, then mints, bindings and merges, then for each
+`(subject, predicate)` the claims withdrawn, the status changes and the
+conflicts, then dropped writes. A claim is withdrawn when a source's support for
+a fact stops being open-ended. A conflict closes when it ends or its valid time
+ends earlier (one that lasts longer is opened again), with `evidence_changed`
+as its rule unless a decision closed it.
+
+A `before` or `after` that holds a stored row leaves out the store's fields
+(`recorded_at`, `retracted_at`, a support's `fact_id`, a subject's
+`minted_at`), and a merge's `after` leaves out the alias lists and
+`recorded_at`, which the binding entries and the journal hold. So a replay of
+the same event against the same state writes the same entries. When a merge
+makes two facts one, the `before` of the status change is the surviving
+subject's fact. An event that changes nothing and refuses nothing audits
+nothing.
+
+An entry's target ID is at most `MaxAuditIDBytes` ([contracts.md](contracts.md#audit-entries)),
+and an alias has no length limit. An alias over it is named in the target by
+its first bytes, cut on a character boundary, then `#` and the first 16 hex
+characters of the SHA-256 of the alias, so the target is `MaxAuditIDBytes` long
+less any partial character; the `before` and `after` of a binding entry hold the alias in full. A
+`rejection`'s `reason` is cut to `MaxAuditReasonBytes` on a character
+boundary, with "…" at the cut.
 
 | Code | Scope | Raised by |
 | --- | --- | --- |
@@ -1352,7 +1404,7 @@ document read the configuration in force at record time `r`.
 | `kind` | Holds | Read by |
 | --- | --- | --- |
 | `Adapter` | The module's digest, the capabilities and secret names it declares, default settings | The adapter host |
-| `Source` | Its adapter, `namespace`, `issues`, `links`, `authority` overrides, settings, secret references, `schedule`, narrowed capabilities | [Keys and namespaces](#keys-and-namespaces) |
+| `Source` | Its adapter, `namespace`, `issues`, `links`, `authority` overrides, settings, secret references, `schedule`, narrowed capabilities, `webhook_secret` (a reference to the key that signs its webhooks) | [Keys and namespaces](#keys-and-namespaces) |
 | `Assertion` | The `threshold_ppm` of every predicate (900000 when 0), `confidence_groups`, per-predicate `precedence` | [Confidence](#confidence), [Status](#status), [Conflicts](#conflicts) |
 | `MatchWeights` | Weights in ppm per kind and method or `link`, with per-source, per-predicate overrides | [Matching](#matching) |
 | `MergePolicies` | The merge policy per kind, with `threshold_ppm` for `score` | [Merge policy](#merge-policy) |
@@ -1474,6 +1526,7 @@ not events; they are written to the `AuditLog`.
 | `ConflictOpened`, `ConflictResolved`, `OverrideStale` | the core, as outputs of an apply | [Conflicts](#conflicts) |
 | `CompactionRequested` | the scheduler or a person | [Retention and compaction](#retention-and-compaction) |
 | `DeclarationChanged` | the core, when a source's adapter is upgraded | [Declarations](#declarations) |
+| `EventDeadLettered` | a worker, when it gives up on an event | [Dead letters](contracts.md#dead-letters) |
 | `ConfigApplied` | a person or automation through the CLI or API; the loader at start-up | [Configuration](#configuration) |
 
 ## Worked examples

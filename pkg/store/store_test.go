@@ -68,6 +68,27 @@ func applyAudited(t *testing.T, s *Store, event string) {
 }
 
 // Events can be opened from a URL of their own.
+func TestOpenMemoryAlwaysGrantsTheInstanceLock(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, Config{Graph: "mem://"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	for range 2 {
+		l, err := s.LockInstance(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Held(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Release(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestOpenTakesAnEventLogURL(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, Config{Graph: "mem://", Events: "mem://?x=1"})

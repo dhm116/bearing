@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -212,6 +213,32 @@ func TestPostgresServesTheGraphWithoutVectorDimensions(t *testing.T) {
 		t.Fatalf("got head %v, %v, want %v", head, err, res.RecordedAt)
 	}
 	applyAudited(t, s, "store-audited")
+	// One server at a time may use the schema.
+	lock, err := s.LockInstance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := Open(ctx, Config{Graph: u.String(), Getenv: getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, other)
+	if _, err := other.LockInstance(ctx); !errors.Is(err, ErrInstanceLocked) {
+		t.Fatalf("a second server on the schema: got %v, want ErrInstanceLocked", err)
+	}
+	if err := lock.Held(ctx); err != nil {
+		t.Fatalf("the first server's lock: %v", err)
+	}
+	if err := lock.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	again, err := other.LockInstance(ctx)
+	if err != nil {
+		t.Fatalf("after the first server let go: %v", err)
+	}
+	if err := again.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
 	// Asking for it as the vector index without dimensions is an error that
 	// says so.
 	_, err = Open(ctx, Config{Graph: "mem://", Vectors: u.String(), Getenv: getenv})

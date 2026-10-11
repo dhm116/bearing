@@ -310,19 +310,15 @@ func (w *worker) apply(ctx context.Context, e contracts.Entry) (int, error) {
 // after another apply landed first.
 const maxStaleRetries = 16
 
-// applyObservation resolves ev and applies its ChangeSet with the audit
-// entries the resolver's output calls for. Nothing in the repository turns
-// that output into entries yet (the server will), so the worker does it for
-// the decisions the story makes: mints, bindings, merges and rejections.
+// applyObservation resolves ev and applies its ChangeSet, whose audit entries
+// the resolver made.
 func (w *worker) applyObservation(ctx context.Context, ev resolver.Event) error {
 	for range maxStaleRetries {
 		res, err := w.resolver.Resolve(ctx, ev)
 		if err != nil {
 			return err
 		}
-		cs := res.ChangeSet
-		cs.Audit = append(cs.Audit, auditEntries(ev.ID, cs, res.Rejections)...)
-		if _, err := w.store.Apply(ctx, cs); errors.Is(err, contracts.ErrStale) {
+		if _, err := w.store.Apply(ctx, res.ChangeSet); errors.Is(err, contracts.ErrStale) {
 			continue
 		} else if err != nil {
 			return err
@@ -330,36 +326,6 @@ func (w *worker) applyObservation(ctx context.Context, ev resolver.Event) error 
 		return nil
 	}
 	return contracts.ErrStale
-}
-
-func auditEntries(eventID string, cs *modelv1alpha1.ChangeSet, rejections []resolver.Rejection) []*modelv1alpha1.AuditEntry {
-	system := &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"}
-	var out []*modelv1alpha1.AuditEntry
-	for _, m := range cs.GetMints() {
-		out = append(out, &modelv1alpha1.AuditEntry{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MINT, Actor: system, Rule: model.ShortName(m.GetRule()),
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, Id: m.GetRef()},
-		})
-	}
-	for _, b := range cs.GetBindings() {
-		out = append(out, &modelv1alpha1.AuditEntry{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, Actor: system,
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: b.GetAlias()},
-		})
-	}
-	for _, m := range cs.GetMerges() {
-		out = append(out, &modelv1alpha1.AuditEntry{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_MERGE, Actor: system, Rule: model.ShortName(m.GetRule()), ConfidencePpm: m.GetConfidencePpm(),
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT, Id: m.GetSubjectIds()[0]},
-		})
-	}
-	for _, r := range rejections {
-		out = append(out, &modelv1alpha1.AuditEntry{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION, Actor: system, RejectionCode: r.Code, Reason: model.Clip(r.String()),
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT, Id: eventID},
-		})
-	}
-	return out
 }
 
 // fixedClock reads the same instant every time. A store's record time is

@@ -123,7 +123,8 @@
                 "AUDIT_ACTION_COMPACTED_WRITE_DROPPED",
                 "AUDIT_ACTION_REJECTION",
                 "AUDIT_ACTION_CONFIG_APPLIED",
-                "AUDIT_ACTION_DECLARATION_CHANGED"
+                "AUDIT_ACTION_DECLARATION_CHANGED",
+                "AUDIT_ACTION_EVENT_DEAD_LETTERED"
               ],
               "type": "string"
             },

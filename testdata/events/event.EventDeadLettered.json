@@ -1,0 +1,11 @@
+{
+  "event_id": "github-acme/9f2c6b1e-3a7d-4e58-8c0b-5d1f4a2e7b93",
+  "partition": "github-acme",
+  "offset": "1842",
+  "type": "dev.bearing.observations_emitted.v1",
+  "event_time": "2026-10-10T21:14:05.123456Z",
+  "group": "apply",
+  "attempts": 5,
+  "error": "apply: change set is larger than the store accepts",
+  "data_bytes": "2048"
+}

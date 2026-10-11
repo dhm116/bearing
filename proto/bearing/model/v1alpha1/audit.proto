@@ -58,6 +58,9 @@ enum AuditAction {
   AUDIT_ACTION_CONFIG_APPLIED = 18;
   // A source's declarations changed with its adapter.
   AUDIT_ACTION_DECLARATION_CHANGED = 19;
+  // A worker gave up on an event after repeated failures and moved past it
+  // (rule: attempts_exhausted).
+  AUDIT_ACTION_EVENT_DEAD_LETTERED = 20;
 }
 
 // AuditActorKind says what kind of thing acted.
@@ -190,4 +193,9 @@ message AuditCheckpoint {
   // the checkpoint without this field (so seq, head_hash, time and key_id),
   // when a key is configured (docs/spec/contracts.md, "Checkpoints").
   bytes signature = 5;
+  // True for the checkpoint written at a retention cut: seq and head_hash
+  // then name the last record removed, which is no longer in the log, and the
+  // checkpoint authorizes a log that starts at seq + 1. It is signed with the
+  // rest, and a verifier honors it only when the signature verifies.
+  bool cut = 6;
 }

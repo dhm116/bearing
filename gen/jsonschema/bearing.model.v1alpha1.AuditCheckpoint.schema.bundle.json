@@ -18,6 +18,11 @@
         }
       },
       "properties": {
+        "cut": {
+          "default": false,
+          "description": "True for the checkpoint written at a retention cut: seq and head_hash\n then name the last record removed, which is no longer in the log, and the\n checkpoint authorizes a log that starts at seq + 1. It is signed with the\n rest, and a verifier honors it only when the signature verifies.",
+          "type": "boolean"
+        },
         "head_hash": {
           "default": null,
           "description": "That record's hash.",

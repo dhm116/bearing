@@ -47,6 +47,9 @@ type Report struct {
 	// the sequence numbers of the oldest and the newest of them.
 	Records     uint64
 	First, Last uint64
+	// Cut is the signed cut checkpoint that the log's start rests on, when the
+	// oldest record is not record 1; nil when the log starts at the beginning.
+	Cut *modelv1alpha1.AuditCheckpoint
 	// Checkpoints is how many checkpoints agreed with the chain.
 	Checkpoints int
 	// Newest is the agreeing checkpoint with the highest sequence number (the
@@ -68,15 +71,20 @@ func (r Report) OK() bool { return len(r.Failures) == 0 }
 //   - every record follows the one before it (no gap, an unbroken prev_hash)
 //     and its hash matches its content, so an edited, deleted or inserted
 //     record is found;
-//   - the oldest record is the first (seq 1, no prev_hash): until a signed
-//     retention-cut marker exists, no checkpoint excuses a missing start, so
-//     a deleted prefix is found;
+//   - the oldest record is the first (seq 1, no prev_hash), or follows a
+//     signed cut checkpoint (AuditCheckpoint.cut) that names the record before
+//     it and its hash, which is what a retention cut leaves. No other
+//     checkpoint excuses a missing start, so a deleted prefix is found, and a
+//     cut checkpoint covers only the records up to its own seq;
 //   - every checkpoint that covers a record agrees with that record's hash,
 //     so a chain rewritten end to end no longer matches;
 //   - no checkpoint is newer than the log's newest record, so a cut-off tail
 //     is found;
 //   - every checkpoint is signed (unless Options.AllowUnsigned) and its
 //     signature verifies against a trusted key.
+//
+// Verify reads the log in pages and assumes no retention cut lands while it
+// runs; one that does can show as a gap, so rerun it.
 //
 // A checkpoint that fails its signature is reported and not used to judge the
 // chain. Verify stops reading at the first broken record, since nothing after
@@ -85,6 +93,7 @@ func (r Report) OK() bool { return len(r.Failures) == 0 }
 func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1alpha1.AuditCheckpoint, opts Options) (Report, error) {
 	var rep Report
 	bySeq := map[uint64][]*modelv1alpha1.AuditCheckpoint{}
+	cuts := map[uint64][]*modelv1alpha1.AuditCheckpoint{}
 	var maxSeq uint64
 	for _, cp := range checkpoints {
 		if err := checkpointOK(cp, opts); err != nil {
@@ -92,6 +101,9 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			continue
 		}
 		bySeq[cp.GetSeq()] = append(bySeq[cp.GetSeq()], cp)
+		if cp.GetCut() {
+			cuts[cp.GetSeq()] = append(cuts[cp.GetSeq()], cp)
+		}
 		maxSeq = max(maxSeq, cp.GetSeq())
 	}
 	fail := func(seq uint64, format string, args ...any) {
@@ -116,11 +128,14 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			if prev == nil {
 				rep.First = rec.GetSeq()
 				if rec.GetSeq() != 1 {
-					fail(1, "records 1 to %d are missing: the log must start at record 1 (a checkpoint cannot excuse a missing start)", rec.GetSeq()-1)
-					broken = true
-					break
-				}
-				if len(rec.GetPrevHash()) != 0 {
+					marker := cutBefore(cuts[rec.GetSeq()-1], rec)
+					if marker == nil {
+						fail(1, "records 1 to %d are missing: the log must start at record 1 or follow a signed cut checkpoint that names record %d", rec.GetSeq()-1, rec.GetSeq()-1)
+						broken = true
+						break
+					}
+					rep.Cut = marker
+				} else if len(rec.GetPrevHash()) != 0 {
 					fail(1, "is not the start of a chain: record 1 has a prev_hash")
 					broken = true
 					break
@@ -160,6 +175,22 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			rep.Last = rec.GetSeq()
 		}
 	}
+	if !broken && rep.First > 1 {
+		// A record that was cut can no longer be compared with the checkpoints
+		// that name it, so they must at least agree with each other: a chain
+		// rewritten before the cut would otherwise hide behind it.
+		for seq, cps := range bySeq {
+			if seq >= rep.First {
+				continue
+			}
+			for _, cp := range cps[1:] {
+				if !bytes.Equal(cp.GetHeadHash(), cps[0].GetHeadHash()) {
+					fail(seq, "was cut, and two trusted checkpoints hold different hashes for it")
+					break
+				}
+			}
+		}
+	}
 	if !broken && maxSeq > rep.Last {
 		fail(rep.Last+1, "records %d to %d are missing: a checkpoint covers them", rep.Last+1, maxSeq)
 	}
@@ -175,13 +206,30 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 	return rep, nil
 }
 
+// cutBefore returns the newest cut checkpoint among cps (all for the sequence
+// number before first's) that holds first's prev_hash, or nil if none does.
+func cutBefore(cps []*modelv1alpha1.AuditCheckpoint, first *modelv1alpha1.AuditRecord) *modelv1alpha1.AuditCheckpoint {
+	var found *modelv1alpha1.AuditCheckpoint
+	for _, cp := range cps {
+		if bytes.Equal(cp.GetHeadHash(), first.GetPrevHash()) && (found == nil || cp.GetTime().AsTime().After(found.GetTime().AsTime())) {
+			found = cp
+		}
+	}
+	return found
+}
+
 // checkpointOK says whether a checkpoint can be used to judge the chain.
 func checkpointOK(cp *modelv1alpha1.AuditCheckpoint, opts Options) error {
 	if err := VerifyCheckpoint(cp, opts.Keys); err != nil {
 		return err
 	}
-	if !opts.AllowUnsigned && len(cp.GetSignature()) == 0 {
-		return fmt.Errorf("it is not signed")
+	if len(cp.GetSignature()) == 0 {
+		if cp.GetCut() {
+			return fmt.Errorf("it marks a retention cut and is not signed (AllowUnsigned does not cover cuts)")
+		}
+		if !opts.AllowUnsigned {
+			return fmt.Errorf("it is not signed")
+		}
 	}
 	return nil
 }

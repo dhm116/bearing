@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,16 @@ import (
 // ErrInvalidAuditQuery is returned by AuditLog.Query for a filter outside the
 // contract (CheckAuditFilter).
 var ErrInvalidAuditQuery = errors.New("contracts: invalid audit query")
+
+// ErrInvalidAuditCut is returned by AuditRetention.Cut for a request outside the
+// contract (CheckAuditCut), or one that would remove the newest record.
+var ErrInvalidAuditCut = errors.New("contracts: invalid audit cut")
+
+// ErrAuditCutMismatch is returned by AuditRetention.Cut when the record at the cut
+// does not have the hash the caller signed for, or is missing from the middle
+// of the log. Nothing was removed. It means the log is not the one the
+// checkpoint describes, so the caller must not retry it away.
+var ErrAuditCutMismatch = errors.New("contracts: audit cut does not match the log")
 
 // The bounds on what the audit log returns. Raising one is compatible.
 const (
@@ -35,6 +46,17 @@ type AuditHead struct {
 	Hash []byte
 	// RecordedAt is the record time of the apply that wrote it.
 	RecordedAt time.Time
+}
+
+// AuditCut asks the log to remove its oldest records, the retention cut
+// (AuditRetention; docs/spec/contracts.md, "Retention").
+type AuditCut struct {
+	// Through is the sequence number of the last record to remove.
+	Through uint64
+	// Hash is that record's hash, which the caller has written in a signed cut
+	// checkpoint (audit.NewCutCheckpoint) before asking. The log refuses to
+	// cut unless its record has this hash.
+	Hash []byte
 }
 
 // AuditFilter selects records. Empty fields match anything. Records come back
@@ -63,12 +85,13 @@ type AuditFilter struct {
 }
 
 // AuditLog is the tamper-evident record of who or what changed a fact and why
-// (docs/adr/0008-audit-log.md; docs/spec/contracts.md, "AuditLog"). It is read
-// only: the backend that serves GraphStore writes the records itself, inside
-// the transaction of the Apply whose change they describe, from the
+// (docs/adr/0008-audit-log.md; docs/spec/contracts.md, "AuditLog"). It is
+// read only: the backend that serves GraphStore writes the records itself,
+// inside the transaction of the Apply whose change they describe, from the
 // ChangeSet's audit entries, so a change never commits without its record and
 // a record never exists for a change that did not commit. Nothing updates or
-// deletes a record.
+// deletes a record through it. The one delete, the retention cut, is on
+// AuditRetention, which only the server's retention job holds.
 //
 // Records form a hash chain (package audit fixes the bytes that are hashed):
 // each carries the hash of the one before it, so an edited, deleted or
@@ -85,6 +108,38 @@ type AuditLog interface {
 	// Head returns the newest record's sequence number and hash, or the zero
 	// AuditHead for an empty log.
 	Head(ctx context.Context) (AuditHead, error)
+}
+
+// AuditRetention removes the oldest audit records. It is a separate interface
+// from AuditLog so that the handlers that serve reads (and the API that
+// exposes them) hold nothing that can delete, and so the contract C-AUDIT-5
+// speaks of, an AuditLog with no update or delete, stays true. Only the
+// server's retention job gets one, and it writes a signed cut checkpoint
+// outside the store before every call (audit.NewCutCheckpoint).
+type AuditRetention interface {
+	// Cut removes the records through c.Through, the oldest ones, and returns
+	// how many it removed. It checks the record at c.Through against c.Hash and
+	// refuses with ErrAuditCutMismatch if it differs or is missing from inside
+	// the log. It always keeps the newest record, so a cut up to or past the
+	// head is ErrInvalidAuditCut, as is a bad request (CheckAuditCut). A cut
+	// that is already done, because c.Through is below the oldest record the log
+	// holds, removes nothing and succeeds, so a retry after a crash is safe.
+	// It is atomic with respect to Apply: no record is added while it runs, and
+	// the chain stays unbroken from the first record left. Whoever calls it
+	// writes the signed cut checkpoint first.
+	Cut(ctx context.Context, c AuditCut) (removed uint64, err error)
+}
+
+// CheckAuditCut reports whether c is in range, as an error wrapping
+// ErrInvalidAuditCut. Every backend calls it from Cut.
+func CheckAuditCut(c AuditCut) error {
+	if c.Through == 0 {
+		return fmt.Errorf("%w: through is not a record number", ErrInvalidAuditCut)
+	}
+	if len(c.Hash) != sha256.Size {
+		return fmt.Errorf("%w: the hash is %d bytes, not a SHA-256", ErrInvalidAuditCut, len(c.Hash))
+	}
+	return nil
 }
 
 // CheckAuditFilter reports whether f is in range, as an error wrapping

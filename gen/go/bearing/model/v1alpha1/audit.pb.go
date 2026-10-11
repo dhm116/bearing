@@ -75,6 +75,9 @@ const (
 	AuditAction_AUDIT_ACTION_CONFIG_APPLIED AuditAction = 18
 	// A source's declarations changed with its adapter.
 	AuditAction_AUDIT_ACTION_DECLARATION_CHANGED AuditAction = 19
+	// A worker gave up on an event after repeated failures and moved past it
+	// (rule: attempts_exhausted).
+	AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED AuditAction = 20
 )
 
 // Enum value maps for AuditAction.
@@ -100,6 +103,7 @@ var (
 		17: "AUDIT_ACTION_REJECTION",
 		18: "AUDIT_ACTION_CONFIG_APPLIED",
 		19: "AUDIT_ACTION_DECLARATION_CHANGED",
+		20: "AUDIT_ACTION_EVENT_DEAD_LETTERED",
 	}
 	AuditAction_value = map[string]int32{
 		"AUDIT_ACTION_UNSPECIFIED":             0,
@@ -122,6 +126,7 @@ var (
 		"AUDIT_ACTION_REJECTION":               17,
 		"AUDIT_ACTION_CONFIG_APPLIED":          18,
 		"AUDIT_ACTION_DECLARATION_CHANGED":     19,
+		"AUDIT_ACTION_EVENT_DEAD_LETTERED":     20,
 	}
 )
 
@@ -659,7 +664,12 @@ type AuditCheckpoint struct {
 	// The Ed25519 signature over a domain prefix and the canonical encoding of
 	// the checkpoint without this field (so seq, head_hash, time and key_id),
 	// when a key is configured (docs/spec/contracts.md, "Checkpoints").
-	Signature     []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	Signature []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	// True for the checkpoint written at a retention cut: seq and head_hash
+	// then name the last record removed, which is no longer in the log, and the
+	// checkpoint authorizes a log that starts at seq + 1. It is signed with the
+	// rest, and a verifier honors it only when the signature verifies.
+	Cut           bool `protobuf:"varint,6,opt,name=cut,proto3" json:"cut,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -729,6 +739,13 @@ func (x *AuditCheckpoint) GetSignature() []byte {
 	return nil
 }
 
+func (x *AuditCheckpoint) GetCut() bool {
+	if x != nil {
+		return x.Cut
+	}
+	return false
+}
+
 var File_bearing_model_v1alpha1_audit_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_audit_proto_rawDesc = "" +
@@ -761,13 +778,14 @@ const file_bearing_model_v1alpha1_audit_proto_rawDesc = "" +
 	"\btrace_id\x18\x05 \x01(\tR\atraceId\x128\n" +
 	"\x05entry\x18\x06 \x01(\v2\".bearing.model.v1alpha1.AuditEntryR\x05entry\x12\x1b\n" +
 	"\tprev_hash\x18\a \x01(\fR\bprevHash\x12\x12\n" +
-	"\x04hash\x18\b \x01(\fR\x04hash\"\xa5\x01\n" +
+	"\x04hash\x18\b \x01(\fR\x04hash\"\xb7\x01\n" +
 	"\x0fAuditCheckpoint\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1b\n" +
 	"\thead_hash\x18\x02 \x01(\fR\bheadHash\x12.\n" +
 	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x15\n" +
 	"\x06key_id\x18\x04 \x01(\tR\x05keyId\x12\x1c\n" +
-	"\tsignature\x18\x05 \x01(\fR\tsignature*\x9e\x05\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignature\x12\x10\n" +
+	"\x03cut\x18\x06 \x01(\bR\x03cut*\xc4\x05\n" +
 	"\vAuditAction\x12\x1c\n" +
 	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11AUDIT_ACTION_MINT\x10\x01\x12 \n" +
@@ -789,7 +807,8 @@ const file_bearing_model_v1alpha1_audit_proto_rawDesc = "" +
 	"$AUDIT_ACTION_COMPACTED_WRITE_DROPPED\x10\x10\x12\x1a\n" +
 	"\x16AUDIT_ACTION_REJECTION\x10\x11\x12\x1f\n" +
 	"\x1bAUDIT_ACTION_CONFIG_APPLIED\x10\x12\x12$\n" +
-	" AUDIT_ACTION_DECLARATION_CHANGED\x10\x13*\x88\x01\n" +
+	" AUDIT_ACTION_DECLARATION_CHANGED\x10\x13\x12$\n" +
+	" AUDIT_ACTION_EVENT_DEAD_LETTERED\x10\x14*\x88\x01\n" +
 	"\x0eAuditActorKind\x12 \n" +
 	"\x1cAUDIT_ACTOR_KIND_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17AUDIT_ACTOR_KIND_PERSON\x10\x01\x12\x1a\n" +

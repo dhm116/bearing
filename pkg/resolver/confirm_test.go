@@ -356,8 +356,9 @@ func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(res.Dropped) != 0 || len(res.ChangeSet.GetAudit()) != 0 {
-			t.Errorf("teams %v: got %d dropped and %d audit entries, want none: %v", teams, len(res.Dropped), len(res.ChangeSet.GetAudit()), res.Dropped)
+		dropped := entriesOf(res.ChangeSet.GetAudit(), modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED)
+		if len(res.Dropped) != 0 || len(dropped) != 0 {
+			t.Errorf("teams %v: got %d dropped and %d dropped-write entries, want none: %v", teams, len(res.Dropped), len(dropped), res.Dropped)
 		}
 	}
 }

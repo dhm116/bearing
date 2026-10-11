@@ -1,6 +1,7 @@
 package memstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -20,6 +21,14 @@ func (s *Store) AuditLog() contracts.AuditLog { return auditLog{s} }
 type auditLog struct{ s *Store }
 
 var _ contracts.AuditLog = auditLog{}
+
+// AuditRetention returns the store's retention cut, for the server's
+// retention job.
+func (s *Store) AuditRetention() contracts.AuditRetention { return auditRetention{s} }
+
+type auditRetention struct{ s *Store }
+
+var _ contracts.AuditRetention = auditRetention{}
 
 // writeAudit chains the entries of cs into records, after the log's head, and
 // returns them with the new head. Nothing is stored yet: apply stores them
@@ -80,6 +89,37 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 		}
 	}
 	return out, nil
+}
+
+// Cut implements contracts.AuditRetention.
+func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if err := contracts.CheckAuditCut(c); err != nil {
+		return 0, err
+	}
+	a.s.mu.Lock()
+	defer a.s.mu.Unlock()
+	recs := a.s.audit
+	if len(recs) == 0 || c.Through >= a.s.auditHead.Seq {
+		return 0, fmt.Errorf("%w: record %d is not before the newest, which the log keeps", contracts.ErrInvalidAuditCut, c.Through)
+	}
+	if c.Through < recs[0].GetSeq() {
+		return 0, nil
+	}
+	i := sort.Search(len(recs), func(i int) bool { return recs[i].GetSeq() >= c.Through })
+	if i == len(recs) || recs[i].GetSeq() != c.Through || !bytes.Equal(recs[i].GetHash(), c.Hash) {
+		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
+	}
+	// A record that does not match its own hash is not cut, so a cut never
+	// launders a tampered prefix.
+	if h, err := audit.Hash(recs[i]); err != nil || !bytes.Equal(h, c.Hash) {
+		return 0, fmt.Errorf("%w: record %d does not match its hash", contracts.ErrAuditCutMismatch, c.Through)
+	}
+	// A copy, so the removed records can be collected.
+	a.s.audit = slices.Clone(recs[i+1:])
+	return uint64(i) + 1, nil //nolint:gosec // G115: an index is never negative
 }
 
 // matchesAudit says whether rec passes the filter's conditions (not its

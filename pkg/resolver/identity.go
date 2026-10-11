@@ -56,6 +56,9 @@ type run struct {
 	rejections []Rejection
 	// dropped are the writes the support state ignored (see [DroppedWrite]).
 	dropped []DroppedWrite
+	// audit holds the entries for the ChangeSet's decisions, in order: the
+	// identity entries, then the status and conflict changes.
+	audit []*modelv1alpha1.AuditEntry
 }
 
 // identify resolves the observed entity and its references to subjects and
