@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,6 +230,10 @@ func readSample(t *testing.T, name string) sampleFile {
 	return decode[sampleFile](t, b)
 }
 
+// The owner and repository expected below restate the spec's rules (the
+// label, then the annotation, then the image hint) so a fake that drifts
+// from the samples fails; a change to those rules is made here too.
+//
 // TestKubernetesAgreesWithTheSpecSamples reads the cluster at the samples'
 // time and checks that each workload's served fields lead to the sample the
 // spec shows for it: the same name, kind, images, replicas, owner and
@@ -400,6 +405,14 @@ func TestKubernetesAuthentication(t *testing.T) {
 			}
 		})
 	}
+	t.Run("authentication comes before authorization", func(t *testing.T) {
+		// A caller who isn't known is told so, not what it may not do.
+		for _, token := range []string{"other", ""} {
+			if status, _ := kubeDo(t, kb, http.MethodGet, "/api/v1/namespaces/payments/secrets", token); status != http.StatusUnauthorized {
+				t.Errorf("token %q on a forbidden path: got %d, want 401", token, status)
+			}
+		}
+	})
 	t.Run("an empty Token accepts any token", func(t *testing.T) {
 		c := testkit.NewClock(Start)
 		open := NewKubernetes(t, NewCluster(c), KubernetesOptions{})
@@ -506,16 +519,17 @@ func TestKubernetesPagesWithLimitAndContinue(t *testing.T) {
 	t.Run("a change between pages moves nothing already served", func(t *testing.T) {
 		first := kubeGet(t, kb, path+"?limit=2")
 		tok, _ := field(first, "metadata", "continue").(string)
-		// Something sorting before the last item served arrives, and the
-		// first item served is deleted.
+		// Something sorting before the items served arrives, which would
+		// push ledger onto the second page if the token counted items, and
+		// an item not yet served is deleted, which must not come back.
 		if err := k.AddWorkload(Workload{Kind: KindDeployment, Namespace: "payments", Name: "audit", Replicas: 1, Containers: []Container{{Name: "a", Image: "x:1"}}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := k.DeleteWorkload(Ref{KindDeployment, "payments", "invoices"}); err != nil {
+		if err := k.DeleteWorkload(Ref{KindDeployment, "payments", "payouts"}); err != nil {
 			t.Fatal(err)
 		}
 		rest := kubeNames(t, kubeGet(t, kb, path+"?limit=10&continue="+url.QueryEscape(tok)))
-		if want := []string{"payments/payments-api", "payments/payouts", "payments/refunds"}; !slices.Equal(rest, want) {
+		if want := []string{"payments/payments-api", "payments/refunds"}; !slices.Equal(rest, want) {
 			t.Errorf("second page: got %v, want %v", rest, want)
 		}
 	})
@@ -890,4 +904,33 @@ func TestClusterMutationsRefuseWhatCannotHappen(t *testing.T) {
 	if again, _ := k.Workload(payments); again.Labels["team"] != "payments" || again.Containers[0].Image == "changed" {
 		t.Error("changing a returned copy changed the cluster")
 	}
+}
+
+func TestClusterIsSafeForConcurrentUse(t *testing.T) {
+	kb, k, _ := newKubernetes(t, KubernetesOptions{})
+	payments := Ref{KindDeployment, "payments", "payments-api"}
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for n := range 20 {
+				if err := k.SetReplicas(payments, i+n); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				if status, _ := kubeDo(t, kb, http.MethodGet, "/apis/apps/v1/deployments?limit=1", kubeToken); status != http.StatusOK {
+					t.Errorf("list: status %d", status)
+					return
+				}
+				k.Workloads(KindDeployment, "")
+			}
+		}()
+	}
+	wg.Wait()
 }

@@ -164,8 +164,12 @@
 // is the adapter's read-only one ([ServiceAccountUser]): it may list
 // namespaces and Deployments, StatefulSets and DaemonSets, and every other
 // call is a 403 Status naming what was refused, whether a Secret, a
-// ConfigMap, a Pod, a get of one workload, a watch or a write. All of it,
-// the refusals included, is in the request log.
+// ConfigMap, a Pod, a get of one workload, a watch or a write. The token
+// is checked first, so an unknown caller gets the 401 even on a refused
+// path. All of it, the refusals included, is in the request log. Paths
+// outside /api and /apis are refused too, /version and discovery included,
+// though a real cluster lets any authenticated caller read them: an adapter
+// that probes them would fail here and pass there.
 //
 //   - GET /api/v1/namespaces
 //   - GET /apis/apps/v1/deployments, /statefulsets and /daemonsets, and the
@@ -177,7 +181,9 @@
 // opaque, names the last item served so a change between pages moves
 // nothing already read, and belongs to one list (another list's token is a
 // 400). With [KubernetesOptions.ExpireContinue] or [Kubernetes.ExpireContinue]
-// a continue token gets 410 Gone. Objects carry more than the adapter may
+// a valid continue token gets 410 Gone (a malformed one, or one from
+// another list, is a 400 first). Objects carry more than the adapter may
 // read (status, managedFields, the pod template's environment and
-// arguments), as a real cluster's do.
+// arguments), as a real cluster's do. A container's environment is plain
+// name and value pairs; valueFrom, configMapRef and ports are not modeled.
 package fakes

@@ -20,8 +20,8 @@ type KubernetesOptions struct {
 	// request with none, gets the API server's 401. Empty accepts any
 	// non-empty token.
 	Token string
-	// ExpireContinue makes every list request that carries a continue token
-	// answer 410 Gone, as an API server does when the list's snapshot was
+	// ExpireContinue makes every list request that carries a valid continue
+	// token answer 410 Gone, as an API server does when the list's snapshot was
 	// compacted before the client came back for the next page.
 	ExpireContinue bool
 }
