@@ -346,7 +346,7 @@ func TestCheckpointFileRollsBackToTheHealedFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, _ := os.ReadFile(f.Path)
-			if err := os.WriteFile(f.Path, append(before, tt.tail...), 0o600); err != nil {
+			if err := os.WriteFile(f.Path, append(before, tt.tail...), 0o600); err != nil { //nolint:gosec // G703: a file the test makes
 				t.Fatal(err)
 			}
 			started, release := make(chan struct{}), make(chan struct{})
@@ -412,19 +412,19 @@ func TestCheckpointFileHealsTheEdgesOfACutOffLine(t *testing.T) {
 func TestLockFileGivesUpWhenItsContextIsDone(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "cp.ndjson")
-	holder, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	holder, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G304: a file the test makes
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer holder.Close()
+	t.Cleanup(func() { _ = holder.Close() })
 	if err := lockFile(t.Context(), holder, true); err != nil {
 		t.Skipf("no file locks here: %v", err)
 	}
-	waiter, err := os.Open(path)
+	waiter, err := os.Open(path) //nolint:gosec // G304: a file the test made
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer waiter.Close()
+	t.Cleanup(func() { _ = waiter.Close() })
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	if err := lockFile(ctx, waiter, false); !errors.Is(err, context.DeadlineExceeded) {
