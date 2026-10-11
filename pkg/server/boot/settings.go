@@ -294,11 +294,15 @@ func (s *Settings) checkSecrets() error {
 }
 
 // reservedNames are variables a secret reference must never name: Bearing's
-// own configuration, and the PATH the server fixes for an adapter.
+// own configuration, and the PATH the server fixes for an adapter. Any other
+// BEARING_ name outside BEARING_SECRET_ is refused by prefix.
 var reservedNames = []string{"PATH", "BEARING_STORE_PASSWORD", "BEARING_SETTINGS", "BEARING_TOKEN"}
 
 // reserved reports whether the allowlist pattern p matches a reserved name.
 func reserved(p string) bool {
+	if strings.HasPrefix(p, "BEARING_") && !strings.HasPrefix(p, "BEARING_SECRET_") {
+		return true // the rest of the BEARING_ names are Bearing's own
+	}
 	for _, n := range reservedNames {
 		if ok, _ := path.Match(p, n); ok {
 			return true

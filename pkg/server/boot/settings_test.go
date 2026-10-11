@@ -3,6 +3,7 @@ package boot
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,11 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"a schedule that is not ISO 8601", `"PT1H"`, `"1h"`, "ISO 8601"},
 		{"a schedule that is a typo for seconds", `"PT1H"`, `"PT5S"`, "shorter than"},
 		{"authority before M5", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "not supported until M5"},
+		{"a zero in-flight webhook cap", `"store": {`, `"webhooks": {"max_in_flight": 0}, "store": {`, "webhooks.max_in_flight must be positive"},
+		{"a negative webhook body cap", `"store": {`, `"webhooks": {"max_body_bytes": -1}, "store": {`, "webhooks.max_body_bytes must be positive"},
+		{"an adapter with no declaration", `"declaration": "/etc/bearing/github.json", `, ``, "declaration is required"},
+		{"an adapter name that is not a name", `"name": "github", "command"`, `"name": "Git Hub", "command"`, "must be lowercase"},
+		{"an env name that is not a variable name", `"HTTPS_PROXY"`, `"not a name"`, "is not a variable name"},
 		{"a misspelled setting", `"store": {`, `"stroe": {}, "store": {`, "unknown field"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +113,7 @@ func TestSecretAllowlistIsAPrefixAndCanBeNarrowedOrMoved(t *testing.T) {
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "the secret allowlist") {
 		t.Fatalf("got %v, want the default prefix no longer allowed", err)
 	}
-	for _, bad := range []string{`"A*B*"`, `"NOSTAR"`, `"*"`, `"P*"`, `"BEARING_*"`, `"BEARING_STORE_*"`} {
+	for _, bad := range []string{`"A*B*"`, `"NOSTAR"`, `"*"`, `"P*"`, `"BEARING_*"`, `"BEARING_STORE_*"`, `"BEARING_AUDIT_*"`} {
 		s, err := Parse([]byte(strings.Replace(goodSettings, `"store"`, `"secrets": {"env_allowlist": [`+bad+`]}, "store"`, 1)))
 		if err != nil {
 			t.Fatal(err)
@@ -206,5 +212,52 @@ func TestSettingsDoNotEchoAWronglyWrittenSecret(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), bad) {
 			t.Fatalf("got %v, want an error that does not contain %q", err, bad)
 		}
+	}
+}
+
+func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
+	t.Parallel()
+	five, nine := 5, 9
+	got := listenConfig(&Settings{Listen: ListenSettings{Socket: "/s", Addr: "127.0.0.1:1", MaxConns: &nine, MaxConnsPerPeer: &five, PeerRatePerMinute: &five}})
+	if got.MaxConns != 9 || got.MaxConnsPerPeer != 5 || got.PeerRate.PerMinute != 5 || got.Socket != "/s" {
+		t.Fatalf("got %+v, want the settings' limits", got)
+	}
+	off := listenConfig(&Settings{Listen: ListenSettings{Socket: "/s", InsecureNoPeerRate: true}})
+	if off.PeerRate.PerMinute >= 0 {
+		t.Fatalf("got a per-peer rate of %d, want the switch-off", off.PeerRate.PerMinute)
+	}
+}
+
+func TestRoleAuthorizerRefusesAGrantItCannotUse(t *testing.T) {
+	t.Parallel()
+	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "read"}}}}); err != nil {
+		t.Fatalf("a read grant: %v", err)
+	}
+	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "emperor"}}}}); err == nil || !strings.Contains(err.Error(), "auth.grants") {
+		t.Fatalf("got %v, want an unknown role refused", err)
+	}
+}
+
+func TestNamespacesAreTheOnesASourceIssuesAndLinks(t *testing.T) {
+	t.Parallel()
+	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
+	  "spec": {"adapter": "github", "namespace": "github", "schedule": "PT1H",
+	    "issues": [{"namespace": "acme-saml", "issuer_type": "saml"}],
+	    "links": [{"namespace": "acme-saml", "issuer_type": "saml"}, {"namespace": "acme-oidc", "issuer_type": "oidc"}]}}`
+	s, err := Parse([]byte(strings.Replace(goodSettings[:strings.Index(goodSettings, `"sources"`)]+`"sources": [`+src+`]}`, `"declaration"`, `"declaration"`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := namespaces(c), []string{"acme-oidc", "acme-saml", "github"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	cfg := resolverConfig(c, nil)
+	rs := cfg.Sources["github-acme"]
+	if rs == nil || len(rs.Issues) != 1 || rs.Issues[0].Name != "acme-saml" || rs.Issues[0].IssuerType != "saml" {
+		t.Fatalf("got %+v, want the issued namespace carried to the resolver", rs)
 	}
 }

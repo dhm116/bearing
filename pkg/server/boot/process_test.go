@@ -257,3 +257,100 @@ func (s *stuckProc) Close() error {
 	<-s.release
 	return nil
 }
+
+// A call the caller gave up on, as when the server stops, costs the process
+// but is not the adapter's failure: no pause, no restart counted.
+func TestManagedDoesNotCountACancelledCallAsAFailure(t *testing.T) {
+	t.Parallel()
+	var p *fakeProc
+	l := &launches{next: func() *fakeProc {
+		p = newFakeProc(nil)
+		p.describe = func(context.Context) (adapter.DescribeResult, error) {
+			<-p.release
+			return adapter.DescribeResult{}, io.ErrClosedPipe
+		}
+		return p
+	}}
+	m := newManaged(t.Context(), "s", l.launch, testkit.NewClock(epoch))
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if _, err := m.Describe(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want the context's error", err)
+	}
+	if !p.killed.Load() {
+		t.Fatal("the abandoned process was not killed")
+	}
+	m.mu.Lock()
+	fails, retryAt := m.fails, m.retryAt
+	m.mu.Unlock()
+	if fails != 0 || !retryAt.IsZero() {
+		t.Fatalf("got %d failures and a pause until %v, want neither", fails, retryAt)
+	}
+}
+
+// Close returns only once the processes it dropped earlier have been reaped,
+// and nothing starts after it.
+func TestManagedCloseWaitsForDroppedProcessesAndStartsNothingMore(t *testing.T) {
+	t.Parallel()
+	var first *fakeProc
+	reap := make(chan struct{})
+	l := &launches{next: func() *fakeProc {
+		first = newFakeProc(func(context.Context) (adapter.DescribeResult, error) {
+			return adapter.DescribeResult{}, io.ErrClosedPipe // a failure in transit drops it
+		})
+		return first
+	}}
+	m := newManaged(t.Context(), "s", func(ctx context.Context) (Process, error) {
+		p, err := l.launch(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &slowReap{Process: p, until: reap}, nil
+	}, testkit.NewClock(epoch))
+	if _, err := m.Describe(t.Context()); err == nil {
+		t.Fatal("the failing call succeeded")
+	}
+	done := make(chan struct{})
+	go func() { _ = m.Close(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("Close returned before the dropped process was reaped")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(reap)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close stayed blocked after the process was reaped")
+	}
+	starts := l.n.Load()
+	if _, err := m.Describe(t.Context()); err == nil || l.n.Load() != starts {
+		t.Fatalf("got %v and %d new starts, want a refusal after Close", err, l.n.Load()-starts)
+	}
+}
+
+// slowReap is a process whose Close waits for a test's go-ahead.
+type slowReap struct {
+	Process
+	until chan struct{}
+}
+
+func (s *slowReap) Close() error {
+	<-s.until
+	return s.Process.Close()
+}
+
+func TestManagedPassesHandleThrough(t *testing.T) {
+	t.Parallel()
+	l := &launches{next: func() *fakeProc { return newFakeProc(ok) }}
+	m := newManaged(t.Context(), "s", l.launch, testkit.NewClock(epoch))
+	if _, err := m.Handle(t.Context(), adapter.HandleParams{}); !errors.Is(err, adapter.ErrNotSupported) {
+		t.Fatalf("got %v, want the adapter's own answer", err)
+	}
+	if n := l.n.Load(); n != 1 {
+		t.Fatalf("got %d starts, want 1", n)
+	}
+}

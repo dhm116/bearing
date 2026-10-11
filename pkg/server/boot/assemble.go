@@ -80,7 +80,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkCommands(s); err != nil {
+	if err := checkCommands(s, os.Stat); err != nil {
 		return nil, err
 	}
 	plans, err := planSources(s, c, decls, env.Getenv)
@@ -354,10 +354,10 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 // checkCommands refuses an adapter command that is not an installed
 // executable that only the service user or root can change. The check runs at
 // start; a restart does not repeat it (see C-OPS-3).
-func checkCommands(s *Settings) error {
+func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
-		fi, err := os.Stat(a.Command)
+		fi, err := stat(a.Command)
 		switch {
 		case err != nil:
 			return fmt.Errorf("boot: settings: adapters[%d].command: %w", i, err)

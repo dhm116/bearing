@@ -66,6 +66,7 @@ type managed struct {
 	reaping sync.WaitGroup // dropped processes still being reaped
 
 	mu      sync.Mutex
+	closed  bool // set by Close: nothing starts again
 	proc    Process
 	fails   int
 	retryAt time.Time
@@ -82,6 +83,9 @@ func newManaged(ctx context.Context, source string, launch Launcher, clk clock.C
 func (m *managed) get() (Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return nil, fmt.Errorf("adapter for source %s is closed", m.source)
+	}
 	if m.proc != nil {
 		return m.proc, nil
 	}
@@ -113,7 +117,7 @@ func (m *managed) drop(p Process, why error) {
 		return
 	}
 	m.proc = nil
-	if m.ctx.Err() == nil { // a call cut short by the server stopping is not the adapter's failure
+	if !errors.Is(why, context.Canceled) { // a caller that walked away, or a stop, is not the adapter's failure
 		m.failLocked()
 	}
 	m.reaping.Add(1)
@@ -189,6 +193,7 @@ func (m *managed) Close() error {
 	m.mu.Lock()
 	p := m.proc
 	m.proc = nil
+	m.closed = true
 	m.retryAt = time.Time{}
 	m.mu.Unlock()
 	defer m.reaping.Wait()
