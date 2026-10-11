@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+
+	"bearing.example/pkg/apiclient"
 )
 
 // sourceCmd runs `bearing source <subcommand>`: the commands that act on a
@@ -47,14 +48,19 @@ func sourceSync(ctx context.Context, env queryEnv, args []string, stdout io.Writ
 	if err != nil {
 		return err
 	}
+	var raw []byte
+	if *asJSON {
+		ctx = apiclient.KeepBody(ctx, &raw)
+	}
 	acc, err := c.RequestSync(ctx, pos[0])
 	if err != nil {
-		return err
+		return sf.explain(c, err)
 	}
 	if *asJSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(acc)
+		if raw != nil {
+			return writeJSONBody(stdout, raw)
+		}
+		return writeJSON(stdout, acc)
 	}
 	_, err = fmt.Fprintf(stdout, "sync of %s requested (event %s, offset %d); the server runs it next\n", pos[0], acc.EventID, acc.Offset)
 	return err

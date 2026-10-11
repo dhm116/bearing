@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -120,9 +119,7 @@ func auditVerify(ctx context.Context, env queryEnv, args []string, stdout io.Wri
 		out.Stale = n == nil || now.Sub(n.GetTime().AsTime()) > age || n.GetTime().AsTime().Sub(now) > maxClockSkew
 	}
 	if *asJSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(out.json()); err != nil {
+		if err := writeJSON(stdout, out.json()); err != nil {
 			return err
 		}
 	} else if err := out.render(stdout); err != nil {

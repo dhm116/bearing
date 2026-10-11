@@ -23,7 +23,7 @@ func (o *out) line(indent int, format string, args ...any) {
 
 // terminalSafe drops what a terminal would act on, so text that came from a
 // source system, or from a server, cannot move the cursor, retitle the window
-// or reorder what the operator reads. --json is untouched: JSON escapes it.
+// or reorder what the operator reads. --json escapes the same set (jsonSafe).
 func terminalSafe(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {

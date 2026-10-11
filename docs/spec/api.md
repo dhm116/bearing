@@ -116,7 +116,14 @@ carries `Retry-After`, in seconds.
 store: the same answers, and errors of the same kinds: not found, invalid
 request and bad page token match `query`'s with `errors.Is`, and the exit codes
 are the same. The server's messages are generic (C-API-7) and carry a request
-ID, so their text differs from a store's. `--server` is the absolute path of
+ID, so their text differs from a store's; the command line adds what it knows.
+A not-found names the subject and the time that were asked about, as the
+store's does (`no subject matches github:repo/acme/x at now, as known now`),
+and so does an unknown source. A 401 or 403 adds a hint that names the variable
+the token came from (never its contents): for a 401, that the server did not
+accept the token in `$BEARING_TOKEN` (or the `--token-env` name); for a 403,
+that the server accepted it but the caller's role is not allowed to do this.
+On the socket, which uses no token, the hint says that instead. `--server` is the absolute path of
 the Unix socket (or `unix:///path`), which needs no token, or `https://host:port` with a bearer token
 read from the variable `--token-env` names (default `$BEARING_TOKEN`), never a
 value on the command line. `--server-ca` adds a certificate authority to trust.
@@ -128,9 +135,16 @@ the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`
 `bearing source sync <source> [--server ADDR] [--json]` takes the same
 `--server`, `--token-env` and `--server-ca` flags and `$BEARING_SERVER`. It
 makes the sync request and prints the request's event ID and offset (or them as
-JSON); the sync itself runs later. `--json` through `--server` prints the
-fields this client's types know, so a field a newer server adds shows only once
-the client is updated.
+JSON); the sync itself runs later.
+
+`--json` through `--server` prints the body the server sent, indented and with
+no field dropped, so a field a newer server adds shows at once; the text
+output shows the fields the client knows. In every `--json` output of the
+command line, a store's too, text that a terminal would act on is written as a
+JSON `\uXXXX` escape: DEL, the C1 controls (U+0080 to U+009F, which include the
+8-bit CSI and OSC), format characters such as bidi overrides, and the line and
+paragraph separators. The document means what it meant (a JSON reader decodes
+the escape to the same character); only what a terminal would print differs.
 
 ## Webhook deliveries
 

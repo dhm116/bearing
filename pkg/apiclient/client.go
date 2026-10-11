@@ -35,6 +35,8 @@ const (
 	maxErrorBytes = 64 << 10
 	// socketHost is the host name requests to a Unix socket carry.
 	socketHost = "bearing"
+	// maxAskedBytes bounds the part of a question that an error message repeats.
+	maxAskedBytes = 200
 )
 
 // Config says where the server is and how to authenticate to it.
@@ -205,11 +207,26 @@ func (e *Error) Unwrap() error {
 	return nil
 }
 
+// OverSocket reports whether the client talks to a Unix socket, which
+// identifies the caller by user ID and needs no token.
+func (c *Client) OverSocket() bool { return c.socket }
+
+type bodyKey struct{}
+
+// KeepBody returns a context that makes a successful request made on it store
+// the answer's body in *dst exactly as the server sent it, whatever fields it
+// holds: the typed answer drops those this client's types do not know, and a
+// caller that passes the answer on (bearing --json) wants all of them. The body
+// is the server's text, so a caller that prints it escapes it first.
+func KeepBody(ctx context.Context, dst *[]byte) context.Context {
+	return context.WithValue(ctx, bodyKey{}, dst)
+}
+
 // Get is query.Querier.Get, asked of the server.
 func (c *Client) Get(ctx context.Context, ref string, p query.Point) (*query.Entity, error) {
 	var e query.Entity
 	if err := c.get(ctx, "/v1/get", pointValues(ref, p), &e); err != nil {
-		return nil, err
+		return nil, notFoundAbout(err, ref, p)
 	}
 	return &e, nil
 }
@@ -218,7 +235,7 @@ func (c *Client) Get(ctx context.Context, ref string, p query.Point) (*query.Ent
 func (c *Client) Owners(ctx context.Context, ref string, p query.Point) (*query.Ownership, error) {
 	var o query.Ownership
 	if err := c.get(ctx, "/v1/owner", pointValues(ref, p), &o); err != nil {
-		return nil, err
+		return nil, notFoundAbout(err, ref, p)
 	}
 	return &o, nil
 }
@@ -231,7 +248,7 @@ func (c *Client) Related(ctx context.Context, ref, predicate string, p query.Poi
 	}
 	var r query.Relations
 	if err := c.get(ctx, "/v1/related", v, &r); err != nil {
-		return nil, err
+		return nil, notFoundAbout(err, ref, p)
 	}
 	return &r, nil
 }
@@ -254,7 +271,12 @@ func (c *Client) Changes(ctx context.Context, req query.ChangesRequest) (*query.
 	set("page_token", req.PageToken)
 	var ch query.Changes
 	if err := c.get(ctx, "/v1/changes", v, &ch); err != nil {
-		return nil, err
+		// The subject is looked up as the world stands at the window's end.
+		end := query.Point{Valid: req.Until}
+		if req.Axis == query.AxisRecord {
+			end.Recorded = req.Until
+		}
+		return nil, notFoundAbout(err, req.Ref, end)
 	}
 	return &ch, nil
 }
@@ -276,6 +298,11 @@ func (c *Client) RequestSync(ctx context.Context, source string) (*SyncAccepted,
 	}
 	var a SyncAccepted
 	if err := c.do(ctx, http.MethodPost, "/v1/sources/"+url.PathEscape(source)+"/sync", nil, &a); err != nil {
+		var e *Error
+		if errors.As(err, &e) && e.Code == "unknown_source" {
+			// The server's text is generic (C-API-7); say which source it was.
+			return nil, fmt.Errorf("source %s: %w", cleanText(source, maxAskedBytes), err)
+		}
 		return nil, err
 	}
 	a.EventID = cleanText(a.EventID, 64)
@@ -340,7 +367,33 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader, 
 	if err := json.Unmarshal(b, out); err != nil {
 		return fmt.Errorf("apiclient: the answer is not what the API sends: %w", err)
 	}
+	if dst, ok := ctx.Value(bodyKey{}).(*[]byte); ok && dst != nil {
+		*dst = b
+	}
 	return nil
+}
+
+// notFoundAbout says what a not-found answer was about. The server's text is
+// generic (C-API-7) and names neither the subject nor the time, which the
+// store's does; the client knows both. Any other error is returned as it is.
+func notFoundAbout(err error, ref string, p query.Point) error {
+	if ref == "" || !errors.Is(err, query.ErrNotFound) {
+		return err
+	}
+	return fmt.Errorf("no subject matches %s at %s: %w", cleanText(ref, maxAskedBytes), pointText(p), err)
+}
+
+// pointText says when a Point is, in the words query's own not-found messages
+// use.
+func pointText(p query.Point) string {
+	valid, recorded := "now", "as known now"
+	if !p.Valid.IsZero() {
+		valid = p.Valid.UTC().Format(time.RFC3339)
+	}
+	if !p.Recorded.IsZero() {
+		recorded = "as known " + p.Recorded.UTC().Format(time.RFC3339)
+	}
+	return valid + ", " + recorded
 }
 
 // unwrapURLError drops the URL that net/http puts in its errors, which holds
