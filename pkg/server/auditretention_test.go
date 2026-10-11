@@ -354,6 +354,13 @@ func TestAuditRetentionNeedsAKeyADestinationAndASaneAge(t *testing.T) {
 		"a key that does not load": {func(a *AuditRetention) {
 			a.Signer = func() (*audit.Signer, error) { return nil, errors.New("no file") }
 		}, "does not load"},
+		"no signer returned": {func(a *AuditRetention) { a.Signer = func() (*audit.Signer, error) { return nil, nil } }, "none was returned"},
+		"a key that is too short": {func(a *AuditRetention) {
+			a.Signer = func() (*audit.Signer, error) { return &audit.Signer{KeyID: "k", Key: []byte{1, 2, 3}}, nil }
+		}, "cannot sign"},
+		"a key with a bad ID": {func(a *AuditRetention) {
+			a.Signer = func() (*audit.Signer, error) { return &audit.Signer{KeyID: "a b", Key: w.priv}, nil }
+		}, "cannot sign"},
 		"no checkpoint destination": {func(a *AuditRetention) { a.Checkpoints = nil }, "outside the store"},
 		"no retention cut":          {func(a *AuditRetention) { a.Cut = nil }, "retention cut"},
 		"an age under the floor":    {func(a *AuditRetention) { a.Age = time.Hour }, "floor"},

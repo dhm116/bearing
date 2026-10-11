@@ -102,10 +102,28 @@ func checkAuditRetention(cfg *Config) error {
 	c.Every = orDefault(c.Every, DefaultAuditEvery)
 	c.Batch = min(orDefault(c.Batch, DefaultAuditBatch), contracts.MaxAuditQueryRecords)
 	c.MaxCuts = orDefault(c.MaxCuts, DefaultAuditMaxCuts)
-	if _, err := c.Signer(); err != nil {
-		return fmt.Errorf("server: audit retention: the signing key does not load: %w", err)
+	if _, err := loadAuditSigner(c.Signer, cfg.Clock.Now()); err != nil {
+		return fmt.Errorf("server: audit retention: %w", err)
 	}
 	return nil
+}
+
+// loadAuditSigner returns the signing key, or why the job may not use it. It
+// signs a throwaway marker, so a key that is missing, the wrong size or named
+// badly is refused here, where the server can still decline to start, and not
+// by a panic in the job.
+func loadAuditSigner(load func() (*audit.Signer, error), now time.Time) (*audit.Signer, error) {
+	signer, err := load()
+	if err != nil {
+		return nil, fmt.Errorf("the signing key does not load: %w", err)
+	}
+	if signer == nil {
+		return nil, errors.New("the signing key does not load: none was returned")
+	}
+	if _, err := audit.NewCutCheckpoint(contracts.AuditHead{Seq: 1, Hash: make([]byte, audit.HashSize)}, now, signer); err != nil {
+		return nil, fmt.Errorf("the signing key cannot sign: %w", err)
+	}
+	return signer, nil
 }
 
 // runAuditRetention cuts every Every. A run that fails is reported and tried
@@ -160,9 +178,9 @@ func (s *Server) auditRetentionRun(ctx context.Context) {
 func (s *Server) auditCut(ctx context.Context, verified *bool) (cut bool, stage string, err error) {
 	c := s.cfg.AuditRetention
 	now := s.clk.Now().UTC()
-	signer, err := c.Signer()
+	signer, err := loadAuditSigner(c.Signer, now)
 	if err != nil {
-		return false, "key", fmt.Errorf("the signing key does not load: %w", err)
+		return false, "key", err
 	}
 	keys := map[string]ed25519.PublicKey{}
 	for id, k := range c.Keys {
