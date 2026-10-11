@@ -792,7 +792,9 @@ Assets: A3, A5, A4, A7.
     timeout. Error text and the sync request's event ID are cleaned of control
     characters (C0 and C1), format characters such as bidi overrides, and line
     and paragraph separators before they are shown; the text renderer does the
-    same for every line it prints, and `--json` is left to JSON's own escaping.
+    same for every line it prints. `--json`, which is for machines, keeps
+    JSON's own escaping, so bidi and other format characters in it reach a
+    terminal that prints it (spoofing only; tracked in #259).
   - Residual risks: a socket path is trusted as given, so a local user who
     plants a socket where `$BEARING_SERVER` points can forge answers (no token
     is exposed); the URL of each request, which holds the question and a page
