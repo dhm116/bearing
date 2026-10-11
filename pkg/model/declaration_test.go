@@ -76,8 +76,10 @@ func TestValidateDeclarationRejects(t *testing.T) {
 		{"webhook header with a space", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X Sig"}), codeMalformed},
 		{"webhook prefix with a comma", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", SignaturePrefix: "v1,"}), codeMalformed},
 		{"webhook prefix too long", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", SignaturePrefix: strings.Repeat("a", MaxSignaturePrefixBytes+1)}), codeMalformed},
-		{"webhook delivery header is not a header", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", DeliveryIdHeader: "X ID"}), codeMalformed},
-		{"webhook delivery header is the signature header", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "X-Sig", DeliveryIdHeader: "x-sig"}), codeMalformed},
+		{"webhook scheme the host has no verifier for", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: 99, SignatureHeader: "X-Sig"}), codeMalformed},
+		{"webhook scheme below zero", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: -1, SignatureHeader: "X-Sig"}), codeMalformed},
+		{"webhook signature in Authorization", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "authorization"}), codeMalformed},
+		{"webhook signature in Content-Length", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "Content-Length"}), codeMalformed},
 		{"bad link", kind(&modelv1alpha1.KindDeclaration{Kind: "Team", Links: []*modelv1alpha1.LinkDeclaration{{IssuerType: "saml"}}}), codeMalformed},
 	}
 	for _, tt := range tests {
@@ -153,7 +155,7 @@ func TestValidateManualEvent(t *testing.T) {
 
 func TestValidateDeclarationAcceptsAWebhook(t *testing.T) {
 	for name, w := range map[string]*modelv1alpha1.WebhookSignature{
-		"GitHub":    {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Hub-Signature-256", SignaturePrefix: "sha256=", DeliveryIdHeader: "X-GitHub-Delivery"},
+		"GitHub":    {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Hub-Signature-256", SignaturePrefix: "sha256="},
 		"PagerDuty": {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-PagerDuty-Signature", SignaturePrefix: "v1="},
 		"bare":      {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Signature"},
 	} {

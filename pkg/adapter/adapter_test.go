@@ -441,11 +441,11 @@ func TestServeReportsWriteFailures(t *testing.T) {
 }
 
 func TestWebhookSignatureDeclaration(t *testing.T) {
-	w, err := WebhookSignature{Scheme: "WEBHOOK_SCHEME_HMAC_SHA256", SignatureHeader: "X-Sig", SignaturePrefix: "v1=", DeliveryIDHeader: "X-ID"}.Declaration()
+	w, err := WebhookSignature{Scheme: "WEBHOOK_SCHEME_HMAC_SHA256", SignatureHeader: "X-Sig", SignaturePrefix: "v1="}.Declaration()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.GetScheme() != modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 || w.GetSignatureHeader() != "X-Sig" || w.GetSignaturePrefix() != "v1=" || w.GetDeliveryIdHeader() != "X-ID" {
+	if w.GetScheme() != modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 || w.GetSignatureHeader() != "X-Sig" || w.GetSignaturePrefix() != "v1=" {
 		t.Errorf("got %v", w)
 	}
 	for _, scheme := range []string{"", "WEBHOOK_SCHEME_UNSPECIFIED", "rot13"} {

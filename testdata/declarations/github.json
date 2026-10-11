@@ -4,8 +4,7 @@
   "webhook": {
     "scheme": "WEBHOOK_SCHEME_HMAC_SHA256",
     "signature_header": "X-Hub-Signature-256",
-    "signature_prefix": "sha256=",
-    "delivery_id_header": "X-GitHub-Delivery"
+    "signature_prefix": "sha256="
   },
   "kinds": [
     {

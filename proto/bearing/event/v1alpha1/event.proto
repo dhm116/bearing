@@ -286,7 +286,7 @@ message ConfigApplied {
 
 // EventDeadLettered is the record of an event a worker gave up on after
 // repeated failures, appended to the core/dead_letter partition with Retain
-// so it outlives the retention window (docs/spec/contracts.md, "Dead
+// (it holds no event data) so it outlives the retention window (docs/spec/contracts.md, "Dead
 // letters"). The worker audits the event, marks it applied and commits past
 // it, so one bad event cannot hold the log.
 message EventDeadLettered {
@@ -304,13 +304,15 @@ message EventDeadLettered {
   string group = 6;
   // How many times the group tried.
   uint32 attempts = 7;
-  // The last error, cut short, with no secrets in it.
+  // The last error, cut to 1,024 bytes of valid UTF-8 with control
+  // characters replaced. Source systems and adapters write error text, so it
+  // is never trusted to be free of data.
   string error = 8;
-  // The size of the event's data in bytes.
+  // The size of the event's data in bytes. The data itself is not copied: a
+  // webhook's headers and body are organization data and can carry
+  // credentials, and this record lives until someone releases it. The event
+  // stays in the log until retention removes it, and a sync can be run again.
   uint64 data_bytes = 9;
-  // The event's data, unchanged. Absent when it is over 4 MiB, so the record
-  // stays within the log's limit; the sync that produced it can be run again.
-  bytes data = 10;
 }
 
 // ConfigChange is one resource set or deleted.

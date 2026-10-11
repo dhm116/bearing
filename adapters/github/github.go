@@ -131,10 +131,9 @@ func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 		Access:          []string{"repository metadata: read", "repository contents: read", "organization members: read"},
 		Webhooks:        true,
 		WebhookSignature: &adapter.WebhookSignature{
-			Scheme:           modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256.String(),
-			SignatureHeader:  "X-Hub-Signature-256",
-			SignaturePrefix:  "sha256=",
-			DeliveryIDHeader: "X-GitHub-Delivery",
+			Scheme:          modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256.String(),
+			SignatureHeader: "X-Hub-Signature-256",
+			SignaturePrefix: "sha256=",
 		},
 	}, nil
 }

@@ -1585,7 +1585,7 @@ func (x *ConfigApplied) GetChanges() []*ConfigChange {
 
 // EventDeadLettered is the record of an event a worker gave up on after
 // repeated failures, appended to the core/dead_letter partition with Retain
-// so it outlives the retention window (docs/spec/contracts.md, "Dead
+// (it holds no event data) so it outlives the retention window (docs/spec/contracts.md, "Dead
 // letters"). The worker audits the event, marks it applied and commits past
 // it, so one bad event cannot hold the log.
 type EventDeadLettered struct {
@@ -1604,13 +1604,15 @@ type EventDeadLettered struct {
 	Group string `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
 	// How many times the group tried.
 	Attempts uint32 `protobuf:"varint,7,opt,name=attempts,proto3" json:"attempts,omitempty"`
-	// The last error, cut short, with no secrets in it.
+	// The last error, cut to 1,024 bytes of valid UTF-8 with control
+	// characters replaced. Source systems and adapters write error text, so it
+	// is never trusted to be free of data.
 	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
-	// The size of the event's data in bytes.
-	DataBytes uint64 `protobuf:"varint,9,opt,name=data_bytes,json=dataBytes,proto3" json:"data_bytes,omitempty"`
-	// The event's data, unchanged. Absent when it is over 4 MiB, so the record
-	// stays within the log's limit; the sync that produced it can be run again.
-	Data          []byte `protobuf:"bytes,10,opt,name=data,proto3" json:"data,omitempty"`
+	// The size of the event's data in bytes. The data itself is not copied: a
+	// webhook's headers and body are organization data and can carry
+	// credentials, and this record lives until someone releases it. The event
+	// stays in the log until retention removes it, and a sync can be run again.
+	DataBytes     uint64 `protobuf:"varint,9,opt,name=data_bytes,json=dataBytes,proto3" json:"data_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1706,13 +1708,6 @@ func (x *EventDeadLettered) GetDataBytes() uint64 {
 		return x.DataBytes
 	}
 	return 0
-}
-
-func (x *EventDeadLettered) GetData() []byte {
-	if x != nil {
-		return x.Data
-	}
-	return nil
 }
 
 // ConfigChange is one resource set or deleted.
@@ -1902,7 +1897,7 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\rConfigApplied\x123\n" +
 	"\x05actor\x18\x01 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12>\n" +
-	"\achanges\x18\x03 \x03(\v2$.bearing.event.v1alpha1.ConfigChangeR\achanges\"\xae\x02\n" +
+	"\achanges\x18\x03 \x03(\v2$.bearing.event.v1alpha1.ConfigChangeR\achanges\"\x9a\x02\n" +
 	"\x11EventDeadLettered\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1c\n" +
 	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\x16\n" +
@@ -1914,9 +1909,7 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\battempts\x18\a \x01(\rR\battempts\x12\x14\n" +
 	"\x05error\x18\b \x01(\tR\x05error\x12\x1d\n" +
 	"\n" +
-	"data_bytes\x18\t \x01(\x04R\tdataBytes\x12\x12\n" +
-	"\x04data\x18\n" +
-	" \x01(\fR\x04data\"\xd5\x01\n" +
+	"data_bytes\x18\t \x01(\x04R\tdataBytes\"\xd5\x01\n" +
 	"\fConfigChange\x12<\n" +
 	"\x04type\x18\x01 \x01(\x0e2(.bearing.event.v1alpha1.ConfigChangeTypeR\x04type\x12#\n" +
 	"\rresource_kind\x18\x02 \x01(\tR\fresourceKind\x12#\n" +

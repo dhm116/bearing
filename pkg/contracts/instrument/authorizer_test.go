@@ -68,11 +68,13 @@ func TestAuthorizerDecisionsAreCountedWithoutTheCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := instrument.Authorizer(roles, "roles")
-	caller := contracts.Caller{Subject: "user-7f3c", ClientID: "client-9d1", Groups: []string{"very-secret-group"}}
+	caller := contracts.Caller{Subject: "user-7f3c", Groups: []string{"very-secret-group"}}
+	client := contracts.Caller{ClientID: "client-9d1", Groups: []string{"very-secret-group"}}
 	before := authzCounts(t)
 	for _, req := range []contracts.Request{
 		{Caller: caller, Method: contracts.MethodGet},
 		{Caller: caller, Method: contracts.MethodSyncRequest, Source: "github-acme"},
+		{Caller: client, Method: contracts.MethodOwner},
 		// A caller chooses these names, so they must not become labels.
 		{Caller: caller, Method: "query.made-up-by-a-caller-1"},
 		{Caller: caller, Method: "query.made-up-by-a-caller-2"},
@@ -82,7 +84,7 @@ func TestAuthorizerDecisionsAreCountedWithoutTheCaller(t *testing.T) {
 		}
 	}
 	got := authzCounts(t)
-	for key, want := range map[string]int64{"query.get/allowed": 1, "sync.request/denied": 1, "unlisted/denied": 2} {
+	for key, want := range map[string]int64{"query.get/allowed": 1, "query.owner/denied": 1, "sync.request/denied": 1, "unlisted/denied": 2} {
 		if d := got[key] - before[key]; d != want {
 			t.Errorf("%s: counted %d, want %d (all: %v)", key, d, want, got)
 		}
@@ -108,5 +110,18 @@ func TestAuthorizerBackendFailureMarksTheSpanAndCounts(t *testing.T) {
 	ended := spans.Ended()
 	if sp := ended[len(ended)-1]; sp.Name() != "authz.authorize" || sp.Status().Code != codes.Error {
 		t.Errorf("got span %q with status %v, want authz.authorize marked as an error", sp.Name(), sp.Status())
+	}
+}
+
+type contradictoryAuthorizer struct{}
+
+func (contradictoryAuthorizer) Authorize(context.Context, contracts.Request) (contracts.AuthDecision, error) {
+	return contracts.AuthDecision{Allowed: true, Role: contracts.RoleAdmin}, errors.New("half-written decision")
+}
+
+func TestAuthorizerErrorIsAlwaysADenial(t *testing.T) {
+	d, err := instrument.Authorizer(contradictoryAuthorizer{}, "rebac").Authorize(context.Background(), contracts.Request{Method: contracts.MethodGet})
+	if err == nil || d.Allowed || d.Role != "" {
+		t.Fatalf("got %+v, %v, want an empty denial with the error", d, err)
 	}
 }

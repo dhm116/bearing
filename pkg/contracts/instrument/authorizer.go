@@ -55,5 +55,10 @@ func (a *authorizer) Authorize(ctx context.Context, r contracts.Request) (contra
 		span.SetAttributes(attrRole.String(string(d.Role)))
 	}
 	authzDecisions.Add(ctx, 1, metric.WithAttributes(append(base, attrResult.String(result))...))
-	return d, err
+	if err != nil {
+		// The contract says an error is a denial; make it one here, so a
+		// backend that returns Allowed with an error cannot let a call through.
+		return contracts.AuthDecision{}, err
+	}
+	return d, nil
 }

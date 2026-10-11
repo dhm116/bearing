@@ -606,9 +606,11 @@ here and its type is `model.ObservationType`.
 
 The local part of an ID depends on where the event comes from:
 
-- A delivery from a source: the source's delivery ID, else the lower-case
-  hex SHA-256 of the authenticated body (C-INGEST-5). A delivery ID that
-  holds a slash is replaced by the hex SHA-256 of its bytes.
+- A delivery from a source: the lower-case hex SHA-256 of the authenticated
+  body (C-INGEST-5), since the delivery IDs senders add are not covered by
+  their signatures. A delivery ID that is covered by a signature, once a scheme
+  declares one, is used instead, and one that holds a slash is replaced by the
+  hex SHA-256 of its bytes.
 - A request from a person, the scheduler or the CLI (`SyncRequested`,
   `CompactionRequested`, `ConfigApplied` and the manual operations): a fresh
   UUID, not a hash, so two identical requests are two events.
@@ -637,16 +639,26 @@ crash between any two leaves a state that repeats safely:
    `Retain`, so the record outlives the retention window until someone
    releases it. Its ID is `core/dead_letter/<hex SHA-256 of the dead event's
    ID>`, so a repeat appends nothing. It names the event, its partition,
-   offset and type, the group, the attempts and the last error (cut to 1,024
-   bytes, with no secrets), and carries the event's data unchanged when that
-   is at most 4 MiB; a larger event is recorded without its data and
-   `data_bytes` says how big it was, since a sync can be run again.
+   offset and type, the group, the attempts, the last error and the size of
+   the event's data. It does not copy the data: a webhook's headers and body
+   are organization data, may carry credentials, and the record outlives the
+   window. The event itself stays in the log until retention removes it, and a
+   sync can be run again.
 2. It applies a `ChangeSet` for the dead event's ID that changes nothing and
    carries one audit entry: `event_dead_lettered`, actor `system:worker`,
    target the event, rule `attempts_exhausted`, `reason` the error. The
    processed-event mark this writes means the event is never applied later by
    mistake, and the entry makes the decision part of the tamper-evident log.
 3. It commits the group past the event.
+
+The error text comes from adapters and source systems, so the worker cuts it
+to 1,024 bytes, makes it valid UTF-8 and replaces control characters before it
+goes into the record and the audit entry's `reason`; the log does not check
+it. The number of retained dead letters is a gauge the server reports, so a
+flood of poison events is visible.
+The apply group reads `core/dead_letter` like any partition, since a required
+group reads every one, and commits past an `EventDeadLettered` event without
+applying anything.
 
 A dead letter is not retried by the server. An operator reads the
 `core/dead_letter` partition, fixes the cause and asks for a new sync.
@@ -903,8 +915,12 @@ The server authenticates first: it checks a token against the identity
 provider, or accepts a caller on the Unix socket, and builds a `Caller` from
 what that proved. The `Authorizer` never sees a token. A `Caller` holds the
 issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
-(`azp` or `client_id`) for client-credentials tokens, the groups claim, and a
-`Local` flag only the server sets.
+(`azp` or `client_id`) only for a token a client got for itself, the groups
+claim, and a `Local` flag only the server sets. The authenticator refuses a
+token whose subject begins `system:` or `local:`, which the audit log uses for
+components and the socket (C-AUDIT-6). The server also checks that a `Source`
+names a configured source before it asks, so the backend decides only who may
+act on it.
 
 | Type | Meaning |
 | --- | --- |
@@ -913,12 +929,14 @@ issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
 
 `Authorize` returns a denial as a decision with a nil error. It returns an
 error only when the backend could not decide, and the caller then refuses the
-request.
+request. Its text goes to logs and spans, so it never repeats the caller's
+subject, groups or client ID.
 
 **Methods and roles.** Each method of the API has one entry in the table in
 `contracts` (`RequiredRole`), and a method with no entry is denied for every
-caller, a local one included. A test in the server fails if a route has no
-entry, so a new method is denied until someone classifies it.
+caller, a local one included. When the server ships (issue #139), a test in it
+fails if a route has no entry, so a new method is denied until someone
+classifies it.
 
 | Method | Role | Notes |
 | --- | --- | --- |
@@ -933,15 +951,22 @@ add up. A local caller is an administrator without any grant (C-API-1).
 `Grant`s, built from configuration. `contracts.CheckGrants` refuses a list in
 which a grant names both a group and a client or neither, names a role the
 version does not know, gives `ingest` no source or another role a source, or
-makes a client an `admin`. A client ID matches only the caller's client ID,
-and a group only the groups claim, so a user whose subject or group spells a
-client's ID gets nothing from it. Other claims never grant a role (C-IDP-3).
+makes a client an `admin`, or has a name over 256 bytes, a control character in
+a name, or more than 1,024 sources. A caller with a client ID is a client: it
+gets the roles of that client ID and nothing from its groups claim, so a token
+cannot lift a client above its mapping. A caller without one gets the roles of
+its groups, and a user whose subject or group spells a client's ID gets nothing
+from it. Other claims never grant a role (C-IDP-3).
+Grants are scoped to the one configured issuer (ADR 12); a backend that serves
+several issuers must add the issuer to its grants, since `Caller.Issuer` is
+there for that.
 
 **Conformance.** `conformance.Authorizer` takes a function that builds a
 backend from a list of grants, so a relationship-based backend writes the
 grants as its own tuples first. It checks the rules above: invalid grants are
 refused (`ErrInvalidGrant`), each role reaches what it should and nothing
-more, ingest stops at its sources, a client is known by its client ID alone,
+more, ingest stops at its sources, a client is known by its client ID alone and its
+groups claim adds nothing,
 a local caller is an administrator and a name that looks local is not, an
 unlisted method is denied, and a denial's reason leaks nothing about the
 caller. `instrument.Authorizer` counts decisions by method and result

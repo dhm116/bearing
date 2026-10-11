@@ -149,7 +149,12 @@ func (x *AdapterDeclaration) GetWebhook() *WebhookSignature {
 
 // WebhookSignature declares how a source signs its deliveries
 // (docs/spec/adapter-protocol.md, "bearing.describe"). It never holds a
-// secret: the Source supplies that by reference.
+// secret: the Source supplies that by reference. It declares no delivery ID
+// header: the host names a delivery by the SHA-256 of its body, because the
+// IDs senders add (GitHub's X-GitHub-Delivery) are not covered by the
+// signature, so a replay could change one and pass the dedupe (threat model
+// C-INGEST-5). A scheme whose signature covers a delivery ID would add a
+// field for it.
 type WebhookSignature struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The signature scheme. Required.
@@ -160,12 +165,8 @@ type WebhookSignature struct {
 	// Text before the hex digest in the header, for example "sha256=" or
 	// "v1=". Empty when the header holds the bare digest.
 	SignaturePrefix string `protobuf:"bytes,3,opt,name=signature_prefix,json=signaturePrefix,proto3" json:"signature_prefix,omitempty"`
-	// The header that carries the sender's delivery ID, for example
-	// "X-GitHub-Delivery". Empty when the sender gives none; the host then
-	// names a delivery by the hash of its body.
-	DeliveryIdHeader string `protobuf:"bytes,4,opt,name=delivery_id_header,json=deliveryIdHeader,proto3" json:"delivery_id_header,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *WebhookSignature) Reset() {
@@ -215,13 +216,6 @@ func (x *WebhookSignature) GetSignatureHeader() string {
 func (x *WebhookSignature) GetSignaturePrefix() string {
 	if x != nil {
 		return x.SignaturePrefix
-	}
-	return ""
-}
-
-func (x *WebhookSignature) GetDeliveryIdHeader() string {
-	if x != nil {
-		return x.DeliveryIdHeader
 	}
 	return ""
 }
@@ -558,12 +552,11 @@ const file_bearing_model_v1alpha1_declaration_proto_rawDesc = "" +
 	"\vissuer_type\x18\x02 \x01(\tR\n" +
 	"issuerType\x12=\n" +
 	"\x05kinds\x18\x03 \x03(\v2'.bearing.model.v1alpha1.KindDeclarationR\x05kinds\x12B\n" +
-	"\awebhook\x18\x04 \x01(\v2(.bearing.model.v1alpha1.WebhookSignatureR\awebhook\"\xd5\x01\n" +
+	"\awebhook\x18\x04 \x01(\v2(.bearing.model.v1alpha1.WebhookSignatureR\awebhook\"\xa7\x01\n" +
 	"\x10WebhookSignature\x12=\n" +
 	"\x06scheme\x18\x01 \x01(\x0e2%.bearing.model.v1alpha1.WebhookSchemeR\x06scheme\x12)\n" +
 	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +
-	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\x12,\n" +
-	"\x12delivery_id_header\x18\x04 \x01(\tR\x10deliveryIdHeader\"\xe6\x01\n" +
+	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\"\xe6\x01\n" +
 	"\x0fKindDeclaration\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12>\n" +
 	"\x04keys\x18\x02 \x03(\v2*.bearing.model.v1alpha1.KeyTypeDeclarationR\x04keys\x12@\n" +

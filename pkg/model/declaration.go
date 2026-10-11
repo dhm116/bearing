@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -64,23 +65,24 @@ var headerName = regexp.MustCompile("^[0-9A-Za-z!#$%&'*+.^_`|~-]{1,128}$")
 // MaxSignaturePrefixBytes bounds a declared signature prefix.
 const MaxSignaturePrefixBytes = 32
 
+// reservedHeaders cannot carry a signature: the request's own framing and the
+// credentials a sender may add for another purpose.
+var reservedHeaders = []string{"Host", "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "Content-Length", "Content-Type", "Content-Encoding", "Transfer-Encoding", "Connection", "User-Agent"}
+
 func (c *checker) webhook(path string, w *modelv1alpha1.WebhookSignature) {
-	if w.GetScheme() == modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED {
-		c.add(codeMalformed, path+".scheme", "is required")
+	// An unknown number passes protobuf decoding, so the scheme is checked
+	// against the names this version has a verifier for.
+	if _, known := modelv1alpha1.WebhookScheme_name[int32(w.GetScheme())]; !known || w.GetScheme() == modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED {
+		c.add(codeMalformed, path+".scheme", "is required and must be a scheme the host can verify")
 	}
-	if !headerName.MatchString(w.GetSignatureHeader()) {
+	switch h := w.GetSignatureHeader(); {
+	case !headerName.MatchString(h):
 		c.add(codeMalformed, path+".signature_header", "is required and must be an HTTP header name")
+	case slices.ContainsFunc(reservedHeaders, func(r string) bool { return strings.EqualFold(r, h) }):
+		c.add(codeMalformed, path+".signature_header", "%q cannot carry a signature", clip(h))
 	}
 	if p := w.GetSignaturePrefix(); len(p) > MaxSignaturePrefixBytes || strings.ContainsFunc(p, func(r rune) bool { return r <= ' ' || r >= 0x7f || r == ',' }) {
 		c.add(codeMalformed, path+".signature_prefix", "must be at most %d printable ASCII characters without spaces or commas", MaxSignaturePrefixBytes)
-	}
-	if h := w.GetDeliveryIdHeader(); h != "" {
-		switch {
-		case !headerName.MatchString(h):
-			c.add(codeMalformed, path+".delivery_id_header", "must be an HTTP header name")
-		case strings.EqualFold(h, w.GetSignatureHeader()):
-			c.add(codeMalformed, path+".delivery_id_header", "must differ from the signature header")
-		}
 	}
 }
 

@@ -561,9 +561,12 @@ type SourceSpec struct {
 	Schedule string `protobuf:"bytes,8,opt,name=schedule,proto3" json:"schedule,omitempty"`
 	// Narrows the adapter's capabilities; never widens them.
 	Capabilities []*CapabilityGrant `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	// Secret reference ("env:NAME", "file:/path") for the key the source signs
-	// its webhook deliveries with. Empty: the source cannot push events, and
-	// its webhooks are refused. Ignored when the adapter declares no webhook.
+	// Secret reference, in the forms secrets accepts, for the key the source
+	// signs its webhook deliveries with. It is separate from secrets because
+	// only the host reads it: an adapter never asks for it or receives it, and
+	// a WASM adapter never sees it. Empty: the source cannot push events, and
+	// its webhooks are refused once the server runs (issue #139). Ignored when
+	// the adapter declares no webhook.
 	WebhookSecret string `protobuf:"bytes,10,opt,name=webhook_secret,json=webhookSecret,proto3" json:"webhook_secret,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

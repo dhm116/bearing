@@ -47,7 +47,8 @@ type DescribeResult struct {
 	Webhooks bool     `json:"webhooks"`
 	// WebhookSignature says how the source signs its deliveries, so the
 	// host can verify one before it is logged. Absent when the source does
-	// not sign them.
+	// not sign them. It travels over stdio only until M4 replaces this
+	// transport with the adapter service, whose declaration carries it.
 	WebhookSignature *WebhookSignature `json:"webhook_signature,omitempty"`
 }
 
@@ -55,10 +56,9 @@ type DescribeResult struct {
 // message (docs/spec/adapter-protocol.md, "bearing.describe"), with the
 // scheme by its ProtoJSON name. It never holds a secret.
 type WebhookSignature struct {
-	Scheme           string `json:"scheme"`
-	SignatureHeader  string `json:"signature_header"`
-	SignaturePrefix  string `json:"signature_prefix,omitempty"`
-	DeliveryIDHeader string `json:"delivery_id_header,omitempty"`
+	Scheme          string `json:"scheme"`
+	SignatureHeader string `json:"signature_header"`
+	SignaturePrefix string `json:"signature_prefix,omitempty"`
 }
 
 // Declaration returns the declaration message, or an error for a scheme the
@@ -70,10 +70,9 @@ func (w WebhookSignature) Declaration() (*modelv1alpha1.WebhookSignature, error)
 		return nil, fmt.Errorf("unknown webhook scheme %q", model.Clip(w.Scheme))
 	}
 	return &modelv1alpha1.WebhookSignature{
-		Scheme:           modelv1alpha1.WebhookScheme(scheme),
-		SignatureHeader:  w.SignatureHeader,
-		SignaturePrefix:  w.SignaturePrefix,
-		DeliveryIdHeader: w.DeliveryIDHeader,
+		Scheme:          modelv1alpha1.WebhookScheme(scheme),
+		SignatureHeader: w.SignatureHeader,
+		SignaturePrefix: w.SignaturePrefix,
 	}, nil
 }
 

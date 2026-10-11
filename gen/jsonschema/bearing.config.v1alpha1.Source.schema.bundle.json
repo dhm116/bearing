@@ -246,7 +246,7 @@
       "patternProperties": {
         "^(webhookSecret)$": {
           "default": "",
-          "description": "Secret reference (\"env:NAME\", \"file:/path\") for the key the source signs\n its webhook deliveries with. Empty: the source cannot push events, and\n its webhooks are refused. Ignored when the adapter declares no webhook.",
+          "description": "Secret reference, in the forms secrets accepts, for the key the source\n signs its webhook deliveries with. It is separate from secrets because\n only the host reads it: an adapter never asks for it or receives it, and\n a WASM adapter never sees it. Empty: the source cannot push events, and\n its webhooks are refused once the server runs (issue #139). Ignored when\n the adapter declares no webhook.",
           "type": "string"
         }
       },
@@ -310,7 +310,7 @@
         },
         "webhook_secret": {
           "default": "",
-          "description": "Secret reference (\"env:NAME\", \"file:/path\") for the key the source signs\n its webhook deliveries with. Empty: the source cannot push events, and\n its webhooks are refused. Ignored when the adapter declares no webhook.",
+          "description": "Secret reference, in the forms secrets accepts, for the key the source\n signs its webhook deliveries with. It is separate from secrets because\n only the host reads it: an adapter never asks for it or receives it, and\n a WASM adapter never sees it. Empty: the source cannot push events, and\n its webhooks are refused once the server runs (issue #139). Ignored when\n the adapter declares no webhook.",
           "type": "string"
         }
       },

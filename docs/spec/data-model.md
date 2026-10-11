@@ -276,15 +276,28 @@ declares, per kind it emits:
 | `links` | Key types of other systems that this system records for the entity (`linked_ids`), with `authority`. |
 
 An adapter that takes webhooks also declares, once for the adapter, how its
-source signs them (`webhook`): the `scheme` (`hmac_sha256`: HMAC-SHA256 over
-the raw body, hex), the `signature_header` that carries it, the
-`signature_prefix` before the digest (`sha256=` for GitHub, `v1=` for
-PagerDuty) and the `delivery_id_header` with the sender's delivery ID, when
-there is one. The declaration never holds a secret: the source supplies that
-by reference (`webhook_secret`), and the host verifies each delivery before
-it is logged ([ADR 7](../adr/0007-durable-event-log.md)). A header may carry
-several signatures separated by commas, and a delivery passes when one
-matches.
+source signs them (`webhook`): the `scheme` (`WEBHOOK_SCHEME_HMAC_SHA256`:
+HMAC-SHA256 over the raw body, hex), the `signature_header` that carries it
+and the `signature_prefix` before the digest (`sha256=` for GitHub, `v1=` for
+PagerDuty). The declaration never holds a secret: the source supplies that by
+reference (`webhook_secret`), and the host verifies each delivery before it is
+logged ([ADR 7](../adr/0007-durable-event-log.md)). The rules the verifier
+follows:
+
+- The values of every line of the signature header are split on commas into
+  at most 8 candidates. A candidate is the prefix and then exactly 64 hex
+  digits (either case); any other candidate is skipped. The delivery passes
+  when one candidate equals the HMAC of the raw body, compared in constant
+  time across all of them.
+- `Host`, `Authorization`, `Cookie` and the headers that frame the request
+  cannot be the signature header.
+- The host names a delivery by the SHA-256 of its body. The delivery ID
+  headers senders add (GitHub's `X-GitHub-Delivery`) are not covered by the
+  signature, so a replayed body with a new ID would pass the dedupe
+  (C-INGEST-5); a scheme whose signature covers an ID would add a field for it.
+- A scheme that signs a timestamp (Stripe, Slack) is not expressible yet: it
+  needs a new `WebhookScheme` value and fields for the timestamp and the
+  window, which is an addition.
 
 A **field** is `(source, kind, predicate, direction)`. A support's
 **authority** is evaluated at read time `r` from the declarations and

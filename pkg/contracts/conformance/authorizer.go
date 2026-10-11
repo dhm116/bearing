@@ -3,6 +3,7 @@ package conformance
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,6 +73,10 @@ func (a *authzSuite) invalidGrants(t *testing.T) {
 		"ingest with an empty one": {Group: "eng", Role: contracts.RoleIngest, Sources: []string{" "}},
 		"read with a source":       {Group: "eng", Role: contracts.RoleRead, Sources: []string{"github-acme"}},
 		"admin with a source":      {Group: "eng", Role: contracts.RoleAdmin, Sources: []string{"github-acme"}},
+		"a long group name":        {Group: strings.Repeat("g", 257), Role: contracts.RoleRead},
+		"a control character":      {Group: "eng\n", Role: contracts.RoleRead},
+		"a source with a control":  {Group: "eng", Role: contracts.RoleIngest, Sources: []string{"a\x00b"}},
+		"too many sources":         {Group: "eng", Role: contracts.RoleIngest, Sources: manySources()},
 	} {
 		_, err := a.newAuthorizer(t, []contracts.Grant{g})
 		failIf(t, !errors.Is(err, contracts.ErrInvalidGrant), "%s: got %v, want ErrInvalidGrant", name, err)
@@ -160,6 +165,17 @@ func (a *authzSuite) clients(t *testing.T) {
 	failIf(t, can(t, az, syncer, contracts.MethodSyncRequest, "authentik").Allowed, "the ingest client reached another source")
 	failIf(t, can(t, az, syncer, contracts.MethodGet, "").Allowed, "the ingest client ran a query")
 
+	// A client holds the roles of its client ID and none from its groups
+	// claim, so a token cannot lift a client above its mapping.
+	bot := contracts.Caller{Issuer: "https://idp.example", ClientID: "agent-1", Groups: []string{"shared-name", "admins"}}
+	az2 := a.build(t,
+		contracts.Grant{Client: "agent-1", Role: contracts.RoleRead},
+		contracts.Grant{Group: "admins", Role: contracts.RoleAdmin},
+		contracts.Grant{Group: "shared-name", Role: contracts.RoleIngest, Sources: []string{"github-acme"}})
+	failIf(t, !can(t, az2, bot, contracts.MethodGet, "").Allowed, "the read client lost its own role")
+	failIf(t, can(t, az2, bot, contracts.MethodSyncRequest, "github-acme").Allowed, "a client got ingest from its groups claim")
+	failIf(t, can(t, az2, bot, contracts.MethodSyncRequest, "authentik").Allowed, "a client got admin from its groups claim")
+
 	// A user whose subject or group spells a client's ID is not that client,
 	// and a client ID is not a group.
 	failIf(t, can(t, az, contracts.Caller{Issuer: "https://idp.example", Subject: "agent-1"}, contracts.MethodGet, "").Allowed, "a subject named like a client got its role")
@@ -211,4 +227,13 @@ func (a *authzSuite) decisions(t *testing.T) {
 			failIf(t, strings.Contains(d.Reason, leak), "%s: the reason %q names %q", m, d.Reason, leak)
 		}
 	}
+}
+
+// manySources returns more source names than a grant may list.
+func manySources() []string {
+	s := make([]string, 1025)
+	for i := range s {
+		s[i] = "source-" + strconv.Itoa(i)
+	}
+	return s
 }

@@ -7,6 +7,5 @@
   "group": "apply",
   "attempts": 5,
   "error": "apply: change set is larger than the store accepts",
-  "data_bytes": "2048",
-  "data": "eyJzb3VyY2UiOiJnaXRodWItYWNtZSJ9"
+  "data_bytes": "2048"
 }

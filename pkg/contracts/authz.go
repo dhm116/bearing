@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Role is what a caller may do (ADR 12, threat model C-API-4).
@@ -83,12 +84,18 @@ type Caller struct {
 	// local caller.
 	Issuer string
 	// Subject is the token's sub claim, or "local:<uid>" for the socket's
-	// accepted caller. Empty for a client-credentials token with no user.
+	// accepted caller. The authenticator never passes a token subject that
+	// begins "system:" or "local:", since the audit log uses those names for
+	// components and the socket (C-AUDIT-6). It may be empty or equal the
+	// client ID for a client-credentials token.
 	Subject string
-	// ClientID is the token's azp or client_id claim; set for
-	// client-credentials tokens, where Subject names no person.
+	// ClientID is the token's azp or client_id claim, set only for a token a
+	// client got for itself (client credentials). A caller with a ClientID is
+	// a client: a backend gives it the roles of that client ID and ignores
+	// its Groups, so a token cannot lift a client above its mapping.
 	ClientID string
-	// Groups is the value of the configured groups claim.
+	// Groups is the value of the configured groups claim, used for a caller
+	// that is not a client.
 	Groups []string
 	// Local is set only by the server for a caller it accepted on the
 	// Unix socket (C-API-1), who is an administrator.
@@ -102,7 +109,8 @@ type Request struct {
 	// Method is the operation. A method with no entry in the table is denied.
 	Method Method
 	// Source is the configured source a RoleIngest method acts on; empty for
-	// the others.
+	// the others. The server checks that it names a configured source before
+	// it asks; the Authorizer decides only who may act on it.
 	Source string
 }
 
@@ -124,7 +132,8 @@ type Authorizer interface {
 	// Authorize returns the decision for r. A denial is an AuthDecision with
 	// Allowed false and a nil error. The error is for a backend that could
 	// not decide (a relationship store that is down), and the caller treats
-	// it as a denial.
+	// it as a denial. The error text goes to logs and spans, so it must not
+	// repeat the caller's subject, groups or client ID.
 	Authorize(ctx context.Context, r Request) (AuthDecision, error)
 }
 
@@ -144,6 +153,18 @@ type Grant struct {
 	Sources []string
 }
 
+// Bounds on the names in a grant, which come from configuration.
+const (
+	maxGrantName    = 256
+	maxGrantSources = 1024
+)
+
+// goodName reports whether s is short and holds no control character. The
+// empty string passes, since a grant leaves one of Group and Client empty.
+func goodName(s string) bool {
+	return len(s) <= maxGrantName && !strings.ContainsFunc(s, unicode.IsControl)
+}
+
 // ErrInvalidGrant is returned by CheckGrants and wrapped in its errors.
 var ErrInvalidGrant = errors.New("contracts: invalid grant")
 
@@ -153,6 +174,10 @@ var ErrInvalidGrant = errors.New("contracts: invalid grant")
 func CheckGrants(grants []Grant) error {
 	for i, g := range grants {
 		switch {
+		case !goodName(g.Group) || !goodName(g.Client):
+			return fmt.Errorf("grant %d: %w: a group or client name is longer than %d bytes or holds a control character", i, ErrInvalidGrant, maxGrantName)
+		case len(g.Sources) > maxGrantSources || slices.ContainsFunc(g.Sources, func(s string) bool { return !goodName(s) }):
+			return fmt.Errorf("grant %d: %w: more than %d sources, or a source name that is too long or holds a control character", i, ErrInvalidGrant, maxGrantSources)
 		case (g.Group == "") == (g.Client == ""):
 			return fmt.Errorf("grant %d: %w: name a group or a client, not both and not neither", i, ErrInvalidGrant)
 		case !g.Role.Valid():

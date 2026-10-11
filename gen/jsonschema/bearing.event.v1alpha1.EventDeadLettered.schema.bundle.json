@@ -3,7 +3,7 @@
     "bearing.event.v1alpha1.EventDeadLettered.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n so it outlives the retention window (docs/spec/contracts.md, \"Dead\n letters\"). The worker audits the event, marks it applied and commits past\n it, so one bad event cannot hold the log.",
+      "description": "EventDeadLettered is the record of an event a worker gave up on after\n repeated failures, appended to the core/dead_letter partition with Retain\n (it holds no event data) so it outlives the retention window (docs/spec/contracts.md, \"Dead\n letters\"). The worker audits the event, marks it applied and commits past\n it, so one bad event cannot hold the log.",
       "patternProperties": {
         "^(dataBytes)$": {
           "anyOf": [
@@ -17,7 +17,7 @@
             }
           ],
           "default": 0,
-          "description": "The size of the event's data in bytes."
+          "description": "The size of the event's data in bytes. The data itself is not copied: a\n webhook's headers and body are organization data and can carry\n credentials, and this record lives until someone releases it. The event\n stays in the log until retention removes it, and a sync can be run again."
         },
         "^(eventId)$": {
           "default": "",
@@ -45,12 +45,6 @@
           "default": 0,
           "description": "How many times the group tried."
         },
-        "data": {
-          "default": null,
-          "description": "The event's data, unchanged. Absent when it is over 4 MiB, so the record\n stays within the log's limit; the sync that produced it can be run again.",
-          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
-          "type": "string"
-        },
         "data_bytes": {
           "anyOf": [
             {
@@ -63,11 +57,11 @@
             }
           ],
           "default": 0,
-          "description": "The size of the event's data in bytes."
+          "description": "The size of the event's data in bytes. The data itself is not copied: a\n webhook's headers and body are organization data and can carry\n credentials, and this record lives until someone releases it. The event\n stays in the log until retention removes it, and a sync can be run again."
         },
         "error": {
           "default": "",
-          "description": "The last error, cut short, with no secrets in it.",
+          "description": "The last error, cut to 1,024 bytes of valid UTF-8 with control\n characters replaced. Source systems and adapters write error text, so it\n is never trusted to be free of data.",
           "type": "string"
         },
         "event_id": {

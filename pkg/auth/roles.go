@@ -44,12 +44,16 @@ func (a *RoleAuthorizer) Authorize(_ context.Context, r contracts.Request) (cont
 	if r.Caller.Local {
 		return allow(contracts.RoleAdmin), nil
 	}
+	// A caller with a client ID is a client and holds only that client's
+	// roles. The groups claim of a client's token is ignored, so it cannot
+	// lift the client above its mapping (C-API-4).
 	var held []contracts.Grant
-	for _, g := range r.Caller.Groups {
-		held = append(held, a.groups[g]...)
-	}
 	if r.Caller.ClientID != "" {
-		held = append(held, a.clients[r.Caller.ClientID]...)
+		held = a.clients[r.Caller.ClientID]
+	} else {
+		for _, g := range r.Caller.Groups {
+			held = append(held, a.groups[g]...)
+		}
 	}
 	if len(held) == 0 {
 		return deny("the caller has no role"), nil

@@ -33,7 +33,12 @@ message AdapterDeclaration {
 
 // WebhookSignature declares how a source signs its deliveries
 // (docs/spec/adapter-protocol.md, "bearing.describe"). It never holds a
-// secret: the Source supplies that by reference.
+// secret: the Source supplies that by reference. It declares no delivery ID
+// header: the host names a delivery by the SHA-256 of its body, because the
+// IDs senders add (GitHub's X-GitHub-Delivery) are not covered by the
+// signature, so a replay could change one and pass the dedupe (threat model
+// C-INGEST-5). A scheme whose signature covers a delivery ID would add a
+// field for it.
 message WebhookSignature {
   // The signature scheme. Required.
   WebhookScheme scheme = 1;
@@ -43,10 +48,6 @@ message WebhookSignature {
   // Text before the hex digest in the header, for example "sha256=" or
   // "v1=". Empty when the header holds the bare digest.
   string signature_prefix = 3;
-  // The header that carries the sender's delivery ID, for example
-  // "X-GitHub-Delivery". Empty when the sender gives none; the host then
-  // names a delivery by the hash of its body.
-  string delivery_id_header = 4;
 }
 
 // KindDeclaration declares one registered kind an adapter emits.

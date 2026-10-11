@@ -1284,7 +1284,8 @@ const (
 	// Not set. Rejected in a declaration that has a webhook.
 	WebhookScheme_WEBHOOK_SCHEME_UNSPECIFIED WebhookScheme = 0
 	// HMAC-SHA256 over the raw request body, as GitHub's
-	// X-Hub-Signature-256 and PagerDuty's X-PagerDuty-Signature do.
+	// X-Hub-Signature-256 and PagerDuty's X-PagerDuty-Signature do. A scheme
+	// that signs a timestamp (Stripe, Slack) needs its own value and fields.
 	WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256 WebhookScheme = 1
 )
 
