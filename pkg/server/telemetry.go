@@ -75,6 +75,17 @@ var retentionTrimmed = must(meter.Int64Counter("bearing.retention.trimmed",
 	metric.WithDescription("Events removed from the log by the retention job."),
 	metric.WithUnit("{event}")))
 
+var auditCuts = must(meter.Int64Counter("bearing.retention.audit_cuts",
+	metric.WithDescription("Audit-log cuts made by the retention job by result: cut, or failed with the step that failed (key, read, choose, verify, marker or cut). A failure repeats at every run until someone acts; verify means the log or its checkpoints do not add up."),
+	metric.WithUnit("{cut}")))
+
+func resultStageAttrs(result, stage string) metric.AddOption {
+	if stage == "" {
+		return metric.WithAttributes(attrResult.String(result))
+	}
+	return metric.WithAttributes(attrResult.String(result), attribute.String("bearing.stage", stage))
+}
+
 // eventTypeLabel names an event type for a metric label: the types the
 // server knows, and "other" for any other, which a sender can choose.
 func eventTypeLabel(typ string) string {

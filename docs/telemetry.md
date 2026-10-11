@@ -48,6 +48,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up |
 | `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |
 | `retention.trim` | internal | core, one per trim of the event log | |
+| `retention.audit_cut` | internal | core, one per run of the audit retention job (off unless enabled) | `bearing.stage` on a failure: `key`, `read`, `choose`, `verify`, `marker`, `cut` |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `graph.<operation>` | client | any `GraphStore` wrapped by `instrument.GraphStore`: `graph.apply`, `graph.head`, `graph.subject`, `graph.resolve_key`, `graph.bindings`, `graph.merges`, `graph.unmerges`, `graph.supports`, `graph.as_of`, `graph.changes`, `graph.changes_page`, `graph.last_change`, `graph.conflicts`, `graph.data_quality`, `graph.state`, `graph.backup`, `graph.restore` | `db.system.name`, `db.operation.name`; `bearing.event.id` on `graph.apply`, `bearing.subject.id` on subject reads, `bearing.key.namespace` on `graph.resolve_key`, `bearing.results.count` on list reads |
@@ -77,6 +78,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.deadletter.retained` | gauge | {event} | | Dead-letter records still in `core/dead_letter`. Any rise needs a person: an event was given up on |
 | `bearing.scheduler.syncs` | counter | {sync} | `bearing.source`, `bearing.result` (`requested`, `skipped`, `failed`) | Scheduled syncs. `skipped` means the last one is still waiting to be applied, so the source is slower than its interval; `failed` means the log refused |
 | `bearing.retention.trimmed` | counter | {event} | | Events removed from the log by the server's retention job |
+| `bearing.retention.audit_cuts` | counter | {cut} | `bearing.result` (`cut`, `failed`), `bearing.stage` on `failed` | Audit retention cuts made, and the step that stopped one. Any `failed` needs a person: a destination that is full, a key that stopped loading, or a log that no longer verifies (C-AUDIT-5) |
 | `bearing.github.webhooks` | counter | {delivery} | `bearing.github.webhook.event`, `bearing.result` | Accepted, ignored and rejected deliveries; rejections can mean a wrong secret or spoofing |
 | `bearing.github.codeowners.lookups` | counter | {repository} | `bearing.result` (`found`, `missing`, `unreadable`) | Ownership coverage: repos with no CODEOWNERS have no declared owner; `unreadable` is a binary or truncated file, whose facts are left as they are |
 | `bearing.github.ratelimit.remaining` | gauge | {request} | `bearing.github.ratelimit.resource` | Headroom before GitHub starts refusing requests |
