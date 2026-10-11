@@ -245,7 +245,9 @@ Assets: A1, A7, the event log.
   An unknown route and a failed check get the same response. Everything
   before the signature check (method, per-peer limit, body limit) is the same
   for a configured Source and an unknown one, so the status of a request that
-  is not signed does not reveal which Sources exist.
+  is not signed does not reveal which Sources exist. The check is on
+  responses; an unknown route skips the HMAC, a difference of microseconds
+  that is accepted.
 - **C-INGEST-8** The per-peer limit returns 429 before ingest looks at the
   route, and a refused delivery spends a token, so guessing signatures is
   limited. The per-Source limit counts only deliveries that passed the

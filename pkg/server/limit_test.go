@@ -99,6 +99,11 @@ func TestPeerOfIgnoresForwardedHeaders(t *testing.T) {
 type endlessBody struct{ read *int64 }
 
 func (e endlessBody) Read(p []byte) (int, error) {
+	// Fail loudly after 16 MiB rather than fill the test's memory when the
+	// read is not bounded.
+	if *e.read > 16<<20 {
+		return 0, errors.New("read far past the limit")
+	}
 	*e.read += int64(len(p))
 	return len(p), nil
 }
@@ -108,7 +113,7 @@ func TestReadBodyStopsReadingOnceTheLimitIsPassed(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/", endlessBody{&read})
 	r.ContentLength = -1
 	if _, err := readBody(r, 1000); !errors.Is(err, errBodyTooLarge) {
-		t.Fatalf("got %v, want errBodyTooLarge", err)
+		t.Fatalf("got %v after %d bytes, want errBodyTooLarge", err, read)
 	}
 	// io.ReadAll reads in growing chunks, so allow for one past the limit.
 	if read > 4096 {

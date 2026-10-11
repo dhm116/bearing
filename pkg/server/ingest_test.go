@@ -412,6 +412,7 @@ func TestIngestAnswersAnUnknownSourceLikeAKnownOne(t *testing.T) {
 		mod    func(*IngestConfig)
 		repeat int
 	}{
+		{"a GET", nil, 0, nil, 1},
 		{"an oversized declared body", big, 0, nil, 1},
 		{"an oversized streamed body", big, -1, nil, 1},
 		{"a bad signature", []byte("{}"), 0, nil, 1},
@@ -426,7 +427,11 @@ func TestIngestAnswersAnUnknownSourceLikeAKnownOne(t *testing.T) {
 				}
 				r := newRig(t, mod...)
 				for range tt.repeat {
-					req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(tt.body))
+					method := http.MethodPost
+					if tt.name == "a GET" {
+						method = http.MethodGet
+					}
+					req := httptest.NewRequest(method, path, bytes.NewReader(tt.body))
 					if tt.length != 0 {
 						req.ContentLength = tt.length
 					}
@@ -772,5 +777,13 @@ func TestIngestDefaultRateLimitAppliesWhenNoneIsSet(t *testing.T) {
 	r.clock.Advance(time.Second)
 	if got := r.post("/webhooks/"+source, body, http.Header{}).StatusCode; got != http.StatusUnauthorized {
 		t.Fatalf("a second later: got %d, want 401", got)
+	}
+}
+
+func TestStoredHeadersDropCredentialHeadersWhateverTheirCase(t *testing.T) {
+	h := http.Header{"authorization": {"Bearer x"}, "SET-COOKIE": {"a=b"}, "X-Keep": {"1"}}
+	got := storedHeaders(h, "X-Hub-Signature-256")
+	if len(got) != 1 || got[0].GetName() != "X-Keep" {
+		t.Fatalf("got %v, want only X-Keep", got)
 	}
 }
