@@ -190,7 +190,8 @@ func TestSocketRefusalsSayNoTokenIsUsed(t *testing.T) {
 		http.StatusUnauthorized: "does not know the account this command runs as (the socket needs no token)",
 		http.StatusForbidden:    "role is not allowed to do this",
 	} {
-		err := sf.explain(c, &apiclient.Error{Status: status, Code: "x", Message: "m"})
+		code := map[int]string{http.StatusUnauthorized: "unauthenticated", http.StatusForbidden: "forbidden"}[status]
+		err := sf.explain(c, &apiclient.Error{Status: status, Code: code, Message: "m"})
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "$") {
 			t.Errorf("%d: got %v, want a hint with %q and no variable", status, err, want)
 		}
@@ -203,7 +204,11 @@ func TestSocketRefusalsSayNoTokenIsUsed(t *testing.T) {
 	if got := sf.explain(c, other); !errors.Is(got, other) || strings.Contains(got.Error(), "hint") {
 		t.Errorf("got %v, want %v", got, other)
 	}
-	if got := sf.explain(c, &apiclient.Error{Status: http.StatusTooManyRequests}); strings.Contains(got.Error(), "hint") {
+	// A 401 that is not the API's (a proxy's) says nothing about the token.
+	if got := sf.explain(c, &apiclient.Error{Status: http.StatusUnauthorized}); strings.Contains(got.Error(), "hint") {
+		t.Errorf("got %v, want a proxy's 401 left alone", got)
+	}
+	if got := sf.explain(c, &apiclient.Error{Status: http.StatusTooManyRequests, Code: "rate_limited"}); strings.Contains(got.Error(), "hint") {
 		t.Errorf("got %v, want a 429 left alone", got)
 	}
 }
@@ -224,5 +229,45 @@ func TestServerNotFoundNamesTheSubjectAndTheTime(t *testing.T) {
 	_, err = w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", "no-such-source", "--server", addr)
 	if err == nil || !strings.Contains(err.Error(), "source no-such-source:") {
 		t.Fatalf("got %v, want the source named", err)
+	}
+}
+
+func TestWriteJSONBodyDoesNotLetNestingMultiplyTheOutput(t *testing.T) {
+	t.Parallel()
+	// 58 KB that json.Indent would turn into hundreds of megabytes: every
+	// element of a deep array sits on a line indented by its depth.
+	const depth, width = 9000, 20000
+	body := []byte("{\"a\":" + strings.Repeat("[", depth) + strings.Repeat("1,", width) + "1" + strings.Repeat("]", depth) + "}")
+	if got := indentedSize(body); got <= maxIndentedBytes {
+		t.Fatalf("got a bound of %d bytes, want one over %d for this body", got, maxIndentedBytes)
+	}
+	var b bytes.Buffer
+	if err := writeJSONBody(&b, body); err != nil {
+		t.Fatal(err)
+	}
+	if b.Len() > 2*len(body) || !json.Valid(b.Bytes()) {
+		t.Fatalf("got %d bytes (valid %v), want the document compact and valid, at most %d bytes", b.Len(), json.Valid(b.Bytes()), 2*len(body))
+	}
+	// An ordinary answer is indented, and its bound is no less than its size.
+	small := []byte(`{"a":[1,{"b":"x,]\"}"}],"c":{}}`)
+	var out bytes.Buffer
+	if err := writeJSONBody(&out, small); err != nil || indentedSize(small) < int64(out.Len()-1) {
+		t.Fatalf("got %d bytes of output, %v, want a bound of %d to cover it", out.Len(), err, indentedSize(small))
+	}
+}
+
+func TestWriteJSONBodyWantsAnObjectAndEscapesDELAndTagCharacters(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{"null", "[]", `"x"`, "1", "", "{"} {
+		if err := writeJSONBody(&bytes.Buffer{}, []byte(in)); err == nil {
+			t.Errorf("%q: got no error, want an answer that is not an object refused", in)
+		}
+	}
+	var b bytes.Buffer
+	if err := writeJSONBody(&b, []byte("{\"a\":\"x\x7fy\U000e0041z\"}")); err != nil {
+		t.Fatal(err)
+	}
+	if want := "{\n  \"a\": \"x\\u007fy\\udb40\\udc41z\"\n}\n"; b.String() != want {
+		t.Fatalf("got %q, want %q", b.String(), want)
 	}
 }

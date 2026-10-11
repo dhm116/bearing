@@ -833,7 +833,11 @@ Assets: A3, A5, A4, A7.
     characters (C0 and C1), format characters such as bidi overrides, and line
     and paragraph separators before they are shown; the text renderer does the
     same for every line it prints. Every `--json` output of the command line,
-    a store's and the adapter commands' too, passes through one escaper. Go's
+    a store's and the adapter commands' too, passes through one escaper (the
+    signed checkpoint lines of `audit checkpoint` and `audit reanchor` are not
+    `--json` and stay as signed). A server's body is indented only if that stays
+    under 64 MiB, since indenting multiplies a deeply nested body by its depth,
+    and is printed compact otherwise. Go's
     encoder escapes C0 controls and the line and paragraph separators but
     passes DEL, the C1 controls (U+0080 to U+009F, including the 8-bit CSI and
     OSC, which some terminals act on) and format characters such as bidi

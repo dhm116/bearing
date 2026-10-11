@@ -217,7 +217,9 @@ type bodyKey struct{}
 // the answer's body in *dst exactly as the server sent it, whatever fields it
 // holds: the typed answer drops those this client's types do not know, and a
 // caller that passes the answer on (bearing --json) wants all of them. The body
-// is the server's text, so a caller that prints it escapes it first.
+// is the server's text, so a caller that prints it escapes it first. A later
+// successful request on the same context replaces *dst; a failed one leaves it
+// as it was.
 func KeepBody(ctx context.Context, dst *[]byte) context.Context {
 	return context.WithValue(ctx, bodyKey{}, dst)
 }

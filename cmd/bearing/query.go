@@ -290,7 +290,8 @@ func (s *serverFlags) client(env queryEnv, server string) (*apiclient.Client, er
 func (s *serverFlags) explain(from answerer, err error) error {
 	var apiErr *apiclient.Error
 	c, ok := from.(*apiclient.Client)
-	if !ok || !errors.As(err, &apiErr) || (apiErr.Status != http.StatusUnauthorized && apiErr.Status != http.StatusForbidden) {
+	// Only the API's own refusals: a proxy's 401 says nothing about the token.
+	if !ok || !errors.As(err, &apiErr) || (apiErr.Code != "unauthenticated" && apiErr.Code != "forbidden") {
 		return err
 	}
 	name := cmp.Or(s.tokenEnv, tokenEnv)

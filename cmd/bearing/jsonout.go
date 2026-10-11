@@ -24,20 +24,68 @@ func writeJSON(w io.Writer, v any) error {
 	return err
 }
 
-// writeJSONBody writes a JSON document that came from elsewhere, such as a
+// maxIndentedBytes bounds what indenting a body from elsewhere may produce.
+const maxIndentedBytes = 64 << 20
+
+// writeJSONBody writes a JSON object that came from elsewhere, such as a
 // server's answer, as it is except for indentation and the escaping of jsonSafe,
-// so fields this program has no type for stay.
+// so fields this program has no type for stay. A body that would indent to more
+// than maxIndentedBytes (deeply nested and wide: every element of a deep array
+// is indented by its depth) is written compact instead, so a hostile server
+// cannot turn its capped answer into an unbounded one.
 func writeJSONBody(w io.Writer, body []byte) error {
-	if !json.Valid(body) {
-		return errors.New("the answer is not JSON")
+	body = bytes.TrimSpace(body)
+	if !json.Valid(body) || len(body) == 0 || body[0] != '{' {
+		return errors.New("the answer is not a JSON object")
 	}
+	body = jsonSafe(body)
 	var b bytes.Buffer
-	if err := json.Indent(&b, bytes.TrimSpace(jsonSafe(body)), "", "  "); err != nil {
-		return fmt.Errorf("indent the answer: %w", err)
+	var err error
+	if indentedSize(body) > maxIndentedBytes {
+		err = json.Compact(&b, body)
+	} else {
+		err = json.Indent(&b, body, "", "  ")
+	}
+	if err != nil {
+		return fmt.Errorf("format the answer: %w", err)
 	}
 	b.WriteByte('\n')
-	_, err := w.Write(b.Bytes())
+	_, err = w.Write(b.Bytes())
 	return err
+}
+
+// indentedSize is an upper bound of the size of body, a valid JSON document,
+// once json.Indent has put every element on a line of its own.
+func indentedSize(body []byte) int64 {
+	n := int64(len(body))
+	var depth int64
+	inString, escaped := false, false
+	for _, c := range body {
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '[', '{':
+			depth++
+			n += 1 + 2*depth
+		case ']', '}':
+			n += 1 + 2*depth
+			depth--
+		case ',':
+			n += 1 + 2*depth
+		}
+	}
+	return n
 }
 
 // jsonSafe escapes, as \uXXXX, what a terminal would act on in text that came
