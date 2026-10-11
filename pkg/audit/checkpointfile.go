@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -62,8 +63,13 @@ func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 // CheckpointFile is a file of checkpoints on disk: the place the operator
 // keeps them where the store's writers can't change them (threat model
 // C-AUDIT-3). It is the destination `bearing audit checkpoint` appends to and
-// the one the server's retention job writes its cut checkpoints to.
+// the one the server's checkpoint writer and retention job write to.
 type CheckpointFile struct{ Path string }
+
+// appendMu serializes the appends of this process, and keeps Read from seeing
+// one half written. Another process (the CLI beside a running server) is not
+// covered.
+var appendMu sync.Mutex
 
 // Append writes cp as a line of the file, created with mode 0600, and syncs
 // it before it returns: a checkpoint that is lost in a crash pins nothing,
@@ -75,6 +81,10 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		return err
 	}
 	line = append(line, '\n')
+	// The server's checkpoint writer and its retention job append to the same
+	// file; one failing write must not truncate the other's line.
+	appendMu.Lock()
+	defer appendMu.Unlock()
 	_, statErr := os.Stat(f.Path)
 	created := errors.Is(statErr, os.ErrNotExist)
 	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)
@@ -95,6 +105,11 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		if last[0] != '\n' {
 			line = append([]byte{'\n'}, line...)
 		}
+	}
+	if size+int64(len(line)) > MaxCheckpointFileBytes {
+		// Past the bound Read refuses the file, and with it Verify and the
+		// retention job, so stop before the file is one nobody can read.
+		return fmt.Errorf("audit: checkpoint file %s is at its limit of %d bytes: archive it (keep it: it holds the evidence) and, if the log was cut, run bearing audit reanchor for the new one", f.Path, MaxCheckpointFileBytes)
 	}
 	if _, err := file.Write(line); err != nil {
 		// A torn line (a full disk) would fail every later Read, so put the
@@ -123,6 +138,8 @@ func syncDir(dir string) error {
 // Read returns every checkpoint in the file (ReadCheckpoints). A file that
 // does not exist yet holds none.
 func (f CheckpointFile) Read(_ context.Context) (cps []*modelv1alpha1.AuditCheckpoint, err error) {
+	appendMu.Lock()
+	defer appendMu.Unlock()
 	file, err := os.Open(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

@@ -97,6 +97,9 @@ type Config struct {
 	Audit contracts.AuditLog
 	// AuditRetention, if enabled, cuts the oldest audit records.
 	AuditRetention AuditRetention
+	// AuditCheckpoints, if enabled, checkpoints the audit log's head at an
+	// interval.
+	AuditCheckpoints AuditCheckpoints
 	// Sources are the configured sources.
 	Sources []Source
 	// Lock, if set, is checked every LockCheck; when it is no longer held
@@ -210,6 +213,9 @@ func New(cfg Config) (*Server, error) {
 	if err := checkAuditRetention(&cfg); err != nil {
 		return nil, err
 	}
+	if err := checkAuditCheckpoints(&cfg); err != nil {
+		return nil, err
+	}
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
 		inflight: map[contracts.Partition]bool{}, lastSync: map[string]contracts.Offset{},
@@ -268,6 +274,7 @@ func (s *Server) Run(ctx context.Context) error {
 	run("scheduler", s.runScheduler)
 	run("retention", s.runRetention)
 	run("audit retention", s.runAuditRetention)
+	run("audit checkpoints", s.runAuditCheckpoints)
 	run("lock", s.watchLock)
 	<-ctx.Done()
 	wg.Wait()

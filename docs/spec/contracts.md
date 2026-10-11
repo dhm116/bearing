@@ -742,11 +742,36 @@ recompute the hashes, and the result verifies. Checkpoints close that gap.
 A checkpoint is an `AuditCheckpoint`: the `seq` and `hash` of a record, the
 time it was written, a `cut` flag, and, when a signing key is configured, the
 key's ID and a signature. The core writes one at an interval and at every retention cut
-(the server schedules them, issue #139; `bearing audit checkpoint` writes one
-now). It writes them **outside the store**: to the log stream, a file or an
-exporter, never to a table the store's writers can edit. The operator keeps
-that place where the store's writers can't write. A checkpoint is one line of
-ProtoJSON, so a file of them is NDJSON.
+(the server schedules them; `bearing audit checkpoint` writes one now). It
+writes them **outside the store**: to the log stream, a file or an exporter,
+never to a table the store's writers can edit. The operator keeps that place
+where the store's writers can't write. A checkpoint is one line of ProtoJSON,
+so a file of them is NDJSON.
+
+The server's interval writer checkpoints the log's head when it starts and
+then every 15 minutes by default (never more often than every minute), and
+writes nothing while the file already pins the head, a restart included. It
+refuses a head that the newest record does not carry, and a head that does not
+extend the newest checkpoint in the file: one behind it, or one whose record
+at that checkpoint's number has another hash. It counts the failure and signs
+nothing, so a chain rewritten end to end, or a tail cut off and the head
+mended, is not vouched for by the next checkpoint. After a deliberate restore
+the operator investigates with `bearing audit verify` first, since a stray
+line with a high number in the file stops the writer the same way, and only
+then archives the file (never deletes it: it holds the evidence) and starts a
+new one; on a log that retention has cut, the new file needs
+`bearing audit reanchor` before `verify` accepts the log's start.
+It signs when a key is configured. With no key configured it writes unsigned
+checkpoints, which `verify` refuses unless the operator allows them, and the
+server will not start with unsigned checkpoints while audit retention is on,
+since retention refuses a file with an unsigned line. With a key configured
+that does not load it writes nothing, and counts a failure at every run until
+someone acts: it never falls back to an unsigned line. `CheckpointFile.Append`
+refuses to grow the file past the bound. The file that `verify` reads is bounded at 64 MiB.
+A signed checkpoint is about 250 bytes, so a log that changes all day adds
+about 8 MB a year at the default interval and reaches the bound in about seven
+years. The interval is a trade between how much of the newest log is unpinned
+and how long the file lasts.
 
 What the checkpoints protect depends on where they go. The server process
 writes the records, holds the signing key and writes the checkpoints, so

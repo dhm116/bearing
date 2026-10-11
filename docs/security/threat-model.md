@@ -145,7 +145,18 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   destination must be append-only or remote, or whoever can rewrite it can
   rewrite the checkpoints; withholding the newest checkpoints silently
   shortens the protected window to the newest that remain, so the operator
-  keeps the set complete.
+  keeps the set complete. The server's writer checkpoints the head when it
+  starts and then every 15 minutes by default (one minute at the shortest), only
+  when the file does not pin it already and only for a head that the newest
+  record carries and that extends the newest checkpoint in the file (a head
+  behind it, or another hash for the same record, is refused and counted, so a
+  rewritten chain is not vouched for). A configured key that does not load writes nothing and counts a failure; the
+  writer never falls back to an unsigned line. With no key configured it writes
+  unsigned lines and says so in the log, and `verify` refuses them unless
+  allowed; it cannot be configured unsigned beside audit retention. The writer
+  and the retention job share the file in one process and take turns to
+  read and append; the command line's `audit checkpoint` beside a running
+  server is not covered by that lock.
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
