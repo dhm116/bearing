@@ -32,60 +32,40 @@ jobs:
             tools/go.sum
       - uses: ./.github/actions/postgres
 
-      - name: Machine
-        run: |
-          nproc
-          lscpu | grep -E 'Model name|^CPU\(s\)|Thread|MHz'
-          free -m
-          docker exec postgres cat /sys/fs/cgroup/cpu.max || true
-          docker exec postgres psql -U postgres -c "select extversion from pg_available_extension_versions where name='vector'" || true
+      - name: Compile
+        run: go test -c -o /tmp/plain.test ./internal/pgstore/
 
-      - name: Compile once
-        run: |
-          go test -c -o /tmp/plain.test ./internal/pgstore/
-          go test -c -coverpkg=./... -o /tmp/cover.test ./internal/pgstore/
-          go vet ./internal/pgstore/ >/dev/null
-          ls -la /tmp/*.test
-
-      # Same command as `make cover`, to reproduce 4m12 and read the
-      # per-package times.
-      - name: A. Whole suite as in the test job
-        run: |
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-          time go test -count=1 -timeout 15m -coverpkg=./... -coverprofile=/tmp/a.out ./... 2>&1 | grep -E '^(ok|FAIL|---|panic)' | tee /tmp/a.log
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-
-      - name: B. pgstore alone, no coverage
+      - name: Measure
         working-directory: internal/pgstore
         run: |
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-          time /tmp/plain.test -test.count=1 -test.v -test.timeout 15m > /tmp/b.log 2>&1 || true
-          tail -3 /tmp/b.log
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-
-      - name: C. pgstore alone, -coverpkg=./...
-        working-directory: internal/pgstore
-        run: |
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-          time /tmp/cover.test -test.count=1 -test.v -test.timeout 15m -test.coverprofile=/tmp/c.out > /tmp/c.log 2>&1 || true
-          tail -3 /tmp/c.log
-          docker exec postgres cat /sys/fs/cgroup/cpu.stat | grep usage_usec
-
-      - name: D. pgstore alone, no coverage, one test at a time (-test.parallel 1) on the heaviest family
-        working-directory: internal/pgstore
-        run: |
-          time /tmp/plain.test -test.count=1 -test.parallel 1 -test.run 'TestRandomHistoriesMatchTheReference|TestKillingTheWorkerAtRandomMoments' -test.v > /tmp/d.log 2>&1 || true
-          grep -E '^\s*--- ' /tmp/d.log | head -20
-
-      - name: Summary
-        if: always()
-        run: |
-          for f in b c; do
-            echo "=== $f: slowest 25 tests (wall, parallel ones overlap) ==="
-            grep -E '^\s*--- (PASS|FAIL|SKIP)' /tmp/$f.log | sed -E 's/^\s*--- (PASS|FAIL|SKIP): ([^ ]+) \(([0-9.]+)s\)/\3 \1 \2/' | sort -rn | head -25
-            echo "=== $f: tests, skips ==="
-            grep -cE '^--- PASS' /tmp/$f.log || true
-            grep -E '^\s*--- SKIP' /tmp/$f.log || true
-          done
-          echo "=== a: packages ==="
-          cat /tmp/a.log
+          cpu() { docker exec postgres cat /sys/fs/cgroup/cpu.stat | awk '/usage_usec/ {printf "%.1f", $2/1e6}'; }
+          fam() {
+            name=$1; re=$2
+            b=$(cpu); TIMEFORMAT="%R %U %S"
+            t=$( { time /tmp/plain.test -test.count=1 -test.run "$re" -test.timeout 15m >/dev/null 2>&1; } 2>&1 )
+            a=$(cpu)
+            echo "RESULT $name wall/user/sys=$t pgcpu=$(echo "$a - $b" | bc)"
+          }
+          echo "--- published port (as in CI today)"
+          fam whole '.'
+          fam random 'TestRandom'
+          fam random-histories 'TestRandomHistories'
+          fam random-wide 'TestRandomWide'
+          fam failpoint 'TestKilling|TestDurabilityChild'
+          fam failpoint-any 'TestKillingTheWorkerAtAnyApplyFailpoint|TestDurabilityChild'
+          fam failpoint-random 'TestKillingTheWorkerAtRandomMoments|TestDurabilityChild'
+          fam graphconf 'TestPostgresGraphConformance'
+          fam otherconf 'TestPostgresAuditLogConformance|TestPostgresAuditRetentionConformance|TestPostgresEventLogConformance'
+          fam replay 'TestReplaying'
+          fam vectors 'TestPostgresVectorConformance|TestVector|TestUpsert|TestPayloads|TestFiltered|TestOpeningTheVector|TestParsingPgvector|TestEveryVector|TestSearch|TestEqualScores'
+          echo "--- host network"
+          docker rm -f postgres
+          docker run --detach --name postgres --network host \
+            --tmpfs /var/lib/postgresql/data:rw \
+            --env POSTGRES_PASSWORD="$BEARING_TEST_POSTGRES_PASSWORD" \
+            --env PGDATA=/var/lib/postgresql/data/pgdata \
+            pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a \
+            postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 -c listen_addresses=127.0.0.1
+          for i in $(seq 60); do docker exec postgres pg_isready --host 127.0.0.1 --username postgres && break; sleep 1; done
+          fam whole-host-network '.'
+          fam random-host-network 'TestRandom'

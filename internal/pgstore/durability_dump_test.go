@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"regexp"
 	"slices"
 	"strings"
@@ -331,8 +332,81 @@ func newNumbering(on bool) *numbering {
 // the subject.
 var factIDField = regexp.MustCompile(`"fact_id":\s*"([0-9a-f]{64})"`)
 
-// ids matches a subject ID and a 64-digit hash.
+// ids matches a subject ID and a 64-digit hash. replaceIDs finds the same
+// matches without the regexp engine, which was a third of the time these
+// tests spent in the dump; TestReplaceIDsFindsWhatTheRegexpFinds keeps the two
+// the same.
 var ids = regexp.MustCompile(uuidV7.String() + `|[0-9a-f]{64}`)
+
+func isHex(c byte) bool { return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' }
+
+// idLength is the length of the subject ID or 64-digit hash that starts s, or
+// 0. A subject ID is tried first, as in ids.
+func idLength(s string) int {
+	if len(s) >= 36 && isSubjectID(s[:36]) {
+		return 36
+	}
+	if len(s) >= 64 {
+		for i := range 64 {
+			if !isHex(s[i]) {
+				return 0
+			}
+		}
+		return 64
+	}
+	return 0
+}
+
+// isSubjectID reports whether s, 36 bytes, is a version 7 UUID in lower case.
+func isSubjectID(s string) bool {
+	for i := range 36 {
+		switch c := s[i]; i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		case 14:
+			if c != '7' {
+				return false
+			}
+		case 19:
+			if c < '8' || c > 'b' {
+				return false
+			}
+		default:
+			if !isHex(c) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// replaceIDs is ids.ReplaceAllStringFunc.
+func replaceIDs(s string, f func(string) string) string {
+	var b strings.Builder
+	last := 0
+	for i := 0; i < len(s); {
+		if !isHex(s[i]) {
+			i++
+			continue
+		}
+		n := idLength(s[i:])
+		if n == 0 {
+			i++
+			continue
+		}
+		b.WriteString(s[last:i])
+		b.WriteString(f(s[i : i+n]))
+		i += n
+		last = i
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
 
 // learn notes the fact IDs in s, so that number finds them wherever they
 // appear (a state key may hold one).
@@ -347,7 +421,7 @@ func (n *numbering) apply(s string) string {
 	if !n.on {
 		return s
 	}
-	return ids.ReplaceAllStringFunc(s, func(id string) string {
+	return replaceIDs(s, func(id string) string {
 		if len(id) == 64 {
 			return id
 		}
@@ -366,7 +440,7 @@ func (n *numbering) number(s string) string {
 	if !n.on {
 		return s
 	}
-	return ids.ReplaceAllStringFunc(s, func(id string) string {
+	return replaceIDs(s, func(id string) string {
 		num, ok := n.facts[id]
 		if !ok {
 			return id
@@ -388,14 +462,23 @@ func (n *numbering) sort(items []string) {
 		return
 	}
 	mask := func(s string) string {
-		return ids.ReplaceAllStringFunc(s, func(id string) string {
+		return replaceIDs(s, func(id string) string {
 			if _, ok := n.facts[id]; ok {
 				return "fact"
 			}
 			return id
 		})
 	}
-	slices.SortStableFunc(items, func(a, b string) int { return strings.Compare(mask(a), mask(b)) })
+	// Each item is masked once, not at every comparison of the sort.
+	type keyed struct{ key, item string }
+	keyedItems := make([]keyed, len(items))
+	for i, item := range items {
+		keyedItems[i] = keyed{mask(item), item}
+	}
+	slices.SortStableFunc(keyedItems, func(a, b keyed) int { return strings.Compare(a.key, b.key) })
+	for i, k := range keyedItems {
+		items[i] = k.item
+	}
 }
 
 // firstDifference describes where two dumps differ, for a failure message.
@@ -431,4 +514,40 @@ func verifyAuditChain(ctx context.Context, t testing.TB, s dumpable) audit.Repor
 		t.Fatalf("audit head is record %d, the chain verified up to %d", head.Seq, rep.Last)
 	}
 	return rep
+}
+
+// replaceIDs stands in for the regexp, so it must find the same IDs in
+// anything, including text that nearly matches.
+func TestReplaceIDsFindsWhatTheRegexpFinds(t *testing.T) {
+	t.Parallel()
+	const uuid = "0199e3c1-5b2a-7c4e-8f10-1234567890ab"
+	hash := strings.Repeat("0123456789abcdef", 4)
+	fixed := []string{
+		"", "x", uuid, hash, uuid + hash, hash + uuid, hash + "0", "0" + hash, hash[:63], hash[:63] + "g",
+		`"fact_id": "` + hash + `"`, "subject " + uuid + " and " + uuid, uuid[:35], uuid + "-",
+		strings.Replace(uuid, "-7c4e", "-6c4e", 1), strings.Replace(uuid, "-8f10", "-cf10", 1), strings.ToUpper(uuid),
+		strings.Repeat("a", 200), strings.Repeat("a", 70) + "-" + uuid, "a" + uuid, uuid + "a",
+	}
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: a fixed seed makes a failure repeatable
+	parts := []string{uuid, hash, "-", "7", "8", "g", " ", "0", "f", "F", `"`, uuid[:20], hash[:40], hash[:64-1]}
+	cases := slices.Clone(fixed)
+	for range 3000 {
+		var b strings.Builder
+		for range 1 + rng.IntN(8) {
+			b.WriteString(parts[rng.IntN(len(parts))])
+		}
+		cases = append(cases, b.String())
+	}
+	for _, in := range cases {
+		wantMatches := ids.FindAllString(in, -1)
+		var gotMatches []string
+		got := replaceIDs(in, func(id string) string {
+			gotMatches = append(gotMatches, id)
+			return "<" + id + ">"
+		})
+		want := ids.ReplaceAllStringFunc(in, func(id string) string { return "<" + id + ">" })
+		if got != want || !slices.Equal(gotMatches, wantMatches) {
+			t.Fatalf("%q\n got %q %q\nwant %q %q", in, got, gotMatches, want, wantMatches)
+		}
+	}
 }
