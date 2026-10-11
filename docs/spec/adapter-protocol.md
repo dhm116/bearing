@@ -206,6 +206,127 @@ Standard JSON-RPC codes plus:
 Error messages SHOULD say what to fix ("check the org name and token
 access"), not only what failed.
 
+## Reference adapters
+
+What an adapter reads and reports is part of its contract with the core, so
+the adapters the MVP plans are specified here before they exist. Each section
+fixes the declaration (a file under `testdata/declarations/`), the claims and
+their confidences, and what the adapter must never send. The transport they
+run on is the one that replaces this document's ([ADR 9](../adr/0009-wasm-adapters.md)).
+
+### Kubernetes
+
+Reads one cluster and reports what runs in it: each workload as a
+`Component`, each namespace as an `Environment`, and the team label each
+workload carries as a `Team` that the core matches to GitHub's and the
+directory's. No new kinds or relations; the keys and the rule that links a
+workload to its repository's `catalog-info.yaml` are in the
+[data model](data-model.md#declarations). The declaration is
+`testdata/declarations/kubernetes.json`, and its sample observations are
+`9-kubernetes-workload-annotation.json` to `13-kubernetes-team-label.json` in
+`testdata/observations/valid/`.
+
+**Reads.** List calls only: namespaces, and Deployments, StatefulSets and
+DaemonSets (`apps/v1`). Pods, ReplicaSets, Jobs, ConfigMaps, Secrets and
+events are never requested, so the count stays at the number of workloads even
+in a large cluster. `access` lists exactly this:
+
+```json
+"access": ["namespaces: list", "deployments, statefulsets, daemonsets (apps): list"]
+```
+
+**Settings the spec fixes.** How the adapter reaches the API server (its
+address, certificate authority and token) comes from the host's grants and
+secrets, not from here (ADR 9 and issue #192).
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `cluster` | The cluster ID in every key; see [the Kubernetes keys](data-model.md#declarations). Required. | none |
+| `repository_namespace` | The code host's namespace for repositories named by an annotation | `github` |
+| `team_label` | The label whose value names the owning team | `team` |
+| `repository_annotation` | The annotation whose value names the repository, as `<owner>/<name>` | `github.com/project-slug` |
+| `image_registries` | Registry hosts whose image paths start `<owner>/<name>`, each mapped to the namespace of the code host it belongs to | `{"ghcr.io": "github"}` |
+| `exclude_namespaces` | Namespaces not read | `kube-system`, `kube-public`, `kube-node-lease` |
+
+Every namespace in `repository_namespace` and `image_registries` must be listed
+under the source's `links`; a `defined_in` into any other is dropped
+(`namespace_not_allowed`).
+
+**Reports**, per object. This table is the adapter's **fixed field list**:
+the adapter MUST read, keep and send these fields and no others.
+
+| From | Becomes |
+| --- | --- |
+| Workload `metadata.name`, kind | `workload_name`, `workload_kind`, and the key |
+| Deployment or StatefulSet `spec.replicas` | `replicas`, the desired count, so a scaling autoscaler changes it on every change of the count. A DaemonSet has none and the adapter sends no `replicas` for it (not read, so not `null`). |
+| `spec.template.spec.containers[].image` | `image`: every container's image reference, as written, kept as the complete set. Init containers are not read. |
+| The label `team_label` | `owned_by` the `Team` `kubernetes:team/<value>` at 800000, with the qualifier `{ "label": "<key>" }`. Absent: the claim ends. |
+| The annotation `repository_annotation` | `defined_in` the repository `<namespace>:repo/<owner>/<name>` (in `repository_namespace`) at 900000, with the qualifier `{ "annotation": "<key>" }` |
+| The image registry path, when there is no such annotation | `defined_in` at 300000 with the qualifier `{ "image": "<registry>/<owner>/<name>" }`. Only for a registry in `image_registries`, only when the containers that use one all name the same repository. |
+| The workload's namespace | `deployed_to` the Environment `kubernetes:namespace/<cluster>/<namespace>` |
+| Namespace `metadata.name`, and the setting `cluster` | The Environment's `name` and `cluster` |
+| Each distinct `team_label` value | A `Team` observation with its `name`, once per distinct value after case folding, per sync, with the lower-case spelling as its `name` and key |
+
+A value that doesn't have the shape the table expects MUST be ignored, with a
+log line that counts it and doesn't quote it. The shapes: a label value of 1
+to 63 characters that starts and ends with a letter or digit and uses
+only letters, digits, `.`, `_` and `-`; an annotation value `<owner>/<name>`
+(letters, digits, `.`, `_` and `-`, each part 1 to 100 characters); an
+image reference that parses as one. Annotation values can hold any text, so
+they are never copied as they are. An ignored value counts as absent: the
+claim it would have made is not made, the predicate stays in the snapshot,
+and the claim a previous sync made ends. So an annotation edited to `TODO`
+or a label cleared to `""` removes the owner or repository, and an invalid
+annotation falls back to the image hint. An image that fails to parse is left
+out of `image` the same way. Only a failed read (an error, a permission
+denial) leaves a predicate out of the snapshot.
+
+**Never read, kept or sent.** The adapter MUST NOT read, keep or send: environment variables (`env`, `envFrom`),
+`command` and `args`, volumes, service account names, any other label or
+annotation, any status field, and Secret and ConfigMap objects. It
+decodes each response into types that hold only the fields above, so anything
+else is discarded as it is decoded and cannot reach a log, a cache or an
+observation by accident. The token it needs can list namespaces and the three
+workload kinds and nothing else, and no part of the adapter needs a Secret.
+The input and what is reported from it:
+
+```json
+{ "metadata": { "name": "payments-api", "namespace": "payments",
+                "labels": { "team": "payments", "tier": "gold" },
+                "annotations": { "github.com/project-slug": "acme/payments-api",
+                                 "deployment.kubernetes.io/revision": "7" } },
+  "spec": { "replicas": 3, "template": { "spec": { "containers": [ {
+      "name": "api", "image": "ghcr.io/acme/payments-api:1.4.2",
+      "args": ["--token=not-a-real-token"],
+      "env": [ { "name": "DATABASE_PASSWORD", "value": "not-a-real-password" } ] } ] } } } }
+```
+
+becomes the observation in
+`testdata/observations/valid/9-kubernetes-workload-annotation.json`: the
+name, the kind, `replicas` 3, the one image, the team, the repository and the
+Environment. The label `tier`, the annotation `revision`, the arguments and the
+environment value appear nowhere in it, and a test fails if any sample carries
+an attribute, relation, qualifier, alias or snapshot predicate outside this
+document's list.
+
+**Sync.** Read-only and scheduled; Kubernetes has no webhooks, so the source
+has no `webhook` declaration and `bearing.handle` returns `-32001`. A sync
+lists namespaces and then each namespace's workloads in pages. It reports one
+observation per Environment, per workload and per team label, and each
+workload observation carries a snapshot over `deployed_to`, `owned_by` and
+`defined_in`, so a removed label, annotation or namespace ends the claim. The
+last page declares `complete_sync` for `Component` and `Environment` only if
+every list in the sync succeeded, so a workload that is gone ends after two
+consecutive complete syncs ([Sync completeness](data-model.md#sync-completeness)).
+A list that errors, including an expired `continue` token (`410 Gone`),
+fails the sync's completeness for all namespaces, and a namespace added to
+`exclude_namespaces` ends its workloads the same way. `Team` is never
+declared complete: a label value no workload uses any more says nothing about
+the team, so a label value nobody uses any more leaves its `Team` behind. The sync's cadence is the source's schedule. Each sync stores one
+watermark per snapshot scope (issue #136), so a short interval costs storage
+until issue #194 stores a steady cadence compactly; the demo reads every few
+minutes.
+
 ## Declarative adapters (planned)
 
 Many sources are plain paginated REST APIs. For those, an adapter can be a
