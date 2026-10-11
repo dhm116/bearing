@@ -15,8 +15,8 @@ ran).
 one after the other lands about **145 per second with the audit log off and
 about 130 with it on**, and the rate does not change between 0.1 and 3.0
 million fact rows (see the table). Counting only the call to `Apply`, which is
-what a server's loop pays, it is about 155 and 140. That is 70 to 75% of the
-target at best. The target is also well above what the org needs: the design
+what a server's loop pays, it is about 155 and 140. That is 70 to 78% of the
+target. The target is also well above what the org needs: the design
 target of 5,000 repositories and 3,000 people produces about 1,500 merged pull
 requests a day, and 130 per second is 11 million a day. The shortfall is a
 cost per `Apply`, and it would matter when a source is read again from scratch
@@ -26,10 +26,10 @@ and the whole org arrives at once (a full read of the generated org is about
 **What does the audit log cost?** About **0.7 to 1.0 ms on each `Apply`**, 11 to
 15% of the call (6.1 ms at the median with the log off, 6.7 to 7.2 ms on), and
 it does not grow with the log: the cost at 4.5 million records is the cost at
-180,000. In space it is large: **811 bytes a record**, 20% of the store at 3.0
+180,000. In space it is large: **812 bytes a record**, 20% of the store at 3.0
 million fact rows (3.7 of 18.1 GB), so about 12 GB of a projected 60 GB at 10
 million fact rows. The cost is writing records, not chaining them: `audit.Seal` and
-`Hash` took 0.45 s of the profile run's 54 s of CPU (about 0.6%). The rest is
+`Hash` took 0.45 s of the profile run's 72.7 s of CPU samples (0.6%; [`cpu-top.txt`](results/2026-10-11/cpu-top.txt)). The rest is
 building the records (cloning and encoding the entries and their before and
 after messages) and the insert, which is about 0.16 to 0.18 ms of database
 time plus one more round trip.
@@ -49,7 +49,7 @@ was measured for a call with the log on (7.1 ms): the database spends about
 the scratch store, encoding, reading rows, TLS), the 20 round trips about
 1.2 ms (0.058 ms each, loopback with TLS), and the commit's flush about
 0.2 ms. That is 5.3 of 7.1 ms; the remaining 1.8 ms (waiting between
-statements, scheduling) was not measured. Both the round trips and the flush
+statements, scheduling) was not measured. The CPU figure is the profile's and the round-trip time a timing loop on this host; neither is in the raw file. Both the round trips and the flush
 are the parts a real deployment makes worse (below).
 
 ## What was measured
@@ -73,12 +73,14 @@ records for every ChangeSet, 4.5 million of them at 3.0 million fact rows.
 building the ChangeSet (about 0.55 ms, decoding a template); "`Apply` calls per
 second" is one over the mean of the call alone. Each row averages three runs of
 11,000 to 13,000 applies. Single runs vary by ±10% (at 3.0M the off runs were
-127, 148 and 158 per second, and the first off run of a size was the slowest), so
+127, 148 and 158 per second, and the first off run of a size was usually the slowest), so
 differences under about 10 between rows are noise; on is slower than off, by the
 mean of `Apply`, in all 12 pairs of runs (four sizes, three rounds), by 0.2 to
-1.3 ms, 0.9 ms on average. A further run at 3,150,742 fact rows, with the CPU
-profile on and a cold cache, shows the same order with the two nearer each
-other, so take 0.7 to 1.0 ms as the size of the cost, not a precise figure.
+1.3 ms, 0.9 ms on average. The further run at 3,150,742 fact rows (`profile-3M`, with the CPU
+profile on and a cold cache) is not one of the 12: there the means were 8.5 ms
+off and 8.1 ms on, and on was faster in two of three pairs, so the difference
+was inside the noise. Take 0.7 to 1.0 ms as the size of the cost, not a precise
+figure.
 
 Each Change carries 7 audit entries: a mint, a binding, and a status change
 for each of its five facts. Turning the log off applies the same ChangeSet
@@ -91,18 +93,21 @@ resolver writes the audit entries that
 [`data-model.md`](../spec/data-model.md#audit) lists, so the template carries
 them. The runs here were taken before that change landed, with a stand-in the
 benchmark derived from the ChangeSet (the same actions, targets and before and
-after messages, and a status change for each fact). The resolver's entries for
-a Change are the same seven at the same size, so the numbers stand, and the
-stand-in is gone from the code. A resolver that audits more per event
-(conflicts, merges, overrides) pays more, roughly 0.1 ms and 0.8 KB a record.
+after messages, and a status change for each fact). Compared on three Changes,
+the resolver's entries are the same seven actions and targets, within 0.5% of
+the stand-in's total size (1,143 to 1,173 bytes a Change), so the numbers
+stand, and the stand-in is gone from the code. A Change that merges subjects or
+opens a conflict makes the resolver write more entries (a merge, a conflict, a
+released binding, a rejection); this benchmark measures only a plain new
+Change, and each further entry costs roughly 0.1 ms and 0.8 KB.
 
 ## Space
 
 | | |
 | --- | --- |
 | `audit_record` heap | 2.85 GB for 4.52M records (630 B a record) |
-| its five indexes | 0.82 GB (`target` 0.40, `actor` 0.18, primary key 0.10, `event` 0.09, `time` 0.05) |
-| in all | 3.67 GB, 811 B a record, 20% of the schema (18.09 GB at 3.0M fact rows, against 13.64 GB without the log in the [store benchmark](store-10m.md)) |
+| its five indexes | 0.82 GB (`target` 0.40, `actor` 0.18, primary key 0.10, `event` 0.09, `time` 0.05; read from the database after the run, the raw file holds only the total) |
+| in all | 3.67 GB, 812 B a record, 20% of the schema (18.09 GB at 3.0M fact rows, against 13.64 GB without the log in the [store benchmark](store-10m.md)) |
 | per Change event | 7 records, about 5.7 KB |
 | the journal | also stores each ChangeSet's audit entries, about 0.3 KB more a Change; its insert went from 0.09 to 0.11 ms |
 | projected at 10M fact rows | 15.1M records, about 12 GB, of about 60 GB |
@@ -116,7 +121,7 @@ look if the size matters ([#239](https://github.com/dhm116/bearing/issues/239)).
 ## Compared with the store benchmark
 
 The store benchmark ran with an empty audit log (the resolver wrote no
-entries then); compare its numbers with this page's "off" figures, or run
+entries for these Changes then); compare its numbers with this page's "off" figures, or run
 `bearing-bench` with `--audit=false`. The suite's own writer rows, taken at the
 same checkpoints with the log on, agree: one writer lands 137 ChangeSets a second at 3.0M fact rows, against 65
 in the [store benchmark](store-10m.md#applying). The store has changed since
@@ -135,7 +140,7 @@ and 92% of attempts stale, as before; one writer through the resolver lands
   10 ms and the call is about 15 ms, **65 events per second**. Fewer round
   trips is the most direct way to the target; it changes `internal/pgstore`
   and no contract ([#238](https://github.com/dhm116/bearing/issues/238)).
-- **Commit latency.** Here a flush takes 0.2 ms (`pg_test_fsync`, 5,000 per
+- **Commit latency.** Here a flush takes 0.2 ms (`pg_test_fsync`, [`pg_test_fsync.txt`](results/2026-10-11/pg_test_fsync.txt), 5,000 per
   second). On a network disk it is 1 to 5 ms, added to every call, as the
   flush cannot be shared with another writer.
 - **TLS.** The benchmark's connection used TLS on loopback (the Ubuntu package's
@@ -163,9 +168,9 @@ statement counts come from a further run at 3.0M (`measure --only audit
 - The numbers are for `Apply`. The resolver in front of it takes 300 ms an
   event at 3M fact rows, so **ingest as a whole is about 3 events per second**
   until [#168](https://github.com/dhm116/bearing/issues/168) lands; the
-  server, the event log and the audit entries the resolver will write are not
-  in this measurement and are the next thing to measure once they land
-  ([#240](https://github.com/dhm116/bearing/issues/240)).
+  server, the event log and the Changes that merge subjects or open conflicts, which write more audit
+  entries, are not in this measurement and are the next thing to measure once
+  the server lands ([#240](https://github.com/dhm116/bearing/issues/240)).
 - The `profile-3M` label in the raw file is a further run at 3,150,742 fact
   rows. The statement times of the 100,000-row measurement include the earlier read
   measurements (the benchmark's role could not reset the statistics there);

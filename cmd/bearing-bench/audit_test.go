@@ -176,3 +176,32 @@ func TestAuditWriterRefusesAnEmptyOrg(t *testing.T) {
 		t.Fatalf("got %+v, want a sample error and nothing applied", r)
 	}
 }
+
+// TestAuditCostFailsWhenARunDoes checks that a run that applied nothing, here
+// because the context was cancelled, is an error and not a result.
+func TestAuditCostFailsWhenARunDoes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, log bytes.Buffer
+	var f flags
+	fs := flag.NewFlagSet("measure", flag.ContinueOnError)
+	f.register(fs)
+	if err := fs.Parse([]string{"--store", "mem://", "--declarations", testDeclarations, "--repos", "12", "--people", "8", "--teams", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	w, err := newWorld(ctx, f, &out, &log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+	if err := w.load(loadOptions{Events: 60}); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := w.readSet(w.pastRecorded())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := w.auditCost("test", 0, rs, &extraSeq{}, time.Second, 1); err == nil {
+		t.Fatal("got no error from a run that was cancelled, want one")
+	}
+}

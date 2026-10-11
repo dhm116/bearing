@@ -109,7 +109,7 @@ transaction as the change, and form a hash chain.
   measured it (`docs/benchmarks/ingest-throughput.md`, 3.0M fact rows,
   PostgreSQL 16.15):* a Change writes 7 records, not one, and they add 0.7 to
   1.0 ms to a 6 ms `Apply` (11 to 15%), the same at 0.1M and 3.0M fact rows.
-  A record takes 811 bytes with its indexes, 20% of the store. One consumer
+  A record takes 812 bytes with its indexes, 20% of the store. One consumer
   lands about 140 `Apply` calls a second with the log on and 155 with it off,
   below the 200 the plan asked for, and the log is not why: the call runs 20
   statements one after the other. The chain is extended under the head lock
