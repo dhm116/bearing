@@ -81,7 +81,7 @@ var auditCuts = must(meter.Int64Counter("bearing.retention.audit_cuts",
 	metric.WithUnit("{cut}")))
 
 var auditCheckpoints = must(meter.Int64Counter("bearing.audit.checkpoints",
-	metric.WithDescription("Audit checkpoint writer runs by result: written, unchanged (the head had not moved), or failed with the step that failed (key, head, checkpoint or write). A failure repeats at every run until someone acts; key means a configured key does not load and nothing is written, head means the log's head does not match its newest record."),
+	metric.WithDescription("Audit checkpoint writer runs by result: written, unchanged (the head had not moved), or failed with the step that failed (key, read, head, diverged, checkpoint or write). A failure repeats at every run until someone acts; key means a configured key does not load and nothing is written, head means the log's head does not match its newest record, diverged means it does not extend the newest checkpoint in the file."),
 	metric.WithUnit("{run}")))
 
 func resultStageAttrs(result, stage string) metric.AddOption {

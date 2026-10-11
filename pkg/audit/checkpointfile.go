@@ -66,7 +66,9 @@ func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 // the one the server's checkpoint writer and retention job write to.
 type CheckpointFile struct{ Path string }
 
-// appendMu serializes the appends of this process.
+// appendMu serializes the appends of this process, and keeps Read from seeing
+// one half written. Another process (the CLI beside a running server) is not
+// covered.
 var appendMu sync.Mutex
 
 // Append writes cp as a line of the file, created with mode 0600, and syncs
@@ -95,6 +97,11 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		return err
 	}
 	size := info.Size()
+	if size+int64(len(line)) > MaxCheckpointFileBytes {
+		// Past the bound Read refuses the file, and with it Verify and the
+		// retention job, so stop before the file is one nobody can read.
+		return fmt.Errorf("audit: checkpoint file %s is at its limit of %d bytes: move it aside and start a new one", f.Path, MaxCheckpointFileBytes)
+	}
 	if size > 0 {
 		last := make([]byte, 1)
 		if _, err := file.ReadAt(last, size-1); err != nil {
@@ -131,6 +138,8 @@ func syncDir(dir string) error {
 // Read returns every checkpoint in the file (ReadCheckpoints). A file that
 // does not exist yet holds none.
 func (f CheckpointFile) Read(_ context.Context) (cps []*modelv1alpha1.AuditCheckpoint, err error) {
+	appendMu.Lock()
+	defer appendMu.Unlock()
 	file, err := os.Open(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

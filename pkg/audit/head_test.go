@@ -2,8 +2,11 @@ package audit
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"bearing.example/pkg/contracts"
 )
@@ -57,5 +60,27 @@ func TestCheckedHeadRefusesAHeadNoRecordCarries(t *testing.T) {
 				t.Fatalf("got %v, want an error mentioning %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestCheckpointFileStopsAtTheBoundItsReaderEnforces(t *testing.T) {
+	t.Parallel()
+	s, _ := signer(t, "k1")
+	f := CheckpointFile{Path: filepath.Join(t.TempDir(), "cp.ndjson")}
+	cp, err := NewCheckpoint(contracts.AuditHead{Seq: 1, Hash: make([]byte, HashSize)}, time.Now(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Append(t.Context(), cp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(f.Path, MaxCheckpointFileBytes-10); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Append(t.Context(), cp); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("got %v, want a refusal at the file's limit", err)
+	}
+	if info, err := os.Stat(f.Path); err != nil || info.Size() != MaxCheckpointFileBytes-10 {
+		t.Fatalf("got %v, %v, want the file left as it was", info, err)
 	}
 }
