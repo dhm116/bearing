@@ -194,15 +194,16 @@
 //
 // Lists are Kubernetes Lists (items without kind or apiVersion, a
 // resourceVersion) in key order, paged by limit and continue: the token is
-// opaque and names the last item served (a keyset cursor, not a snapshot,
-// so an item created or deleted after it between pages shows up or
-// vanishes, and nothing already read moves), and belongs to one list (another list's token is a
-// 400). With [KubernetesOptions.ExpireContinue] or [Kubernetes.ExpireContinue]
-// a valid continue token gets 410 Gone (a malformed one, or one from
-// another list, is a 400 first); the request log keeps each request's
-// path, query (limit, continue) and headers, enough to tell a relist from
-// the first page, which namespace was listed, and a cluster-wide list. Objects carry more than the adapter may
-// read (status, managedFields, the pod template's environment and
-// arguments), as a real cluster's do. A container's environment is plain
-// name and value pairs; valueFrom, configMapRef and ports are not modeled.
+// opaque and names the last item served (a keyset cursor, not a snapshot, so
+// an item created or deleted after it between pages shows up or vanishes, and
+// nothing already read moves), and belongs to one list (another list's token
+// is a 400). With [KubernetesOptions.ExpireContinue] or
+// [Kubernetes.ExpireContinue] a valid continue token gets 410 Gone (a
+// malformed one, or one from another list, is a 400 first); the request log
+// keeps each request's path, query (limit, continue) and headers, enough to
+// tell a relist from the first page, which namespace was listed, and a
+// cluster-wide list. Objects carry more than the adapter may read (status,
+// managedFields, the pod template's environment and arguments), as a real
+// cluster's do. A container's environment is plain name and value pairs;
+// valueFrom, configMapRef and ports are not modeled.
 package fakes
