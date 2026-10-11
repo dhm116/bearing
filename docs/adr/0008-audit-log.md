@@ -105,6 +105,20 @@ transaction as the change, and form a hash chain.
   event ID.
 - Audit writes add a small cost to every graph transaction. Worth it: it is
   one extra row in a transaction that already happens.
+  *Amended 2026-10-11, after [#141](https://github.com/dhm116/bearing/issues/141)
+  measured it (`docs/benchmarks/ingest-throughput.md`, 3.0M fact rows,
+  PostgreSQL 16.15):* a Change writes 7 records, not one, and they add 0.7 to
+  1.0 ms to a 6 ms `Apply` (11 to 15%), the same at 0.1M and 3.0M fact rows.
+  A record takes 812 bytes with its indexes, 20% of the store. One consumer
+  lands about 140 `Apply` calls a second with the log on and 155 with it off,
+  below the 200 the plan asked for, and the log is not why: the call runs 20
+  statements one after the other. The chain is extended under the head lock
+  every apply already takes, so per-partition chains would not let applies
+  overlap; they are not needed, and are not proposed. That holds while applies
+  are serialised by the single apply clock (`data-model.md`, "Apply and
+  isolation"); if the clock is ever relaxed to one per partition, chains per
+  partition become worth another look. The 7 records are the entries the spec
+  lists for a Change.
 - Retention and privacy: records name people. Retention is configurable, and
   exports must respect the organization's data rules.
 - New `conformance.AuditLog` suite: one chained record per entry, nothing

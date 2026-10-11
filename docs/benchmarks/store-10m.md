@@ -3,6 +3,7 @@
 Measured with `cmd/bearing-bench` ([method](README.md)) for
 [#135](https://github.com/dhm116/bearing/issues/135), on 2026-10-10, against
 `internal/pgstore` at commit `3cd5fe3` (the SurrealDB removal). The `related` read fix described below was made afterwards and measured on the same store.
+The audit log was empty in this run (the resolver wrote no entries then); [`ingest-throughput.md`](ingest-throughput.md) measures it on and off.
 
 ## Answers
 

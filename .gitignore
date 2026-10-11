@@ -1,6 +1,7 @@
 bin/
 *.ndjson
 !testdata/acme/*.ndjson
+!docs/benchmarks/results/**/*.ndjson
 .env
 cover.out
 site/_site/

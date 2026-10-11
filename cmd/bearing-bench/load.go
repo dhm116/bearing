@@ -59,6 +59,8 @@ type world struct {
 	// bulkAfter is the simulated day from which Change events are applied as
 	// ChangeSets without resolving them.
 	bulkAfter int
+	// audit says whether ChangeSets the benchmark applies carry audit entries.
+	audit bool
 	// people caches the canonical subject IDs of people, for bulk Changes.
 	people map[int]string
 	// head is the record time of the last apply this world made.
@@ -113,6 +115,7 @@ func (w *world) applyItem(it item) (resolve, apply time.Duration, err error) {
 		}
 		cs = res.ChangeSet
 	}
+	stripAudit(cs, w.audit)
 	t1 := w.now()
 	got, err := w.graph.Apply(w.ctx, cs)
 	if errors.Is(err, contracts.ErrStale) {

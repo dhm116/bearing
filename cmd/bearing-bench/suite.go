@@ -85,13 +85,17 @@ type suiteOptions struct {
 	Callers []int
 	// Writers are the write concurrencies.
 	Writers []int
+	// AuditRun is how long each run of the audit log on or off lasts, and
+	// AuditRounds how many pairs of runs there are.
+	AuditRun    time.Duration
+	AuditRounds int
 }
 
 func defaultSuite(quick bool) suiteOptions {
 	if quick {
-		return suiteOptions{Duration: 300 * time.Millisecond, Applies: time.Second, Callers: []int{1, 4}, Writers: []int{1, 4}}
+		return suiteOptions{Duration: 300 * time.Millisecond, Applies: time.Second, Callers: []int{1, 4}, Writers: []int{1, 4}, AuditRun: time.Second, AuditRounds: 2}
 	}
-	return suiteOptions{Duration: 8 * time.Second, Applies: 20 * time.Second, Callers: []int{1, 16}, Writers: []int{1, 4, 16}}
+	return suiteOptions{Duration: 8 * time.Second, Applies: 20 * time.Second, Callers: []int{1, 16}, Writers: []int{1, 4, 16}, AuditRun: 30 * time.Second, AuditRounds: 3}
 }
 
 // measure runs the whole suite on the store as it stands, filing the results
@@ -154,6 +158,9 @@ func (w *world) measure(label string, facts int64, o suiteOptions) error {
 		return err
 	}
 	w.out.put("resolve", label, facts, costs)
+	if err := w.auditCost(label, facts, rs, seq, o.AuditRun, o.AuditRounds); err != nil {
+		return err
+	}
 	applied := 0
 	for _, level := range []string{"store", "resolver"} {
 		for _, n := range o.Writers {
@@ -195,6 +202,37 @@ func (w *world) measureReads(label string, facts int64, match string, o suiteOpt
 		}
 	}
 	return nil
+}
+
+// measureAudit is the part of measure that times the single consumer with
+// the audit log off and on.
+func (w *world) measureAudit(label string, facts int64, o suiteOptions) error {
+	rs, err := w.readSet(w.pastRecorded())
+	if err != nil {
+		return err
+	}
+	seq := &extraSeq{}
+	extra, err := w.pg.extra(w.ctx)
+	if err != nil {
+		return err
+	}
+	seq.n.Store(extra)
+	if w.pg != nil {
+		if err := w.pg.analyze(w.ctx); err != nil {
+			return err
+		}
+		rc, err := w.pg.rowCounts(w.ctx)
+		if err != nil {
+			return err
+		}
+		w.out.put("rows", label, facts, rc)
+		sz, err := w.pg.sizes(w.ctx)
+		if err != nil {
+			return err
+		}
+		w.out.put("sizes", label, facts, sz)
+	}
+	return w.auditCost(label, facts, rs, seq, o.AuditRun, o.AuditRounds)
 }
 
 // measureResolve is the part of measure that times the resolver, for a store
@@ -261,6 +299,8 @@ func (w *world) runMeasure(f flags) error {
 		label = fmt.Sprintf("%d fact rows", facts)
 	}
 	switch {
+	case f.only == "audit":
+		return w.measureAudit(label, facts, defaultSuite(f.quick))
 	case f.only == "resolve":
 		return w.measureResolve(label, facts)
 	case strings.HasPrefix(f.only, "reads:"):

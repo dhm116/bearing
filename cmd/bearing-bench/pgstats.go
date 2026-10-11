@@ -128,7 +128,7 @@ func (p *pg) rowCounts(ctx context.Context) (*rowCounts, error) {
 			return nil, err
 		}
 	}
-	for _, t := range []string{"subject", "merge_record", "unmerge_record", "component", "series_subject", "journal"} {
+	for _, t := range []string{"subject", "merge_record", "unmerge_record", "component", "series_subject", "journal", "audit_record"} {
 		var n int64
 		if err := p.conn.QueryRow(ctx, "SELECT count(*) FROM "+t).Scan(&n); err != nil {
 			return nil, err
@@ -181,7 +181,7 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 // analyze refreshes the planner's statistics and vacuums the schema's tables,
 // as autovacuum would have by the time an operator looks.
 func (p *pg) analyze(ctx context.Context) error {
-	for _, t := range []string{"series", "series_subject", "version", "subject", "merge_record", "component", "journal"} {
+	for _, t := range []string{"series", "series_subject", "version", "subject", "merge_record", "component", "journal", "audit_record"} {
 		if _, err := p.conn.Exec(ctx, "VACUUM (ANALYZE) "+quoteIdent(p.schema)+"."+t); err != nil {
 			return fmt.Errorf("vacuum %s: %w", t, err)
 		}

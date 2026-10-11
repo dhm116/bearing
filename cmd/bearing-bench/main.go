@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -67,6 +68,8 @@ type flags struct {
 	quick        bool
 	only         string
 	flip         bool
+	audit        bool
+	cpuProfile   string
 	org          orgConfig
 }
 
@@ -80,8 +83,10 @@ func (f *flags) register(fs *flag.FlagSet) {
 	fs.Int64Var(&f.events, "events", 0, "stop after this many events of the stream (the only limit for a store that is not PostgreSQL)")
 	fs.StringVar(&f.checkpoints, "checkpoints", "100000,300000,1000000,3000000,10000000", "fact-row counts at which to measure")
 	fs.BoolVar(&f.quick, "quick", false, "run each measurement for a fraction of a second, to check the benchmark itself")
-	fs.StringVar(&f.only, "only", "", `measure: "resolve" runs only the resolver timings, "reads:TEXT" only the reads whose name contains TEXT`)
+	fs.StringVar(&f.only, "only", "", `measure: "resolve" runs only the resolver timings, "audit" only the single consumer with the audit log off and on, "reads:TEXT" only the reads whose name contains TEXT`)
 	fs.BoolVar(&f.flip, "flip", false, "history: change one repository at every read")
+	fs.BoolVar(&f.audit, "audit", true, "keep the audit entries the resolver writes with each ChangeSet; false strips them, so the log stays empty")
+	fs.StringVar(&f.cpuProfile, "cpuprofile", "", "write a CPU profile of the whole run to this file (a relative path is in the working directory)")
 	fs.IntVar(&f.bulkAfter, "bulk-after-day", 5, "simulated day from which Change events are applied without resolving them")
 	fs.Uint64Var(&f.org.Seed, "seed", d.Seed, "seed of the generated org")
 	fs.IntVar(&f.org.Repos, "repos", d.Repos, "repositories at the first sync")
@@ -137,6 +142,17 @@ func run(ctx context.Context, args []string, log io.Writer) error {
 		defer file.Close() //nolint:errcheck // results were written line by line
 		out = file
 	}
+	if f.cpuProfile != "" {
+		file, err := os.Create(f.cpuProfile)
+		if err != nil {
+			return err
+		}
+		defer file.Close() //nolint:errcheck // a profile that fails to close is only a lost profile
+		if err := pprof.StartCPUProfile(file); err != nil {
+			return err
+		}
+		defer pprof.StopCPUProfile()
+	}
 	w, err := newWorld(ctx, f, out, log)
 	if err != nil {
 		return err
@@ -185,7 +201,7 @@ func newWorld(ctx context.Context, f flags, out, log io.Writer) (*world, error) 
 	}
 	w := &world{
 		ctx: ctx, st: st, graph: st.Graph, pg: p, res: res, rcfg: cfg, tpl: tpl, log: log, now: time.Now,
-		out: &sink{w: out, now: time.Now}, stream: newStream(f.org), bulkAfter: f.bulkAfter, people: map[int]string{},
+		out: &sink{w: out, now: time.Now}, stream: newStream(f.org), bulkAfter: f.bulkAfter, audit: f.audit, people: map[int]string{},
 	}
 	return w, nil
 }
