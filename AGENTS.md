@@ -30,7 +30,7 @@ Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
 | `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
-| `make race` | `go test -race` on the packages that take locks or run goroutines (`RACE_PKGS`: `pkg/server`, `pkg/auth`, `pkg/audit`, `pkg/store`, `internal/memstore`, `internal/fakes`, `internal/testkit`); needs cgo and a C compiler. `internal/pgstore` (PostgreSQL) and `pkg/resolver` (about 450 s under `-race`) are left out |
+| `make race` | `go test -race` on the packages that take locks or run goroutines (`RACE_PKGS`: `pkg/server`, `pkg/auth`, `pkg/audit`, `pkg/store`, `pkg/adapter`, `pkg/model`, `internal/memstore`, `internal/fakes`, `internal/testkit`); needs cgo and a C compiler. `internal/pgstore` (PostgreSQL) and `pkg/resolver` (about 450 s under `-race`) are left out |
 | `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
 | `make build` | Builds `bin/bearing`, `bin/bearing-adapter-github` and `bin/bearing-bench` |
