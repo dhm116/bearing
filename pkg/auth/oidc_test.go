@@ -79,7 +79,7 @@ const (
 
 var epoch = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
-// signer holds the test keys, generated once.
+// signers holds the test keys, generated once.
 type signers struct {
 	rsa *rsa.PrivateKey
 	ec  *ecdsa.PrivateKey
@@ -330,7 +330,7 @@ func TestVerifyRefusesTokensItCannotTrust(t *testing.T) {
 		{"payload edited after signing", parts[0] + "." + b64(edited) + "." + parts[2], "signature"},
 		{"signature cut", parts[0] + "." + parts[1] + "." + b64([]byte("short")), "signature"},
 		{"RSA token naming an EC key", p.token(t, algRS256, kidEC, p.claims()), "signature"},
-		{"PS256 signature under RS256", signToken(t, map[string]any{"alg": algRS256, "kid": kidRSA}, p.claims())[:0] + swapAlg(t, p.token(t, algPS256, kidRSA, p.claims()), algRS256), "signature"},
+		{"PS256 signature under RS256", swapAlg(t, p.token(t, algPS256, kidRSA, p.claims()), algRS256), "signature"},
 		{"no kid", p.token(t, algRS256, "", p.claims(), map[string]any{"kid": nil}), "key"},
 		{"unknown kid", p.token(t, algRS256, "rsa-2", p.claims()), "key"},
 		{"critical header", p.token(t, algRS256, kidRSA, p.claims(), map[string]any{"crit": []string{"exp"}}), "malformed"},
@@ -625,7 +625,6 @@ func TestDiscoveryAndKeyFetchesAreHeldToTheRules(t *testing.T) {
 	}{
 		{"the document names another issuer", func(p *idp) { p.issuerName = "https://evil.example" }},
 		{"the document names an issuer with a slash", func(p *idp) { p.issuerName = p.srv.URL + "/" }},
-		{"the key set is on plain http", func(p *idp) { p.jwksURI = strings.Replace(p.srv.URL, "https", "http", 1) + "/jwks" }},
 		{"the key set URL has credentials", func(p *idp) { p.jwksURI = strings.Replace(p.srv.URL, "https://", "https://u:p@", 1) + "/jwks" }},
 		{"the key set URL is empty", func(p *idp) { p.jwksURI = "not a url" }},
 		{"the key set redirects", func(p *idp) { p.jwksURI = p.srv.URL + "/moved" }},
@@ -851,9 +850,11 @@ func TestRSAKeysOutsideTheAcceptedSizesAndExponentsAreSkipped(t *testing.T) {
 	good := jwkRSA("ok", &k.rsa.PublicKey)
 	small := jwkRSA("small-e", &k.rsa.PublicKey)
 	small["e"] = b64([]byte{3})
+	even := jwkRSA("even-e", &k.rsa.PublicKey)
+	even["e"] = b64([]byte{1, 0, 2})
 	huge := jwkRSA("huge", &k.rsa.PublicKey)
 	huge["n"] = b64(append([]byte{0xff}, make([]byte, maxRSABits/8)...))
-	raw, err := json.Marshal(map[string]any{"keys": []any{good, small, huge}})
+	raw, err := json.Marshal(map[string]any{"keys": []any{good, small, even, huge}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,6 +889,7 @@ func TestSubjectsAndClientIDsAreBoundedAndCannotPoseAsAuditNames(t *testing.T) {
 		{"a client ID over the audit limit", func(c map[string]any) { delete(c, "sub"); c["azp"] = strings.Repeat("c", maxActorBytes+1) }, false},
 		{"a subject of exactly the limit", func(c map[string]any) { c["sub"] = strings.Repeat("s", maxActorBytes) }, true},
 		{"a subject with a control character", func(c map[string]any) { c["sub"] = "a\nb" }, false},
+		{"a client ID with a control character", func(c map[string]any) { delete(c, "sub"); c["azp"] = "a\nb" }, false},
 		{"an ordinary client", func(c map[string]any) { delete(c, "sub") }, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1012,5 +1014,27 @@ func TestVerificationIsCountedAndKeyFetchesAreTraced(t *testing.T) {
 	}
 	if !found {
 		t.Error("no auth.refresh_keys client span with the key count")
+	}
+}
+
+func TestAKeySetOnPlainHTTPIsNeverFetched(t *testing.T) {
+	p := newIDP(t)
+	// A cleartext server that would serve valid keys: only the https rule can
+	// keep them out.
+	var hits atomic.Int64
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": p.jwks})
+	}))
+	t.Cleanup(plain.Close)
+	p.set(func(p *idp) { p.jwksURI = plain.URL + "/jwks" })
+	_, err := p.verifier(t).Verify(t.Context(), p.token(t, algES256, kidEC, p.claims()))
+	if !errors.Is(err, ErrKeysUnavailable) {
+		t.Fatalf("got %v, want keys unavailable", err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("the cleartext key set was requested %d times", n)
 	}
 }
