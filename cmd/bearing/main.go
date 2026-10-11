@@ -4,6 +4,7 @@
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
 //
+// runs the server (bearing server --settings FILE, see docs/operations.md),
 // and answers questions about what Bearing knows, with the source, event,
 // confidence and observed time of each fact, from the graph store directly or
 // from a running server:
@@ -60,6 +61,7 @@ const usage = `usage:
   bearing related <subject> [--predicate P] [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
   bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing changes --page-token TOKEN [--limit N] [--store URL | --server ADDR] [--json]
+  bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
   bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
@@ -113,7 +115,7 @@ func spanName(args []string) string {
 	switch {
 	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "audit" || args[0] == "source"):
 		return "bearing " + args[0] + " " + args[1]
-	case len(args) >= 1 && isQueryCommand(args[0]):
+	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server"):
 		return "bearing " + args[0]
 	}
 	return "bearing"
@@ -131,6 +133,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return queryCmd(ctx, env, args[0], args[1:], stdout)
 	}
 	switch args[0] {
+	case "server":
+		return serverCmd(ctx, args[1:], stdout)
 	case "audit":
 		return auditCmd(ctx, env, args[1:], stdout)
 	case "source":

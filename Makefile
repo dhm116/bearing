@@ -99,7 +99,7 @@ cover:
 # The packages that take locks or run goroutines. internal/pgstore needs
 # PostgreSQL, and pkg/resolver takes about 450 seconds under -race, far more
 # than the rest together; neither belongs in the CI run (about five minutes).
-RACE_PKGS ?= ./pkg/server/ ./pkg/auth/ ./pkg/audit/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
+RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/auth/ ./pkg/audit/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
 
 # race runs RACE_PKGS under the race detector, which needs cgo and a C
 # compiler. PostgreSQL suites skip unless BEARING_TEST_POSTGRES is set.

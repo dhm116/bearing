@@ -29,7 +29,14 @@ const childEnv = "BEARING_ADAPTER_TEST_CHILD"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(childEnv); mode != "" {
-		if err := ServeStdio(context.Background(), pager{n: 1}); err != nil || mode == "fail" {
+		var a Adapter = pager{n: 1}
+		switch mode {
+		case "env":
+			a = envAdapter{}
+		case "hang":
+			a = hangAdapter{}
+		}
+		if err := ServeStdio(context.Background(), a); err != nil || mode == "fail" {
 			os.Exit(1)
 		}
 		os.Exit(0)

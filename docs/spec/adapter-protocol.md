@@ -7,7 +7,10 @@ Protocol version 0.2 (draft).
 > to the Protobuf adapter service: WASM modules by default, and local
 > processes serving the service over Connect/gRPC on a Unix socket for
 > adapters that can't run as WASM. This document describes the current
-> scaffold until it is rewritten for that service.
+> scaffold until it is rewritten for that service. Until then the server
+> starts a stdio adapter with `adapter.StartWith`, which gives it exactly the
+> environment the host names and nothing inherited, and ends it with
+> `Client.Kill` when a call outlasts its deadline. Both go with the transport.
 
 An adapter is a separate program that reads one external system and reports
 what it sees as [observations](data-model.md#observations). Adapters can be
