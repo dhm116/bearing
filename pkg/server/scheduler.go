@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -50,9 +49,9 @@ func (s *Server) scheduleSource(ctx context.Context, src Source) {
 	}
 }
 
-// scheduledSync requests a sync unless the one it requested last has not been
-// applied yet: a source that is slower than its interval would otherwise pile
-// up requests behind itself.
+// scheduledSync requests a sync. A source that is slower than its interval
+// still has the last request waiting, which RequestSync answers instead of
+// piling up another.
 func (s *Server) scheduledSync(ctx context.Context, source string) {
 	ctx, span := tracer.Start(ctx, "scheduler.sync")
 	defer span.End()
@@ -62,24 +61,7 @@ func (s *Server) scheduledSync(ctx context.Context, source string) {
 		schedulerSyncs.Add(ctx, 1, metric.WithAttributes(attrSourceName.String(source), attribute.String(string(attrResult), result)))
 	}
 
-	s.mu.Lock()
-	last := s.lastSync[source]
-	s.mu.Unlock()
-	if last > 0 {
-		applied, err := s.cfg.Log.Committed(ctx, s.cfg.Group, contracts.Partition(source))
-		if err != nil {
-			if ctx.Err() == nil {
-				_ = telemetry.Fail(ctx, span, log, "scheduled sync not requested: the log would not say what is applied", err, attrSourceName.String(source))
-				count("failed")
-			}
-			return
-		}
-		if applied < last {
-			count("skipped")
-			return
-		}
-	}
-	_, off, err := s.RequestSync(ctx, source, &eventv1alpha1.Actor{Subject: schedulerActor})
+	req, err := s.RequestSync(ctx, source, &eventv1alpha1.Actor{Subject: schedulerActor})
 	if err != nil {
 		if ctx.Err() == nil {
 			_ = telemetry.Fail(ctx, span, log, "scheduled sync not requested", err, attrSourceName.String(source))
@@ -87,8 +69,9 @@ func (s *Server) scheduledSync(ctx context.Context, source string) {
 		}
 		return
 	}
-	s.mu.Lock()
-	s.lastSync[source] = off
-	s.mu.Unlock()
+	if req.Pending {
+		count("skipped")
+		return
+	}
 	count("requested")
 }

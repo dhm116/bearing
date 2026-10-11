@@ -557,11 +557,28 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 	if len(reqs) != 1 || reqs[0].GetActor().GetSubject() != "bot" || !reqs[0].GetActor().GetAgent() || reqs[0].GetSource() != testSource {
 		t.Fatalf("got %v, want one request by the client bot, as an agent", reqs)
 	}
+	// While that request waits to be applied, another caller gets it back and
+	// nothing more is logged: a caller cannot queue syncs faster than they run.
+	rec2 := w.do("admin", http.MethodPost, "/v1/sources/"+testSource+"/sync")
+	var again syncAccepted
+	if err := json.Unmarshal(rec2.Body.Bytes(), &again); err != nil || rec2.Code != http.StatusAccepted || again != got {
+		t.Fatalf("a second request while one waits: got %d %q, want 202 and the first request's ID %v", rec2.Code, rec2.Body.String(), got)
+	}
+	if n := len(syncRequests(t, w)); n != 1 {
+		t.Fatalf("got %d requests on the log, want only the first", n)
+	}
+	// Once it is applied, a new one is logged, by the person who asked.
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)); err != nil {
+		t.Fatal(err)
+	}
 	if rec := w.do("admin", http.MethodPost, "/v1/sources/"+testSource+"/sync"); rec.Code != http.StatusAccepted {
 		t.Fatalf("admin: got %d", rec.Code)
 	}
 	if reqs := syncRequests(t, w); len(reqs) != 2 || reqs[1].GetActor().GetSubject() != "carol" || reqs[1].GetActor().GetAgent() {
 		t.Fatalf("got %v, want the second request by carol, a person", reqs)
+	}
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)+1); err != nil {
+		t.Fatal(err)
 	}
 
 	// When the log refuses, the caller is told to retry and nothing is logged.
@@ -814,5 +831,35 @@ func TestOIDCAuthenticatorMapsWhatTheVerifierSays(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "10.1.2.3") {
 			t.Errorf("%s: the error repeats the verifier's: %v", name, err)
 		}
+	}
+}
+
+// slowAuthn waits for its request's context, as an identity provider that
+// does not answer would make the verifier do.
+type slowAuthn struct{}
+
+func (slowAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
+	<-r.Context().Done()
+	return contracts.Caller{}, r.Context().Err()
+}
+
+// The deadline starts before the token is checked, so a check that hangs
+// does not hold a request and its slot for good.
+func TestAPIDeadlineStartsBeforeAuthentication(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.RequestTimeout = 50 * time.Millisecond })
+	h := w.api.Handler(slowAuthn{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/get?ref=x", nil)
+	req.Header.Set("Authorization", "Bearer x")
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { h.ServeHTTP(rec, req); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a hung authenticator held the request past its deadline")
+	}
+	if rec.Code != http.StatusServiceUnavailable || decodeError(t, rec).Code != "auth_unavailable" {
+		t.Fatalf("got %d %s, want 503 auth_unavailable", rec.Code, rec.Body.String())
 	}
 }

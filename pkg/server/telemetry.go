@@ -140,3 +140,15 @@ func apiAttrs(method contracts.Method, result string) metric.AddOption {
 var apiPeersRefused = must(meter.Int64Counter("bearing.api.peers_refused",
 	metric.WithDescription("Connections to the local API socket refused because the peer's UID is not the service user's or root. Never labelled with the UID."),
 	metric.WithUnit("{connection}")))
+
+// apiPreAuthRefused counts what the TCP listener turned away before any
+// credential was looked at (C-API-6): a connection past the total cap or the
+// per-peer cap, or a request past the per-peer rate. The label is one of
+// those three fixed words, never a peer's address.
+var apiPreAuthRefused = must(meter.Int64Counter("bearing.api.pre_auth_refused",
+	metric.WithDescription("TCP API connections and requests refused before authentication: connections (total cap), peer_connections (one peer holds too many) or peer_rate (one peer asks too fast). A steady count is a scanner or a client in a loop; a rise in connections means the cap is shared by too many honest peers."),
+	metric.WithUnit("{refusal}")))
+
+func preAuthAttrs(result string) metric.AddOption {
+	return metric.WithAttributes(attrResult.String(result))
+}

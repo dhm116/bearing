@@ -288,9 +288,8 @@ Assets: A1, A7, the event log.
 - **C-INGEST-4** Limits per transport: maximum body size (default 1 MiB,
   enforced while reading), header size, read and idle timeouts, and maximum
   concurrent requests (`IngestConfig.MaxInFlight`, default 256, 503 with
-  `Retry-After` beyond it). One peer can still hold a share of the slots for a
-  read timeout until the connection and per-peer caps of the `bearing server`
-  wiring exist.
+  `Retry-After` beyond it). One peer's hold on the slots is
+  bounded by the TCP listener's connection caps (C-API-6).
 - **C-INGEST-5** Duplicates are dropped by a key scoped to the Source (ADR
   7): the delivery ID when the signature covers it, otherwise the SHA-256 of
   the authenticated body. No declared scheme signs the delivery ID headers
@@ -316,7 +315,8 @@ Assets: A1, A7, the event log.
   limited. The per-Source limit counts only deliveries that passed the
   signature check, so a peer that cannot sign cannot use up a Source's
   allowance and make the real sender's deliveries 429. The tables of buckets
-  are bounded. Until `trusted_proxies` exists (C-INGEST-10), senders behind
+  are bounded and evict the sender seen least recently; an IPv6 sender is
+  counted as its /64. Until `trusted_proxies` exists (C-INGEST-10), senders behind
   one proxy share a peer bucket. The 2xx is sent only after the event is
   appended to the log (ADR 7); if the log is unavailable, ingest returns 503
   so the sender retries. Retention then keeps the event until the apply
@@ -757,7 +757,20 @@ Assets: A3, A5, A4, A7.
   the server treats it as input, bounds its length, checks the filter, window
   and cursor against the caller's role on every page and never on the
   strength of an earlier page, and takes from it nothing the request could
-  not have asked for.
+  not have asked for. The TCP listener also limits what a peer can do before
+  it is authenticated: open connections in all and per peer (closed as they are
+  accepted, below TLS, so a peer pays with a slot before it costs a handshake),
+  a handshake and a header timeout that end a silent connection, HTTP/1.1 only
+  (pinned by a test, so a connection is one request at a time), and a request
+  rate per peer on the API routes. An IPv6 peer is keyed by its /64, and the
+  tables evict the key seen least recently, never refuse a new one. Residual
+  risks: the total cap is shared with the webhook route, so enough source
+  addresses (16 at the default, or one host with an IPv6 prefix larger than a
+  /64, each /64 being a new key with a full burst) can fill it and make
+  deliveries fail at TCP; GitHub does not redeliver, so the next scheduled
+  sync is what recovers them (a webhook source needs a schedule). A second
+  tier keyed by a wider IPv6 prefix, and per-listener caps for operators, can
+  come later. Peers behind one NAT, NAT64 or proxy share a budget.
 - **C-API-7** Errors return a code, a message written for the caller and a
   request ID. Details go to logs, not responses.
   The server's `API` (`pkg/server`, routes in
@@ -765,7 +778,9 @@ Assets: A3, A5, A4, A7.
   that every route goes through (the webhook route is Ingest's own, outside
   the wrapper and its in-flight cap, with its own limits and plain
   status-only answers, C-INGEST-4 and C-INGEST-7), in this order: in-flight cap,
-  authentication, per-caller rate limit, authorization, parameters. The
+  authentication, per-caller rate limit, authorization, parameters, with the
+  request's deadline starting at the in-flight cap so no step before the
+  handler can hold a request past it. The
   routes are one table, built into the mux from the same list a test reads, so
   a route cannot skip a check, and a test fails for a route whose method has
   no role or a method with no route (C-API-5), or that is missing from the
@@ -787,12 +802,20 @@ Assets: A3, A5, A4, A7.
     authorized, bounded to 512 bytes, and cannot be mixed with the question's
     own parameters; a withdrawn role ends paging on the next page.
   - The TLS certificate is read once at start, so a rotated one needs a
-    restart. Per-caller tables (rate, reads in flight) are bounded at 10,000
-    callers and reset or refuse past that, so a flood of distinct callers
-    cannot grow memory.
+    restart. Per-caller tables are bounded at 10,000 callers: the rate table
+    evicts the caller seen least recently, and the reads-in-flight table
+    refuses a new caller past the bound, so a flood of distinct callers cannot
+    grow memory. A flood of distinct peers can push an idle peer's debt out of
+    the rate table; that resets a limit, it does not open anything.
   - The per-caller rate limit is applied after authentication, so it does not
-    slow an attacker who sends bad tokens; token checking is bounded by the
-    verifier (C-IDP-1) and the in-flight cap.
+    slow an attacker who sends bad tokens. The per-peer rate and the
+    connection caps do, and token checking is bounded by the verifier
+    (C-IDP-1) and the in-flight cap. Peers behind one NAT or proxy share a peer
+    bucket until `trusted_proxies` exists (C-INGEST-10).
+  - A sync request is logged only if the source's last one has been applied,
+    so a loop of them (a token, or the socket) puts one event on the log at a
+    time. The pending record is in memory: after a restart one more request can
+    be logged for a source, which costs one more sync.
 - **C-API-8** The command line (`pkg/apiclient`, `bearing --server`) treats the
   server's answers as input it does not trust:
   - The bearer token comes from an environment variable the operator names,

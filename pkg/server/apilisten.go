@@ -31,6 +31,17 @@ const (
 	apiShutdownTimeout   = 10 * time.Second
 )
 
+// Defaults of the TCP listener's limits before authentication (C-API-6).
+const (
+	// DefaultMaxConns is how many connections the TCP listener holds open.
+	DefaultMaxConns = 1024
+	// DefaultMaxConnsPerPeer is how many of them one peer may hold.
+	DefaultMaxConnsPerPeer = 64
+	// DefaultPeerRate is each peer's requests a minute on the API routes,
+	// with a burst of a sixth of it.
+	DefaultPeerRate = 1200
+)
+
 // ListenConfig is where the API listens. A server with neither listener serves
 // no API.
 type ListenConfig struct {
@@ -59,6 +70,19 @@ type ListenConfig struct {
 	// signature, not by a token (C-INGEST-2), and the handler owns its limits
 	// and answers (C-INGEST-7). The socket never serves it. Needs Addr.
 	Webhooks http.Handler
+
+	// MaxConns and MaxConnsPerPeer cap the TCP listener's open connections, in
+	// all and from one peer (an IPv6 peer is its /64). A connection past a cap
+	// is closed as it is accepted, before the TLS handshake. Zero means
+	// DefaultMaxConns and DefaultMaxConnsPerPeer. With TLS, a handshake that
+	// does not finish ends at the header timeout and gives its slot back.
+	MaxConns, MaxConnsPerPeer int
+	// PeerRate limits each peer's requests to the API routes before the
+	// request is authenticated. Zero means DefaultPeerRate; a negative
+	// PerMinute turns it off. The health endpoints and the webhook route are
+	// not counted. The socket has no such limit: its callers are the
+	// service user and root.
+	PeerRate RateLimit
 }
 
 // checkListen validates l and fills defaults.
@@ -141,10 +165,14 @@ func (a *API) Serve(ctx context.Context, l ListenConfig) error {
 		if err != nil {
 			return fail(fmt.Errorf("server: API listen on %s: %w", l.Addr, err))
 		}
+		// The caps sit under TLS, so a peer pays for a slot before it costs
+		// a handshake.
+		ln = newLimitListener(ln, orDefault(l.MaxConns, DefaultMaxConns), orDefault(l.MaxConnsPerPeer, DefaultMaxConnsPerPeer))
 		if cfg != nil {
 			ln = tls.NewListener(ln, cfg)
 		}
-		ls = append(ls, apiListener{ln, newHTTPServer(withWebhooks(a.Handler(l.Authenticator), l.Webhooks), cfg, nil)})
+		h := withWebhooks(a.withPeerRate(a.Handler(l.Authenticator), a.peerLimiter(l.PeerRate)), l.Webhooks)
+		ls = append(ls, apiListener{ln, newHTTPServer(h, cfg, nil)})
 	}
 
 	var wg sync.WaitGroup
@@ -172,6 +200,21 @@ func (a *API) Serve(ctx context.Context, l ListenConfig) error {
 	}
 	wg.Wait()
 	return serveErr
+}
+
+// peerLimiter builds the per-peer request limiter of the TCP listener, or nil
+// when it is off.
+func (a *API) peerLimiter(r RateLimit) *limiter {
+	switch {
+	case r.PerMinute < 0:
+		return nil
+	case r.PerMinute == 0:
+		r.PerMinute = DefaultPeerRate
+	}
+	if r.Burst <= 0 {
+		r.Burst = max(1, r.PerMinute/6)
+	}
+	return newLimiter(r.PerMinute, r.Burst, maxCallerKeys, a.cfg.Server.clk.Now)
 }
 
 // withWebhooks sends what is under /webhooks/ to hooks and everything else to

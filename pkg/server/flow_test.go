@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -60,7 +61,8 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	h.s.cfg.Applier = res
 	h.start()
 
-	id, _, err := h.s.RequestSync(ctx, testSource, &eventv1alpha1.Actor{Subject: "system:test"})
+	sr, err := h.s.RequestSync(ctx, testSource, &eventv1alpha1.Actor{Subject: "system:test"})
+	id := sr.ID
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,8 @@ func TestServerPagesAreNumberedAndStampedWithTheirSource(t *testing.T) {
 		return adapter.SyncResult{Observations: adapter.Observations{validObservation(t)}, Done: true}, nil
 	}
 	h.start()
-	id, _, err := h.s.RequestSync(t.Context(), testSource, &eventv1alpha1.Actor{Subject: "system:test"})
+	sr, err := h.s.RequestSync(t.Context(), testSource, &eventv1alpha1.Actor{Subject: "system:test"})
+	id := sr.ID
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +225,7 @@ func TestServerKeepsAPageWithARejectedObservationFromCompletingTheSync(t *testin
 		}, nil
 	}
 	h.start()
-	if _, _, err := h.s.RequestSync(t.Context(), testSource, &eventv1alpha1.Actor{Subject: "system:test"}); err != nil {
+	if _, err := h.s.RequestSync(t.Context(), testSource, &eventv1alpha1.Actor{Subject: "system:test"}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the page to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == 2 })
@@ -240,7 +243,7 @@ func TestServerKeepsAPageWithARejectedObservationFromCompletingTheSync(t *testin
 
 func TestRequestSyncRefusesAnUnknownSource(t *testing.T) {
 	h := newHarness(t)
-	_, _, err := h.s.RequestSync(t.Context(), "nope", nil)
+	_, err := h.s.RequestSync(t.Context(), "nope", nil)
 	if !errors.Is(err, ErrUnknownSource) {
 		t.Fatalf("got %v, want ErrUnknownSource", err)
 	}
@@ -609,7 +612,8 @@ func TestServerTreatsAPanicInTheWorkPathAsAFailureOfThatEvent(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
 	h.ad.syncFn = func(context.Context, adapter.SyncParams) (adapter.SyncResult, error) { panic("adapter bug") }
 	h.start()
-	req, _, err := h.s.RequestSync(t.Context(), testSource, nil)
+	sr, err := h.s.RequestSync(t.Context(), testSource, nil)
+	req := sr.ID
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +649,7 @@ func TestServerDoesNotClaimACompleteSyncWhenItRepeatsAFailedRun(t *testing.T) {
 		return adapter.SyncResult{Observations: obs(), Done: true, CompleteSync: complete}, nil
 	}
 	h.start()
-	if _, _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
+	if _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the repeated sync to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == 3 })
@@ -717,7 +721,7 @@ func TestServerHungAdaptersDoNotKeepOtherSourcesWaiting(t *testing.T) {
 	})
 	h.start()
 	for _, src := range []string{"hung-a", "hung-b", "healthy"} {
-		if _, _, err := h.s.RequestSync(t.Context(), src, nil); err != nil {
+		if _, err := h.s.RequestSync(t.Context(), src, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -847,5 +851,72 @@ func TestServerDoesNotTryAGivenUpEventAgainWhenTheCommitWasRefused(t *testing.T)
 	waitFor(t, "the event to be committed", func() bool { return h.drained(testSource) })
 	if got := len(h.ap.called()); got != 1 {
 		t.Fatalf("the event was tried %d times, want once: it was already given up on", got)
+	}
+}
+
+// Callers that ask for a sync of one source together get one request: the
+// rule is the server's, so every caller of RequestSync has it.
+func TestRequestSyncLogsOneRequestForCallersAskingTogether(t *testing.T) {
+	h := newHarness(t)
+	const callers = 20
+	ids := make(chan string, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sr, err := h.s.RequestSync(t.Context(), testSource, nil)
+			if err != nil {
+				t.Error(err)
+			}
+			ids <- sr.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	first := ""
+	for id := range ids {
+		if first == "" {
+			first = id
+		}
+		if id != first {
+			t.Fatalf("got request IDs %q and %q, want one for every caller", first, id)
+		}
+	}
+	if n := len(h.entries(testSource)); n != 1 {
+		t.Fatalf("got %d events on the log, want 1", n)
+	}
+}
+
+func TestRequestSyncFailsClosedWhenTheLastRequestCannotBeLookedUp(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.log.failCommitted.Store(true)
+	if sr, err := h.s.RequestSync(t.Context(), testSource, nil); err == nil || sr.Pending {
+		t.Fatalf("got %+v, %v, want an error", sr, err)
+	}
+	if n := len(h.entries(testSource)); n != 1 {
+		t.Fatalf("got %d events on the log, want the one from before the failure", n)
+	}
+}
+
+func TestRequestSyncWaitingForTheSlotEndsWithItsContext(t *testing.T) {
+	h := newHarness(t)
+	slot := h.s.syncs[testSource]
+	slot.lock <- struct{}{} // a caller whose log call is hanging
+	defer func() { <-slot.lock }()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { _, err := h.s.RequestSync(ctx, testSource, nil); done <- err }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want the context's error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a waiting caller was held past its context")
 	}
 }
