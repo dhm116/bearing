@@ -83,6 +83,8 @@ func indentedSize(body []byte) int64 {
 			depth--
 		case ',':
 			n += 1 + 2*depth
+		case ':':
+			n++ // the space Indent puts after it
 		}
 	}
 	return n

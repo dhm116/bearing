@@ -208,6 +208,9 @@ func TestSocketRefusalsSayNoTokenIsUsed(t *testing.T) {
 	if got := sf.explain(c, &apiclient.Error{Status: http.StatusUnauthorized}); strings.Contains(got.Error(), "hint") {
 		t.Errorf("got %v, want a proxy's 401 left alone", got)
 	}
+	if got := sf.explain(c, &apiclient.Error{Status: http.StatusInternalServerError, Code: "forbidden"}); strings.Contains(got.Error(), "hint") {
+		t.Errorf("got %v, want a code that does not go with its status left alone", got)
+	}
 	if got := sf.explain(c, &apiclient.Error{Status: http.StatusTooManyRequests, Code: "rate_limited"}); strings.Contains(got.Error(), "hint") {
 		t.Errorf("got %v, want a 429 left alone", got)
 	}
@@ -249,10 +252,15 @@ func TestWriteJSONBodyDoesNotLetNestingMultiplyTheOutput(t *testing.T) {
 		t.Fatalf("got %d bytes (valid %v), want the document compact and valid, at most %d bytes", b.Len(), json.Valid(b.Bytes()), 2*len(body))
 	}
 	// An ordinary answer is indented, and its bound is no less than its size.
-	small := []byte(`{"a":[1,{"b":"x,]\"}"}],"c":{}}`)
-	var out bytes.Buffer
-	if err := writeJSONBody(&out, small); err != nil || indentedSize(small) < int64(out.Len()-1) {
-		t.Fatalf("got %d bytes of output, %v, want a bound of %d to cover it", out.Len(), err, indentedSize(small))
+	for _, small := range []string{
+		`{"a":[1,{"b":"x,]\"}"}],"c":{}}`,
+		`{"k":1,"k":1,"k":1}`,
+		`{"a":{"b":{"c":"\\"}},"d":[[],[{}]]}`,
+	} {
+		var out bytes.Buffer
+		if err := writeJSONBody(&out, []byte(small)); err != nil || indentedSize([]byte(small)) < int64(out.Len()-1) {
+			t.Fatalf("%s: got %d bytes of output, %v, want a bound of %d to cover it", small, out.Len(), err, indentedSize([]byte(small)))
+		}
 	}
 }
 
