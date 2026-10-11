@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -74,16 +75,21 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		return err
 	}
 	line = append(line, '\n')
+	_, statErr := os.Stat(f.Path)
+	created := errors.Is(statErr, os.ErrNotExist)
 	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, file.Close()) }()
-	if info, err := file.Stat(); err != nil {
+	info, err := file.Stat()
+	if err != nil {
 		return err
-	} else if info.Size() > 0 {
+	}
+	size := info.Size()
+	if size > 0 {
 		last := make([]byte, 1)
-		if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		if _, err := file.ReadAt(last, size-1); err != nil {
 			return err
 		}
 		if last[0] != '\n' {
@@ -91,9 +97,27 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		}
 	}
 	if _, err := file.Write(line); err != nil {
+		// A torn line (a full disk) would fail every later Read, so put the
+		// file back as it was.
+		return errors.Join(err, file.Truncate(size))
+	}
+	if err := file.Sync(); err != nil {
 		return err
 	}
-	return file.Sync()
+	if created {
+		return syncDir(filepath.Dir(f.Path))
+	}
+	return nil
+}
+
+// syncDir makes a new file's directory entry durable, so a marker that was
+// synced is still there after a crash.
+func syncDir(dir string) error {
+	d, err := os.Open(dir) //nolint:gosec // G304: the directory of the operator's checkpoint file
+	if err != nil {
+		return err
+	}
+	return errors.Join(d.Sync(), d.Close())
 }
 
 // Read returns every checkpoint in the file (ReadCheckpoints). A file that

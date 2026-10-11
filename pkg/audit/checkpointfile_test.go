@@ -72,3 +72,18 @@ func TestCheckpointFileReportsWhatItCannotOpen(t *testing.T) {
 		t.Fatal("got nil, want an error reading a directory")
 	}
 }
+
+func TestCheckpointFileReportsAWriteThatFails(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("no /dev/full on this system")
+	}
+	s, _ := signer(t, "k1")
+	cp, err := NewCheckpoint(contracts.AuditHead{Seq: 1, Hash: make([]byte, HashSize)}, time.Now(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (CheckpointFile{Path: "/dev/full"}).Append(t.Context(), cp); err == nil {
+		t.Fatal("got nil, want an error when the disk is full")
+	}
+}

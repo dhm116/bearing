@@ -990,9 +990,12 @@ person's name from the system.
 
 ### Not implemented yet
 
-- The server's retention job: choosing what to cut by age, writing the
-  markers and calling `Cut` (issue #139). The contract, the verifier's rule
-  and the command are here.
+- Wiring the retention job into the `bearing server` command, with the signing
+  key and the checkpoint file from its configuration (issue #139). The
+  contract, the verifier's rule, the command and the job (`pkg/server`) are
+  here. The job verifies the log once per run, before its first marker, and
+  stops until an operator supplies the public key of any key that signed a
+  checkpoint still in the file.
 - Export to object storage or a SIEM (ADR 8).
 - Writers that change no graph state (policy decisions, executor actions).
 
