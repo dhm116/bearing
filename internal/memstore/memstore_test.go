@@ -50,6 +50,16 @@ func TestAuditLogConformance(t *testing.T) {
 	})
 }
 
+func TestAuditRetentionConformance(t *testing.T) {
+	conformance.AuditRetention(t, func(*testing.T) (conformance.RetentionStore, conformance.Clock, conformance.IDs) {
+		clk := testkit.NewClock(time.Time{})
+		s := New()
+		ids := testkit.NewUUIDv7s(clk.Now)
+		s.Now, s.IDs = clk.Now, ids
+		return s, clk, ids
+	})
+}
+
 func TestVectorConformance(t *testing.T) {
 	conformance.VectorIndex(t, func(*testing.T) contracts.VectorIndex { return New() })
 }

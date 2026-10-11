@@ -10,7 +10,7 @@ interface's conformance suite can replace it. The Go definitions are in
 | `GraphStore` | Subjects, alias bindings, merges, supports, fact statuses, conflicts, data-quality issues and the resolver's state, bitemporally ([below](#graphstore)). The source of truth. | PostgreSQL (`mem://` for tests) | Neo4j, Apache AGE, Memgraph | Yes (`conformance.GraphStore`) |
 | `VectorIndex` | Semantic search over subjects and documents, keyed by subject ID | PostgreSQL with pgvector | Qdrant, OpenSearch, Weaviate | Yes (`conformance.VectorIndex`) |
 | `EventLog` | The durable, ordered, replayable log every input enters through, with consumer offsets and a retention window ([below](#eventlog)) | PostgreSQL (`mem://` for tests) | NATS JetStream, Kafka | Yes (`conformance.EventLog`) |
-| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Yes (`conformance.AuditLog`) |
+| `AuditLog` | The tamper-evident record of who or what changed a fact and why: a hash chain written in the same transaction as the change, checkpoints kept outside the store ([below](#auditlog)) | The graph's own backend, PostgreSQL (`mem://` for tests) | Any backend that serves `GraphStore` | Yes (`conformance.AuditLog`, and `conformance.AuditRetention` for the cut of its oldest records, [below](#audit-retention)) |
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
@@ -679,8 +679,10 @@ entries, so no change commits without its record and no record exists for a
 change that did not commit. There is no separate append call: a record
 written apart from its change could be lost or orphaned. (Writers that change
 no graph state, such as policy decisions and executor actions in ADR 8, get
-an append when the first of them exists.) Nothing updates or deletes a
-record. Because the log lives in the graph's backend, `store.Store.Audit` is
+an append when the first of them exists.) Nothing updates a record, and the
+only delete is the retention cut of the oldest ones, on a separate
+`AuditRetention` interface that only the server's retention job holds
+([Audit retention](#audit-retention)). Because the log lives in the graph's backend, `store.Store.Audit` is
 that backend; it has no URL of its own. A backend whose `GraphStore` already
 has a `Head` method offers the log through an `AuditLog()` method, since the
 two `Head`s differ.
@@ -738,8 +740,8 @@ recompute the hashes, and the result verifies. Checkpoints close that gap.
 ### Checkpoints
 
 A checkpoint is an `AuditCheckpoint`: the `seq` and `hash` of a record, the
-time it was written, and, when a signing key is configured, the key's ID and
-a signature. The core writes one at an interval and at every retention cut
+time it was written, a `cut` flag, and, when a signing key is configured, the
+key's ID and a signature. The core writes one at an interval and at every retention cut
 (the server schedules them, issue #139; `bearing audit checkpoint` writes one
 now). It writes them **outside the store**: to the log stream, a file or an
 exporter, never to a table the store's writers can edit. The operator keeps
@@ -795,9 +797,12 @@ what it finds, naming the first bad record by `seq`:
 - a record whose hash doesn't match its content (an edit);
 - a gap (records missing: a deletion), or a record whose `prev_hash` isn't
   the one before it (an insertion or a replaced record);
-- an oldest record that isn't record 1 (a cut-off start). No checkpoint
-  excuses a missing start, since nothing marks one as written at a retention
-  cut; that marker, a signed field of the checkpoint, comes with retention;
+- an oldest record that isn't record 1 (a cut-off start), unless a signed
+  cut checkpoint (`cut` set) names the record before it, `seq` minus one, and
+  holds its hash as the oldest record's `prev_hash` ([Audit
+  retention](#audit-retention)). No other checkpoint excuses a missing start,
+  and checkpoints for records the log no longer holds, below the oldest, are
+  not checked against anything;
 - a checkpoint whose hash differs from the record at its `seq` (a chain
   rewritten end to end);
 - a checkpoint newer than the log's newest record (a cut-off tail);
@@ -813,7 +818,7 @@ newest checkpoint still held if the newer ones were withheld.
 
 ### The commands
 
-Both read the store given by `--store` or `$BEARING_STORE` and are for the
+All read the store given by `--store` or `$BEARING_STORE` and are for the
 operator, not for a caller of the API.
 
 `bearing audit checkpoint [--out FILE] [--key-id ID --key-env VAR]` writes
@@ -893,12 +898,101 @@ when both are set. `Head` returns the newest record's `seq`, hash and
 `recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin
 role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
+`bearing audit reanchor [--out FILE] --expect-seq N --key-id ID --key-env VAR` writes the
+cut checkpoint for the log's current start, for a log that was cut and lost
+its marker (a rotated key, a lost checkpoint file): the record the old marker
+named is gone, but the oldest record's `prev_hash` is its hash. It always
+signs (an unsigned marker never counts), takes the key as `checkpoint` does,
+refuses a log that starts at record 1, an empty one and an oldest record that
+does not match its hash, and writes the line as `checkpoint` does. It does not
+delete anything. Signing it says the records before the start were removed on
+purpose, which only the operator can know, so `--expect-seq` is required: the
+number of the last removed record, taken from an earlier checkpoint file or a
+backup, which must be the oldest record's number minus one. The command prints
+the hash it signed for; compare it with that earlier checkpoint (C-AUDIT-5).
+
+### Audit retention
+
+Records name people, so the log can't grow without end (ADR 8).
+`AuditRetention` removes the oldest records, and nothing else:
+
+```go
+type AuditRetention interface {
+	Cut(ctx context.Context, c AuditCut) (removed uint64, err error)
+}
+type AuditCut struct {
+	Through uint64 // the last record to remove
+	Hash    []byte // that record's hash
+}
+```
+
+It is separate from `AuditLog` so that the API's handlers, which read the log,
+hold nothing that deletes, and `store.Store.AuditRetention` is for the
+server's retention job alone (threat model C-AUDIT-5).
+
+- `Cut` removes the records from the oldest through `Through` and returns how
+  many. It checks first that the record at `Through` has `Hash`, and
+  refuses with `ErrAuditCutMismatch` if it differs or is missing from inside
+  the log, since then the log is not the one the caller's checkpoint
+  describes. Nothing is removed on a refusal.
+- It always keeps the newest record: `Through` at or past the head, an empty
+  log, a `Through` of 0 or a hash that is not 32 bytes is `ErrInvalidAuditCut`.
+- A cut that is already done, because `Through` is below the oldest record the
+  log holds, removes nothing and succeeds, so a retry after a crash is safe.
+- It is atomic with `Apply` and `Restore`: it takes the same head lock, so it
+  runs between applies and is refused while a restore runs, the chain stays
+  unbroken from the first record left, and the head is unchanged. It also
+  recomputes the hash of the record at `Through` and refuses to cut one that
+  does not match it, so a cut never launders a tampered prefix. The contract
+  sets no maximum on a cut and its cost, and the time it holds the lock, grow
+  with what it removes, so the caller cuts in bounded batches.
+
+A cut goes in this order, for each call:
+
+1. The retention job picks the last record to remove, by age, never the
+   newest and never more than a batch.
+2. It writes a **cut checkpoint** for that record (`audit.NewCutCheckpoint`):
+   a checkpoint with `cut` set, signed, to the checkpoint destination, and
+   waits until it is durable there (synced, or acknowledged for a remote
+   destination). A destination that is full or unreachable stops retention; it
+   never causes a delete. One marker goes with each `Cut` call: a marker for a
+   whole batched run would leave the log half cut, failing to verify until the
+   run ended and for good if the server stopped partway.
+3. It calls `Cut` with the same record number and hash.
+
+A crash between 2 and 3 leaves a marker with nothing missing, which `Verify`
+accepts: it checks a cut checkpoint against a record still in the log like any
+checkpoint. Until the cut completes, though, that marker is a standing licence
+for anyone with store access to delete the records up to it without `Verify`
+noticing, so the job repeats the cut through the same record before choosing
+another and reports a marker it cannot complete. The job also runs `Verify`
+against the checkpoints it holds before step 2, since it signs the hash it
+reads from the store; and `Verify` fails when two trusted checkpoints disagree
+about a record that has been cut. `Cut` does not see the marker: pairing them is
+the job's discipline. Records missing with no marker are what `Verify` finds.
+`Verify` reads the log in pages and assumes no cut lands while it runs; one
+that does can show as a gap, so rerun it.
+
+What the marker means to `Verify`: the log may start at record `S + 1` when a
+trusted cut checkpoint with `seq = S` holds the oldest record's `prev_hash`.
+The marker needs a signature that verifies against a key the verifier holds;
+`AllowUnsigned` does not cover it, because an unsigned marker would let whoever
+controls the checkpoint file excuse any deleted prefix. So retention needs a
+signing key and is off by default. Old checkpoints and old markers below the new
+start are not errors; only the cut at the oldest record's predecessor licenses
+the start. If that marker is lost, `bearing audit reanchor` makes a new one
+for the current start.
+
+Retention bounds the audit table and nothing else. The journal still holds the
+audit entries of every `ChangeSet`, so `Restore` rebuilds the whole chain from
+record 1, and backups hold the entries too. A cut is not a way to erase a
+person's name from the system.
+
 ### Not implemented yet
 
-- Retention. The contract has no delete. The cut that removes the oldest
-  records comes with the server (issue #139), together with the signed marker
-  on a checkpoint that says it was written at a cut; until then `Verify`
-  accepts only a log that starts at record 1.
+- The server's retention job: choosing what to cut by age, writing the
+  markers and calling `Cut` (issue #139). The contract, the verifier's rule
+  and the command are here.
 - Export to object storage or a SIEM (ADR 8).
 - Writers that change no graph state (policy decisions, executor actions).
 

@@ -149,7 +149,8 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
 - **C-AUDIT-4** `bearing audit verify` checks the chain and every checkpoint
   it is given, including signatures, and reports the first record that
   fails. An unsigned checkpoint fails unless the operator allows it, and the
-  log must start at record 1. `--max-age` finds withheld newest checkpoints
+  log must start at record 1 or right after a signed cut checkpoint (C-AUDIT-5).
+  `--max-age` finds withheld newest checkpoints
   (and one dated ahead of the clock); a `--checkpoints` file that holds none
   fails the run, so emptying it does not turn verify into a chain-only check.
   `bearing audit checkpoint` is an operator-run command that holds the signing
@@ -164,11 +165,44 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   record from a filtered read without breaking the chain, so a filtered
   answer is not evidence that no record exists. Re-deriving those columns
   from the records is a later mode of `bearing audit verify`.
-- **C-AUDIT-5** The `AuditLog` contract has no update or delete. Retention
-  removes only the oldest records, after writing a checkpoint at the cut.
-  Until a signed marker says a checkpoint was written at a cut (with
-  retention, #139), the verifier accepts no log that starts after record 1,
-  so a deleted prefix is found.
+- **C-AUDIT-5** The `AuditLog` contract has no update or delete; the handlers
+  that serve reads and the API hold only it. Retention is a separate
+  interface, `AuditRetention`, with one method, `Cut`, which only the
+  server's retention job holds. It removes only the oldest records and always
+  keeps the newest. The job writes a cut checkpoint, signed and flagged `cut`
+  (the flag is under the signature), to the checkpoint destination and waits
+  until it is durable there before every `Cut` call, one marker per call
+  carrying that call's last removed record, and `Cut` refuses unless the
+  record it was given has the hash the marker holds. The verifier accepts a
+  log that starts after record 1 only when a trusted, signed cut checkpoint
+  names the record before the oldest one and holds its hash; an unsigned
+  marker never counts, even when the operator allows unsigned checkpoints, so
+  retention is refused without a signing key and is off by default. Any other
+  deleted prefix is found, and so is a cut that went further than its marker.
+  Residual risks: a marker authorizes removing records up to it, so whoever
+  holds the signing key can bless a deleted prefix. Until a cut through the
+  marker's record completes, the marker is a standing licence for anyone with
+  store access to delete records 1 to that record with `Verify` still
+  passing, and it stays in the checkpoint file for good; so the job must not
+  leave markers behind (a failed `Cut` is retried through the same record
+  before another is chosen, and a marker that cannot be completed is
+  reported). The link between the marker and `Cut` is the job's discipline:
+  `Cut` compares the hash it is given with the stored record and with that
+  record's own content, and refuses on a difference, but it never sees the
+  marker, and `store.Store.AuditRetention` is a field like the others, so
+  keeping it away from everything but the job is a matter of wiring. The job
+  also signs the hash it reads from the store, so before signing it runs
+  `Verify` against the checkpoints it holds; a rewritten prefix that a cut
+  then removes would otherwise hide, and `Verify` finds checkpoints that
+  disagree about a record that is gone. `bearing audit reanchor` signs the
+  marker for the log's current start when an earlier marker is lost (a
+  rotated key, a lost file): it vouches that what came before was removed on
+  purpose, which the operator must have checked by other means, such as an
+  earlier checkpoint file or a backup, so it takes the number of the last
+  removed record (`--expect-seq`) and prints the hash it signed for. Retention bounds the audit table
+  only: the journal, `Restore` and backups still hold the entries, and a
+  restore rebuilds the whole chain, so a cut is not a way to erase a person's
+  name from the system.
 - **C-AUDIT-6** Records name actors by the stable ID the authenticator gives
   (the OIDC subject, client ID, `local:<uid>`) or, for a component,
   `system:<name>`, which only the core sets; the API rejects an
@@ -307,7 +341,11 @@ Assets: A1, A7, the event log.
   adapter. If a failed sync is run again and a page of it is already on the
   log, the rerun never claims `complete_sync` (the log keeps the first copy of
   a page, so its pages may mix two runs), and the next scheduled sync starts
-  over. Not yet bounded: the pages and bytes one sync may put on the log.
+  over. The look-up of an event already given up on reads the audit log, so
+  once a retention cut (C-AUDIT-5) removes that entry, an event that was
+  dead-lettered but never committed is retried and dead-lettered again after a
+  restart instead of only committed; rare and harmless. Not yet bounded: the
+  pages and bytes one sync may put on the log.
 
 ### B2. Adapter modules
 

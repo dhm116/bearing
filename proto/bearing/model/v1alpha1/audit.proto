@@ -193,4 +193,9 @@ message AuditCheckpoint {
   // the checkpoint without this field (so seq, head_hash, time and key_id),
   // when a key is configured (docs/spec/contracts.md, "Checkpoints").
   bytes signature = 5;
+  // True for the checkpoint written at a retention cut: seq and head_hash
+  // then name the last record removed, which is no longer in the log, and the
+  // checkpoint authorizes a log that starts at seq + 1. It is signed with the
+  // rest, and a verifier honors it only when the signature verifies.
+  bool cut = 6;
 }

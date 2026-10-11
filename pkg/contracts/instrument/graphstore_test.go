@@ -16,6 +16,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
@@ -277,6 +278,24 @@ func TestWrappedAuditLogConforms(t *testing.T) {
 	})
 }
 
+type retentionStore struct {
+	auditStore
+	retention contracts.AuditRetention
+}
+
+func (s retentionStore) AuditRetention() contracts.AuditRetention { return s.retention }
+
+// The retention wrapper passes the AuditRetention suite too.
+func TestWrappedAuditRetentionConforms(t *testing.T) {
+	conformance.AuditRetention(t, func(*testing.T) (conformance.RetentionStore, conformance.Clock, conformance.IDs) {
+		clk := testkit.NewClock(time.Time{})
+		s := memstore.New()
+		ids := testkit.NewUUIDv7s(clk.Now)
+		s.Now, s.IDs = clk.Now, ids
+		return retentionStore{auditStore{instrument.GraphStore(s, "memory", "github"), instrument.AuditLog(s.AuditLog(), "memory")}, instrument.AuditRetention(s.AuditRetention(), "memory")}, clk, ids
+	})
+}
+
 func TestAuditTelemetry(t *testing.T) {
 	ctx := context.Background()
 	s := memstore.New()
@@ -323,5 +342,77 @@ func TestAuditTelemetry(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("metric %s was not recorded", name)
 		}
+	}
+}
+
+func TestAuditCutTelemetry(t *testing.T) {
+	ctx := context.Background()
+	s := memstore.New()
+	clk := testkit.NewClock(time.Date(2026, 9, 28, 1, 30, 2, 0, time.UTC))
+	s.Now, s.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	g, l, r := instrument.GraphStore(s, "memory"), instrument.AuditLog(s.AuditLog(), "memory"), instrument.AuditRetention(s.AuditRetention(), "cut-test")
+	e := &modelv1alpha1.AuditEntry{
+		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN,
+		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "core/resolver"},
+		Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_ALIAS, Id: "github:repo/acme/a"},
+	}
+	var base time.Time
+	for _, id := range []string{"a1", "a2", "a3"} {
+		clk.Advance(time.Second)
+		cs := &modelv1alpha1.ChangeSet{EventId: id, Audit: []*modelv1alpha1.AuditEntry{e}}
+		if !base.IsZero() {
+			cs.BaseRecordedAt = timestamppb.New(base)
+		}
+		if _, err := g.Apply(ctx, cs); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if base, err = g.Head(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recs, err := l.Query(ctx, contracts.AuditFilter{Limit: 3})
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("got %v, %v, want 3 records", recs, err)
+	}
+	last := func() sdktrace.ReadOnlySpan { return spans.Ended()[len(spans.Ended())-1] }
+	// A request outside the contract is the caller's mistake.
+	if _, err := r.Cut(ctx, contracts.AuditCut{}); !errors.Is(err, contracts.ErrInvalidAuditCut) {
+		t.Fatalf("got %v, want ErrInvalidAuditCut", err)
+	}
+	if sp := last(); sp.Name() != "audit.cut" || sp.Status().Code == codes.Error {
+		t.Fatalf("got span %q with status %v, want audit.cut not marked as an error", sp.Name(), sp.Status())
+	}
+	// A record that does not match the log is marked.
+	if _, err := r.Cut(ctx, contracts.AuditCut{Through: 1, Hash: recs[1].GetHash()}); !errors.Is(err, contracts.ErrAuditCutMismatch) {
+		t.Fatalf("got %v, want ErrAuditCutMismatch", err)
+	}
+	if sp := last(); sp.Name() != "audit.cut" || sp.Status().Code != codes.Error {
+		t.Fatalf("got span %q with status %v, want audit.cut marked as an error", sp.Name(), sp.Status())
+	}
+	if n, err := r.Cut(ctx, contracts.AuditCut{Through: 2, Hash: recs[1].GetHash()}); err != nil || n != 2 {
+		t.Fatalf("got %d, %v, want 2 records removed", n, err)
+	}
+	if sp := last(); !slices.Contains(sp.Attributes(), attribute.Int("bearing.results.count", 2)) {
+		t.Fatalf("got span attributes %v, want two results", sp.Attributes())
+	}
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(ctx, &rm); err != nil {
+		t.Fatal(err)
+	}
+	var removed int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "bearing.audit.cut.records" {
+				for _, dp := range sum.DataPoints {
+					if v, _ := dp.Attributes.Value("db.system.name"); v.AsString() == "cut-test" {
+						removed += dp.Value
+					}
+				}
+			}
+		}
+	}
+	if removed != 2 {
+		t.Fatalf("got %d records counted as cut, want 2", removed)
 	}
 }

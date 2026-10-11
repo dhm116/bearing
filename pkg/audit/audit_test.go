@@ -87,6 +87,19 @@ func (l *fakeLog) Head(context.Context) (contracts.AuditHead, error) {
 	return contracts.AuditHead{Seq: r.GetSeq(), Hash: r.GetHash(), RecordedAt: r.GetRecordedAt().AsTime()}, nil
 }
 
+// cutAt returns the signed cut checkpoint for record seq and removes the
+// records through it, as a retention cut leaves the log.
+func (l *fakeLog) cutAt(t *testing.T, seq uint64, s *Signer) *modelv1alpha1.AuditCheckpoint {
+	t.Helper()
+	r := l.recs[seq-l.recs[0].GetSeq()]
+	cp, err := NewCutCheckpoint(contracts.AuditHead{Seq: seq, Hash: r.GetHash()}, t0.Add(time.Hour), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.recs = l.recs[seq-l.recs[0].GetSeq()+1:]
+	return cp
+}
+
 func (l *fakeLog) checkpoint(t *testing.T, seq uint64, s *Signer) *modelv1alpha1.AuditCheckpoint {
 	t.Helper()
 	r := l.recs[seq-1]
@@ -169,8 +182,8 @@ func TestEveryFieldOfARecordChangesItsHash(t *testing.T) {
 		}
 		return checkpointMessage(cp)
 	})
-	if n != 4 {
-		t.Fatalf("checked %d fields of a checkpoint, want 4", n)
+	if n != 5 {
+		t.Fatalf("checked %d fields of a checkpoint, want 5", n)
 	}
 	// A field at its default and an absent message are the same to the hash,
 	// but an empty message that is present differs from an absent one.
@@ -223,6 +236,8 @@ func coverage(t *testing.T, name string, base proto.Message, skip protoreflect.N
 				target.Set(fd, protoreflect.ValueOfUint64(target.Get(fd).Uint()+1))
 			case protoreflect.EnumKind:
 				target.Set(fd, protoreflect.ValueOfEnum(target.Get(fd).Enum()+1))
+			case protoreflect.BoolKind:
+				target.Set(fd, protoreflect.ValueOfBool(!target.Get(fd).Bool()))
 			case protoreflect.MessageKind: // Timestamp, Any
 				switch fd.Message().FullName() {
 				case "google.protobuf.Timestamp":
@@ -402,6 +417,203 @@ func TestVerifyRefusesADeletedPrefixEvenWithACheckpoint(t *testing.T) {
 	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{signed}, Options{Keys: keys}), 1, "records 1 to 5 are missing")
 	// Without any checkpoint it is no better.
 	wantFailure(t, verify(t, l, nil, Options{}), 1, "records 1 to 5 are missing")
+}
+
+func TestVerifyAcceptsALogThatStartsAfterASignedCut(t *testing.T) {
+	l := chain(t, 12)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	old, head := l.checkpoint(t, 2, s), l.checkpoint(t, 12, s)
+	first := l.cutAt(t, 3, s)
+	second := l.cutAt(t, 7, s) // the log has been cut twice; the first marker and the old checkpoint are history
+	rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{old, first, second, head}, Options{Keys: keys})
+	if !rep.OK() || rep.First != 8 || rep.Last != 12 || rep.Records != 5 || rep.Cut != second || rep.Checkpoints != 1 {
+		t.Fatalf("got %+v, want records 8 to 12 verified from the second cut", rep)
+	}
+	// Records after the cut are still checked.
+	l.recs[2].PrevHash = []byte("x")
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{second}, Options{Keys: keys}), 10, "does not follow record 9")
+	// A log with nothing cut has no marker to rest on.
+	if rep := verify(t, chain(t, 3), nil, Options{AllowUnsigned: true}); rep.Cut != nil {
+		t.Fatalf("got cut %v, want none", rep.Cut)
+	}
+}
+
+// A marker excuses exactly the prefix it names: no unsigned marker, no marker
+// for another record, no marker whose hash differs, nothing that is not a
+// signed cut.
+func TestVerifyRefusesAStartThatNoSignedCutExcuses(t *testing.T) {
+	s, pub := signer(t, "audit-1")
+	other, _ := signer(t, "audit-2")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	for _, c := range []struct {
+		name   string
+		cut    func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint
+		opts   Options
+		reason string
+	}{
+		{"an unsigned marker, even when unsigned checkpoints are allowed", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.cutAt(t, 5, s)
+			cp.KeyId, cp.Signature = "", nil
+			return cp
+		}, Options{AllowUnsigned: true}, "not signed"},
+		{"a marker whose flag was added after signing", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.checkpoint(t, 5, s)
+			l.recs = l.recs[5:]
+			cp.Cut = true
+			return cp
+		}, Options{Keys: keys}, "signature does not match"},
+		{"a signed checkpoint that is not a cut", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.checkpoint(t, 5, s)
+			l.recs = l.recs[5:]
+			return cp
+		}, Options{Keys: keys}, "records 1 to 5 are missing"},
+		{"a marker whose flag was stripped after signing", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.cutAt(t, 5, s)
+			cp.Cut = false
+			return cp
+		}, Options{Keys: keys}, "signature does not match"},
+		{"a marker for an earlier record than the log's start", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.cutAt(t, 4, s)
+			l.recs = l.recs[1:]
+			return cp
+		}, Options{Keys: keys}, "records 1 to 5 are missing"},
+		{"a marker for a later record than the log's start", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.cutAt(t, 5, s)
+			l.recs = chain(t, 8).recs[3:] // the log starts at record 4, which the marker at 5 does not excuse
+			return cp
+		}, Options{Keys: keys}, "records 1 to 3 are missing"},
+		{"a marker that holds another hash", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			l.cutAt(t, 5, s)
+			bad, err := NewCutCheckpoint(contracts.AuditHead{Seq: 5, Hash: bytes.Repeat([]byte{9}, HashSize)}, t0, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return bad
+		}, Options{Keys: keys}, "records 1 to 5 are missing"},
+		{"a marker signed by a key the verifier does not trust", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			return l.cutAt(t, 5, other)
+		}, Options{Keys: keys}, "no trusted public key"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			l := chain(t, 8)
+			cp := c.cut(t, l)
+			rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, c.opts)
+			found := false
+			for _, f := range rep.Failures {
+				found = found || strings.Contains(f.Reason, c.reason)
+			}
+			if rep.OK() || !found {
+				t.Fatalf("got %+v, want a failure mentioning %q", rep.Failures, c.reason)
+			}
+			if rep.Cut != nil {
+				t.Fatalf("got cut %v, want none accepted", rep.Cut)
+			}
+		})
+	}
+}
+
+// A cut checkpoint that names a record still in the log is held to it like any
+// other checkpoint: the cut may be one the store has not made yet.
+func TestVerifyChecksACutCheckpointAgainstARecordThatIsStillThere(t *testing.T) {
+	l := chain(t, 8)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	cp, err := NewCutCheckpoint(contracts.AuditHead{Seq: 4, Hash: l.recs[3].GetHash()}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{Keys: keys}); !rep.OK() || rep.Checkpoints != 1 || rep.Cut != nil {
+		t.Fatalf("got %+v, want the marker to agree with record 4 and no cut", rep)
+	}
+	bad, err := NewCutCheckpoint(contracts.AuditHead{Seq: 4, Hash: bytes.Repeat([]byte{3}, HashSize)}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{bad}, Options{Keys: keys}), 4, "different hash")
+}
+
+// Records that were cut can't be compared with the checkpoints that name them,
+// so those checkpoints must at least agree with each other: a chain rewritten
+// before the cut could otherwise hide behind it.
+func TestVerifyFindsCheckpointsThatDisagreeAboutACutRecord(t *testing.T) {
+	l := chain(t, 8)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	first, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: l.recs[2].GetHash()}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: l.recs[2].GetHash()}, t0.Add(time.Minute), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := l.cutAt(t, 5, s)
+	// Checkpoints that agree are fine, whether or not the record is still there.
+	cps := []*modelv1alpha1.AuditCheckpoint{first, same, marker}
+	if rep := verify(t, l, cps, Options{Keys: keys}); !rep.OK() {
+		t.Fatalf("got %+v, want agreeing checkpoints of a cut record accepted", rep.Failures)
+	}
+	forged, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: bytes.Repeat([]byte{8}, HashSize)}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFailure(t, verify(t, l, append(cps, forged), Options{Keys: keys}), 3, "two trusted checkpoints hold different hashes")
+}
+
+func TestNewCutCheckpointIsSignedAndMarkedAsACut(t *testing.T) {
+	s, pub := signer(t, "audit-1")
+	head := contracts.AuditHead{Seq: 9, Hash: bytes.Repeat([]byte{4}, HashSize)}
+	cut, err := NewCutCheckpoint(head, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := NewCheckpoint(head, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cut.GetCut() || plain.GetCut() || bytes.Equal(cut.GetSignature(), plain.GetSignature()) {
+		t.Fatalf("got cut %v signature %x, plain %v %x; want the flag set and signed", cut.GetCut(), cut.GetSignature(), plain.GetCut(), plain.GetSignature())
+	}
+	if err := VerifyCheckpoint(cut, map[string]ed25519.PublicKey{"audit-1": pub}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewCutCheckpoint(head, t0, nil); err == nil || !strings.Contains(err.Error(), "signing key") {
+		t.Fatalf("got %v, want a cut without a key refused", err)
+	}
+	if _, err := NewCutCheckpoint(contracts.AuditHead{}, t0, s); err == nil {
+		t.Fatal("got nil, want an empty log refused")
+	}
+}
+
+func TestNewStartCheckpointAnchorsTheOldestRecordOfACutLog(t *testing.T) {
+	l := chain(t, 6)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	l.recs = l.recs[3:] // cut, and the marker lost
+	cp, err := NewStartCheckpoint(l.recs[0], t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{Keys: keys}); !rep.OK() || rep.Cut != cp || rep.First != 4 {
+		t.Fatalf("got %+v, want the log to verify from record 4 behind the new marker", rep)
+	}
+	if _, err := NewStartCheckpoint(chain(t, 2).recs[0], t0, s); err == nil || !strings.Contains(err.Error(), "starts at record 1") {
+		t.Fatalf("got %v, want a log that starts at record 1 refused", err)
+	}
+	if _, err := NewStartCheckpoint(l.recs[0], t0, nil); err == nil {
+		t.Fatal("got nil, want an unsigned marker refused")
+	}
+	edited := proto.CloneOf(l.recs[0])
+	edited.Entry.Reason = "edited"
+	if _, err := NewStartCheckpoint(edited, t0, s); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
+		t.Fatalf("got %v, want an edited record refused", err)
+	}
+	unhashable := proto.CloneOf(l.recs[0])
+	unhashable.ProtoReflect().SetUnknown([]byte{0xf8, 0x01, 0x01})
+	if _, err := NewStartCheckpoint(unhashable, t0, s); err == nil || !strings.Contains(err.Error(), "record 4") {
+		t.Fatalf("got %v, want a record that cannot be hashed refused", err)
+	}
 }
 
 // An unsigned checkpoint counts only when the caller says so, so whoever

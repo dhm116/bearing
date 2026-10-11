@@ -165,7 +165,7 @@ func openPostgres(ctx context.Context, u *url.URL, getenv func(string) string) (
 	if err != nil {
 		return backend{}, fmt.Errorf("store: %w", err)
 	}
-	b := backend{name: "postgresql", graph: st, audit: st.AuditLog(), events: st, close: st.Close, lock: func(ctx context.Context) (InstanceLock, error) {
+	b := backend{name: "postgresql", graph: st, audit: st.AuditLog(), retain: st.AuditRetention(), events: st, close: st.Close, lock: func(ctx context.Context) (InstanceLock, error) {
 		l, err := st.LockInstance(ctx)
 		if errors.Is(err, pgstore.ErrInstanceLocked) {
 			return nil, ErrInstanceLocked
