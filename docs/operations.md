@@ -190,9 +190,10 @@ also have a `schedule` that catches up on what was missed.
   Behind a proxy or ingress every client is one peer, so these defaults cap the
   whole API: raise all three. The server cannot tell a proxy from a client, so
   its start-up warning about this is a hint, not a check: it appears for plain
-  HTTP on a non-loopback address while any one limit is at its default, and
-  never for a listener that serves TLS itself, even behind a proxy that
-  re-encrypts. A limit that is present must be positive;
+  HTTP on a non-loopback address while any one limit is at its default. It
+  stays quiet for a listener that serves TLS itself, even behind a proxy that
+  re-encrypts, and for a loopback address, where a proxy on the same host
+  looks like any other client. A limit that is present must be positive;
   turning the per-peer rate off takes `insecure_no_peer_rate: true`.
 - **Webhooks.** `webhooks.max_in_flight` (default 256) deliveries are held at
   once, each up to `webhooks.max_body_bytes` (default 1 MiB), so the worst case

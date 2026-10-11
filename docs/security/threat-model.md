@@ -1171,8 +1171,9 @@ Assets: A5, A2, A6, the container and host.
   if an adapter's declaration file breaks the owner, mode and size rules of
   the settings file, if a secret reference does not resolve, if a
   source's adapter is not listed, if a durable graph store is paired with an in-memory event log, or if the
-  platform cannot say who owns a file (the server refuses to start where it has
-  no Unix file ownership to check).
+  platform cannot say who owns a file (file ownership is checked in a Unix-only
+  file, and its stub for other platforms refuses every file; the server is
+  supported on Unix only).
   It takes the instance lock before it runs and refuses to start without it
   (#176, #235).
 - **C-OPS-5** The M3 stdio adapter is started with a minimal environment: a

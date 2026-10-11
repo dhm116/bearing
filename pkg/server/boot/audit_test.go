@@ -222,7 +222,7 @@ func auditRecord(t *testing.T, st *store.Store, id string) {
 // Assemble stops passing AuditCheckpoints or AuditRetention to server.New.
 func TestAssemblePassesTheAuditSettingsToTheServer(t *testing.T) {
 	w := auditWorld(t, true)
-	w.settings.Audit.Retention = &RetentionSettings{Age: "P1D", Every: "PT1H"}
+	w.settings.Audit.Retention = &RetentionSettings{Age: "P7D", Every: "PT1H"}
 	clk := testkit.NewClock(time.Now())
 	r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv, Clock: clk})
 	if err != nil {
@@ -268,10 +268,11 @@ func TestAssemblePassesTheAuditSettingsToTheServer(t *testing.T) {
 	})
 	verifies()
 
-	// Two days on, both records are older than the day the retention job
-	// keeps, so it signs a cut marker and cuts.
+	// Eight days on, both records are older than the week the retention job
+	// keeps (a long age, so the quarter hours above cannot reach it), and it
+	// signs a cut marker and cuts.
 	waitFor(t, "a signed cut marker from the retention job", func() bool {
-		clk.Advance(48 * time.Hour)
+		clk.Advance(8 * 24 * time.Hour)
 		return slices.ContainsFunc(checkpoints(), func(cp *modelv1alpha1.AuditCheckpoint) bool {
 			return cp.GetCut() && cp.GetKeyId() == auditKeyID && len(cp.GetSignature()) > 0
 		})

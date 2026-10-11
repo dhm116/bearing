@@ -195,11 +195,15 @@ func TestAssembledServerSyncsASourceOnARequestAndStopsCleanly(t *testing.T) {
 	stop := run(t, r)
 	waitFor(t, "the socket", func() bool { return fileExists(w.socket) })
 
+	// The socket file appears at bind, a moment before the server listens,
+	// so the first request may be refused: ask until one is answered.
 	c := unixClient(w.socket)
-	resp, err := c.Post("http://bearing/v1/sources/github-acme/sync", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	var resp *http.Response
+	var err error
+	waitFor(t, "the socket to answer", func() bool {
+		resp, err = c.Post("http://bearing/v1/sources/github-acme/sync", "", nil)
+		return err == nil
+	})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("a sync request on the socket: got %d, want 202", resp.StatusCode)
