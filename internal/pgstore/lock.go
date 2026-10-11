@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,6 +19,11 @@ var ErrInstanceLocked = errors.New("pgstore: another server is using this schema
 // The second key is a hash of the schema name.
 const lockClass = 0x42454152
 
+// lockQueryTimeout bounds one question to the database about the lock.
+// Callers' contexts do not cancel it: a query cancelled in flight leaves the
+// connection unusable, the session ends and PostgreSQL drops the lock.
+const lockQueryTimeout = 5 * time.Second
+
 // acquirer is the part of *pgxpool.Pool that takes a connection for good.
 type acquirer interface {
 	Acquire(ctx context.Context) (*pgxpool.Conn, error)
@@ -27,8 +34,13 @@ type acquirer interface {
 // lock keeps out of the pool, and drops it when that connection ends, so a
 // crashed server never leaves it behind.
 type InstanceLock struct {
-	conn   *pgxpool.Conn
 	schema string
+
+	// mu serializes the calls: a pgx connection serves one at a time, and the
+	// server's lock check and its readiness probes call Held together.
+	mu       sync.Mutex
+	conn     *pgxpool.Conn
+	released bool
 }
 
 // LockInstance takes the lock without waiting. It returns ErrInstanceLocked
@@ -61,6 +73,13 @@ func (s *Store) LockInstance(ctx context.Context) (*InstanceLock, error) {
 // show it should stop, since another may have started (the connection was
 // lost and the lock went with it).
 func (l *InstanceLock) Held(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.released {
+		return errors.New("pgstore: the instance lock was released")
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lockQueryTimeout)
+	defer cancel()
 	var n int
 	err := l.conn.QueryRow(ctx, `SELECT count(*) FROM pg_locks
 WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
@@ -77,6 +96,14 @@ WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
 // Release drops the lock. If PostgreSQL cannot be asked to, it closes the
 // connection, which drops it as well.
 func (l *InstanceLock) Release(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.released {
+		return nil
+	}
+	l.released = true
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lockQueryTimeout)
+	defer cancel()
 	var ok bool
 	err := l.conn.QueryRow(ctx, `SELECT pg_advisory_unlock($1::int, hashtext($2))`, lockClass, l.schema).Scan(&ok)
 	if err != nil || !ok {

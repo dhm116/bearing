@@ -282,15 +282,32 @@ Assets: A1, A7, the event log.
   another apply (`ErrStale`) is retried without counting. After the last
   attempt the worker gives up on the event in the order of the contract
   (record, audit entry that marks it processed, commit), so the partition goes
-  on and a crash between the steps repeats safely. Before it gives up, it
-  checks that the store and the log answer: if either does not, the failures
-  may be theirs and not the event's, so it keeps waiting and never turns an
-  outage into lost data. Error text from an adapter or a source system is
-  untrusted: it is cut and cleaned (C-INGEST-11) before it reaches the log,
-  the audit entry, a metric or a log line, and never labels a metric. Events
-  of a type the server has no handler for are skipped, counted and logged once
-  per type, and an event whose source field disagrees with its partition is
-  refused, so one source's partition never runs another's adapter.
+  on and a crash between the steps repeats safely: the first event a worker
+  meets after a start is looked up in the audit log, and one that was already
+  given up on is only committed. Before it gives up, the worker checks that the
+  store and the log answer: if either does not, the failures may be theirs and
+  not the event's, so it keeps waiting and never turns an outage into lost
+  data. A panic in an in-process adapter, the resolver or a decoder is caught
+  and handled as that event's failure, so a poison event cannot crash-loop the
+  server. Each attempt runs under `EventTimeout` (default 30 minutes) and holds
+  one of `Workers` slots only while it runs, not while it waits to try again or
+  while its partition has more events, so an adapter that hangs, or a
+  partition with a long backlog, delays the other sources by at most one
+  timeout per attempt and never stops them. Error text from an adapter or a
+  source system is untrusted: in the dead-letter record, the audit entry and
+  the worker's own log lines it is cut and cleaned (C-INGEST-11, and format
+  and separator characters that reorder or hide text are replaced too), and
+  it never labels a metric. The adapter client's span and log for a failed
+  sync carry the error as the adapter returned it. Events of a type the
+  server has no handler for are skipped, counted and logged once per type,
+  except in the `manual` partition, where an operator's request that nothing
+  can carry out becomes a dead letter with an audit entry instead of being
+  acknowledged and dropped. An event whose source field disagrees with its
+  partition is refused, so one source's partition never runs another's
+  adapter. If a failed sync is run again and a page of it is already on the
+  log, the rerun never claims `complete_sync` (the log keeps the first copy of
+  a page, so its pages may mix two runs), and the next scheduled sync starts
+  over. Not yet bounded: the pages and bytes one sync may put on the log.
 
 ### B2. Adapter modules
 
@@ -938,7 +955,15 @@ reach, so they are retired and their numbers are not reused.
   graph backend takes the lock; the in-memory store has one process by
   construction. The lock does not stop a person from running `psql`, and
   another process can still read the store: the lock keeps two writers of
-  workers from running, not two readers.
+  workers from running, not two readers. Only the server's own loop asks the
+  database about the lock, serialized on the lock's connection and on its own
+  deadline that a caller's cancellation does not shorten, because a query
+  cancelled in flight ends the session and with it the lock; readiness
+  probes (unauthenticated, C-API-2) read the loop's last answer and a store
+  check reused for a second, so a flood of probes cannot reach the
+  connection. The lock does not fence writes: between a loss and the next
+  check (ten seconds, plus a hung connection until its deadline) the workers
+  may still write.
 
 ### B7. Operators and configuration
 

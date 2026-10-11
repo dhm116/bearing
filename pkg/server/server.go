@@ -31,6 +31,9 @@ const (
 	DefaultTrimEvery    = time.Hour
 	DefaultLockCheck    = 10 * time.Second
 	DefaultMaxPages     = 10_000
+	// DefaultEventTimeout bounds one attempt at one event, a full sync of a
+	// large organization included.
+	DefaultEventTimeout = 30 * time.Minute
 
 	// maxRetryPause caps how long the pause between attempts grows.
 	maxRetryPause = time.Minute
@@ -38,6 +41,8 @@ const (
 	readBatch = 100
 	// deadLetterPartition holds the records of events given up on.
 	deadLetterPartition contracts.Partition = "core/dead_letter"
+	// manualPartition holds operators' requests (docs/spec/contracts.md).
+	manualPartition contracts.Partition = "manual"
 )
 
 // ErrUnknownSource is returned for a source that is not configured.
@@ -85,6 +90,11 @@ type Config struct {
 	Graph contracts.GraphStore
 	// Applier applies observations.
 	Applier Applier
+	// Audit, if set, lets a restarted worker see that the event it resumes
+	// at was already given up on, when the server stopped between a dead
+	// letter's audit entry and its commit (docs/spec/contracts.md, "Dead
+	// letters"). Without it that event is tried again.
+	Audit contracts.AuditLog
 	// Sources are the configured sources.
 	Sources []Source
 	// Lock, if set, is checked every LockCheck; when it is no longer held
@@ -113,6 +123,12 @@ type Config struct {
 	LockCheck time.Duration
 	// MaxPages bounds the pages of one sync.
 	MaxPages int
+	// EventTimeout bounds one attempt at one event. An adapter that hangs
+	// fails the attempt, so the event is retried and then given up on,
+	// instead of holding a worker for good. Workers is how many events are
+	// handled at a time across all partitions; a source that hangs keeps one
+	// of them for at most EventTimeout per attempt.
+	EventTimeout time.Duration
 
 	// Clock is the time source; nil means clock.Real.
 	Clock clock.Clock
@@ -135,12 +151,24 @@ type Server struct {
 	// a source, so it does not pile up a second while one is still waiting.
 	lastSync map[string]contracts.Offset
 	warned   map[string]bool
-	wake     chan struct{}
+	// resumed holds the partitions whose first event after the start has
+	// been checked against the audit log.
+	resumed map[contracts.Partition]bool
+	wake    chan struct{}
 
 	oldestUnapplied atomic.Int64 // seconds
 	deadLetters     atomic.Int64
 	running         atomic.Bool
-	failed          atomic.Value // error
+	failed          atomic.Pointer[error]
+	// lockErr is why the last check of the instance lock failed, nil while it
+	// holds. Readiness reads it instead of asking the database again.
+	lockErr atomic.Pointer[error]
+	// slots holds one token per event being handled, Workers at most.
+	slots chan struct{}
+
+	readyMu  sync.Mutex
+	readyAt  time.Time
+	readyErr error
 }
 
 // New returns a Server for cfg, or an error for a configuration it cannot
@@ -163,6 +191,7 @@ func New(cfg Config) (*Server, error) {
 	cfg.Workers = orDefault(cfg.Workers, DefaultWorkers)
 	cfg.MaxAttempts = orDefault(cfg.MaxAttempts, DefaultMaxAttempts)
 	cfg.MaxPages = orDefault(cfg.MaxPages, DefaultMaxPages)
+	cfg.EventTimeout = orDefault(cfg.EventTimeout, DefaultEventTimeout)
 	cfg.PollInterval = orDefault(cfg.PollInterval, DefaultPollInterval)
 	cfg.RetryPause = orDefault(cfg.RetryPause, DefaultRetryPause)
 	cfg.TrimEvery = orDefault(cfg.TrimEvery, DefaultTrimEvery)
@@ -179,7 +208,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
 		inflight: map[contracts.Partition]bool{}, lastSync: map[string]contracts.Offset{},
-		warned: map[string]bool{}, wake: make(chan struct{}, 1),
+		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, resumed: map[contracts.Partition]bool{}, wake: make(chan struct{}, 1),
 	}
 	for i := range cfg.Sources {
 		src := cfg.Sources[i]
@@ -240,7 +269,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
-	s.failed.Store(err)
+	s.failed.Store(&err)
 	return err
 }
 
@@ -262,8 +291,11 @@ func (s *Server) watchLock(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("%w: %w", ErrLockLost, err)
+			lost := fmt.Errorf("%w: %w", ErrLockLost, err)
+			s.lockErr.Store(&lost)
+			return lost
 		}
+		s.lockErr.Store(nil)
 	}
 }
 

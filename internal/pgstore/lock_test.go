@@ -3,6 +3,7 @@ package pgstore
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,5 +95,74 @@ func TestLockInstanceIsLostWithItsConnection(t *testing.T) {
 			t.Fatalf("after the connection ended: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestLockInstanceHeldIsSafeToCallFromManyGoroutines(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTestStore(t)
+	l, err := s.LockInstance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Release(ctx) //nolint:errcheck // the test is over
+	// The server's lock check and its readiness probes call Held together;
+	// a pgx connection would answer "conn busy" or fail outright.
+	var wg sync.WaitGroup
+	errs := make(chan error, 8*25)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 25 {
+				if err := l.Held(ctx); err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("a concurrent Held failed on a lock that is held: %v", err)
+	}
+}
+
+func TestLockInstanceReleasedLockReportsNotHeldAndReleaseRepeats(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTestStore(t)
+	l, err := s.LockInstance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Held(ctx); err == nil {
+		t.Error("a released lock reports held")
+	}
+	if err := l.Release(ctx); err != nil {
+		t.Errorf("releasing twice: %v", err)
+	}
+}
+
+func TestLockInstanceSurvivesACallerThatGivesUp(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTestStore(t)
+	l, err := s.LockInstance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Release(ctx) //nolint:errcheck // the test is over
+	// A health probe that hangs up, or times out, hands Held a cancelled
+	// context. The query still runs on its own deadline, because cancelling
+	// one in flight ends the connection's session and with it the lock.
+	for i := range 200 {
+		gone, cancel := context.WithTimeout(ctx, time.Duration(i)*25*time.Microsecond)
+		_ = l.Held(gone)
+		cancel()
+	}
+	if err := l.Held(ctx); err != nil {
+		t.Fatalf("the lock was lost after callers gave up: %v", err)
 	}
 }

@@ -360,9 +360,6 @@ func TestServerStopsWhenItLosesTheInstanceLock(t *testing.T) {
 		t.Errorf("not ready with the lock held: %v", err)
 	}
 	lock.lost.Store(true)
-	if err := h.s.Ready(ctx); err == nil {
-		t.Error("ready after the lock was lost")
-	}
 	if err := clk.BlockUntilWaiters(ctx, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -378,10 +375,14 @@ func TestServerStopsWhenItLosesTheInstanceLock(t *testing.T) {
 	if h.s.Live() == nil {
 		t.Error("a server that stopped for a lost lock reports itself live")
 	}
+	if err := h.s.Ready(ctx); !errors.Is(err, ErrLockLost) {
+		t.Errorf("got %v from Ready after the lock was lost, want ErrLockLost", err)
+	}
 }
 
 func TestHealthHandlerAnswersWithStatusCodes(t *testing.T) {
-	h := newHarness(t)
+	clk := testkit.NewClock(time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC))
+	h := newHarness(t, func(c *Config) { c.Clock = clk })
 	get := func(path string) int {
 		rec := httptest.NewRecorder()
 		h.s.HealthHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -399,6 +400,10 @@ func TestHealthHandlerAnswersWithStatusCodes(t *testing.T) {
 		t.Errorf("got %d for /readyz, want 200", got)
 	}
 	h.graph.down.Store(true)
+	if got := get("/readyz"); got != http.StatusOK {
+		t.Errorf("got %d for /readyz within a second of the last check, want the cached 200", got)
+	}
+	clk.Advance(2 * time.Second)
 	if got := get("/readyz"); got != http.StatusServiceUnavailable {
 		t.Errorf("got %d for /readyz with the store down, want 503", got)
 	}
@@ -429,6 +434,7 @@ func TestCleanErrorText(t *testing.T) {
 	}{
 		{"short text is kept", "boom", func(s string) bool { return s == "boom" }},
 		{"control characters are replaced", "a\x00b\nc\x1b[31md", func(s string) bool { return s == "a b c [31md" }},
+		{"text-reordering characters are replaced", "a\u202eb\u200bc\u2028d", func(s string) bool { return s == "a b c d" }},
 		{"invalid UTF-8 is replaced", "a\xffb", func(s string) bool { return s == "a�b" }},
 		{"long text is cut on a character boundary", long, func(s string) bool {
 			return len(s) <= maxErrorBytes && len(s) >= maxErrorBytes-1 && strings.TrimRight(s, "é") == ""
@@ -448,6 +454,29 @@ var _ = contracts.ErrStale
 type flakyLog struct {
 	contracts.EventLog
 	failAppend, failTrim, failRead atomic.Bool
+	failCommit, failCommitted      atomic.Bool
+	failReadEntries                atomic.Bool
+}
+
+func (f *flakyLog) Commit(ctx context.Context, group string, p contracts.Partition, o contracts.Offset) error {
+	if f.failCommit.Load() {
+		return errors.New("commit refused")
+	}
+	return f.EventLog.Commit(ctx, group, p, o)
+}
+
+func (f *flakyLog) Committed(ctx context.Context, group string, p contracts.Partition) (contracts.Offset, error) {
+	if f.failCommitted.Load() {
+		return 0, errors.New("committed refused")
+	}
+	return f.EventLog.Committed(ctx, group, p)
+}
+
+func (f *flakyLog) Read(ctx context.Context, p contracts.Partition, after contracts.Offset, limit int) ([]contracts.Entry, error) {
+	if f.failReadEntries.Load() {
+		return nil, errors.New("read refused")
+	}
+	return f.EventLog.Read(ctx, p, after, limit)
 }
 
 func (f *flakyLog) Partitions(ctx context.Context) ([]contracts.PartitionInfo, error) {
@@ -478,7 +507,7 @@ func TestServerRefusesAPageTooBigForTheLog(t *testing.T) {
 	for i := range obs {
 		obs[i] = o
 	}
-	err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil)
+	_, err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "over the event limit") {
 		t.Fatalf("got %v, want a refusal that names the size", err)
 	}
@@ -574,4 +603,234 @@ func TestServerKeepsRunningWhenTheLogCannotBeRead(t *testing.T) {
 	}
 	h.log.failRead.Store(false)
 	waitFor(t, "the partition to be applied once the log answers", func() bool { return h.drained(testSource) })
+}
+
+func TestServerTreatsAPanicInTheWorkPathAsAFailureOfThatEvent(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
+	h.ad.syncFn = func(context.Context, adapter.SyncParams) (adapter.SyncResult, error) { panic("adapter bug") }
+	h.start()
+	req, _, err := h.s.RequestSync(t.Context(), testSource, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.emitted(testSource, "after", 1)
+	waitFor(t, "the partition to be applied past the panicking event", func() bool { return h.drained(testSource) })
+	dl := h.entries("core/dead_letter")
+	if len(dl) != 1 || dl[0].ID != "core/dead_letter/"+hexSHA256(req) || !strings.Contains(string(dl[0].Data), "adapter bug") {
+		t.Fatalf("got dead letters %v, want one for %s that names the panic", dl, req)
+	}
+	if got := h.ap.called(); len(got) != 1 {
+		t.Errorf("got applies %v, want the event after the panic applied", got)
+	}
+}
+
+func TestServerDoesNotClaimACompleteSyncWhenItRepeatsAFailedRun(t *testing.T) {
+	obs := func() adapter.Observations { return adapter.Observations{validObservation(t)} }
+	complete := &modelv1alpha1.CompleteSync{Kinds: []string{"repository"}}
+	var run atomic.Int64
+	h := newHarness(t)
+	h.ad.syncFn = func(_ context.Context, p adapter.SyncParams) (adapter.SyncResult, error) {
+		first := run.Load() == 0
+		if p.Cursor == "" {
+			if first {
+				return adapter.SyncResult{Observations: obs(), NextCursor: "2"}, nil
+			}
+			// The source changed since the first run: two observations.
+			return adapter.SyncResult{Observations: append(obs(), validObservation(t)), NextCursor: "2"}, nil
+		}
+		if first {
+			run.Add(1)
+			return adapter.SyncResult{}, errors.New("source unavailable")
+		}
+		return adapter.SyncResult{Observations: obs(), Done: true, CompleteSync: complete}, nil
+	}
+	h.start()
+	if _, _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the repeated sync to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == 3 })
+	var pages []*eventv1alpha1.ObservationsEmitted
+	for _, e := range h.entries(testSource) {
+		if e.Type != typeObservationsEmitted {
+			continue
+		}
+		m := &eventv1alpha1.ObservationsEmitted{}
+		if err := model.DecodeJSON(e.Data, m); err != nil {
+			t.Fatal(err)
+		}
+		pages = append(pages, m)
+	}
+	if len(pages) != 2 || len(pages[0].GetObservations()) != 1 {
+		t.Fatalf("got %d pages, want the first run's page 1 kept next to the second run's page 2", len(pages))
+	}
+	if !pages[1].GetDone() || pages[1].GetCompleteSync() != nil {
+		t.Errorf("got last page %v: a sync that repeated a failed run, with pages from both, must not claim to be complete", pages[1])
+	}
+}
+
+func TestServerDoesNotApplyAnEventWhoseDeadLetterWasAuditedBeforeAStop(t *testing.T) {
+	h := newHarness(t)
+	poison := h.emitted(testSource, "poison", 1)
+	h.emitted(testSource, "next", 1)
+	// The server stopped after step 2 of the dead letter and before the
+	// commit: the audit entry exists, the offset does not.
+	if err := h.s.auditDeadLetter(t.Context(), poison, "attempts exhausted"); err != nil {
+		t.Fatal(err)
+	}
+	h.start()
+	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
+	if got, want := h.ap.called(), []string{testSource + "/next/1"}; !equalStrings(got, want) {
+		t.Fatalf("got applies %v, want only %v: the given-up event must stay given up", got, want)
+	}
+}
+
+func TestReadyAnswerIsNotSpoiledByAProberThatGoesAway(t *testing.T) {
+	h := newHarness(t)
+	h.start()
+	waitFor(t, "the server to run", func() bool { return h.s.Live() == nil })
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := h.s.Ready(gone); err != nil {
+		t.Fatalf("got %v for a probe that hung up, want the store's own answer", err)
+	}
+	if err := h.s.Ready(t.Context()); err != nil {
+		t.Fatalf("the next probe was given %v", err)
+	}
+}
+
+func TestServerHungAdaptersDoNotKeepOtherSourcesWaiting(t *testing.T) {
+	hang := func(ctx context.Context, _ adapter.SyncParams) (adapter.SyncResult, error) {
+		<-ctx.Done()
+		return adapter.SyncResult{}, ctx.Err()
+	}
+	var hung [2]*fakeAdapter
+	h := newHarness(t, func(c *Config) {
+		c.Workers = 2
+		c.MaxAttempts = 1
+		c.EventTimeout = 100 * time.Millisecond
+		c.Sources = nil
+		for i := range hung {
+			hung[i] = &fakeAdapter{syncFn: hang}
+			c.Sources = append(c.Sources, Source{Name: "hung-" + string(rune('a'+i)), Adapter: hung[i]})
+		}
+		c.Sources = append(c.Sources, Source{Name: "healthy", Adapter: &fakeAdapter{}})
+	})
+	h.start()
+	for _, src := range []string{"hung-a", "hung-b", "healthy"} {
+		if _, _, err := h.s.RequestSync(t.Context(), src, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "every source to be applied", func() bool {
+		return h.drained("hung-a") && h.drained("hung-b") && h.drained("healthy")
+	})
+	if n := len(h.entries("core/dead_letter")); n != 2 {
+		t.Errorf("%d dead letters, want the two hung syncs given up on after the timeout", n)
+	}
+	if n := len(h.entries("healthy")); n != 2 {
+		t.Errorf("%d events in the healthy partition, want its request and its page", n)
+	}
+}
+
+func TestServerGivesBackItsSlotBetweenAttempts(t *testing.T) {
+	// One slot. The failing event waits a long time between attempts; the
+	// other source must be applied while it waits.
+	h := newHarness(t, func(c *Config) {
+		c.Workers = 1
+		c.MaxAttempts = 5
+		c.RetryPause = time.Hour
+		c.Sources = []Source{{Name: "failing", Adapter: &fakeAdapter{}}, {Name: "other", Adapter: &fakeAdapter{}}}
+	})
+	h.ap.fail = func(ev resolver.Event, _ int) error {
+		if ev.Source == "failing" {
+			return errors.New("always")
+		}
+		return nil
+	}
+	h.emitted("failing", "a", 1)
+	h.start()
+	waitFor(t, "the first attempt", func() bool { return len(h.ap.called()) >= 1 })
+	h.emitted("other", "b", 1)
+	h.s.wakeUp()
+	waitFor(t, "the other source to be applied while the first waits", func() bool { return h.drained("other") })
+}
+
+// auditDown is an audit log whose Query fails while a test says so.
+type auditDown struct {
+	contracts.AuditLog
+	down atomic.Bool
+}
+
+func (a *auditDown) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv1alpha1.AuditRecord, error) {
+	if a.down.Load() {
+		return nil, errors.New("audit unavailable")
+	}
+	return a.AuditLog.Query(ctx, f)
+}
+
+func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		flag func(*flakyLog) *atomic.Bool
+	}{
+		{"commit", func(l *flakyLog) *atomic.Bool { return &l.failCommit }},
+		{"committed", func(l *flakyLog) *atomic.Bool { return &l.failCommitted }},
+		{"read", func(l *flakyLog) *atomic.Bool { return &l.failReadEntries }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.emitted(testSource, "a", 1)
+			h.emitted(testSource, "b", 1)
+			flag := tt.flag(h.log)
+			flag.Store(true)
+			h.start()
+			time.Sleep(50 * time.Millisecond)
+			if h.drained(testSource) {
+				t.Fatal("the group got ahead of a log that refused")
+			}
+			flag.Store(false)
+			waitFor(t, "the partition to be applied once the log answers", func() bool { return h.drained(testSource) })
+			// A refused commit repeats the event; the store's processed-event
+			// mark makes the repeat harmless, which the real resolver relies on.
+			applied := map[string]bool{}
+			for _, id := range h.ap.called() {
+				applied[id] = true
+			}
+			if !applied[testSource+"/a/1"] || !applied[testSource+"/b/1"] {
+				t.Errorf("got applies %v, want both events", h.ap.called())
+			}
+		})
+	}
+}
+
+func TestServerWaitsWhenItCannotLookUpAGivenUpEvent(t *testing.T) {
+	audit := &auditDown{}
+	h := newHarness(t, func(c *Config) { audit.AuditLog = c.Audit; c.Audit = audit })
+	h.emitted(testSource, "a", 1)
+	audit.down.Store(true)
+	h.start()
+	time.Sleep(50 * time.Millisecond)
+	if n := len(h.ap.called()); n != 0 {
+		t.Fatalf("applied %d observations of an event it could not check", n)
+	}
+	audit.down.Store(false)
+	waitFor(t, "the partition to be applied", func() bool { return h.drained(testSource) })
+}
+
+func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheAuditEntry(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
+	h.emitted(testSource, "a", 1)
+	h.graph.failApply.Store(true)
+	h.start()
+	waitFor(t, "a dead-letter try", func() bool { return len(h.entries("core/dead_letter")) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if h.drained(testSource) {
+		t.Fatal("committed past an event whose audit entry the store refused")
+	}
+	h.graph.failApply.Store(false)
+	waitFor(t, "the event to be given up on", func() bool { return h.drained(testSource) })
+	if n := len(h.entries("core/dead_letter")); n != 1 {
+		t.Errorf("%d dead letters after the retry, want the same record once", n)
+	}
 }

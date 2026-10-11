@@ -47,7 +47,6 @@ const staleWait = 100 * time.Millisecond
 // partition is never read by two workers at once, since its events are
 // applied in the order they were appended.
 func (s *Server) runWorkers(ctx context.Context) error {
-	sem := make(chan struct{}, s.cfg.Workers)
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	log := telemetry.Logger(pkgName)
@@ -60,17 +59,10 @@ func (s *Server) runWorkers(ctx context.Context) error {
 			if !s.claim(p) {
 				continue
 			}
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				s.release(p)
-				return nil
-			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				err := s.drain(ctx, p)
-				<-sem
 				s.release(p)
 				if err != nil && ctx.Err() == nil {
 					log.WarnContext(ctx, "applying a partition stopped; it is read again", "partition", string(p), "error", cleanErrorText(err.Error()))
@@ -162,6 +154,19 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 			return nil
 		}
 		for _, e := range entries {
+			given, err := s.givenUp(ctx, e)
+			if err != nil {
+				return err
+			}
+			if given {
+				// Its dead letter was recorded and audited before the server
+				// stopped; only the commit is missing.
+				if err := s.cfg.Log.Commit(ctx, s.cfg.Group, p, e.Offset); err != nil {
+					return fmt.Errorf("commit %s at %d: %w", p, e.Offset, err)
+				}
+				after = e.Offset
+				continue
+			}
 			if err := s.process(ctx, e); err != nil {
 				return err
 			}
@@ -171,6 +176,33 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 			after = e.Offset
 		}
 	}
+}
+
+// givenUp reports whether the entry was already given up on: the audit log
+// holds its dead-letter entry, which a server that stopped before the commit
+// left behind. Only the first entry a partition's worker meets after the start
+// can be in that state, since offsets are committed in order, so only that one
+// is looked up.
+func (s *Server) givenUp(ctx context.Context, e contracts.Entry) (bool, error) {
+	if s.cfg.Audit == nil {
+		return false, nil
+	}
+	s.mu.Lock()
+	done := s.resumed[e.Partition]
+	s.mu.Unlock()
+	if done {
+		return false, nil
+	}
+	recs, err := s.cfg.Audit.Query(ctx, contracts.AuditFilter{
+		EventID: e.ID, Limit: 1, Actions: []modelv1alpha1.AuditAction{modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED},
+	})
+	if err != nil {
+		return false, fmt.Errorf("audit lookup for %s: %w", e.ID, err)
+	}
+	s.mu.Lock()
+	s.resumed[e.Partition] = true
+	s.mu.Unlock()
+	return len(recs) > 0, nil
 }
 
 // process handles one entry, trying again when it fails, and gives up on it
@@ -187,7 +219,7 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 	attempts := 0
 	pause := s.cfg.RetryPause
 	for {
-		result, err := s.handle(ctx, e)
+		result, err := s.handleInSlot(ctx, e)
 		if err == nil {
 			workerEvents.Add(ctx, 1, workerAttrs(e.Type, result))
 			return nil
@@ -226,6 +258,22 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 	}
 }
 
+// handleInSlot handles an entry once one of the Workers slots is free and
+// under EventTimeout, and gives the slot back before the caller waits to try
+// again: an event that keeps failing, or a partition with a long backlog,
+// never keeps a slot from the other sources.
+func (s *Server) handleInSlot(ctx context.Context, e contracts.Entry) (string, error) {
+	select {
+	case s.slots <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-s.slots }()
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.EventTimeout)
+	defer cancel()
+	return s.handle(ctx, e)
+}
+
 // sleep waits for d on the server's clock, or until ctx ends.
 func (s *Server) sleep(ctx context.Context, d time.Duration) error {
 	select {
@@ -251,18 +299,33 @@ func (s *Server) storeDown(ctx context.Context) error {
 // handle applies one entry and says what it did. Events the server has no
 // handler for yet are skipped, and counted, so a type added ahead of its
 // handler cannot hold a partition.
-func (s *Server) handle(ctx context.Context, e contracts.Entry) (string, error) {
+func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, err error) {
+	// An in-process adapter, the resolver or a decoder that panics on one
+	// event must not take the server down: a restart would read the same
+	// event and panic again, and no event would ever reach its dead letter.
+	// The panic becomes an error that the retries and the dead letter handle.
+	defer func() {
+		if r := recover(); r != nil {
+			result, err = workerRetried, fmt.Errorf("panic while handling the event: %v", r)
+		}
+	}()
 	switch e.Type {
 	case typeSyncRequested:
 		return workerApplied, s.handleSync(ctx, e)
 	case typeWebhookReceived:
-		return workerApplied, s.handleWebhook(ctx, e)
+		return s.handleWebhook(ctx, e)
 	case typeObservationsEmitted:
 		return workerApplied, s.handleObservations(ctx, e)
 	case typeEventDeadLettered:
 		// A required group reads every partition, and a record of a dead
 		// letter has nothing to apply.
 		return workerSkipped, nil
+	}
+	if e.Partition == manualPartition {
+		// An operator's request that nothing can carry out yet must not be
+		// acknowledged and dropped: it becomes a dead letter, with an audit
+		// entry, that a person sees.
+		return "", fmt.Errorf("no handler for manual event type %q", model.Clip(e.Type))
 	}
 	s.mu.Lock()
 	first := !s.warned[e.Type]
@@ -349,7 +412,10 @@ const maxErrorBytes = 1024
 func cleanErrorText(s string) string {
 	s = strings.ToValidUTF8(s, "�")
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		// Control characters, and the format and separator characters that
+		// reorder or hide text (bidi overrides, zero-width, line and
+		// paragraph separators), since the audit reason is kept for good.
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return ' '
 		}
 		return r

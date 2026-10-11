@@ -7,15 +7,21 @@ import (
 	"time"
 )
 
-// healthTimeout bounds what a readiness check asks of the store.
-const healthTimeout = 5 * time.Second
+const (
+	// healthTimeout bounds what a readiness check asks of the store.
+	healthTimeout = 5 * time.Second
+	// readyCacheTTL is how long a readiness answer is reused. The endpoints
+	// take no credentials, so the store sees at most one check a second
+	// however many probes arrive.
+	readyCacheTTL = time.Second
+)
 
 // Live reports whether the server is running and has not stopped for a
 // failure. It looks at nothing outside the process, so a probe that restarts
 // a server on failure does not restart it for a database outage.
 func (s *Server) Live() error {
-	if err, _ := s.failed.Load().(error); err != nil {
-		return err
+	if err := s.failed.Load(); err != nil {
+		return *err
 	}
 	if !s.running.Load() {
 		return errors.New("server: not running")
@@ -23,23 +29,29 @@ func (s *Server) Live() error {
 	return nil
 }
 
-// Ready reports whether the server can do its work now: it is live, and the
-// store, the log and the instance lock answer.
+// Ready reports whether the server can do its work now: it is live, the
+// store and the log answer, and the last check of the instance lock held. The
+// lock is checked by the server's own loop, not here, so probes never share
+// its connection, and a probe that goes away cannot end the lock's session.
 func (s *Server) Ready(ctx context.Context) error {
 	if err := s.Live(); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, healthTimeout)
+	if err := s.lockErr.Load(); err != nil {
+		return *err
+	}
+	s.readyMu.Lock()
+	defer s.readyMu.Unlock()
+	now := s.clk.Now()
+	if !s.readyAt.IsZero() && now.Sub(s.readyAt) < readyCacheTTL && !now.Before(s.readyAt) {
+		return s.readyErr
+	}
+	// A prober that disconnects must not turn a healthy answer into an error
+	// that the next prober is given.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), healthTimeout)
 	defer cancel()
-	if err := s.storeDown(ctx); err != nil {
-		return err
-	}
-	if s.cfg.Lock != nil {
-		if err := s.cfg.Lock.Held(ctx); err != nil {
-			return err
-		}
-	}
-	return nil
+	s.readyAt, s.readyErr = now, s.storeDown(ctx)
+	return s.readyErr
 }
 
 // HealthHandler serves GET /healthz (live) and GET /readyz (ready). The

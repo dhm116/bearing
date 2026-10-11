@@ -47,11 +47,24 @@ func (s *Server) handleSync(ctx context.Context, e contracts.Entry) error {
 	if err != nil {
 		return err
 	}
+	// A page whose ID is already on the log means this run repeats an earlier
+	// one that failed partway. The log keeps the first copy of a page, so if
+	// the source changed in between, the pages are a mix of two runs and the
+	// sync has not seen every entity in one pass: it must not claim to be
+	// complete (docs/spec/data-model.md, "Sync completeness"). The next
+	// scheduled sync starts over.
+	rerun := false
 	sum, err := adapter.SyncPages(ctx, src.Adapter, src.Config, s.cfg.MaxPages, func(p adapter.Page) error {
 		if len(p.Observations) == 0 && !p.Done {
 			return nil
 		}
-		return s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, p.CompleteSync)
+		complete := p.CompleteSync
+		if rerun {
+			complete = nil
+		}
+		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete)
+		rerun = rerun || dup
+		return err
 	})
 	if err != nil {
 		return err
@@ -65,14 +78,14 @@ func (s *Server) handleSync(ctx context.Context, e contracts.Entry) error {
 // handleWebhook gives a verified delivery to the source's adapter and puts
 // the observations it derives on the log. A delivery that means nothing, such
 // as a ping, leaves nothing.
-func (s *Server) handleWebhook(ctx context.Context, e contracts.Entry) error {
+func (s *Server) handleWebhook(ctx context.Context, e contracts.Entry) (string, error) {
 	msg := &eventv1alpha1.WebhookReceived{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
-		return fmt.Errorf("event %s: %w", e.ID, err)
+		return "", fmt.Errorf("event %s: %w", e.ID, err)
 	}
 	src, err := s.source(msg.GetSource(), e)
 	if err != nil {
-		return err
+		return "", err
 	}
 	headers := map[string][]string{}
 	for _, h := range msg.GetHeaders() {
@@ -80,20 +93,22 @@ func (s *Server) handleWebhook(ctx context.Context, e contracts.Entry) error {
 	}
 	res, err := adapter.HandleChecked(ctx, src.Adapter, src.Name, adapter.HandleParams{Config: src.Config, Headers: headers, Body: msg.GetBody()})
 	if errors.Is(err, adapter.ErrNotSupported) {
-		return nil
+		return workerSkipped, nil
 	}
 	if err != nil {
-		return fmt.Errorf("event %s: %w", e.ID, err)
+		return "", fmt.Errorf("event %s: %w", e.ID, err)
 	}
 	if len(res.Observations) == 0 {
-		return nil
+		return workerApplied, nil
 	}
-	return s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil)
+	_, err = s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil)
+	return workerApplied, err
 }
 
-// appendObservations puts one page of adapter output on the log. The core sets
-// the observations' configured source; adapters never do.
-func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync) error {
+// appendObservations puts one page of adapter output on the log and reports
+// whether the log already held a page with that ID. The core sets the
+// observations' configured source; adapters never do.
+func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync) (duplicate bool, err error) {
 	for _, o := range obs {
 		o.Bearingsource = source
 	}
@@ -101,19 +116,19 @@ func (s *Server) appendObservations(ctx context.Context, source, trigger string,
 	typ, _ := model.EventType(msg)
 	data, err := model.EncodeJSON(msg)
 	if err != nil {
-		return fmt.Errorf("encode page %d: %w", page, err)
+		return false, fmt.Errorf("encode page %d: %w", page, err)
 	}
 	if len(data) > contracts.MaxEventBytes {
-		return fmt.Errorf("page %d of %s is %d bytes, over the event limit of %d", page, source, len(data), contracts.MaxEventBytes)
+		return false, fmt.Errorf("page %d of %s is %d bytes, over the event limit of %d", page, source, len(data), contracts.MaxEventBytes)
 	}
-	_, err = s.cfg.Log.Append(ctx, []contracts.Event{{
+	got, err := s.cfg.Log.Append(ctx, []contracts.Event{{
 		ID: pageEventID(source, trigger, page), Partition: contracts.Partition(source),
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
 	}})
 	if err != nil {
-		return fmt.Errorf("append page %d: %w", page, err)
+		return false, fmt.Errorf("append page %d: %w", page, err)
 	}
-	return nil
+	return len(got) == 1 && got[0].Duplicate, nil
 }
 
 // handleObservations applies the observations of a page, each as an event of

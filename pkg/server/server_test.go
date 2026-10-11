@@ -133,7 +133,15 @@ func (f *fakeApplier) called() []string {
 // downGraph is a graph store whose Head fails while down is set.
 type downGraph struct {
 	contracts.GraphStore
-	down atomic.Bool
+	down      atomic.Bool
+	failApply atomic.Bool
+}
+
+func (d *downGraph) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contracts.ApplyResult, error) {
+	if d.failApply.Load() {
+		return contracts.ApplyResult{}, errors.New("apply refused")
+	}
+	return d.GraphStore.Apply(ctx, cs)
 }
 
 func (d *downGraph) Head(ctx context.Context) (time.Time, error) {
@@ -164,7 +172,7 @@ func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 	h.graph = &downGraph{GraphStore: h.mem}
 	h.log = &flakyLog{EventLog: h.mem}
 	h.cfg = Config{
-		Log: h.log, Graph: h.graph, Applier: h.ap,
+		Log: h.log, Graph: h.graph, Audit: h.mem.AuditLog(), Applier: h.ap,
 		Sources:      []Source{{Name: testSource, Adapter: h.ad, Config: json.RawMessage(`{"org":"acme"}`)}},
 		PollInterval: 5 * time.Millisecond, RetryPause: time.Millisecond, MaxAttempts: 3,
 		TrimEvery: time.Hour, Retention: -1,
@@ -524,12 +532,26 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 
 func TestServerSkipsEventsItDoesNotHandleYet(t *testing.T) {
 	h := newHarness(t)
-	h.append("manual", "m1", &eventv1alpha1.OverrideSet{})
+	h.append(testSource, "o1", &eventv1alpha1.OverrideSet{})
 	h.emitted(testSource, "a", 1)
 	h.start()
-	waitFor(t, "both partitions to be committed", func() bool { return h.drained(testSource) && h.drained("manual") })
+	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
 	if got := h.ap.called(); len(got) != 1 {
 		t.Fatalf("got applies %v, want only the observation", got)
+	}
+	if n := len(h.entries("core/dead_letter")); n != 0 {
+		t.Errorf("%d dead letters for a type that is skipped", n)
+	}
+}
+
+func TestServerDeadLettersAManualRequestNothingCanCarryOut(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	op := h.append("manual", "m1", &eventv1alpha1.OverrideSet{})
+	h.start()
+	waitFor(t, "the manual partition to be committed", func() bool { return h.drained("manual") })
+	dl := h.entries("core/dead_letter")
+	if len(dl) != 1 || dl[0].ID != "core/dead_letter/"+hexSHA256(op.ID) {
+		t.Fatalf("got dead letters %v, want one for the manual request: it must not be acknowledged and dropped", dl)
 	}
 }
 
