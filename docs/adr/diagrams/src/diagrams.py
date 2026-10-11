@@ -48,12 +48,12 @@ def adr7_flow():
     d.raw('<rect class="mask" x="862" y="126" width="28" height="12" rx="2"/><text class="t-lbl" x="876" y="135" text-anchor="middle">RUN</text>', "labels")
     d.label(660, 60, "OBSERVATIONS")
     d.raw('<rect class="mask" x="846" y="254" width="88" height="12" rx="2"/><text class="t-lbl" x="890" y="263" text-anchor="middle">APPLY · ONE TX</text>', "labels")
-    d.node(32, 112, 152, 64, "input", "", "Webhooks", "GitHub · PagerDuty")
-    d.node(32, 208, 152, 64, "input", "", "Scheduler · CLI", "SyncRequested")
+    d.node(32, 112, 152, 64, "input", "", "Webhooks", "signed deliveries")
+    d.node(32, 208, 152, 64, "input", "", "Scheduler · API", "SyncRequested")
     d.node(248, 160, 144, 64, "backend", "", "Ingest", "validate · assign ID")
-    d.node(472, 160, 176, 64, "focal", "WAL", "Event log", "partitioned by entity key", pin=True)
+    d.node(472, 160, 176, 64, "focal", "WAL", "Event log", "one lane per source", pin=True)
     d.node(760, 160, 160, 64, "backend", "", "Workers", "consumer group")
-    d.node(760, 40, 160, 64, "backend", "WASM", "Adapter", "Sync · Handle")
+    d.node(760, 40, 160, 64, "backend", "", "Adapter", "Sync · Handle")
     d.node(464, 328, 136, 64, "store", "", "Graph", "entities · facts")
     d.node(616, 328, 136, 64, "store", "", "Processed IDs", "dedupe by event ID")
     d.node(768, 328, 136, 64, "store", "", "Audit log", "ADR 8")
@@ -81,7 +81,7 @@ def adr7_seq_ingest():
     act(d, 480, 120, 264)
     act(d, 800, 164, 212)
     d.path([(160, 128), (476, 128)], "link")
-    d.label(318, 116, "POST /HOOKS/GITHUB-ACME", "link")
+    d.label(318, 116, "POST /WEBHOOKS/GITHUB-ACME", "link")
     d.path([(484, 172), (796, 172)])
     d.label(640, 160, "APPEND · KEY = DELIVERY ID")
     d.path([(796, 204), (484, 204)], "dash")
@@ -99,7 +99,7 @@ def adr7_seq_apply():
           "A worker takes an event from the log, runs the adapter, and in one transaction checks the processed-ID table, writes facts and audit records, and marks the event done before committing its offset.")
     for cx, k, t, n, s in [(120, "store", "WAL", "Event log", "offset 1042"),
                            (360, "backend", "SERVICE", "Worker", "consumer group"),
-                           (600, "backend", "WASM", "Adapter", "Handle"),
+                           (600, "backend", "", "Adapter", "Handle"),
                            (840, "store", "STORE", "Store", "graph · audit · IDs")]:
         seq_actor(d, cx, k, t, n, s, bottom=448)
     act(d, 360, 112, 432)

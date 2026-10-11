@@ -1,6 +1,6 @@
 # 7. Bearing is always on and every input is a durable event
 
-Date: 2026-09-29 · Status: proposed
+Date: 2026-09-29 · Status: accepted
 
 ## Context
 
@@ -71,6 +71,13 @@ the graph quietly.
   log acknowledged to a sender is never deleted before it was applied. A group
   that is not named holds nothing back. A later setting may cap the log by age
   or size and discard unapplied events anyway; it is off by default.*
+
+*Accepted 2026-10-11: `bearing server --settings` runs this design: the
+event log, ingest and the signed webhook route, one apply worker per
+partition with retries and dead letters, the scheduler, the store's instance
+lock, health checks, and the audit checkpoint writer and retention job
+([ADR 8](0008-audit-log.md)). The CLI's queries and sync requests go through
+the server's API. How to run it is in [`docs/operations.md`](../operations.md).*
 
 ## Shape
 
