@@ -454,3 +454,97 @@ func TestWebhookSignatureDeclaration(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncPagesKeepsAPageTogetherAndNumbersEveryOne(t *testing.T) {
+	// mixed's first page has four observations, two of them rejected whole;
+	// its second has one. complete_sync is dropped for the sync once any
+	// observation was rejected, so the core never treats it as complete.
+	type seen struct {
+		number int
+		keys   []string
+		done   bool
+	}
+	var got []seen
+	sum, err := SyncPages(context.Background(), completingMixed{}, json.RawMessage(`{}`), 10, func(p Page) error {
+		var keys []string
+		for _, o := range p.Observations {
+			keys = append(keys, o.GetData().GetEntity().GetKey())
+		}
+		got = append(got, seen{p.Number, keys, p.Done})
+		if p.Done && p.CompleteSync != nil {
+			t.Error("a sync that rejected an observation still reports complete_sync")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []seen{
+		{1, []string{"test:team/good", "test:team/partly"}, false},
+		{2, []string{"test:team/last"}, true},
+	}
+	if !slices.EqualFunc(got, want, func(a, b seen) bool {
+		return a.number == b.number && a.done == b.done && slices.Equal(a.keys, b.keys)
+	}) {
+		t.Fatalf("got pages %+v, want %+v", got, want)
+	}
+	if sum.Pages != 2 || sum.Accepted != 3 || sum.Complete() {
+		t.Errorf("got %+v", sum)
+	}
+}
+
+// completingMixed is mixed with a complete_sync on its last page.
+type completingMixed struct{ mixed }
+
+func (c completingMixed) Sync(ctx context.Context, sp SyncParams) (SyncResult, error) {
+	res, err := c.mixed.Sync(ctx, sp)
+	if res.Done {
+		res.CompleteSync = &modelv1alpha1.CompleteSync{Kinds: []string{string(model.KindTeam)}}
+	}
+	return res, err
+}
+
+func TestSyncPagesKeepsCompleteSyncWhenNothingWasRejected(t *testing.T) {
+	var last Page
+	_, err := SyncPages(context.Background(), completer{pager{n: 2}}, json.RawMessage(`{"prefix":"p"}`), 10, func(p Page) error {
+		last = p
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !last.Done || last.Number != 2 || last.CompleteSync == nil {
+		t.Fatalf("got last page %+v, want page 2, done, with complete_sync", last)
+	}
+}
+
+func TestSyncPagesStopsWhenEmitFails(t *testing.T) {
+	boom := errors.New("log is full")
+	calls := 0
+	_, err := SyncPages(context.Background(), pager{n: 5}, json.RawMessage(`{}`), 10, func(Page) error {
+		calls++
+		return boom
+	})
+	if !errors.Is(err, boom) || calls != 1 {
+		t.Fatalf("got %v after %d pages, want the emit error after the first", err, calls)
+	}
+}
+
+func TestHandleCheckedValidatesLikeTheClientDoes(t *testing.T) {
+	a := coreFields{}
+	_, err := HandleChecked(context.Background(), a, "x", HandleParams{Body: []byte("bad")})
+	var ve *model.ValidationError
+	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) {
+		t.Fatalf("got %v, want a malformed-key rejection", err)
+	}
+	res, err := HandleChecked(context.Background(), a, "x", HandleParams{Body: []byte("ok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
+		t.Fatalf("got nanos %d, want 123456000", got)
+	}
+	if _, err := HandleChecked(context.Background(), pager{}, "x", HandleParams{}); !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("got %v, want ErrNotSupported passed through", err)
+	}
+}

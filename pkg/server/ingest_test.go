@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -697,17 +698,7 @@ func TestIngestStoresHeadersSignatureFirstThenByNameWithoutCredentials(t *testin
 	}
 }
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
+func equalStrings(a, b []string) bool { return slices.Equal(a, b) }
 
 func TestIngestCapsTheNumberOfStoredHeaders(t *testing.T) {
 	r := newRig(t)

@@ -198,6 +198,7 @@ Assets: A1, A7, the event log.
 | T-INGEST-7 | I | Error responses reveal which sources exist or echo input | C-INGEST-7 |
 | T-INGEST-8 | D | An event is acknowledged but lost, so the sender never retries | C-INGEST-8 |
 | T-INGEST-9 | S | A forged `X-Forwarded-For` evades per-peer limits or poisons logs | C-INGEST-10 |
+| T-INGEST-10 | D, T | A poison event, or a source system that fails every call, stops a partition; or an outage of the store is mistaken for poison and its events are given up on | C-INGEST-12 |
 
 - **C-INGEST-1** Ingest is a separate surface from the API, made of pluggable
   transports (HTTP webhooks and CloudEvents in the MVP). Each transport is
@@ -274,6 +275,39 @@ Assets: A1, A7, the event log.
   position, type, size and the last error cut to 1,024 bytes of valid UTF-8
   with control characters replaced; the count of retained dead letters is a
   gauge, so a flood of poison events is visible.
+- **C-INGEST-12** The apply workers (`pkg/server`) read each partition in
+  order, one worker per partition, and commit an offset only after the event
+  is applied or recorded as a dead letter. A failing event is tried
+  `MaxAttempts` times (default 5) with a doubling pause; contention with
+  another apply (`ErrStale`) is retried without counting. After the last
+  attempt the worker gives up on the event in the order of the contract
+  (record, audit entry that marks it processed, commit), so the partition goes
+  on and a crash between the steps repeats safely: the first event a worker
+  meets after a start is looked up in the audit log, and one that was already
+  given up on is only committed. Before it gives up, the worker checks that the
+  store and the log answer: if either does not, the failures may be theirs and
+  not the event's, so it keeps waiting and never turns an outage into lost
+  data. A panic in an in-process adapter, the resolver or a decoder is caught
+  and handled as that event's failure, so a poison event cannot crash-loop the
+  server. Each attempt runs under `EventTimeout` (default 30 minutes) and holds
+  one of `Workers` slots only while it runs, not while it waits to try again or
+  while its partition has more events, so an adapter that hangs, or a
+  partition with a long backlog, delays the other sources by at most one
+  timeout per attempt and never stops them. Error text from an adapter or a
+  source system is untrusted: in the dead-letter record, the audit entry and
+  the worker's own log lines it is cut and cleaned (C-INGEST-11, and format
+  and separator characters that reorder or hide text are replaced too), and
+  it never labels a metric. The adapter client's span and log for a failed
+  sync carry the error as the adapter returned it. Events of a type the
+  server has no handler for are skipped, counted and logged once per type,
+  except in the `manual` partition, where an operator's request that nothing
+  can carry out becomes a dead letter with an audit entry instead of being
+  acknowledged and dropped. An event whose source field disagrees with its
+  partition is refused, so one source's partition never runs another's
+  adapter. If a failed sync is run again and a page of it is already on the
+  log, the rerun never claims `complete_sync` (the log keeps the first copy of
+  a page, so its pages may mix two runs), and the next scheduled sync starts
+  over. Not yet bounded: the pages and bytes one sync may put on the log.
 
 ### B2. Adapter modules
 
@@ -732,6 +766,7 @@ Assets: A1, A3, A4, A5, A6.
 | T-STORE-8 | T, E, D | A tampered, corrupt or truncated backup is restored as primary state, or a restore that fails halfway is used as if it were whole | C-STORE-8, C-AUDIT-1, C-API-4 |
 | T-STORE-9 | D | A ChangeSet of many tiny items, one huge timeline or many merges stays under the byte limit but stalls the store | C-STORE-9 |
 | T-STORE-10 | D, T | An oversized event, batch or read stalls the event log; an event is written into another source's partition; a stopped consumer makes the log grow without bound | C-STORE-11 |
+| T-STORE-11 | T, D | Two servers run against one store (a second start, a restart that overlaps the old process) and apply, trim and commit against each other | C-STORE-12 |
 
 **Retired:** T-STORE-4 and C-STORE-4 covered SurrealDB's network functions and scripting;
 PostgreSQL has no equivalent that a role without administrator rights can
@@ -910,6 +945,25 @@ reach, so they are retired and their numbers are not reused.
   message to the sender (C-INGEST-7). Because `Backup` leaves the log out, a
   restore into a fresh database loses retained manual events and any
   unapplied backlog; operators back up the database itself for those.
+
+- **C-STORE-12** One server uses a store at a time (the MVP runs a single
+  instance). `store.LockInstance` takes a PostgreSQL session-level advisory lock
+  named for the schema on a connection of its own; a second server fails at
+  start with `ErrInstanceLocked`. The server checks the lock every ten seconds
+  and on every readiness probe, and stops with `ErrLockLost` when it can no
+  longer show it holds it, since another server may have started. Only the
+  graph backend takes the lock; the in-memory store has one process by
+  construction. The lock does not stop a person from running `psql`, and
+  another process can still read the store: the lock keeps two writers of
+  workers from running, not two readers. Only the server's own loop asks the
+  database about the lock, serialized on the lock's connection and on its own
+  deadline that a caller's cancellation does not shorten, because a query
+  cancelled in flight ends the session and with it the lock; readiness
+  probes (unauthenticated, C-API-2) read the loop's last answer and a store
+  check reused for a second, so a flood of probes cannot reach the
+  connection. The lock does not fence writes: between a loss and the next
+  check (ten seconds, plus a hung connection until its deadline) the workers
+  may still write.
 
 ### B7. Operators and configuration
 
