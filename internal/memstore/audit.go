@@ -114,7 +114,7 @@ func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, 
 	}
 	// A copy, so the removed records can be collected.
 	a.s.audit = slices.Clone(recs[i+1:])
-	return uint64(i + 1), nil
+	return uint64(i) + 1, nil //nolint:gosec // G115: an index is never negative
 }
 
 // matchesAudit says whether rec passes the filter's conditions (not its

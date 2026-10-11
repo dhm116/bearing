@@ -193,6 +193,25 @@ func (r *retentionSuite) mismatch(t *testing.T) {
 	failIf(t, len(records(t, l)) != 4, "got %d records after refused cuts, want all 4", len(records(t, l)))
 }
 
+// try panics on an error and reportTo turns that panic into an error on errs,
+// so a goroutine of a test needs no branch for each call it makes.
+func try[T any](v T, err error) T {
+	check(err)
+	return v
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func reportTo(errs chan<- error) {
+	if r := recover(); r != nil {
+		errs <- fmt.Errorf("%v", r)
+	}
+}
+
 func (r *retentionSuite) concurrent(t *testing.T) {
 	s, clk := r.store(t)
 	k := newCutKey(t)
@@ -202,25 +221,20 @@ func (r *retentionSuite) concurrent(t *testing.T) {
 	errs := make(chan error, writers+1)
 	for w := range writers {
 		wg.Go(func() {
+			defer reportTo(errs)
 			for i := range each {
 				cs := &modelv1alpha1.ChangeSet{EventId: fmt.Sprintf("w%d-%d", w, i), Audit: []*modelv1alpha1.AuditEntry{
 					entry(modelv1alpha1.AuditAction_AUDIT_ACTION_BINDING_WRITTEN, "core/resolver", fmt.Sprintf("github:repo/acme/w%d-%d", w, i)),
 				}}
 				for {
-					head, err := s.Head(ctx)
-					if err != nil {
-						errs <- err
-						return
-					}
-					if !head.IsZero() {
+					if head := try(s.Head(ctx)); !head.IsZero() {
 						cs.BaseRecordedAt = timestamppb.New(head)
 					}
-					if _, err = s.Apply(ctx, cs); errors.Is(err, contracts.ErrStale) {
+					_, err := s.Apply(ctx, cs)
+					if errors.Is(err, contracts.ErrStale) {
 						continue
-					} else if err != nil {
-						errs <- err
-						return
 					}
+					check(err)
 					break
 				}
 			}
@@ -228,36 +242,16 @@ func (r *retentionSuite) concurrent(t *testing.T) {
 	}
 	var last *modelv1alpha1.AuditCheckpoint
 	wg.Go(func() {
+		defer reportTo(errs)
 		l := s.AuditLog()
 		for range 6 {
-			h, err := l.Head(ctx)
-			if err != nil {
-				errs <- err
-				return
-			}
-			recs, err := l.Query(ctx, contracts.AuditFilter{Limit: 1})
-			if err != nil || len(recs) != 1 {
-				errs <- fmt.Errorf("oldest record: %v, %v", recs, err)
-				return
-			}
-			through := h.Seq - 4
-			if through < recs[0].GetSeq() {
+			through := try(l.Head(ctx)).Seq - 4
+			if through < try(l.Query(ctx, contracts.AuditFilter{Limit: 1}))[0].GetSeq() {
 				continue
 			}
-			rec, err := l.Query(ctx, contracts.AuditFilter{After: through - 1, Limit: 1})
-			if err != nil || len(rec) != 1 {
-				errs <- fmt.Errorf("record %d: %v, %v", through, rec, err)
-				return
-			}
-			cp, err := audit.NewCutCheckpoint(contracts.AuditHead{Seq: through, Hash: rec[0].GetHash()}, at("2026-09-28T01:30:02Z"), k.signer)
-			if err != nil {
-				errs <- err
-				return
-			}
-			if _, err := s.AuditRetention().Cut(ctx, contracts.AuditCut{Through: through, Hash: rec[0].GetHash()}); err != nil {
-				errs <- err
-				return
-			}
+			rec := try(l.Query(ctx, contracts.AuditFilter{After: through - 1, Limit: 1}))[0]
+			cp := try(audit.NewCutCheckpoint(contracts.AuditHead{Seq: through, Hash: rec.GetHash()}, at("2026-09-28T01:30:02Z"), k.signer))
+			try(s.AuditRetention().Cut(ctx, contracts.AuditCut{Through: through, Hash: rec.GetHash()}))
 			last = cp
 		}
 	})

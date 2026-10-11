@@ -553,6 +553,36 @@ func TestNewCutCheckpointIsSignedAndMarkedAsACut(t *testing.T) {
 	}
 }
 
+func TestNewStartCheckpointAnchorsTheOldestRecordOfACutLog(t *testing.T) {
+	l := chain(t, 6)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	l.recs = l.recs[3:] // cut, and the marker lost
+	cp, err := NewStartCheckpoint(l.recs[0], t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep := verify(t, l, []*modelv1alpha1.AuditCheckpoint{cp}, Options{Keys: keys}); !rep.OK() || rep.Cut != cp || rep.First != 4 {
+		t.Fatalf("got %+v, want the log to verify from record 4 behind the new marker", rep)
+	}
+	if _, err := NewStartCheckpoint(chain(t, 2).recs[0], t0, s); err == nil || !strings.Contains(err.Error(), "starts at record 1") {
+		t.Fatalf("got %v, want a log that starts at record 1 refused", err)
+	}
+	if _, err := NewStartCheckpoint(l.recs[0], t0, nil); err == nil {
+		t.Fatal("got nil, want an unsigned marker refused")
+	}
+	edited := proto.CloneOf(l.recs[0])
+	edited.Entry.Reason = "edited"
+	if _, err := NewStartCheckpoint(edited, t0, s); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
+		t.Fatalf("got %v, want an edited record refused", err)
+	}
+	unhashable := proto.CloneOf(l.recs[0])
+	unhashable.ProtoReflect().SetUnknown([]byte{0xf8, 0x01, 0x01})
+	if _, err := NewStartCheckpoint(unhashable, t0, s); err == nil || !strings.Contains(err.Error(), "record 4") {
+		t.Fatalf("got %v, want a record that cannot be hashed refused", err)
+	}
+}
+
 // An unsigned checkpoint counts only when the caller says so, so whoever
 // controls the checkpoint file can't replace signed lines with forgeries.
 func TestVerifyRefusesUnsignedCheckpointsByDefault(t *testing.T) {

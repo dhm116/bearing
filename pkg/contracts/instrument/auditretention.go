@@ -44,7 +44,7 @@ func (a *auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (removed
 	}
 	if err == nil {
 		span.SetAttributes(attrCount.Int(int(min(removed, 1<<31))))
-		auditCut.Add(ctx, int64(min(removed, 1<<62)), metric.WithAttributes(attrBackend.String(a.backend))) //nolint:gosec // G115: capped
+		auditCut.Add(ctx, int64(min(removed, 1<<62)), metric.WithAttributes(attrBackend.String(a.backend)))
 	}
 	auditDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(base...))
 	return removed, err
