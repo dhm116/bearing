@@ -20,7 +20,9 @@ var (
 	// AnnotationEditedAt is when payments-api's repository annotation is
 	// edited to TODO.
 	AnnotationEditedAt = time.Date(2026, 10, 8, 11, 0, 0, 0, time.UTC)
-	// WorkloadDeletedAt is when legacy-billing is deleted.
+	// WorkloadDeletedAt is when legacy-billing is deleted. A test needs a
+	// sync cadence of an hour or so to tell this from [NamespaceExcludedAt],
+	// 16 hours later: the spec's "every few minutes" is fine, 8 hours is not.
 	WorkloadDeletedAt = time.Date(2026, 10, 9, 16, 0, 0, 0, time.UTC)
 	// NamespaceExcludedAt is when the billing namespace is added to the
 	// adapter's exclude_namespaces. The cluster doesn't change; the
@@ -110,11 +112,15 @@ func seedCluster(k *Cluster) {
 		},
 		{
 			// Linked to its repository by the image alone, and the canary:
-			// an environment variable, a command-line argument and a
-			// Secret reference that hold fake passwords. The init container
-			// is never read.
+			// an environment variable, a command-line argument, Secret
+			// references (envFrom and a volume), a service account and a
+			// label and an annotation nobody reports, all with fake values.
+			// The init container is never read.
 			Kind: KindStatefulSet, Namespace: "billing", Name: "billing-core", Replicas: 2,
-			Labels: map[string]string{"team": "billing"},
+			Labels:             map[string]string{"team": "billing", "cost-center": CanaryLabel},
+			Annotations:        map[string]string{"acme.example/runbook": CanaryAnnotation},
+			ServiceAccountName: CanaryServiceAccount,
+			SecretVolumes:      []string{CanaryVolumeSecret},
 			InitContainers: []Container{{
 				Name: "wait-for-db", Image: "docker.io/library/busybox:1.36", Command: []string{"sh", "-c", "until nc -z db 5432; do sleep 1; done"},
 			}},

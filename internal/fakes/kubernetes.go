@@ -36,6 +36,14 @@ const (
 	CanaryArgPassword = "canary-arg-7b3f0c2e-pw" //nolint:gosec // G101: a fake password, the point of the canary
 	// CanarySecretName names the Secret billing-core's envFrom reads.
 	CanarySecretName = "canary-secret-9c2d4f6a-pw"
+	// CanaryVolumeSecret names the Secret a volume of billing-core mounts.
+	CanaryVolumeSecret = "canary-volume-2e8b6d0f-pw" //nolint:gosec // G101: a fake, the point of the canary
+	// CanaryServiceAccount is billing-core's service account name.
+	CanaryServiceAccount = "canary-sa-4a9c1f3d"
+	// CanaryLabel and CanaryAnnotation are the values of a label and an
+	// annotation on billing-core that the adapter doesn't report.
+	CanaryLabel      = "canary-label-6f0e2b8a"
+	CanaryAnnotation = "canary-annotation-1d7c5e93"
 	// SpecExampleToken and SpecExamplePassword are the fake values in the
 	// spec's example input, which payments-api reproduces.
 	SpecExampleToken    = "not-a-real-token"
@@ -44,7 +52,10 @@ const (
 
 // Canaries returns every canary value.
 func Canaries() []string {
-	return []string{CanaryEnvPassword, CanaryArgPassword, CanarySecretName, SpecExampleToken, SpecExamplePassword}
+	return []string{
+		CanaryEnvPassword, CanaryArgPassword, CanarySecretName, CanaryVolumeSecret, CanaryServiceAccount,
+		CanaryLabel, CanaryAnnotation, SpecExampleToken, SpecExamplePassword,
+	}
 }
 
 // Container is one container of a workload's pod template.
@@ -68,9 +79,13 @@ type Workload struct {
 	Labels      map[string]string
 	Annotations map[string]string
 	// Replicas is spec.replicas; a DaemonSet has none and ignores it.
-	Replicas       int
-	Containers     []Container
-	InitContainers []Container
+	Replicas int
+	// ServiceAccountName and SecretVolumes (names of Secrets mounted as
+	// volumes) are part of the pod template and are never reported.
+	ServiceAccountName string
+	SecretVolumes      []string
+	Containers         []Container
+	InitContainers     []Container
 
 	// Set by the cluster.
 	UID             string
@@ -348,6 +363,7 @@ func copyWorkload(w *Workload) Workload {
 	cp.Annotations = maps.Clone(w.Annotations)
 	cp.Containers = copyContainers(w.Containers)
 	cp.InitContainers = copyContainers(w.InitContainers)
+	cp.SecretVolumes = slices.Clone(w.SecretVolumes)
 	return cp
 }
 

@@ -591,6 +591,11 @@ func TestKubernetesExpiredContinueAnswers410(t *testing.T) {
 	if msg, _ := st["message"].(string); !strings.Contains(msg, "continue parameter is too old") {
 		t.Errorf("message %q", msg)
 	}
+	// As on a real API server, the reply carries a token that resumes the
+	// list, inconsistently; an adapter must not take it.
+	if resume, _ := at(st, "metadata", "continue").(string); resume == "" {
+		t.Error("the 410 carries no continue token")
+	}
 
 	kb.ExpireContinue(false)
 	if rest := kubeNames(t, kubeGet(t, kb, path+"?limit=1&continue="+url.QueryEscape(tok))); !slices.Equal(rest, []string{"payments/payments-api"}) {
@@ -769,6 +774,19 @@ func TestKubernetesServesTheCanaries(t *testing.T) {
 	}
 	if got := at(ctr, "envFrom", 0, "secretRef", "name"); got != CanarySecretName {
 		t.Errorf("envFrom: got %v", got)
+	}
+
+	if got := at(core, "spec", "template", "spec", "serviceAccountName"); got != CanaryServiceAccount {
+		t.Errorf("serviceAccountName: got %v", got)
+	}
+	if got := at(core, "spec", "template", "spec", "volumes", 0, "secret", "secretName"); got != CanaryVolumeSecret {
+		t.Errorf("volume: got %v", got)
+	}
+	if got := at(core, "metadata", "labels", "cost-center"); got != CanaryLabel {
+		t.Errorf("label: got %v", got)
+	}
+	if got := at(core, "metadata", "annotations", "acme.example/runbook"); got != CanaryAnnotation {
+		t.Errorf("annotation: got %v", got)
 	}
 
 	// A Secret and a ConfigMap are always refused, and the refusals are in

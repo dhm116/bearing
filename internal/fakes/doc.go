@@ -139,7 +139,9 @@
 //     annotation, a ghcr.io image (the image hint), an init container, and
 //     the canary: a fake password in an environment variable, in a
 //     command-line argument and in the name of the Secret its envFrom
-//     reads. [Canaries] lists every such value, payments-api's included.
+//     reads, plus a Secret volume, a service account, and a label and an
+//     annotation the adapter doesn't report. [Canaries] lists every such
+//     value, payments-api's included.
 //   - svclb-traefik (a DaemonSet) and coredns (a Deployment) in
 //     kube-system, which the adapter does not read.
 //
@@ -149,13 +151,24 @@
 // becomes ""), [AnnotationEditedAt] (payments-api's annotation becomes
 // TODO), [WorkloadDeletedAt] (legacy-billing) and [NamespaceExcludedAt]
 // (billing joins the adapter's exclude_namespaces: nothing changes in the
-// cluster, so [ExcludedNamespaces] gives the setting at a time). Mutations
+// cluster, so [ExcludedNamespaces] gives the setting at a time; a test
+// that tells the delete from the exclusion, 16 hours apart, syncs more
+// often than that). Mutations
 // ([Cluster.SetImage], [Cluster.SetReplicas], [Cluster.SetLabel],
 // [Cluster.SetAnnotation], [Cluster.DeleteWorkload], [Cluster.AddWorkload],
 // [Cluster.AddNamespace]) take their time from the Cluster's clock and
 // stamp it in the object's metadata.managedFields. The lists as the
 // adapter reads them at [ImageBumpedAt] are recorded in
 // testdata/acme/kubernetes.ndjson at the repository root.
+//
+// The cluster and the org meet at payments: the team payments exists in
+// GitHub and the directory, and payments-api's annotation names
+// acme/payments-api, the repository's name before its rename on
+// [RepoRenamedAt], which still resolves (data model, "Renames, moves and
+// reuse"); so does the image hint after the annotation becomes TODO. The org
+// has no billing team and no billing-core or legacy-billing repository, so
+// kubernetes:team/billing and github:repo/acme/billing-core resolve to
+// nothing, as the spec's samples 10 and 11 imply.
 //
 // # Kubernetes endpoints
 //
@@ -174,12 +187,16 @@
 //   - GET /api/v1/namespaces
 //   - GET /apis/apps/v1/deployments, /statefulsets and /daemonsets, and the
 //     same under /apis/apps/v1/namespaces/{namespace}/. A namespace that
-//     doesn't exist lists as empty.
+//     doesn't exist lists as empty. The all-namespaces form is served, as a
+//     cluster-wide role allows it, and would include excluded namespaces: a
+//     test of the adapter asserts on the request log that it lists namespace
+//     by namespace.
 //
 // Lists are Kubernetes Lists (items without kind or apiVersion, a
 // resourceVersion) in key order, paged by limit and continue: the token is
-// opaque, names the last item served so a change between pages moves
-// nothing already read, and belongs to one list (another list's token is a
+// opaque and names the last item served (a keyset cursor, not a snapshot,
+// so an item created or deleted after it between pages shows up or
+// vanishes, and nothing already read moves), and belongs to one list (another list's token is a
 // 400). With [KubernetesOptions.ExpireContinue] or [Kubernetes.ExpireContinue]
 // a valid continue token gets 410 Gone (a malformed one, or one from
 // another list, is a 400 first). Objects carry more than the adapter may

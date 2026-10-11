@@ -250,7 +250,7 @@ func (kb *Kubernetes) writeList(w http.ResponseWriter, r *http.Request, apiVersi
 			return
 		}
 		if kb.expire.Load() {
-			kubeStatus(w, http.StatusGone, "Expired", "The provided continue parameter is too old to display a consistent list result. "+
+			kubeStatusWith(w, http.StatusGone, "Expired", map[string]any{"continue": encodeContinue(c)}, "The provided continue parameter is too old to display a consistent list result. "+
 				"You can start a new list without the continue parameter, or use the continue token in this response to retrieve the remainder of the results. "+
 				"Continuing with the provided token results in an inconsistent list - objects that were created, modified, or deleted between the time the first chunk was returned and now may show up in the list.", nil)
 			return
@@ -310,8 +310,17 @@ type listMeta struct {
 
 // kubeStatus writes a failure as the API server does, a Status object.
 func kubeStatus(w http.ResponseWriter, code int, reason, message string, details any) {
+	kubeStatusWith(w, code, reason, nil, message, details)
+}
+
+// kubeStatusWith is kubeStatus with metadata, which an Expired Status uses
+// to carry a continue token that resumes where the list stopped.
+func kubeStatusWith(w http.ResponseWriter, code int, reason string, meta map[string]any, message string, details any) {
+	if meta == nil {
+		meta = map[string]any{}
+	}
 	body := map[string]any{
-		"kind": "Status", "apiVersion": "v1", "metadata": map[string]any{},
+		"kind": "Status", "apiVersion": "v1", "metadata": meta,
 		"status": "Failure", "message": message, "reason": reason, "code": code,
 	}
 	if details != nil {
@@ -389,6 +398,16 @@ func workloadJSON(w Workload) map[string]any {
 
 func podSpecJSON(w Workload) map[string]any {
 	spec := map[string]any{"containers": containersJSON(w.Containers), "restartPolicy": "Always"}
+	if w.ServiceAccountName != "" {
+		spec["serviceAccountName"] = w.ServiceAccountName
+	}
+	if len(w.SecretVolumes) > 0 {
+		var vols []map[string]any
+		for _, s := range w.SecretVolumes {
+			vols = append(vols, map[string]any{"name": "secret-" + s, "secret": map[string]string{"secretName": s}})
+		}
+		spec["volumes"] = vols
+	}
 	if len(w.InitContainers) > 0 {
 		spec["initContainers"] = containersJSON(w.InitContainers)
 	}
