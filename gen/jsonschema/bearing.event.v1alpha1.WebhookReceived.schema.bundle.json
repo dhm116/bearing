@@ -37,7 +37,7 @@
           "type": "string"
         },
         "headers": {
-          "description": "The request headers, in the order received.",
+          "description": "The request headers as the host stored them: the signature header first,\n then the others sorted by name (net/http does not keep arrival order),\n up to 64 headers and 16 KiB, with invalid UTF-8 replaced. Headers that\n carry credentials (Authorization, Proxy-Authorization, Cookie,\n Set-Cookie) are never stored. Only the body is covered by the signature,\n so an adapter must treat every other header as the sender's claim.",
           "items": {
             "$ref": "#/$defs/bearing.event.v1alpha1.Header.schema.json"
           },

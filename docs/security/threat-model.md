@@ -242,13 +242,24 @@ Assets: A1, A7, the event log.
   non-loopback address requires `insecure_ingest_plaintext` (for example
   behind a TLS-terminating proxy).
 - **C-INGEST-7** Ingest responses carry only a status code and a request ID.
-  An unknown route and a failed check get the same response.
-- **C-INGEST-8** Per-Source and per-peer rate limits return 429. The 2xx is
-  sent only after the event is appended to the log (ADR 7); if the log is
-  unavailable, ingest returns 503 so the sender retries. Retention then
-  keeps the event until the apply workers have processed it (`Trim` takes
-  the required groups, [contracts](../spec/contracts.md#retention)), so an
-  acknowledged event is not deleted unapplied.
+  An unknown route and a failed check get the same response. Everything
+  before the signature check (method, per-peer limit, body limit) is the same
+  for a configured Source and an unknown one, so the status of a request that
+  is not signed does not reveal which Sources exist. The check is on
+  responses; an unknown route skips the HMAC, a difference of microseconds
+  that is accepted.
+- **C-INGEST-8** The per-peer limit returns 429 before ingest looks at the
+  route, and a refused delivery spends a token, so guessing signatures is
+  limited. The per-Source limit counts only deliveries that passed the
+  signature check, so a peer that cannot sign cannot use up a Source's
+  allowance and make the real sender's deliveries 429. The tables of buckets
+  are bounded. Until `trusted_proxies` exists (C-INGEST-10), senders behind
+  one proxy share a peer bucket. The 2xx is sent only after the event is
+  appended to the log (ADR 7); if the log is unavailable, ingest returns 503
+  so the sender retries. Retention then keeps the event until the apply
+  workers have processed it (`Trim` takes the required groups,
+  [contracts](../spec/contracts.md#retention)), so an acknowledged event is
+  not deleted unapplied.
 - **C-INGEST-9** The body is parsed only after authentication succeeds, into
   a fixed Protobuf or JSON type, with depth and size limits.
 - **C-INGEST-10** Forwarded headers are ignored unless the peer is in
