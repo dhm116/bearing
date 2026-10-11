@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -776,5 +777,71 @@ func TestStoredHeadersDropCredentialHeadersWhateverTheirCase(t *testing.T) {
 	got := storedHeaders(h, "X-Hub-Signature-256")
 	if len(got) != 1 || got[0].GetName() != "X-Keep" {
 		t.Fatalf("got %v, want only X-Keep", got)
+	}
+}
+
+// gateLog holds every Append until released and says each time one arrives.
+type gateLog struct {
+	contracts.EventLog
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g gateLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.Appended, error) {
+	g.entered <- struct{}{}
+	<-g.release
+	return g.EventLog.Append(ctx, ev)
+}
+
+// More deliveries at once than the cap are turned away before their body is
+// read, whatever the path, and a freed slot is used again (C-INGEST-4).
+func TestIngestTurnsAwayDeliveriesPastTheInFlightCap(t *testing.T) {
+	log := memstore.New()
+	gate := gateLog{EventLog: log, entered: make(chan struct{}, 2), release: make(chan struct{})}
+	r := newRig(t, func(c *IngestConfig) { c.Log = gate; c.MaxInFlight = 2 })
+	first, second := []byte(`{"n":1}`), []byte(`{"n":2}`)
+	done := make(chan int, 2)
+	for _, b := range [][]byte{first, second} {
+		go func() { done <- r.post("/webhooks/"+source, b, signed(b)).StatusCode }()
+	}
+	<-gate.entered
+	<-gate.entered
+	var once sync.Once
+	releaseGate := func() { once.Do(func() { close(gate.release) }) }
+	t.Cleanup(releaseGate)
+
+	// A short deadline, so a cap that is not enforced fails the test instead of
+	// waiting on the gate.
+	quick := &http.Client{Timeout: 3 * time.Second}
+	for _, path := range []string{"/webhooks/" + source, "/webhooks/nowhere"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, r.srv.URL+path, bytes.NewReader(first))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header = signed(first)
+		resp, err := quick.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s past the cap: %v, want a 503 without waiting on the log", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" || len(body) != 0 {
+			t.Fatalf("POST %s past the cap: got %d, Retry-After %q, %d body bytes, want 503 with Retry-After and no body", path, resp.StatusCode, resp.Header.Get("Retry-After"), len(body))
+		}
+	}
+	releaseGate()
+	for range 2 {
+		if code := <-done; code != http.StatusAccepted {
+			t.Fatalf("a delivery under the cap: got %d, want 202", code)
+		}
+	}
+	third := []byte(`{"n":3}`)
+	go func() { <-gate.entered }()
+	if resp := r.post("/webhooks/"+source, third, signed(third)); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("after the slots were freed: got %d, want 202", resp.StatusCode)
+	}
+	es, err := log.Read(t.Context(), source, 0, 10)
+	if err != nil || len(es) != 3 {
+		t.Fatalf("got %d entries, %v, want the three accepted deliveries and none of the refused", len(es), err)
 	}
 }

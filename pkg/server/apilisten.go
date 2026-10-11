@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,11 @@ type ListenConfig struct {
 	// one (`insecure_api_plaintext`). Without it, only loopback may be
 	// plaintext.
 	InsecurePlaintext bool
+	// Webhooks takes POST /webhooks/<source> on the TCP listener, ahead of
+	// the API's authentication: a delivery proves itself by its source's
+	// signature, not by a token (C-INGEST-2), and the handler owns its limits
+	// and answers (C-INGEST-7). The socket never serves it. Needs Addr.
+	Webhooks http.Handler
 }
 
 // checkListen validates l and fills defaults.
@@ -69,6 +75,9 @@ func checkListen(l *ListenConfig) error {
 		}
 	}
 	if l.Addr == "" {
+		if l.Webhooks != nil {
+			return errors.New("server: webhooks arrive on the TCP listener, so they need an address")
+		}
 		return nil
 	}
 	if l.Authenticator == nil {
@@ -135,7 +144,7 @@ func (a *API) Serve(ctx context.Context, l ListenConfig) error {
 		if cfg != nil {
 			ln = tls.NewListener(ln, cfg)
 		}
-		ls = append(ls, apiListener{ln, newHTTPServer(a.Handler(l.Authenticator), cfg, nil)})
+		ls = append(ls, apiListener{ln, newHTTPServer(withWebhooks(a.Handler(l.Authenticator), l.Webhooks), cfg, nil)})
 	}
 
 	var wg sync.WaitGroup
@@ -163,6 +172,23 @@ func (a *API) Serve(ctx context.Context, l ListenConfig) error {
 	}
 	wg.Wait()
 	return serveErr
+}
+
+// withWebhooks sends what is under /webhooks/ to hooks and everything else to
+// the API, which keeps all of its own checks: a path that only looks like the
+// webhook route cannot reach an API route, and the API's 404 for an unknown
+// path stays the API's.
+func withWebhooks(api, hooks http.Handler) http.Handler {
+	if hooks == nil {
+		return api
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, routePrefix) {
+			hooks.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	})
 }
 
 func newHTTPServer(h http.Handler, cfg *tls.Config, connContext func(context.Context, net.Conn) context.Context) *http.Server {

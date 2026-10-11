@@ -12,7 +12,7 @@ section of the contracts, and the controls in the threat model
 | Listener | For | Authentication | Role |
 | --- | --- | --- | --- |
 | Unix socket | Callers on the server's host, such as `bearing` on the command line | The kernel's report of the peer's UID: only the service user and root are served, any other peer is closed before it sends anything. The caller is recorded as `local:<uid>`. | `admin` |
-| TCP | Everyone else | An OIDC bearer token in the `Authorization` header (never a query parameter), checked as ADR 12 describes | The roles the token's groups or client ID map to |
+| TCP | Everyone else | An OIDC bearer token in the `Authorization` header (never a query parameter), checked as ADR 12 describes; except `POST /webhooks/{source}`, which proves itself by its source's signature ([Webhook deliveries](#webhook-deliveries)) | The roles the token's groups or client ID map to |
 
 The socket's directory MUST be mode 0700 exactly and owned by the service
 user, and the socket is mode 0600; the server refuses to start otherwise. It is
@@ -26,7 +26,8 @@ not count against the request limits and carry no request ID.
 
 ## Requests
 
-A request is checked in this order, and the first failure is the answer:
+A request to the API (not a webhook delivery) is checked in this order, and the
+first failure is the answer:
 
 1. The route exists (else 404 `not_found` or 405 `method_not_allowed`, with
    an `Allow` header) and the request has no body (else 400 `invalid_request`,
@@ -122,7 +123,21 @@ JSON); the sync itself runs later. `--json` through `--server` prints the
 fields this client's types know, so a field a newer server adds shows only once
 the client is updated.
 
+## Webhook deliveries
+
+`POST /webhooks/{source}` is served by the TCP listener only, never the Unix
+socket, and ahead of the API's token check. Because that listener needs OIDC
+(C-API-2), a server that takes webhooks has OIDC configured too: a delivery is authenticated by its
+source's signature, and everything else about it (body limit, rate limits,
+answers with a status and a request ID only, 2xx only once the event is on the
+log) is the ingest rules of the threat model (C-INGEST-2 to C-INGEST-11). Everything
+under `/webhooks/` is the ingest handler's and gets its answers, which are a
+status code and a request ID with no body, not the API's JSON error: a POST to
+a path that is not a configured source is a 401, as for a bad signature, any
+other method is a 405 with `Allow: POST`, and more than the in-flight cap (256)
+at once is a 503 with `Retry-After`. Every other path, `/webhooks` with no slash
+included, is the API's, with all of its checks.
+
 ## Not here yet
 
-Webhook deliveries (`POST /webhooks/{source}`, authenticated by the source's
-signature, not a token), the metrics listener and configuration routes.
+The metrics listener and configuration routes.
