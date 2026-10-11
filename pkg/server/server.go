@@ -152,10 +152,11 @@ type Server struct {
 
 	mu       sync.Mutex
 	inflight map[contracts.Partition]bool
-	// lastSync is the offset of the latest sync the scheduler requested for
-	// a source, so it does not pile up a second while one is still waiting.
-	lastSync map[string]contracts.Offset
-	warned   map[string]bool
+	// syncs holds, for each source, the latest sync request made and a lock
+	// that keeps two callers from both making one. The map is built in New and
+	// not changed after.
+	syncs  map[string]*syncSlot
+	warned map[string]bool
 	// resumed holds the partitions whose first event after the start has
 	// been checked against the audit log.
 	resumed map[contracts.Partition]bool
@@ -218,7 +219,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
-		inflight: map[contracts.Partition]bool{}, lastSync: map[string]contracts.Offset{},
+		inflight: map[contracts.Partition]bool{}, syncs: map[string]*syncSlot{},
 		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, resumed: map[contracts.Partition]bool{}, wake: make(chan struct{}, 1),
 	}
 	for i := range cfg.Sources {
@@ -236,6 +237,7 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("server: source %q has a negative sync interval", src.Name)
 		}
 		s.sources[src.Name] = &src
+		s.syncs[src.Name] = &syncSlot{}
 	}
 	return s, nil
 }
@@ -318,18 +320,53 @@ func (s *Server) HasSource(name string) bool {
 	return ok
 }
 
-// RequestSync puts a SyncRequested event for source on the log and returns
-// its ID. The scheduler, the CLI and the API all start a sync this way; the
-// caller says who asked, and authorizes the request first.
-func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1alpha1.Actor) (string, contracts.Offset, error) {
-	if _, ok := s.sources[source]; !ok {
-		return "", 0, fmt.Errorf("%w: %q", ErrUnknownSource, model.Clip(source))
+// SyncRequest is a sync request on the log.
+type SyncRequest struct {
+	// ID and Offset name the request's event.
+	ID     string
+	Offset contracts.Offset
+	// Pending is set when the source already had a request that the apply
+	// workers have not applied, and this is that one: nothing new was logged.
+	Pending bool
+}
+
+// syncSlot is a source's latest sync request.
+type syncSlot struct {
+	mu  sync.Mutex
+	id  string
+	off contracts.Offset
+}
+
+// RequestSync puts a SyncRequested event for source on the log. The
+// scheduler, the CLI and the API all start a sync this way; the caller says
+// who asked, and authorizes the request first.
+//
+// A source has at most one request waiting to be applied: while the last one
+// is not applied, a new request is answered with it and logs nothing, so a
+// caller cannot queue syncs faster than the source can run them
+// (docs/spec/api.md, "Sync requests"). The request is remembered in memory,
+// so a restart can leave one more waiting.
+func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1alpha1.Actor) (SyncRequest, error) {
+	slot, ok := s.syncs[source]
+	if !ok {
+		return SyncRequest{}, fmt.Errorf("%w: %q", ErrUnknownSource, model.Clip(source))
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.off > 0 {
+		applied, err := s.cfg.Log.Committed(ctx, s.cfg.Group, contracts.Partition(source))
+		if err != nil {
+			return SyncRequest{}, fmt.Errorf("find whether the last sync request is applied: %w", err)
+		}
+		if applied < slot.off {
+			return SyncRequest{ID: slot.id, Offset: slot.off, Pending: true}, nil
+		}
 	}
 	msg := &eventv1alpha1.SyncRequested{Source: source, Actor: actor}
 	typ, _ := model.EventType(msg)
 	data, err := model.EncodeJSON(msg)
 	if err != nil {
-		return "", 0, fmt.Errorf("encode sync request: %w", err)
+		return SyncRequest{}, fmt.Errorf("encode sync request: %w", err)
 	}
 	ev := contracts.Event{
 		ID: source + "/" + s.cfg.NewID(), Partition: contracts.Partition(source),
@@ -337,13 +374,14 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 	}
 	got, err := s.cfg.Log.Append(ctx, []contracts.Event{ev})
 	if err != nil {
-		return "", 0, fmt.Errorf("append sync request: %w", err)
+		return SyncRequest{}, fmt.Errorf("append sync request: %w", err)
 	}
 	if len(got) != 1 {
-		return "", 0, errors.New("append sync request: the event log returned no position")
+		return SyncRequest{}, errors.New("append sync request: the event log returned no position")
 	}
+	slot.id, slot.off = ev.ID, got[0].Offset
 	s.wakeUp()
-	return ev.ID, got[0].Offset, nil
+	return SyncRequest{ID: ev.ID, Offset: got[0].Offset}, nil
 }
 
 // pageEventID is the ID of page n of the output for a causing event: the

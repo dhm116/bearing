@@ -293,15 +293,15 @@ func (in *Ingest) serve(ctx context.Context, span trace.Span, r *http.Request) (
 	return source, http.StatusAccepted, resultAccepted
 }
 
-// peerOf is the address the connection came from. Forwarded headers are
-// ignored: until trusted proxies are configured, they are the sender's claim
-// (C-INGEST-10).
+// peerOf is the peer the connection came from, as addrKey names it.
+// Forwarded headers are ignored: until trusted proxies are configured, they
+// are the sender's claim (C-INGEST-10).
 func peerOf(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return addrKey(r.RemoteAddr)
 	}
-	return host
+	return addrKey(host)
 }
 
 // event builds the WebhookReceived event of an authenticated delivery. Its ID

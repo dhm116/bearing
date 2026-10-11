@@ -32,7 +32,9 @@ first failure is the answer:
 1. The route exists (else 404 `not_found` or 405 `method_not_allowed`, with
    an `Allow` header) and the request has no body (else 400 `invalid_request`,
    whatever the body's size or framing). Nothing else is looked at before this.
-2. The server is below its limit of requests in flight (else 503 `busy`).
+2. The server is below its limit of requests in flight (else 503 `busy`). The
+   request's deadline starts here, so a slow identity provider or authorizer
+   cannot hold a request, or its place, past it.
 3. Authentication (else 401 `unauthenticated`, or 503 `auth_unavailable` when
    the identity provider's keys cannot be had).
 4. The caller's rate limit (else 429 `rate_limited`).
@@ -54,7 +56,7 @@ is a 400. Times are RFC 3339.
 | `GET /v1/owner` | `query.owner` (`read`) | `ref` (required), `valid_at`, `recorded_at` | Who owns it, from asserted facts only |
 | `GET /v1/related` | `query.related` (`read`) | `ref` (required), `predicate`, `valid_at`, `recorded_at` | What it relates to, in both directions |
 | `GET /v1/changes` | `query.changes` (`read`) | `ref`, `since`, `until`, `axis` (`valid` or `record`), `limit` (1 to 1,000), `page_token` | One page of the facts that changed in a window, newest first, with `next_page_token` while more follow |
-| `POST /v1/sources/{source}/sync` | `sync.request` (`ingest` for that source) | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet |
+| `POST /v1/sources/{source}/sync` | `sync.request` (`ingest` for that source) | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log |
 
 `ref` is a subject ID or a key such as `github:repo/acme/payments`, at most
 1,024 bytes. The answers are the JSON of the `pkg/query` types, the same ones
@@ -74,7 +76,14 @@ proved: the token's subject, a client's client ID (marked as an agent), or
 
 ## Limits
 
-Each caller has a request rate (default 600 a minute), at most two `changes`
+Before any of the checks above, the TCP listener limits each remote peer (an
+IPv6 peer is its /64): at most 64 open connections, 1,024 in all, closed as
+they are accepted and before the TLS handshake, and 1,200 requests a minute
+with a burst of 200 (else 429 `rate_limited`, counted whatever the token). It
+speaks HTTP/1.1 only, so a connection carries one request at a time. The health
+endpoints and the webhook route are not counted (the route has its own limit,
+see [Webhook deliveries](#webhook-deliveries)), and the socket has no such
+limit. Each caller has a request rate (default 600 a minute), at most two `changes`
 reads in flight, and a deadline per request (30 seconds; 15 for `changes`,
 which scans fact rows). The server holds at most 256 requests at once, reads
 headers for at most 10 seconds and 16 KiB, and refuses any body (no route

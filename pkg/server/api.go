@@ -291,6 +291,16 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiLimited
 	}
 
+	// The deadline starts here, before the token is checked: a slow identity
+	// provider or authorizer cannot hold a request, and its slot, past it.
+	timeout := a.cfg.RequestTimeout
+	if rt.method == contracts.MethodChanges {
+		timeout = a.cfg.ChangesTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	r = r.WithContext(ctx)
+
 	caller, err := authn.Authenticate(r)
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
@@ -331,9 +341,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiDenied
 	}
 
-	timeout := a.cfg.RequestTimeout
 	if rt.method == contracts.MethodChanges {
-		timeout = a.cfg.ChangesTimeout
 		if !a.enter(who) {
 			w.Header().Set("Retry-After", "1")
 			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many changes reads in flight for this caller", reqID)
@@ -341,8 +349,6 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 		defer a.leave(who)
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	rec := &statusRecorder{ResponseWriter: w}
 	rt.handle(a, rec, r.WithContext(context.WithValue(ctx, reqIDKey{}, reqID)), caller)
 	return rec.result()
@@ -658,7 +664,7 @@ func (a *API) sync(w http.ResponseWriter, r *http.Request, c contracts.Caller) {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	id, off, err := a.cfg.Server.RequestSync(r.Context(), r.PathValue("source"), actorOf(c))
+	req, err := a.cfg.Server.RequestSync(r.Context(), r.PathValue("source"), actorOf(c))
 	switch {
 	case errors.Is(err, ErrUnknownSource):
 		apiFail(w, http.StatusNotFound, "unknown_source", "no such source", requestID(r.Context()))
@@ -671,5 +677,5 @@ func (a *API) sync(w http.ResponseWriter, r *http.Request, c contracts.Caller) {
 		apiFail(w, http.StatusServiceUnavailable, "unavailable", "the sync could not be logged; try again", requestID(r.Context()))
 		return
 	}
-	writeJSON(w, http.StatusAccepted, syncAccepted{EventID: id, Offset: int64(off)})
+	writeJSON(w, http.StatusAccepted, syncAccepted{EventID: req.ID, Offset: int64(req.Offset)})
 }

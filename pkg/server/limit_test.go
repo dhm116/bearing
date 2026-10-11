@@ -5,38 +5,68 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestLimiterTableStaysBounded(t *testing.T) {
+func TestLimiterEvictsTheKeyLeastRecentlySeenAndNeverRefusesANewOne(t *testing.T) {
 	now := epoch
-	l := newLimiter(60, 1, 3, func() time.Time { return now })
+	l := newLimiter(1, 1, 3, func() time.Time { return now })
 	for _, k := range []string{"a", "b", "c"} {
 		if !l.allow(k) {
 			t.Fatalf("first request for %s was refused", k)
 		}
 	}
-	// Nothing has refilled, so the full table is dropped to make room.
+	// a is out of tokens and keeps asking, so it is the most recently seen.
+	if l.allow("a") {
+		t.Fatal("a second request for a was allowed")
+	}
+	// The table is full; d takes the place of b, the key seen least recently.
 	if !l.allow("d") {
 		t.Fatal("a new key was refused")
 	}
-	if n := len(l.buckets); n > 3 {
-		t.Fatalf("got %d buckets, want at most 3", n)
+	if n := len(l.buckets); n != 3 || l.seen.Len() != 3 {
+		t.Fatalf("got %d buckets and %d in the order, want 3 and 3", n, l.seen.Len())
 	}
-	// After a refill, only the idle keys are dropped; "d" keeps its debt.
-	now = now.Add(time.Minute)
-	l.allow("d")
-	now = now.Add(100 * time.Millisecond)
-	for _, k := range []string{"e", "f"} {
-		l.allow(k)
+	if _, kept := l.buckets["b"]; kept {
+		t.Error("b, the least recently seen, was kept")
 	}
-	if _, kept := l.buckets["d"]; !kept {
-		t.Error("a key that had not refilled was dropped while others had")
+	if l.allow("a") {
+		t.Error("a was let off its debt when others came and went")
 	}
-	if l.allow("d") {
-		t.Error("the bucket of d was reset")
+	// A flood of new keys pushes the idle ones out and never gets a refusal.
+	for i := range 100 {
+		if !l.allow(strconv.Itoa(i)) {
+			t.Fatalf("new key %d was refused", i)
+		}
+	}
+	if n := len(l.buckets); n != 3 {
+		t.Fatalf("got %d buckets, want the table held at 3", n)
+	}
+}
+
+func TestAddrKeyGroupsAnIPv6PeerByItsSlash64(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		a, b string
+		same bool
+	}{
+		{"192.0.2.1", "192.0.2.1", true},
+		{"192.0.2.1", "192.0.2.2", false},
+		{"192.0.2.1", "::ffff:192.0.2.1", true},
+		{"2001:db8:1:2::1", "2001:db8:1:2:ffff:ffff:ffff:ffff", true},
+		{"2001:db8:1:2::1", "2001:db8:1:3::1", false},
+		{"fe80::1%eth0", "fe80::1%eth1", true},
+		{"not an address", "not an address", true},
+		{"not an address", "another", false},
+	} {
+		t.Run(tt.a+" "+tt.b, func(t *testing.T) {
+			if got := addrKey(tt.a) == addrKey(tt.b); got != tt.same {
+				t.Fatalf("got keys %q and %q, same is %v, want %v", addrKey(tt.a), addrKey(tt.b), got, tt.same)
+			}
+		})
 	}
 }
 
