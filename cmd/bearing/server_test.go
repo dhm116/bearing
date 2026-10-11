@@ -357,12 +357,14 @@ func TestServerOverTheLocalSocketNeedsNoToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got string
-	deadline := time.Now().Add(10 * time.Second)
+	// Serve is listening once the socket is there and answers; both take
+	// milliseconds, so a regression fails in seconds.
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if got, err = w.cliWith(nil, append(args, "--server", sock)...); err == nil || time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(time.Millisecond)
 	}
 	if err != nil || got != want {
 		t.Fatalf("got %q, %v, want the store's answer through the socket with no token", got, err)

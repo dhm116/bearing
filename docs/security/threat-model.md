@@ -1170,14 +1170,18 @@ Assets: A5, A2, A6, the container and host.
   restart of that adapter, which is why the file's owner must be trusted),
   if an adapter's declaration file breaks the owner, mode and size rules of
   the settings file, if a secret reference does not resolve, if a
-  source's adapter is not listed, or if a durable graph store is paired with an in-memory event log.
+  source's adapter is not listed, if a durable graph store is paired with an in-memory event log, or if the
+  platform cannot say who owns a file (file ownership is checked in a Unix-only
+  file, and its stub for other platforms refuses every file; the server is
+  supported on Unix only).
   It takes the instance lock before it runs and refuses to start without it
   (#176, #235).
 - **C-OPS-5** The M3 stdio adapter is started with a minimal environment: a
   fixed `PATH`, the `env:` secrets its own Source names and the variables its
   adapter entry lists, and nothing else, so the store password, the audit
   signing key, the OIDC settings, a webhook secret and another source's token
-  never reach it. `env:` references must match an allowlist (default
+  never reach it. It starts in `/`, so it does not inherit a working directory
+  the operator or others may have put files in. `env:` references must match an allowlist (default
   `BEARING_SECRET_*`); `file:` and the other forms are refused until M5. A
   canary test starts a stub adapter and fails if any other value appears in
   its environment. This is the transitional form of C-ADAPTER-20 (secrets by
@@ -1199,7 +1203,10 @@ Assets: A5, A2, A6, the container and host.
   logs a warning at start when it is on, and when `insecure_api_plaintext` is
   on (C-API-3). Behind a proxy or ingress every client is one peer, so the
   defaults cap the whole API and the operator raises `max_conns`,
-  `max_conns_per_peer` and `peer_rate_per_minute` instead.
+  `max_conns_per_peer` and `peer_rate_per_minute` instead. When plain HTTP is
+  on at a non-loopback address and any one of the three is still at its
+  default, a second warning says so. It is a hint, not a check: the server
+  cannot tell a proxy from a client.
 - **C-OPS-7** `bearing server --settings` runs the audit controls of C-AUDIT-3
   and C-AUDIT-5 from one `audit` block. A durable store starts only with
   `audit.checkpoints`, or with `audit.insecure_no_checkpoints`, which warns at

@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -28,12 +27,13 @@ const (
 	stubMarkEnv = "BOOT_STUB_MARK" // the file the stub writes when it is synced
 )
 
-// stubAdapter reports the environment it was started with as its name, and
-// marks a file when it is synced.
+// stubAdapter reports the environment it was started with as its name and its
+// working directory as its version, and marks a file when it is synced.
 type stubAdapter struct{}
 
 func (stubAdapter) Describe(context.Context) (adapter.DescribeResult, error) {
-	return adapter.DescribeResult{Name: strings.Join(os.Environ(), "\n"), Webhooks: true}, nil
+	dir, _ := os.Getwd()
+	return adapter.DescribeResult{Name: strings.Join(os.Environ(), "\n"), Version: dir, Webhooks: true}, nil
 }
 
 func (stubAdapter) Sync(context.Context, adapter.SyncParams) (adapter.SyncResult, error) {
@@ -172,14 +172,18 @@ func unixClient(sock string) *http.Client {
 	}}
 }
 
+// waitDeadline bounds waitFor: what it waits for takes milliseconds, so a
+// regression fails the test in seconds.
+const waitDeadline = 5 * time.Second
+
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(waitDeadline)
 	for !ok() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -191,11 +195,15 @@ func TestAssembledServerSyncsASourceOnARequestAndStopsCleanly(t *testing.T) {
 	stop := run(t, r)
 	waitFor(t, "the socket", func() bool { return fileExists(w.socket) })
 
+	// The socket file appears at bind, a moment before the server listens,
+	// so the first request may be refused: ask until one is answered.
 	c := unixClient(w.socket)
-	resp, err := c.Post("http://bearing/v1/sources/github-acme/sync", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	var resp *http.Response
+	var err error
+	waitFor(t, "the socket to answer", func() bool {
+		resp, err = c.Post("http://bearing/v1/sources/github-acme/sync", "", nil)
+		return err == nil
+	})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("a sync request on the socket: got %d, want 202", resp.StatusCode)
@@ -246,6 +254,22 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 	}
 }
 
+// An adapter starts in /, not in the directory the server was started in
+// (the test binary's is its package directory), so a relative path in its
+// arguments or a stray file there is not found by accident.
+func TestAdaptersStartInTheRootDirectory(t *testing.T) {
+	w := newWorld(t, nil)
+	r := w.assemble(t)
+	run(t, r)
+	d, err := r.procs[0].Describe(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Version != "/" {
+		t.Fatalf("got working directory %q, want /", d.Version)
+	}
+}
+
 func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -275,6 +299,12 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		}, "is larger than"},
 		{"a missing declaration", func(s *Settings, _ *world) { s.Adapters[0].Declaration = "/nonexistent.json" }, "adapters[0].declaration"},
 		{"a declaration for another adapter", func(s *Settings, _ *world) { s.Adapters[0].Name = "gitlab"; s.Sources = nil }, "is for \"github\", not \"gitlab\""},
+		{"a secret outside the allowlist", func(s *Settings, _ *world) {
+			s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:HOME", 1))
+		}, "allowlist"},
+		{"a grant that names a role nobody has", func(s *Settings, _ *world) {
+			s.Auth.Grants = []GrantSettings{{Group: "admins", Role: "emperor"}}
+		}, "boot: settings: auth.grants"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -436,28 +466,66 @@ func TestChildEnvDropsDuplicatesAndUnsetNames(t *testing.T) {
 	}
 }
 
-// foreignFile is a file another user owns.
-type foreignFile struct{ os.FileInfo }
-
-func (foreignFile) Mode() os.FileMode { return 0o755 }
-func (foreignFile) Sys() any          { return &syscall.Stat_t{Uid: 12345} }
-
-func TestCheckCommandsRefusesAnExecutableAnotherUserOwns(t *testing.T) {
+func TestLimitWarningsAreAHintForPlainHTTPOffLoopbackWithAnyDefaultLimit(t *testing.T) {
 	t.Parallel()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	one, two := 1, 2
+	const plain, proxy = "insecure_api_plaintext", "behind a proxy"
+	for _, tt := range []struct {
+		name        string
+		l           ListenSettings
+		plain, hint bool
+	}{
+		{"TLS on a public address", ListenSettings{Addr: "0.0.0.0:8443"}, false, false},
+		{"a socket only", ListenSettings{Socket: "/run/bearing/api.sock", InsecureAPIPlaintext: true}, false, false},
+		{"plain HTTP on an address that does not parse", ListenSettings{Addr: "not-an-address", InsecureAPIPlaintext: true}, true, true},
+		{"plain HTTP on loopback", ListenSettings{Addr: "127.0.0.1:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on localhost", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on IPv6 loopback", ListenSettings{Addr: "[::1]:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on a public address, all defaults", ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true}, true, true},
+		{"plain HTTP with no host, all defaults", ListenSettings{Addr: ":8443", InsecureAPIPlaintext: true}, true, true},
+		{"plain HTTP on a private address, one limit raised", ListenSettings{Addr: "10.0.0.5:8443", InsecureAPIPlaintext: true, MaxConns: &two}, true, true},
+		{"plain HTTP on a private address, two limits raised", ListenSettings{Addr: "10.0.0.5:8443", InsecureAPIPlaintext: true, MaxConns: &two, PeerRatePerMinute: &two}, true, true},
+		{"plain HTTP on a private address, all limits raised", ListenSettings{Addr: "10.0.0.5:8443", InsecureAPIPlaintext: true, MaxConns: &two, MaxConnsPerPeer: &one, PeerRatePerMinute: &two}, true, false},
+		{"plain HTTP, rate limit off and two others raised", ListenSettings{Addr: "10.0.0.5:8443", InsecureAPIPlaintext: true, InsecureNoPeerRate: true, MaxConns: &two, MaxConnsPerPeer: &one}, true, false},
+		{"plain HTTP, rate limit off and one default left", ListenSettings{Addr: "10.0.0.5:8443", InsecureAPIPlaintext: true, InsecureNoPeerRate: true, MaxConns: &two}, true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := strings.Join(limitWarnings(&Settings{Listen: tt.l}), "\n")
+			if has := strings.Contains(got, plain); has != tt.plain {
+				t.Errorf("got the plain HTTP warning %v, want %v:\n%s", has, tt.plain, got)
+			}
+			if has := strings.Contains(got, proxy); has != tt.hint {
+				t.Errorf("got the proxy hint %v, want %v:\n%s", has, tt.hint, got)
+			}
+			if has := strings.Contains(got, "insecure_no_peer_rate"); has != tt.l.InsecureNoPeerRate {
+				t.Errorf("got the peer rate warning %v, want %v:\n%s", has, tt.l.InsecureNoPeerRate, got)
+			}
+		})
 	}
-	fi, err := os.Stat(exe)
-	if err != nil {
-		t.Fatal(err)
+}
+
+// The warnings reach the log at start, not only the functions that compose
+// them. The texts below are ones no other test provokes, so another test's
+// output cannot satisfy this one.
+func TestAssembleLogsTheWarningsForWhatTheSettingsGaveUp(t *testing.T) {
+	installCapture()
+	w := newWorld(t, func(s *Settings) {
+		s.Listen = ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true, InsecureNoPeerRate: true}
+	})
+	w.settings.Audit = AuditSettings{
+		Checkpoints:                 &CheckpointSettings{File: filepath.Join(w.dir, "checkpoints.ndjson")},
+		InsecureUnsignedCheckpoints: true,
 	}
-	s := &Settings{Adapters: []AdapterSettings{{Name: "github", Command: exe}}}
-	stat := func(string) (os.FileInfo, error) { return foreignFile{fi}, nil }
-	if err := checkCommands(s, stat); err == nil || !strings.Contains(err.Error(), "must be owned by the service user or root") {
-		t.Fatalf("got %v, want an executable owned by uid 12345 refused", err)
-	}
-	if err := checkCommands(s, os.Stat); err != nil {
-		t.Fatalf("the test binary, which this user owns: %v", err)
+	w.assemble(t).Close()
+	got := logs.all()
+	for _, want := range []string{
+		"insecure_no_peer_rate is on",
+		"behind a proxy every client is one peer",
+		"insecure_unsigned_checkpoints is on",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the log has no warning %q:\n%s", want, got)
+		}
 	}
 }
