@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -297,18 +298,59 @@ func TestAPIUnknownPathsAndMethodsAreRefusedBeforeCredentials(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	for _, c := range []struct {
-		method, target string
-		want           int
+		method, target, code string
+		want                 int
 	}{
-		{http.MethodGet, "/", http.StatusNotFound},
-		{http.MethodGet, "/v1/nothing", http.StatusNotFound},
-		{http.MethodPost, "/v1/get?ref=x", http.StatusMethodNotAllowed},
-		{http.MethodGet, "/v1/sources/" + testSource + "/sync", http.StatusMethodNotAllowed},
-		{http.MethodDelete, "/v1/changes", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/", "not_found", http.StatusNotFound},
+		{http.MethodGet, "/v1/nothing", "not_found", http.StatusNotFound},
+		{http.MethodPost, "/v1/get?ref=x", "method_not_allowed", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/v1/sources/" + testSource + "/sync", "method_not_allowed", http.StatusMethodNotAllowed},
+		{http.MethodDelete, "/v1/changes", "method_not_allowed", http.StatusMethodNotAllowed},
 	} {
-		if got := w.do("", c.method, c.target); got.Code != c.want {
+		got := w.do("", c.method, c.target)
+		if got.Code != c.want {
 			t.Errorf("%s %s: got %d, want %d", c.method, c.target, got.Code, c.want)
+			continue
 		}
+		// The router's refusals have the API's error shape too (C-API-7).
+		if e := decodeError(t, got); e.Code != c.code {
+			t.Errorf("%s %s: got code %q, want %q", c.method, c.target, e.Code, c.code)
+		}
+		if c.want == http.StatusMethodNotAllowed && got.Header().Get("Allow") == "" {
+			t.Errorf("%s %s: got no Allow header", c.method, c.target)
+		}
+	}
+}
+
+// No route takes a body, so one is refused before anything is done for the
+// request, however large and however it is framed.
+func TestAPIRefusesABodyOnEveryRoute(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	big := strings.NewReader(strings.Repeat("x", 100<<10))
+	for _, rt := range routes {
+		target := strings.NewReplacer("{source}", testSource).Replace(strings.SplitN(rt.pattern, " ", 2)[1])
+		for name, body := range map[string]io.Reader{"a large body": big, "a small one": strings.NewReader("{}")} {
+			req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, body)
+			req.Header.Set("Authorization", "Bearer admin")
+			rec := httptest.NewRecorder()
+			w.h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || decodeError(t, rec).Code != "invalid_request" {
+				t.Errorf("%s with %s: got %d %s, want 400", rt.pattern, name, rec.Code, rec.Body.String())
+			}
+		}
+		// A body of unknown length (chunked) is a body too.
+		req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, io.NopCloser(strings.NewReader("{}")))
+		req.ContentLength = -1
+		req.Header.Set("Authorization", "Bearer admin")
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s with a chunked body: got %d, want 400", rt.pattern, rec.Code)
+		}
+	}
+	if n := len(syncRequests(t, w)); n != 0 {
+		t.Errorf("%d sync requests were logged for requests with bodies, want none", n)
 	}
 }
 

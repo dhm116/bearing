@@ -184,6 +184,15 @@ func TestAPISocketDirectoryAndPathMustBeSafe(t *testing.T) {
 		t.Errorf("a directory others can enter: got %v, want an error naming mode 0700", err)
 	}
 
+	// Mode 0500 shuts others out too, but it is not the mode the spec names.
+	tight := privateDir(t)
+	if err := os.Chmod(tight, 0o500); err != nil { //nolint:gosec // G302: the test checks that the server refuses it
+		t.Fatal(err)
+	}
+	if err := w.api.Serve(t.Context(), ListenConfig{Socket: filepath.Join(tight, "s.sock"), UID: uid}); err == nil || !strings.Contains(err.Error(), "0700") {
+		t.Errorf("a directory with mode 0500: got %v, want an error naming mode 0700", err)
+	}
+
 	err = w.api.Serve(t.Context(), ListenConfig{Socket: filepath.Join(privateDir(t), "missing", "s.sock"), UID: uid})
 	if err == nil {
 		t.Error("a directory that does not exist: got nil, want an error")
@@ -355,7 +364,7 @@ func TestAPITCPListenerNeedsATokenAndSpeaksTLS(t *testing.T) {
 		_ = resp.Body.Close()
 		t.Errorf("TLS 1.1: got %d, want the handshake to fail", resp.StatusCode)
 	}
-	if resp, err := http.Get("http://" + addr + "/v1/changes"); err == nil {
+	if resp, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + addr + "/v1/changes"); err == nil {
 		b, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusOK || strings.Contains(string(b), "changes") {

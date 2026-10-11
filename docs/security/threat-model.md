@@ -741,7 +741,10 @@ Assets: A3, A5, A4, A7.
   authentication, per-caller rate limit, authorization, parameters. The
   routes are one table, built into the mux from the same list a test reads, so
   a route cannot skip a check, and a test fails for a route whose method has
-  no role (C-API-5) or that is missing from the 401 and 403 table. Choices and
+  no role or a method with no route (C-API-5), or that is missing from the
+  401 and 403 table. Every error, the router's 404 and 405 included, has the
+  JSON shape of C-API-7, and a request with a body is refused before anything
+  is done for it. Choices and
   residual risks:
   - The socket is Linux only (the UID comes from the kernel's peer
     credentials); elsewhere it refuses every connection. Its directory is

@@ -228,7 +228,7 @@ func checkSocketDir(dir string, uid int) error {
 	if !fi.IsDir() {
 		return fmt.Errorf("server: API socket directory %s is not a directory", dir)
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
+	if fi.Mode().Perm() != 0o700 {
 		return fmt.Errorf("server: API socket directory %s must be mode 0700, not %04o", dir, fi.Mode().Perm())
 	}
 	if owner, ok := fileOwner(fi); !ok || int(owner) != uid {

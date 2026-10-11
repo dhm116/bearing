@@ -47,8 +47,6 @@ const (
 	// maxPageTokenBytes bounds a page token a caller hands back. It is the
 	// query package's bound.
 	maxPageTokenBytes = 512
-	// maxBodyBytes bounds the body of a request. No route reads one.
-	maxBodyBytes = 1 << 10
 	// maxCallerKeys bounds the per-caller tables.
 	maxCallerKeys = 10_000
 )
@@ -88,10 +86,7 @@ var _ TokenVerifier = (*auth.Verifier)(nil)
 // Authenticate implements Authenticator.
 func (a OIDCAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
 	token, err := auth.BearerToken(r.Header)
-	switch {
-	case errors.Is(err, auth.ErrNoToken):
-		return contracts.Caller{}, ErrUnauthenticated
-	case err != nil:
+	if err != nil {
 		return contracts.Caller{}, ErrUnauthenticated
 	}
 	c, err := a.Verifier.Verify(r.Context(), token)
@@ -207,7 +202,43 @@ func (a *API) Handler(authn Authenticator) http.Handler {
 	health := a.cfg.Server.HealthHandler()
 	mux.Handle("GET /healthz", health)
 	mux.Handle("GET /readyz", health)
-	return http.MaxBytesHandler(mux, maxBodyBytes)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, pattern := mux.Handler(r)
+		if pattern != "" {
+			// The mux, not the handler, sets the path values.
+			mux.ServeHTTP(w, r)
+			return
+		}
+		// The router's own refusals are plain text; every error of the API
+		// has the same JSON shape (C-API-7).
+		c := &statusCapture{header: http.Header{}}
+		h.ServeHTTP(c, r)
+		reqID := a.cfg.NewRequestID()
+		w.Header().Set("X-Request-Id", reqID)
+		if allow := c.header.Get("Allow"); allow != "" {
+			w.Header().Set("Allow", allow)
+		}
+		if c.code == http.StatusMethodNotAllowed {
+			apiFail(w, c.code, "method_not_allowed", "this route does not take that method", reqID)
+			return
+		}
+		apiFail(w, http.StatusNotFound, "not_found", "no such route", reqID)
+	})
+}
+
+// statusCapture records the status and headers a handler would send, and
+// drops its body.
+type statusCapture struct {
+	header http.Header
+	code   int
+}
+
+func (c *statusCapture) Header() http.Header         { return c.header }
+func (c *statusCapture) Write(b []byte) (int, error) { return len(b), nil }
+func (c *statusCapture) WriteHeader(code int) {
+	if c.code == 0 {
+		c.code = code
+	}
 }
 
 // Results of an API request, as labels of bearing.api.requests.
@@ -244,6 +275,13 @@ func (a *API) serve(authn Authenticator, rt route) http.Handler {
 
 // handle runs the checks and the handler and returns the result label.
 func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request, rt route, authn Authenticator, reqID string) string {
+	// No route takes a body. Refuse one before anything else is done for the
+	// request, since Go would otherwise read and discard up to 256 KiB of it.
+	if r.ContentLength != 0 {
+		w.Header().Set("Connection", "close")
+		apiFail(w, http.StatusBadRequest, "invalid_request", "this route takes no request body", reqID)
+		return apiInvalid
+	}
 	select {
 	case a.slot <- struct{}{}:
 		defer func() { <-a.slot }()
@@ -260,6 +298,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		apiFail(w, http.StatusUnauthorized, "unauthenticated", "a valid bearer token is required", reqID)
 		return apiUnauthenticated
 	case err != nil:
+		w.Header().Set("Retry-After", "5")
 		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "credentials cannot be checked right now; try again", reqID)
 		return apiUnavailable
 	}
@@ -284,6 +323,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 	switch {
 	case err != nil:
 		telemetry.Logger(pkgName).WarnContext(ctx, "authorization could not be decided", "request_id", reqID, "method", string(rt.method), "error", cleanErrorText(err.Error()))
+		w.Header().Set("Retry-After", "5")
 		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "the request cannot be authorized right now; try again", reqID)
 		return apiUnavailable
 	case !d.Allowed:
@@ -303,7 +343,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	rec := &statusRecorder{ResponseWriter: w, reqID: reqID}
+	rec := &statusRecorder{ResponseWriter: w}
 	rt.handle(a, rec, r.WithContext(context.WithValue(ctx, reqIDKey{}, reqID)), caller)
 	return rec.result()
 }
@@ -371,9 +411,7 @@ func actorOf(c contracts.Caller) *eventv1alpha1.Actor {
 // statusRecorder notes what a handler answered, for the result label.
 type statusRecorder struct {
 	http.ResponseWriter
-	reqID  string
 	status int
-	label  string
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
@@ -392,9 +430,6 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 
 // result is the label for what the handler answered.
 func (s *statusRecorder) result() string {
-	if s.label != "" {
-		return s.label
-	}
 	switch {
 	case s.status == 0, s.status < 400:
 		return apiOK
@@ -440,7 +475,7 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, query.ErrNotFound):
 		apiFail(w, http.StatusNotFound, "not_found", "nothing matches", reqID)
 	case errors.Is(err, query.ErrInvalidRequest):
-		apiFail(w, http.StatusBadRequest, "invalid_request", clipN(strings.TrimPrefix(err.Error(), query.ErrInvalidRequest.Error()+": "), 200), reqID)
+		apiFail(w, http.StatusBadRequest, "invalid_request", clipN(strings.Replace(err.Error(), query.ErrInvalidRequest.Error()+": ", "", 1), 200), reqID)
 	case errors.Is(err, query.ErrBadPageToken):
 		apiFail(w, http.StatusBadRequest, "invalid_page_token", "the page token is not one this server issued; start again without it", reqID)
 	case errors.Is(err, context.DeadlineExceeded):
