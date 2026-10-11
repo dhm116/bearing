@@ -552,7 +552,8 @@ At record time `r`:
    contradicts the merge (a link names a different id), the core opens a
    conflict on `(subject, same_as)` for review. The per-side score of a
    `score` merge is reported on the merge record for review, with a status
-   (`holds`, or `needs_review` when the evidence contradicts the merge); each
+   (`holds`, or `needs_review` when the evidence contradicts the merge or, for
+   a `catalog_link` merge, has ended for a reason other than a deletion); each
    re-evaluation is kept, and the latest is current. Evidence that
    ends because a subject was deleted or lost its live `exists` is not a
    reason for review. The core never un-merges by itself.
@@ -1230,7 +1231,7 @@ Names are compared under the `name` [method](#matching), `W`'s by
 
 | Step | Entries it matches to `W` | Evidence (ppm) | Alone, `same_as` is |
 | --- | --- | --- | --- |
-| 1. Annotation | `W`'s hint is an `annotation`: the entries that have `W`'s name in the repository it names | 950000 | `asserted` |
+| 1. Annotation | `W`'s hint is an `annotation`: the entries that have `W`'s name and a live `defined_in` support to the repository it names (compared as resolved subjects, as the hint is) | 950000 | `asserted` |
 | 2. Name | `W` has no `annotation` hint: every entry that has `W`'s name, in any repository | 600000 | `candidate` |
 | 3. Image | `W`'s hint is an `image`: the only entry in the repository it names, if it holds one | 300000 | `candidate` |
 
@@ -1241,7 +1242,7 @@ Examples of the pairing:
 | One workload, annotated, and one entry with its name in the repository it names | Step 1; linked at 950000 |
 | A repository with one entry `payments-api` and three annotated workloads `api`, `worker`, `consumer` | None has the entry's name, so none pairs at step 1: nothing is linked |
 | The same service in production (annotated) and staging (unannotated), one entry | Production pairs at step 1 and links. Staging pairs at step 2, but the entry has a stronger pair, so staging gets no evidence |
-| Two annotated workloads of one name (two clusters), one entry | Two pairs at step 1: neither links |
+| Two annotated workloads of one name (two clusters), one entry | Two pairs at step 1: no evidence while both exist. If one was applied alone first, its merge stands (`needs_review`) and the other gets none |
 | Two entries with `W`'s name in two repositories, `W` unannotated | Step 2 pairs `W` twice: nothing is linked |
 
 - The weights are the default configuration's, per step. This table is where
@@ -1255,14 +1256,15 @@ Examples of the pairing:
   group in the noisy-OR. It is a function of the current state, evaluated on
   every apply that changes a hint, a name or an entry's repository, and it
   follows its inputs on valid time like [derived claims](#derived-claims). It
-  ends when a second pair appears at the same step or when an input changes.
+  ends when a second pair appears at the same step, when the entry gains a stronger pair, or when an input changes.
   A merge that the evidence already made stands, since the core never
   un-merges by itself; its merge record gets the status `needs_review`
   ([Merge](#merge)) unless the evidence ended because a subject was deleted.
   So the evidence is a function of the state, but which of two same-step
-  workloads merges first depends on apply order; the merge guard then keeps the
-  second out of the Component (two workloads hold different `workload` ids and
-  never merge) and reports the pair as `id_conflict`.
+  workloads merges first depends on apply order. After it, the entry has two
+  pairs and the evidence ends, so the second workload gets none (and the
+  merge guard would keep it out anyway: two workloads hold different
+  `workload` ids and never merge).
 - A workload that pairs with no entry keeps its `defined_in` and is not an
   error. When the evidence merges a pair, the merge record's evidence names
   the step.

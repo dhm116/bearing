@@ -242,11 +242,15 @@ secrets, not from here (ADR 9 and issue #192).
 | Setting | Meaning | Default |
 | --- | --- | --- |
 | `cluster` | The cluster ID in every key; see [the Kubernetes keys](data-model.md#declarations). Required. | none |
-| `repository_namespace` | The code host's namespace for repositories named by an annotation. The source lists it under `links`. | `github` |
+| `repository_namespace` | The code host's namespace for repositories named by an annotation | `github` |
 | `team_label` | The label whose value names the owning team | `team` |
 | `repository_annotation` | The annotation whose value names the repository, as `<owner>/<name>` | `github.com/project-slug` |
 | `image_registries` | Registry hosts whose image paths start `<owner>/<name>`, each mapped to the namespace of the code host it belongs to | `{"ghcr.io": "github"}` |
 | `exclude_namespaces` | Namespaces not read | `kube-system`, `kube-public`, `kube-node-lease` |
+
+Every namespace in `repository_namespace` and `image_registries` must be listed
+under the source's `links`; a `defined_in` into any other is dropped
+(`namespace_not_allowed`).
 
 **Reports**, per object. This table is the adapter's **fixed field list**:
 the adapter MUST read, keep and send these fields and no others.
@@ -261,7 +265,7 @@ the adapter MUST read, keep and send these fields and no others.
 | The image registry path, when there is no such annotation | `defined_in` at 300000 with the qualifier `{ "image": "<registry>/<owner>/<name>" }`. Only for a registry in `image_registries`, only when the containers that use one all name the same repository. |
 | The workload's namespace | `deployed_to` the Environment `kubernetes:namespace/<cluster>/<namespace>` |
 | Namespace `metadata.name`, and the setting `cluster` | The Environment's `name` and `cluster` |
-| Each distinct `team_label` value | A `Team` observation with its `name`, once per distinct value after case folding (the first spelling met), per sync |
+| Each distinct `team_label` value | A `Team` observation with its `name`, once per distinct value after case folding, per sync, with the lower-case spelling as its `name` and key |
 
 A value that doesn't have the shape the table expects MUST be ignored, with a
 log line that counts it and doesn't quote it. The shapes: a label value of 1
@@ -269,10 +273,13 @@ to 63 characters that starts and ends with a letter or digit and uses
 only letters, digits, `.`, `_` and `-`; an annotation value `<owner>/<name>`
 (letters, digits, `.`, `_` and `-`, each part 1 to 100 characters); an
 image reference that parses as one. Annotation values can hold any text, so
-they are never copied as they are. An ignored value counts as unread, not as
-empty: the observation leaves the predicate out of its snapshot, so the
-claim it would have replaced is neither made nor ended. An image that
-fails to parse leaves `image` unreported the same way.
+they are never copied as they are. An ignored value counts as absent: the
+claim it would have made is not made, the predicate stays in the snapshot,
+and the claim a previous sync made ends. So an annotation edited to `TODO`
+or a label cleared to `""` removes the owner or repository, and an invalid
+annotation falls back to the image hint. An image that fails to parse is left
+out of `image` the same way. Only a failed read (an error, a permission
+denial) leaves a predicate out of the snapshot.
 
 **Never read, kept or sent.** The adapter MUST NOT read, keep or send: environment variables (`env`, `envFrom`),
 `command` and `args`, volumes, service account names, any other label or
