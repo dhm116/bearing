@@ -16,6 +16,7 @@
 //
 //	bearing audit verify --checkpoints cp.ndjson --key audit-1=audit-1.pub
 //	bearing audit checkpoint --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
+//	bearing audit reanchor --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
 //
 // Each takes --store (or $BEARING_STORE); the queries also take --as-of. Run
 // one with -h for its flags. A subject is a subject ID or a key such as
@@ -53,6 +54,7 @@ const usage = `usage:
   bearing changes --page-token TOKEN [--limit N] [--store URL] [--json]
   bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
   bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
+  bearing audit reanchor [--store URL] [--out FILE] --key-id ID --key-env VAR
 `
 
 // version is the CLI version, set at build time with -ldflags.

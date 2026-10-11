@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
@@ -32,10 +33,47 @@ type Signer struct {
 // NewCheckpoint returns the checkpoint of head, written at now, signed by s;
 // a nil s leaves it unsigned. An empty log has nothing to checkpoint.
 func NewCheckpoint(head contracts.AuditHead, now time.Time, s *Signer) (*modelv1alpha1.AuditCheckpoint, error) {
+	return newCheckpoint(head, now, s, false)
+}
+
+// NewCutCheckpoint returns the checkpoint to write before AuditLog.Cut removes
+// the records through through: it names the last of them and is marked as
+// written at a cut, so Verify accepts a log that starts after it. It is
+// always signed, since an unsigned marker would let whoever controls the
+// checkpoint file excuse a deleted prefix (Verify refuses one).
+func NewCutCheckpoint(through contracts.AuditHead, now time.Time, s *Signer) (*modelv1alpha1.AuditCheckpoint, error) {
+	if s == nil {
+		return nil, errors.New("audit: a retention cut needs a signing key, because an unsigned marker would excuse any deleted prefix")
+	}
+	return newCheckpoint(through, now, s, true)
+}
+
+// NewStartCheckpoint returns the cut checkpoint for the record before the
+// oldest one the log holds, which that record's prev_hash names: the marker
+// that a log cut before has lost (a rotated key, a lost checkpoint file),
+// since the record it would have been written from is gone. Signing it vouches
+// that everything before oldest was removed deliberately, which only the
+// operator can know, so it is a command they run (`bearing audit reanchor`),
+// never something the server does by itself.
+func NewStartCheckpoint(oldest *modelv1alpha1.AuditRecord, now time.Time, s *Signer) (*modelv1alpha1.AuditCheckpoint, error) {
+	if oldest.GetSeq() < 2 {
+		return nil, errors.New("audit: the log starts at record 1, so no cut is missing a marker")
+	}
+	want, err := Hash(oldest)
+	if err != nil {
+		return nil, fmt.Errorf("audit: record %d: %w", oldest.GetSeq(), err)
+	}
+	if !bytes.Equal(want, oldest.GetHash()) {
+		return nil, fmt.Errorf("audit: record %d does not match its hash, so the log is not fit to anchor", oldest.GetSeq())
+	}
+	return NewCutCheckpoint(contracts.AuditHead{Seq: oldest.GetSeq() - 1, Hash: oldest.GetPrevHash()}, now, s)
+}
+
+func newCheckpoint(head contracts.AuditHead, now time.Time, s *Signer, cut bool) (*modelv1alpha1.AuditCheckpoint, error) {
 	if head.Seq == 0 || len(head.Hash) != HashSize {
 		return nil, errors.New("audit: the log is empty, so there is nothing to checkpoint")
 	}
-	cp := &modelv1alpha1.AuditCheckpoint{Seq: head.Seq, HeadHash: append([]byte(nil), head.Hash...), Time: timestamppb.New(now.UTC())}
+	cp := &modelv1alpha1.AuditCheckpoint{Seq: head.Seq, HeadHash: append([]byte(nil), head.Hash...), Time: timestamppb.New(now.UTC()), Cut: cut}
 	if s == nil {
 		return cp, nil
 	}
@@ -56,7 +94,8 @@ func NewCheckpoint(head contracts.AuditHead, now time.Time, s *Signer) (*modelv1
 
 // checkpointMessage is what a signature covers: the checkpoint domain and
 // the canonical encoding of the checkpoint without its signature, so the
-// sequence number, the head hash, the time and the key ID are all signed.
+// sequence number, the head hash, the time, the key ID and the cut flag are all
+// signed.
 func checkpointMessage(cp *modelv1alpha1.AuditCheckpoint) ([]byte, error) {
 	return appendMessage([]byte(checkpointDomain), cp.ProtoReflect(), "signature")
 }

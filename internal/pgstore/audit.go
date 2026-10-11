@@ -1,11 +1,14 @@
 package pgstore
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -19,6 +22,14 @@ func (s *Store) AuditLog() contracts.AuditLog { return auditLog{s} }
 type auditLog struct{ s *Store }
 
 var _ contracts.AuditLog = auditLog{}
+
+// AuditRetention returns the store's retention cut, for the server's
+// retention job.
+func (s *Store) AuditRetention() contracts.AuditRetention { return auditRetention{s} }
+
+type auditRetention struct{ s *Store }
+
+var _ contracts.AuditRetention = auditRetention{}
 
 // nonNil makes an empty hash a bytea and not a NULL, which the column
 // refuses.
@@ -175,4 +186,60 @@ func (a auditLog) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv
 		return rows.Err()
 	})
 	return out, err
+}
+
+// Cut implements contracts.AuditRetention. It takes the head lock, so no apply
+// writes a record while it checks the cut record and deletes the prefix.
+func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, error) {
+	if err := contracts.CheckAuditCut(c); err != nil {
+		return 0, err
+	}
+	tx, err := a.s.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("begin: %w", cleanError(err))
+	}
+	defer rollback(tx)
+	meta, err := readMeta(ctx, tx, true)
+	if err != nil {
+		return 0, err
+	}
+	if meta.restoring {
+		return 0, ErrRestoring
+	}
+	if c.Through >= meta.audit.Seq {
+		return 0, fmt.Errorf("%w: record %d is not before the newest, which the log keeps", contracts.ErrInvalidAuditCut, c.Through)
+	}
+	through := int64(c.Through) //nolint:gosec // G115: below the head's sequence number, which is below 2^63
+	var oldest *int64
+	if err := tx.QueryRow(ctx, `SELECT min(seq) FROM audit_record`).Scan(&oldest); err != nil {
+		return 0, fmt.Errorf("read the oldest audit record: %w", err)
+	}
+	if oldest == nil {
+		return 0, fmt.Errorf("%w: the log holds no records", contracts.ErrAuditCutMismatch)
+	}
+	if through < *oldest {
+		return 0, nil
+	}
+	var data []byte
+	switch err := tx.QueryRow(ctx, `SELECT data FROM audit_record WHERE seq = $1`, through).Scan(&data); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
+	case err != nil:
+		return 0, fmt.Errorf("read audit record %d: %w", through, err)
+	}
+	rec := &modelv1alpha1.AuditRecord{}
+	if err := proto.Unmarshal(data, rec); err != nil {
+		return 0, fmt.Errorf("audit record %d: %w", through, err)
+	}
+	if rec.GetSeq() != c.Through || !bytes.Equal(rec.GetHash(), c.Hash) {
+		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM audit_record WHERE seq <= $1`, through)
+	if err != nil {
+		return 0, fmt.Errorf("delete audit records: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit audit cut: %w", err)
+	}
+	return uint64(tag.RowsAffected()), nil //nolint:gosec // G115: a row count is never negative
 }

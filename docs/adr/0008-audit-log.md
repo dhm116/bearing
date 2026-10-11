@@ -70,6 +70,17 @@ record that can't be lost or quietly edited.
   someone with store access, not against a compromised server. Until
   retention adds a signed marker for a cut, only a log that starts at
   record 1 verifies, and unsigned checkpoints are refused unless allowed.*
+  *Amended 2026-10-11 (issue #139): retention is a separate interface,
+  `AuditRetention`, so the read side holds nothing that deletes. Before each
+  cut the retention job writes a checkpoint flagged `cut`, signed (the flag is
+  under the signature), naming the last record it will remove, and waits until
+  it is durable; one marker for each `Cut` call. `Verify` accepts a log that
+  starts at record S + 1 only behind a trusted signed cut checkpoint at S that
+  holds the oldest record's `prev_hash`, so retention needs a signing key and
+  is off by default. `bearing audit reanchor` re-creates the marker for the
+  current start after a key rotation or a lost file. Retention bounds the
+  audit table only: the journal and backups still hold the entries, so it is
+  not a way to erase a person's name.*
 - **Storage.** The default is an append-only table in the main store,
   written in the same transaction as the change it describes: no change
   without its record. An optional exporter streams records to object

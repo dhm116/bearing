@@ -300,6 +300,9 @@ func TestAuditCommandsRejectBadInput(t *testing.T) {
 		{"no subcommand", []string{}, true, ""},
 		{"verify with a stray argument", []string{"verify", "extra"}, true, "flags only"},
 		{"checkpoint with a stray argument", []string{"checkpoint", "extra"}, true, "flags only"},
+		{"reanchor with a stray argument", []string{"reanchor", "extra"}, true, "flags only"},
+		{"reanchor without a key", []string{"reanchor"}, false, "needs --key-id and --key-env"},
+		{"reanchor of a log that starts at record 1", []string{"reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"}, false, "starts at record 1"},
 		{"an unknown flag", []string{"verify", "--nope"}, true, "nope"},
 		{"max-age that is not a duration", []string{"verify", "--checkpoints", cpFile, "--max-age", "soon"}, false, "--max-age"},
 		{"max-age of zero", []string{"verify", "--checkpoints", cpFile, "--max-age", "0h"}, false, "--max-age"},
@@ -522,5 +525,84 @@ func TestAuditCheckpointStartsANewLineAfterACutOffOne(t *testing.T) {
 	}
 	if cps, err := audit.ReadCheckpoints(strings.NewReader(lines[1])); err != nil || len(cps) != 1 {
 		t.Fatalf("got %v, %v, want the new line to be one checkpoint", cps, err)
+	}
+}
+
+// cut removes the records through seq as the server's retention job does: the
+// signed cut checkpoint is written first (to file, when given), then the log
+// cuts.
+func (a *auditWorld) cut(seq uint64, file string) {
+	a.t.Helper()
+	recs, err := a.log.Query(context.Background(), contracts.AuditFilter{After: seq - 1, Limit: 1})
+	if err != nil || len(recs) != 1 || recs[0].GetSeq() != seq {
+		a.t.Fatalf("got %v, %v, want record %d", recs, err, seq)
+	}
+	if file != "" {
+		key, err := audit.ParsePrivateKey([]byte(a.env["KEY_VAR"]))
+		if err != nil {
+			a.t.Fatal(err)
+		}
+		cp, err := audit.NewCutCheckpoint(contracts.AuditHead{Seq: seq, Hash: recs[0].GetHash()}, a.clock.Now(), &audit.Signer{KeyID: "audit-1", Key: key})
+		if err != nil {
+			a.t.Fatal(err)
+		}
+		line, err := audit.MarshalCheckpoint(cp)
+		if err != nil {
+			a.t.Fatal(err)
+		}
+		if err := appendFile(file, append(line, '\n')); err != nil {
+			a.t.Fatal(err)
+		}
+	}
+	if _, err := a.store.AuditRetention().Cut(context.Background(), contracts.AuditCut{Through: seq, Hash: recs[0].GetHash()}); err != nil {
+		a.t.Fatal(err)
+	}
+}
+
+func TestAuditVerifyAcceptsACutLogAndReanchorRestoresAMissingMarker(t *testing.T) {
+	a := newAuditWorld(t)
+	for _, e := range []string{"e1", "e2", "e3", "e4", "e5"} {
+		a.record(e)
+	}
+	pub := a.keys("audit-1")
+	keys := []string{"--key", "audit-1=" + pub}
+	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "starts at record 1") {
+		t.Fatalf("got %q, %v, want a log that starts at record 1 refused", out, err)
+	}
+	cpFile := a.file("cp.ndjson")
+	a.cut(3, cpFile)
+	out, err := a.run(append([]string{"verify", "--checkpoints", cpFile}, keys...)...)
+	if err != nil || !strings.Contains(out, "2 records, 4 to 5, intact") || !strings.Contains(out, "records 1 to 3 were removed by a retention cut, signed by audit-1") {
+		t.Fatalf("got %q, %v, want the cut log to verify and say how it was cut", out, err)
+	}
+	// The marker is lost, as after a key rotation: the log no longer verifies.
+	out, err = a.run(append([]string{"verify"}, keys...)...)
+	if !errors.Is(err, errAuditFailed) || !strings.Contains(out, "records 1 to 3 are missing") {
+		t.Fatalf("got %q, %v, want a log with no marker refused", out, err)
+	}
+	// The operator re-anchors the current start with the current key.
+	re := a.file("re.ndjson")
+	out, err = a.run("reanchor", "--out", re, "--key-id", "audit-1", "--key-env", "KEY_VAR")
+	if err != nil || !strings.Contains(out, "cut checkpoint of record 3") || !strings.Contains(out, "starts at record 4") {
+		t.Fatalf("got %q, %v, want the cut checkpoint of record 3", out, err)
+	}
+	if out, err = a.run(append([]string{"verify", "--checkpoints", re}, keys...)...); err != nil || !strings.Contains(out, "2 records, 4 to 5, intact") {
+		t.Fatalf("got %q, %v, want the log to verify with the re-anchored marker", out, err)
+	}
+}
+
+func TestAuditReanchorOfAnEmptyOrTamperedLogIsRefused(t *testing.T) {
+	a := newAuditWorld(t)
+	a.keys("audit-1")
+	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("got %q, %v, want an empty log refused", out, err)
+	}
+	for _, e := range []string{"e1", "e2", "e3"} {
+		a.record(e)
+	}
+	a.cut(2, "")
+	a.log = editedLog{AuditLog: a.log, seq: 3}
+	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
+		t.Fatalf("got %q, %v, want an edited start refused", out, err)
 	}
 }

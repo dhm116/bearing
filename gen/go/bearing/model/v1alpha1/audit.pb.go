@@ -664,7 +664,12 @@ type AuditCheckpoint struct {
 	// The Ed25519 signature over a domain prefix and the canonical encoding of
 	// the checkpoint without this field (so seq, head_hash, time and key_id),
 	// when a key is configured (docs/spec/contracts.md, "Checkpoints").
-	Signature     []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	Signature []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	// True for the checkpoint written at a retention cut: seq and head_hash
+	// then name the last record removed, which is no longer in the log, and the
+	// checkpoint authorizes a log that starts at seq + 1. It is signed with the
+	// rest, and a verifier honors it only when the signature verifies.
+	Cut           bool `protobuf:"varint,6,opt,name=cut,proto3" json:"cut,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -734,6 +739,13 @@ func (x *AuditCheckpoint) GetSignature() []byte {
 	return nil
 }
 
+func (x *AuditCheckpoint) GetCut() bool {
+	if x != nil {
+		return x.Cut
+	}
+	return false
+}
+
 var File_bearing_model_v1alpha1_audit_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_audit_proto_rawDesc = "" +
@@ -766,13 +778,14 @@ const file_bearing_model_v1alpha1_audit_proto_rawDesc = "" +
 	"\btrace_id\x18\x05 \x01(\tR\atraceId\x128\n" +
 	"\x05entry\x18\x06 \x01(\v2\".bearing.model.v1alpha1.AuditEntryR\x05entry\x12\x1b\n" +
 	"\tprev_hash\x18\a \x01(\fR\bprevHash\x12\x12\n" +
-	"\x04hash\x18\b \x01(\fR\x04hash\"\xa5\x01\n" +
+	"\x04hash\x18\b \x01(\fR\x04hash\"\xb7\x01\n" +
 	"\x0fAuditCheckpoint\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1b\n" +
 	"\thead_hash\x18\x02 \x01(\fR\bheadHash\x12.\n" +
 	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x15\n" +
 	"\x06key_id\x18\x04 \x01(\tR\x05keyId\x12\x1c\n" +
-	"\tsignature\x18\x05 \x01(\fR\tsignature*\xc4\x05\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignature\x12\x10\n" +
+	"\x03cut\x18\x06 \x01(\bR\x03cut*\xc4\x05\n" +
 	"\vAuditAction\x12\x1c\n" +
 	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11AUDIT_ACTION_MINT\x10\x01\x12 \n" +
