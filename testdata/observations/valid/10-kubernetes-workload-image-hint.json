@@ -1,0 +1,54 @@
+{
+  "specversion": "1.0",
+  "id": "kubernetes:workload/k3d-acme/billing/statefulset/billing-core@2026-10-06T14:10:00.000000Z",
+  "source": "adapter/kubernetes",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-10-06T14:10:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Component",
+      "key": "kubernetes:workload/k3d-acme/billing/statefulset/billing-core",
+      "attributes": {
+        "workload_name": "billing-core",
+        "workload_kind": "StatefulSet",
+        "image": [
+          "ghcr.io/acme/billing-core:2.3.0"
+        ],
+        "replicas": 2
+      }
+    },
+    "relations": [
+      {
+        "type": "deployed_to",
+        "to": "kubernetes:namespace/k3d-acme/billing"
+      },
+      {
+        "type": "owned_by",
+        "to": "kubernetes:team/billing",
+        "confidence_ppm": 800000,
+        "attributes": {
+          "label": "team"
+        }
+      },
+      {
+        "type": "defined_in",
+        "to": "github:repo/acme/billing-core",
+        "confidence_ppm": 300000,
+        "attributes": {
+          "image": "ghcr.io/acme/billing-core"
+        }
+      }
+    ],
+    "snapshots": [
+      {
+        "direction": "DIRECTION_OUT",
+        "predicates": [
+          "deployed_to",
+          "owned_by",
+          "defined_in"
+        ]
+      }
+    ]
+  }
+}

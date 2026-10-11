@@ -1,0 +1,40 @@
+{
+  "name": "kubernetes",
+  "issuer_type": "kubernetes",
+  "kinds": [
+    {
+      "kind": "Component",
+      "keys": [
+        { "key_type": "workload", "class": "KEY_CLASS_ID" }
+      ],
+      "fields": [
+        { "predicate": "workload_name", "type": "VALUE_TYPE_STRING", "cardinality": "CARDINALITY_ONE" },
+        { "predicate": "workload_kind", "type": "VALUE_TYPE_STRING", "cardinality": "CARDINALITY_ONE" },
+        { "predicate": "image", "type": "VALUE_TYPE_STRING", "cardinality": "CARDINALITY_MANY" },
+        { "predicate": "replicas", "type": "VALUE_TYPE_FLOAT", "cardinality": "CARDINALITY_ONE" },
+        { "predicate": "deployed_to" },
+        { "predicate": "owned_by" },
+        { "predicate": "defined_in" }
+      ]
+    },
+    {
+      "kind": "Environment",
+      "keys": [
+        { "key_type": "namespace", "class": "KEY_CLASS_ID" }
+      ],
+      "fields": [
+        { "predicate": "name" },
+        { "predicate": "cluster", "type": "VALUE_TYPE_STRING", "cardinality": "CARDINALITY_ONE" }
+      ]
+    },
+    {
+      "kind": "Team",
+      "keys": [
+        { "key_type": "team", "class": "KEY_CLASS_NAME", "per_subject": "PER_SUBJECT_MANY", "case": "KEY_CASE_INSENSITIVE" }
+      ],
+      "fields": [
+        { "predicate": "name", "match": "MATCH_METHOD_NAME" }
+      ]
+    }
+  ]
+}

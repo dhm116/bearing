@@ -24,6 +24,7 @@ compatible with it.
 | 0.3 | One generic **matcher** scores same-kind pairs; the score is the confidence of `same_as`. **Merge policy** per kind: people need authoritative evidence or confirmation, teams merge on score. Replaces the fixed identity rule table. | Matching rules belong in configuration, not the spec. |
 | 0.3 | CODEOWNERS is reported literally as `approves_changes`; the core **derives** `owned_by` from the file's shape. | CODEOWNERS names reviewers; only some files say who owns the repository. |
 | 0.3 | Authority resolves conflicts by default. | Most disagreements have an obvious source of record. |
+| 0.3 | **Kubernetes workloads** are Components and namespaces are Environments, with a stable workload key; the rule `catalog_link` pairs a workload with the same Component in a repository's `catalog-info.yaml`, each step with a stated confidence. | Bearing can say what runs where and who owns it, not only who owns the code. No new kinds or relations. |
 | 0.3 | Tiered **compaction** with a precision marker on answers. | History can't grow without bound. |
 | 0.3 | Protobuf is the only source of truth; core-closed lists are proto enums. | No hand-kept copies. |
 | 0.3 | `linked_ids` completeness is explicit: `linked_ids_complete`. An unflagged list only adds evidence. | "Read, and there are none" must be sayable; a partial list must not end evidence. |
@@ -354,6 +355,62 @@ The `github` `user_node` and `user` key types that Authentik links are
 declared by the GitHub adapter; both declarations of `saml` `name_id` would
 have to agree.
 
+```json
+{ "name": "kubernetes", "issuer_type": "kubernetes", "kinds": [
+  { "kind": "Component",
+    "keys": [ { "key_type": "workload", "class": "id" } ],
+    "fields": [ { "predicate": "workload_name", "type": "string", "cardinality": "one" },
+                { "predicate": "workload_kind", "type": "string", "cardinality": "one" },
+                { "predicate": "image", "type": "string", "cardinality": "many" },
+                { "predicate": "replicas", "type": "float", "cardinality": "one" },
+                { "predicate": "deployed_to" }, { "predicate": "owned_by" }, { "predicate": "defined_in" } ] },
+  { "kind": "Environment",
+    "keys": [ { "key_type": "namespace", "class": "id" } ],
+    "fields": [ { "predicate": "name" }, { "predicate": "cluster", "type": "string", "cardinality": "one" } ] },
+  { "kind": "Team",
+    "keys": [ { "key_type": "team", "class": "name", "per_subject": "many", "case": "insensitive" } ],
+    "fields": [ { "predicate": "name", "match": "name" } ] } ] }
+```
+
+The Kubernetes keys, with `<cluster>` the cluster ID in the source's
+configuration (below) and `<kind>` the workload's kind in lowercase
+(`deployment`, `statefulset` or `daemonset`):
+
+| Kind | Key | Class |
+| --- | --- | --- |
+| `Component` | `kubernetes:workload/<cluster>/<namespace>/<kind>/<name>` | `id` |
+| `Environment` | `kubernetes:namespace/<cluster>/<namespace>` | `id` |
+| `Team` | `kubernetes:team/<label value>` | `name`, case-insensitive |
+
+- **A workload's key is its place, not its object.** Kubernetes names a
+  workload by `(namespace, kind, name)` and never renames it. The key adds the
+  cluster so the same name in two clusters is two subjects. It leaves out the
+  object's UID, which changes when a deploy tool deletes and recreates the
+  workload: a recreated workload is the same Component and keeps its history.
+  The key therefore means "this place" for as long as Bearing keeps its data,
+  which is what the `id` class says. A `name` class would give a recreated
+  workload a new subject whenever a sync saw it gone first, and the same one
+  when it didn't: history would depend on sync timing. Once bound, the class
+  cannot change (see [Key types](#key-types)).
+- **The cluster ID** is the `cluster` setting of the source: lowercase
+  letters, digits and hyphens, chosen by the operator and never changed.
+  Without it the adapter uses the UID of the cluster's `kube-system`
+  namespace, which survives restarts but not a rebuild of the cluster, and
+  says so in its log. The ID has no `/`, and neither do Kubernetes names, so a
+  key splits unambiguously.
+- A workload's `workload_name` is the object's name, `workload_kind` its kind
+  as Kubernetes writes it (`Deployment`).
+- The adapter declares no `match` on a `Component` field. A workload is paired
+  with a catalog entry by [one rule](#workloads-and-catalog-entries), not by
+  the generic matcher, so one pair is never scored twice.
+- A `Team` made from a label is identity evidence only: the adapter reports
+  its `name`, and the generic matcher scores it against GitHub teams and
+  directory groups of the same name like any other team ([Matching](#matching)).
+  It claims no `member_of`.
+- A source of this adapter lists the code host's namespace under `links`
+  (`github` for GitHub), because its `defined_in` claims name repositories
+  there. The key is `github:repo/<owner>/<name>`.
+
 ### Bindings
 
 - An **`id` alias** is bound to one subject for all valid time.
@@ -525,11 +582,11 @@ A `DistinctFromSet` for two subjects already merged is rejected
 | Kind | Meaning | Registered attributes | MVP sources |
 | --- | --- | --- | --- |
 | `Person` | A human | `name`, `email`, `login`, `verified_email`, `commit_email` | GitHub, directory |
-| `Team` | A group of people | `name`, `slug`, `description` | GitHub teams, directory groups |
+| `Team` | A group of people | `name`, `slug`, `description` | GitHub teams, directory groups, Kubernetes team labels |
 | `Repository` | A source repository | `name`, `full_name`, `url`, `default_branch`, `language`, `topics`, `archived`, `description` | GitHub |
-| `Component` | A service, library, job or website | `type`, `tier`, `lifecycle` | |
+| `Component` | A service, library, job or website | `type`, `tier`, `lifecycle` | Kubernetes workloads |
 | `Package` | A published package | `ecosystem`, `name`, `versions` | |
-| `Environment` | Where components run | `name`, `account`, `region` | |
+| `Environment` | Where components run | `name`, `account`, `region` | Kubernetes namespaces |
 | `CloudResource` | An infrastructure resource | `arn`, `type`, `tags` | |
 | `Change` | A pull request, commit, deploy or config change | `kind`, `at`, `url` | |
 | `Incident` | An operational incident | `severity`, `status`, `started_at` | |
@@ -1067,6 +1124,7 @@ each source system once.
 | **Authoritative**: a live `linked_id`, under a link declared (or overridden) authoritative, to an `id`-class key. One system stores another's permanent ID. | `core/identity/link/<source>` | 1000000 |
 | Another `linked_id` (not authoritative, or a `name` key resolved through its binding at `observed_at`) | `core/identity/match/link` | configured weight |
 | Matching fields | `core/identity/match/<method>` | configured weight |
+| A workload and its catalog entry ([rule `catalog_link`](#workloads-and-catalog-entries)) | `core/identity/match/catalog_link` | configured weight per step |
 
 Evidence follows its inputs on valid time and ends when they stop being
 asserted ([Derived claims](#derived-claims)). A link of a key type not in
@@ -1094,7 +1152,7 @@ one namespace) is two things in one system and is not scored.
 
 Configuration gives weights in ppm per kind and method, overridden per
 source and predicate, plus a weight `link` for non-authoritative links
-(`link` is not a declarable `match` method). A matching value's weight is
+(`link` and `catalog_link` are not declarable `match` methods). A matching value's weight is
 the highest weight among the fields (declaring `match: m`) of its live
 supports; a matching pair contributes the lower of its two values' weights,
 for `members` multiplied by the overlap and rounded half to even. Each method's support is the
@@ -1114,7 +1172,7 @@ Configuration sets a merge policy per kind. It decides when `same_as` is
 
 For `same_as`, the policy's `threshold_ppm` takes the place of the
 predicate threshold. The default configuration sets
-`Person: authoritative` and `Team: score`.
+`Person: authoritative`, `Team: score` and `Component: score`.
 A `same_as` the policy doesn't accept stays `candidate` for a person to
 confirm. A `distinct_from` is **set** when it is live at any valid time as
 recorded at `r`. A set `distinct_from` blocks merging the pair
@@ -1131,6 +1189,63 @@ policy. A merge is never undone automatically.
 Note: a source that keeps reporting the link after a `distinct_from` opens
 a conflict at its next report: the source of record disagrees with a
 person.
+
+### Workloads and catalog entries
+
+A cluster and a repository describe one service from two sides. The
+Kubernetes adapter reports each workload as a `Component`, and the `catalog`
+source reports each entry of a repository's `catalog-info.yaml` as one. The
+rule `catalog_link` decides when a workload and an entry are the same
+Component. It is written once here so that the catalog source M7 adds reuses
+it. Terms:
+
+- An **entry** is a `Component` of the `catalog` source system. The catalog
+  source reports the file's `metadata.name` as `entry_name` (stored as
+  `catalog.entry_name`) and claims `defined_in` for the repository whose
+  default branch holds the file, and only that one
+  (C-SOURCE-1 and C-SOURCE-2 in the [threat model](../security/threat-model.md)).
+- A **workload** is a `Component` with a `kubernetes:workload` key. Its
+  **repository hint** is its live `defined_in` support from the Kubernetes
+  source. The support's qualifier says where the hint came from:
+  `annotation` (a note on the workload that names its repository) or
+  `image` (a weaker guess from the image's registry path). The
+  [adapter](adapter-protocol.md#kubernetes) claims each at a stated
+  confidence.
+
+For a workload `W`, the core takes the first step below that matches `W`
+to any entry, and links `W` to an entry `C` only when that step matches `W`
+to exactly one entry and `C` to exactly one workload. Names are compared
+under the `name` [method](#matching), `W`'s by `kubernetes.workload_name`
+and `C`'s by `catalog.entry_name`.
+
+| Step | Entries it matches to `W` | Evidence (ppm) | Alone, `same_as` is |
+| --- | --- | --- | --- |
+| 1. Annotation | `W`'s hint is an `annotation`: the entries in the repository it names that have `W`'s name, or the only entry there if the repository holds one | 950000 | `asserted` |
+| 2. Name | `W` has no `annotation` hint: every entry that has `W`'s name, in any repository | 600000 | `candidate` |
+| 3. Image | `W`'s hint is an `image`: the only entry in the repository it names, if it holds one | 300000 | `candidate` |
+
+- The weights are the default configuration's, per step and overridable
+  like the other match weights. This table is where the spec states them,
+  because the rule is defined by what each step is worth. At the `Component`
+  default threshold of 900000, step 1 alone merges the pair
+  ([Merge policy](#merge-policy)); the others show a `candidate` that a
+  second source can corroborate ([Confidence](#confidence)) or a person can
+  confirm with `MergeRequested`.
+- The evidence is a support from `core/identity/match/catalog_link`, one
+  group in the noisy-OR. It follows its inputs on valid time like
+  [derived claims](#derived-claims) and ends when the hint, a name or the
+  entry's repository changes; its covering write is that of its latest
+  input. The generic matcher does not score the same pair, because the
+  Kubernetes adapter declares no `match` on a `Component` field.
+- Matching one-to-one keeps the rule independent of apply order and inside
+  the [merge guard](#merge): two workloads hold different `workload` ids, so
+  they never merge into one Component. The same service in two namespaces
+  (production and staging, or two clusters) therefore links to no entry until
+  a person merges the one they want with `MergeRequested`. Each stays
+  `defined_in` its repository, and the entry stays a Component of its own.
+- A workload that matches no entry keeps its `defined_in` and is not an
+  error. When the evidence merges a pair, the merge record's evidence names
+  the step.
 
 ## Manual operations
 
@@ -1707,6 +1822,38 @@ ownership would end.
   `Team` threshold they merge (rule `score`); below it `same_as` stays a
   `candidate`.
 
+### 8. A workload in the cluster and its catalog entry
+
+The cluster `k3d-acme` runs `payments-api` in the namespace `payments`
+(`testdata/observations/valid/9-kubernetes-workload-annotation.json`). Its
+Deployment carries the label `team: payments` and the annotation
+`github.com/project-slug: acme/payments-api`, and runs the image
+`ghcr.io/acme/payments-api:1.4.2`. W is the workload's Component, R the
+repository.
+
+- The Kubernetes source claims `(W, defined_in, R)` at 900000 with the
+  qualifier `annotation`, `(W, owned_by, T)` at 800000 for the team `payments`
+  (label, `T` made from the key `kubernetes:team/payments`), and
+  `(W, deployed_to, E)` for the namespace's Environment. `owned_by` is below
+  the threshold on its own, so the label alone makes `candidate`
+  ownership; ownership answers read only `asserted` facts.
+- R's `catalog-info.yaml` holds one entry, `payments-api`. Step 1 of
+  `catalog_link` matches W to it by the annotation (the entry has W's name
+  and is the only one in R) at 950000, and no other workload matches the
+  entry. At the `Component` threshold they merge (rule `score`). The
+  team `payments` of the cluster and GitHub's team `payments` match on `name`
+  like any other team ([Matching](#matching)).
+- `billing-core` runs from `ghcr.io/acme/billing-core:2.3.0` with no
+  annotation (`10-kubernetes-workload-image-hint.json`). The adapter claims
+  `defined_in` `acme/billing-core` at 300000 with the qualifier `image`. The
+  fact is a `candidate`, and step 3 offers the repository's only entry at
+  300000, also a `candidate`. Nothing merges, and no answer about
+  ownership or policy uses either.
+- `legacy-billing` has no annotation and an image from a private registry
+  (`11-kubernetes-workload-no-repository.json`). The adapter claims no
+  `defined_in`, and the question "which running services have no repository?"
+  lists it.
+
 ## Open questions
 
 None. The last one was settled on 2026-10-03: enum values use their
@@ -1733,6 +1880,10 @@ yet:
 - Ending an `id_conflict` issue when the clashing aliases change, the
   `ConflictOpened` and `ConflictResolved` events and their audit records, and
   sync-completeness deletions.
+- The Kubernetes adapter (issue #191, with a fake cluster in issue #190); the
+  `catalog_link` rule, the `Component: score` merge policy and the default
+  `catalog_link` weights; and the `catalog` source that reports
+  `catalog.entry_name` (M7).
 - Compaction and the `Retention` tiers.
 - Deleting the scope watermarks of periods that compaction rolls up (issue
   #193), and storing a steady sync schedule's watermarks as a cadence (issue

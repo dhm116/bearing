@@ -1,0 +1,38 @@
+{
+  "specversion": "1.0",
+  "id": "kubernetes:workload/k3d-acme/billing/deployment/legacy-billing@2026-10-06T14:10:00.000000Z",
+  "source": "adapter/kubernetes",
+  "type": "dev.bearing.observation.v1",
+  "time": "2026-10-06T14:10:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "entity": {
+      "kind": "Component",
+      "key": "kubernetes:workload/k3d-acme/billing/deployment/legacy-billing",
+      "attributes": {
+        "workload_name": "legacy-billing",
+        "workload_kind": "Deployment",
+        "image": [
+          "registry.acme.example/legacy/billing:3.1.0"
+        ],
+        "replicas": 1
+      }
+    },
+    "relations": [
+      {
+        "type": "deployed_to",
+        "to": "kubernetes:namespace/k3d-acme/billing"
+      }
+    ],
+    "snapshots": [
+      {
+        "direction": "DIRECTION_OUT",
+        "predicates": [
+          "deployed_to",
+          "owned_by",
+          "defined_in"
+        ]
+      }
+    ]
+  }
+}
