@@ -26,7 +26,7 @@ env:
 
 # `make check` runs everything below in one process. Here it is split into
 # jobs that run side by side, so a push is answered in the time of the
-# slowest of static, test and baseline, plus the gate; the tests, and the
+# slowest of static, test, baseline and race, plus the gate; the tests, and the
 # same tests at the merge base, are what take the time.
 jobs:
   # Everything that needs no test run.
@@ -76,6 +76,28 @@ jobs:
           # "Re-run all jobs" uploads into the same run again.
           overwrite: true
 
+  # The packages that take locks or run goroutines, under the race detector.
+  # No PostgreSQL: the empty setting makes the suites that need it skip, so
+  # the job needs no server.
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BEARING_TEST_POSTGRES: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - run: make race
+
   # The same tests at the merge base with main, for the gate's comparison
   # of total coverage. They don't wait for the test job: both run at once on
   # different runners. A push to main has no merge base to
@@ -120,7 +142,7 @@ jobs:
   # The coverage gate, and the one check a branch rule needs: it fails unless
   # the other jobs passed.
   check:
-    needs: [static, test, baseline]
+    needs: [static, test, baseline, race]
     # Runs after a failure or a cancellation too, to report it as this check.
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -131,9 +153,10 @@ jobs:
           STATIC: ${{ needs.static.result }}
           TEST: ${{ needs.test.result }}
           BASELINE: ${{ needs.baseline.result }}
+          RACE: ${{ needs.race.result }}
         run: |
-          echo "static: $STATIC, test: $TEST, baseline: $BASELINE"
-          [ "$STATIC" = success ] && [ "$TEST" = success ] && { [ "$BASELINE" = success ] || [ "$BASELINE" = skipped ]; }
+          echo "static: $STATIC, test: $TEST, baseline: $BASELINE, race: $RACE"
+          [ "$STATIC" = success ] && [ "$TEST" = success ] && [ "$RACE" = success ] && { [ "$BASELINE" = success ] || [ "$BASELINE" = skipped ]; }
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

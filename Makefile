@@ -1,4 +1,4 @@
-.PHONY: all build test test-postgres bench fmt lint vet cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test test-postgres bench fmt lint vet race cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -27,9 +27,10 @@ all: fmt test build
 # check is everything CI runs, in one process. CI runs the same steps as
 # parallel jobs so a push is answered in the time of the slowest one: static
 # (no test run), cover (the tests, with PostgreSQL), covergate-base (the same
-# tests at the merge base) and covergate-report (compares the two profiles).
-# vuln goes last because it needs the network (vuln.go.dev).
-check: generate-check lint vet tools-test cover covergate build vuln
+# tests at the merge base), race (the packages below under the race detector)
+# and covergate-report (compares the two profiles). vuln goes last because it
+# needs the network (vuln.go.dev).
+check: generate-check lint vet tools-test cover covergate race build vuln
 
 # static is check without the test run and the coverage gate.
 static: generate-check lint vet tools-test build vuln
@@ -94,6 +95,16 @@ generate-check: $(PROTO_TOOLS)
 
 cover:
 	$(COVER_TEST)=$(COVER_OUT) ./...
+
+# The packages that take locks or run goroutines. internal/pgstore needs
+# PostgreSQL, and pkg/resolver takes about 450 seconds under -race, far more
+# than the rest together; neither belongs in the CI run (about five minutes).
+RACE_PKGS ?= ./pkg/server/ ./pkg/auth/ ./pkg/audit/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
+
+# race runs RACE_PKGS under the race detector, which needs cgo and a C
+# compiler. PostgreSQL suites skip unless BEARING_TEST_POSTGRES is set.
+race:
+	go test -race -count=1 -timeout $(if $(GITHUB_ACTIONS),10m,20m) $(RACE_PKGS)
 
 # BASE_PROFILE is where covergate-base writes the merge base's coverage and
 # covergate-report reads it (COVER_OUT and BASE_PROFILE may be comma-separated
