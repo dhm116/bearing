@@ -29,7 +29,7 @@ Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
 | `make generate-check` | Fails if `proto/` isn't formatted or doesn't lint, or if `gen/` differs from what `buf generate` writes. `buf breaking` turns on when the MVP closes |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
 | `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
-| `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...` |
+| `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...`. `SHARD=<name>` runs one slice of the tests, as CI does on separate runners (`SHARDS` in the `Makefile`) |
 | `make race` | `go test -race` on the packages that take locks or run goroutines (`RACE_PKGS`: `pkg/server`, `pkg/server/boot`, `pkg/auth`, `pkg/audit`, `pkg/store`, `pkg/adapter`, `pkg/model`, `internal/memstore`, `internal/fakes`, `internal/testkit`); needs cgo and a C compiler. `internal/pgstore` (PostgreSQL) and `pkg/resolver` (about 450 s under `-race`) are left out |
 | `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
 | `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
@@ -304,10 +304,15 @@ Both are plain Markdown checklists; any agent can follow them.
   (`make static`: everything but the tests), `test` (`make cover`, with
   PostgreSQL), `baseline` (the same tests at the merge base, `make
   covergate-base`), `race` (`make race`) and `check` (`make covergate-report`,
-  which compares the two profiles and fails unless the other jobs passed). Keep the whole run to about five
-  minutes: a test that takes longer than a minute or two on its own gets split
-  up or made parallel (`t.Parallel` with a store per test), and nothing slow
-  should be added to `static`.
+  which compares the two profiles and fails unless the other jobs passed).
+  `test` and `baseline` each run in shards on a runner apiece (`SHARDS` in
+  the `Makefile`; the PostgreSQL suites alone are about 490 CPU-seconds on a
+  runner). The `pgstore` shard is `-skip` of the `random` one, so a
+  new test lands in a shard by default; a new shard goes into the `Makefile`
+  and the matrix of both jobs, and `check` fails on a missing profile. Keep
+  the whole run to about five minutes: a test that takes longer than a
+  minute or two on its own gets split up or made parallel (`t.Parallel` with
+  a store per test), and nothing slow should be added to `static`.
 
 ## Review and merge process
 

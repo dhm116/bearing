@@ -1,4 +1,4 @@
-.PHONY: all build test test-postgres bench fmt lint vet race cover covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test test-postgres bench fmt lint vet race cover shard-check shard-profiles covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -18,6 +18,31 @@ COVER_MIN ?= 80
 COVER_OUT ?= cover.out
 # A hung CI job dumps its goroutines before the job's 20-minute limit.
 COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpkg=./... -coverprofile
+
+# CI runs the tests in shards, one runner (and one PostgreSQL) each, because
+# the PostgreSQL suites of internal/pgstore alone take about 490 CPU-seconds
+# on a runner. SHARD names one; left empty, cover, covergate-base and
+# covergate-report run every test in one go, as `make check` does.
+#
+#   random    internal/pgstore: the random histories compared with the reference
+#   pgstore   the rest of internal/pgstore (everything -skip leaves, so a new
+#             test lands here by default and none can be dropped)
+#   resolver  pkg/resolver, the longest package
+#   packages  every other package (go list, so a new package lands here)
+#
+# Every conformance suite runs whole, in one shard, against both backends.
+# Each shard writes its own profile; the gate merges them (a block is covered
+# if any shard covers it) and compares with the same shards at the merge base.
+SHARDS := random pgstore resolver packages
+PGSTORE_PKG := ./internal/pgstore/
+PGSTORE_RANDOM := ^TestRandom
+COVER_ARGS_ := ./...
+COVER_ARGS_random := $(PGSTORE_PKG) -run "$(PGSTORE_RANDOM)"
+COVER_ARGS_pgstore := $(PGSTORE_PKG) -skip "$(PGSTORE_RANDOM)"
+COVER_ARGS_resolver := ./pkg/resolver/
+COVER_ARGS_packages := $$(go list ./... | grep -vxF -e "$$(go list -m)/internal/pgstore" -e "$$(go list -m)/pkg/resolver")
+SHARD ?=
+COVER_ARGS = $(COVER_ARGS_$(SHARD))
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
 # skipping it.
 COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)
@@ -93,8 +118,18 @@ generate-check: $(PROTO_TOOLS)
 	@test -z "$$(git status --porcelain --untracked-files=all -- gen)" || \
 		{ git status --porcelain --untracked-files=all -- gen; echo 'gen/ has uncommitted files: run make generate and commit the result'; exit 1; }
 
-cover:
-	$(COVER_TEST)=$(COVER_OUT) ./...
+cover: shard-check
+	$(COVER_TEST)=$(COVER_OUT) $(COVER_ARGS)
+
+# shard-check fails if SHARD is not one of SHARDS, or if the pattern that picks
+# the random tests matches none (a renamed test would otherwise leave the
+# shard empty and move its tests into the pgstore shard unnoticed).
+shard-check:
+	@[ -z '$(SHARD)' ] || case ' $(SHARDS) ' in *' $(SHARD) '*) ;; *) echo 'SHARD=$(SHARD) is not one of: $(SHARDS)'; exit 1;; esac
+	@case '$(SHARD)' in random|pgstore) \
+		n=$$(go test -coverpkg=./... -list '$(PGSTORE_RANDOM)' $(PGSTORE_PKG) | grep -c '^Test'); \
+		[ "$$n" -gt 0 ] || { echo "shard pattern $(PGSTORE_RANDOM) in the Makefile matches no test in $(PGSTORE_PKG)"; exit 1; };; \
+	esac
 
 # The packages that take locks or run goroutines. internal/pgstore needs
 # PostgreSQL, and pkg/resolver takes about 450 seconds under -race, far more
@@ -112,17 +147,24 @@ race:
 # merge base itself, which costs as much as `make cover`.
 BASE_PROFILE ?=
 
+# shard-profiles prints the profile of every shard as the gate wants them,
+# comma-separated: DIR/PREFIX<shard>.out. CI's check job takes the list from
+# here, so a shard that is missing from the workflow's matrix leaves a profile
+# missing and fails the gate, instead of dropping its tests unnoticed.
+shard-profiles:
+	@echo '$(patsubst %,$(DIR)/$(PREFIX)%.out,$(SHARDS))' | tr ' ' ','
+
 covergate: cover covergate-report
 
 covergate-report: $(COVERGATE)
 	$(COVERGATE) -profile $(COVER_OUT) -base $(COVER_BASE) -min $(COVER_MIN) $(COVER_FLAGS) \
-		$(if $(BASE_PROFILE),-base-profile $(BASE_PROFILE)) -test '$(COVER_TEST)={profile} ./...'
+		$(if $(BASE_PROFILE),-base-profile $(BASE_PROFILE)) -test '$(COVER_TEST)={profile} $(COVER_ARGS)'
 
 # covergate-base runs the tests at the merge base and writes their profile to
 # BASE_PROFILE, unless covergate-report would skip the comparison.
-covergate-base: $(COVERGATE)
+covergate-base: shard-check $(COVERGATE)
 	test -n '$(BASE_PROFILE)'
-	$(COVERGATE) -base $(COVER_BASE) $(COVER_FLAGS) -measure-base $(BASE_PROFILE) -test '$(COVER_TEST)={profile} ./...'
+	$(COVERGATE) -base $(COVER_BASE) $(COVER_FLAGS) -measure-base $(BASE_PROFILE) -test '$(COVER_TEST)={profile} $(COVER_ARGS)'
 
 vuln: $(GOVULNCHECK)
 	$(GOVULNCHECK) ./...
