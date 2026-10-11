@@ -95,36 +95,39 @@ def adr7_seq_ingest():
 
 
 def adr7_seq_apply():
-    d = D("adr7-seq-apply", 960, 536, "Each event is applied exactly once",
-          "A worker takes an event from the log, runs the adapter, and in one transaction checks the processed-ID table, writes facts and audit records, and marks the event done before committing its offset.")
-    for cx, k, t, n, s in [(120, "store", "WAL", "Event log", "offset 1042"),
+    d = D("adr7-seq-apply", 960, 640, "Each event is applied exactly once",
+          "A worker takes a webhook event from the log, runs the adapter and appends the observations to the log as a new event. It then takes that event and, in one transaction, checks the processed-ID table, writes facts and audit records and marks the ID done before committing its offset.")
+    for cx, k, t, n, s in [(120, "store", "WAL", "Event log", "durable"),
                            (360, "backend", "SERVICE", "Worker", "consumer group"),
                            (600, "backend", "", "Adapter", "Handle"),
                            (840, "store", "STORE", "Store", "graph · audit · IDs")]:
-        seq_actor(d, cx, k, t, n, s, bottom=448)
-    act(d, 360, 112, 432)
+        seq_actor(d, cx, k, t, n, s, bottom=552)
+    act(d, 360, 112, 534)
     act(d, 600, 148, 196)
-    act(d, 840, 216, 396)
-    d.raw('<rect class="frame" x="340" y="240" width="524" height="112" rx="4"/>'
-          '<rect class="frame-tab" x="340" y="240" width="40" height="16" rx="2"/>'
-          '<text class="t-zone" x="360" y="251" text-anchor="middle">OPT</text>'
-          '<text class="guard" x="376" y="270">[event ID not seen before]</text>', "zones")
+    act(d, 840, 310, 462)
+    d.raw('<rect class="frame" x="340" y="334" width="524" height="112" rx="4"/>'
+          '<rect class="frame-tab" x="340" y="334" width="40" height="16" rx="2"/>'
+          '<text class="t-zone" x="360" y="345" text-anchor="middle">OPT</text>'
+          '<text class="guard" x="376" y="364">[observation not applied before]</text>', "zones")
     msgs = [
         ((120, 356), 120, "DELIVER OFFSET 1042", "", 238),
         ((364, 596), 156, "HANDLE(DELIVERY)", "", 480),
-        ((596, 364), 188, "OBSERVATIONS · SIG OK", "dash", 480),
-        ((364, 836), 224, "BEGIN · SEEN THIS ID?", "", 480),
-        ((364, 836), 304, "UPSERT FACTS · AUDIT", "", 480),
-        ((364, 836), 336, "MARK ID PROCESSED", "", 480),
-        ((364, 836), 384, "COMMIT", "acc", 480),
-        ((356, 120), 420, "COMMIT OFFSET 1042", "", 238),
+        ((596, 364), 188, "OBSERVATIONS", "dash", 480),
+        ((356, 120), 220, "APPEND · OBSERVATIONS EVENT", "", 238),
+        ((356, 120), 252, "COMMIT OFFSET 1042", "", 238),
+        ((120, 356), 288, "DELIVER OFFSET 1043", "", 238),
+        ((364, 836), 318, "BEGIN · SEEN THIS ID?", "", 480),
+        ((364, 836), 398, "UPSERT FACTS · AUDIT", "", 480),
+        ((364, 836), 430, "MARK ID PROCESSED", "", 480),
+        ((364, 836), 478, "COMMIT", "acc", 480),
+        ((356, 120), 514, "COMMIT OFFSET 1043", "", 238),
     ]
     for (x1, x2), y, text, kind, lx in msgs:
         d.path([(x1, y), (x2, y)], kind)
         d.label(lx, y - 12, text, "acc" if "acc" in kind else "")
-    d.text(480, 476, "A crash before COMMIT means redelivery, and the processed-ID check turns it into a no-op.", "t-callout", "middle")
+    d.text(480, 576, "A crash before COMMIT means redelivery, and the processed-ID check turns it into a no-op.", "t-callout", "middle")
     d.legend([("arrow", "", "Call"), ("arrow", "dash", "Return"), ("arrow", "acc", "Headline step"),
-              ("zone", "", "Runs only for a new event")])
+              ("zone", "", "Runs only for a new observation")])
     return d
 
 
