@@ -108,3 +108,20 @@ func TestKubernetesRemovedAnnotationAndLabelEndTheirClaims(t *testing.T) {
 		t.Errorf("after the second sync, want deployed_to to remain in\n%s", got)
 	}
 }
+
+// The claims do not depend on whether the cluster or the code host is read
+// first: the repository the annotation names is a placeholder until GitHub
+// reports it, and then the same subject.
+func TestKubernetesRepositoryClaimDoesNotDependOnWhichSourceIsReadFirst(t *testing.T) {
+	e := newEnvWith(t, kubernetesConfig(t))
+	applyClean(e, "kubernetes-acme", fixture(t, "9-kubernetes-workload-annotation.json"))
+	w := "kubernetes:workload/k3d-acme/payments/deployment/payments-api(Component)"
+	if got := factsAt(t, e, ts("2026-10-07T00:00:00Z")); !strings.Contains(got, w+" defined_in -> github:repo/acme/payments-api(Repository) CANDIDATE/UNOBSERVED_OBJECT 900000") {
+		t.Errorf("before GitHub reports the repository, want a candidate in\n%s", got)
+	}
+	applyClean(e, "github-acme", fixture(t, "1-repository-codeowners.json"))
+	want := w + " defined_in -> github:repo_node/R_kgDOH1a2bw(Repository) ASSERTED/NONE 900000 [kubernetes-acme:900000]"
+	if got := factsAt(t, e, ts("2026-10-07T00:00:00Z")); !strings.Contains(got, want) {
+		t.Errorf("after GitHub reports it, want %q in\n%s", want, got)
+	}
+}

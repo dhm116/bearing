@@ -241,37 +241,42 @@ secrets, not from here (ADR 9 and issue #192).
 
 | Setting | Meaning | Default |
 | --- | --- | --- |
-| `cluster` | The cluster ID in every key; see [the Kubernetes keys](data-model.md#declarations) | UID of the `kube-system` namespace |
+| `cluster` | The cluster ID in every key; see [the Kubernetes keys](data-model.md#declarations). Required. | none |
+| `repository_namespace` | The code host's namespace for repositories named by an annotation. The source lists it under `links`. | `github` |
 | `team_label` | The label whose value names the owning team | `team` |
 | `repository_annotation` | The annotation whose value names the repository, as `<owner>/<name>` | `github.com/project-slug` |
 | `image_registries` | Registry hosts whose image paths start `<owner>/<name>`, each mapped to the namespace of the code host it belongs to | `{"ghcr.io": "github"}` |
 | `exclude_namespaces` | Namespaces not read | `kube-system`, `kube-public`, `kube-node-lease` |
 
 **Reports**, per object. This table is the adapter's **fixed field list**:
-the adapter reads, keeps and sends these fields and no others.
+the adapter MUST read, keep and send these fields and no others.
 
 | From | Becomes |
 | --- | --- |
 | Workload `metadata.name`, kind | `workload_name`, `workload_kind`, and the key |
-| Deployment or StatefulSet `spec.replicas` | `replicas`. A DaemonSet has none and the adapter sends no `replicas` for it. |
+| Deployment or StatefulSet `spec.replicas` | `replicas`, the desired count, so a scaling autoscaler changes it on every change of the count. A DaemonSet has none and the adapter sends no `replicas` for it (not read, so not `null`). |
 | `spec.template.spec.containers[].image` | `image`: every container's image reference, as written, kept as the complete set. Init containers are not read. |
 | The label `team_label` | `owned_by` the `Team` `kubernetes:team/<value>` at 800000, with the qualifier `{ "label": "<key>" }`. Absent: the claim ends. |
-| The annotation `repository_annotation` | `defined_in` the repository `<namespace>:repo/<owner>/<name>` (the code host's namespace, `github` by default) at 900000, with the qualifier `{ "annotation": "<key>" }` |
+| The annotation `repository_annotation` | `defined_in` the repository `<namespace>:repo/<owner>/<name>` (in `repository_namespace`) at 900000, with the qualifier `{ "annotation": "<key>" }` |
 | The image registry path, when there is no such annotation | `defined_in` at 300000 with the qualifier `{ "image": "<registry>/<owner>/<name>" }`. Only for a registry in `image_registries`, only when the containers that use one all name the same repository. |
 | The workload's namespace | `deployed_to` the Environment `kubernetes:namespace/<cluster>/<namespace>` |
 | Namespace `metadata.name`, and the setting `cluster` | The Environment's `name` and `cluster` |
-| Each distinct `team_label` value | A `Team` observation with its `name`, once per sync |
+| Each distinct `team_label` value | A `Team` observation with its `name`, once per distinct value after case folding (the first spelling met), per sync |
 
-A value that doesn't have the shape the table expects is ignored, with a log
-line that counts it and doesn't quote it: a label value of at most 63
-characters in the characters Kubernetes allows, an annotation value of the
-form `<owner>/<name>` (letters, digits, `.`, `_` and `-`, each part at most
-100 characters), and an image reference that parses as one. Annotation values
-can hold any text, so they are never copied as they are.
+A value that doesn't have the shape the table expects MUST be ignored, with a
+log line that counts it and doesn't quote it. The shapes: a label value of 1
+to 63 characters that starts and ends with a letter or digit and uses
+only letters, digits, `.`, `_` and `-`; an annotation value `<owner>/<name>`
+(letters, digits, `.`, `_` and `-`, each part 1 to 100 characters); an
+image reference that parses as one. Annotation values can hold any text, so
+they are never copied as they are. An ignored value counts as unread, not as
+empty: the observation leaves the predicate out of its snapshot, so the
+claim it would have replaced is neither made nor ended. An image that
+fails to parse leaves `image` unreported the same way.
 
-**Never read, kept or sent.** Environment variables (`env`, `envFrom`),
+**Never read, kept or sent.** The adapter MUST NOT read, keep or send: environment variables (`env`, `envFrom`),
 `command` and `args`, volumes, service account names, any other label or
-annotation, any status field, and Secret and ConfigMap objects. The adapter
+annotation, any status field, and Secret and ConfigMap objects. It
 decodes each response into types that hold only the fields above, so anything
 else is discarded as it is decoded and cannot reach a log, a cache or an
 observation by accident. The token it needs can list namespaces and the three
@@ -293,8 +298,9 @@ becomes the observation in
 `testdata/observations/valid/9-kubernetes-workload-annotation.json`: the
 name, the kind, `replicas` 3, the one image, the team, the repository and the
 Environment. The label `tier`, the annotation `revision`, the arguments and the
-environment value appear nowhere in it, and a test fails if any of the fixtures
-carries a field outside the declaration.
+environment value appear nowhere in it, and a test fails if any sample carries
+an attribute, relation, qualifier, alias or snapshot predicate outside this
+document's list.
 
 **Sync.** Read-only and scheduled; Kubernetes has no webhooks, so the source
 has no `webhook` declaration and `bearing.handle` returns `-32001`. A sync
@@ -303,10 +309,13 @@ observation per Environment, per workload and per team label, and each
 workload observation carries a snapshot over `deployed_to`, `owned_by` and
 `defined_in`, so a removed label, annotation or namespace ends the claim. The
 last page declares `complete_sync` for `Component` and `Environment` only if
-every list in the sync succeeded, so a workload that is gone ends; a failed
-list for any namespace means no `complete_sync` at all. `Team` is never
+every list in the sync succeeded, so a workload that is gone ends after two
+consecutive complete syncs ([Sync completeness](data-model.md#sync-completeness)).
+A list that errors, including an expired `continue` token (`410 Gone`),
+fails the sync's completeness for all namespaces, and a namespace added to
+`exclude_namespaces` ends its workloads the same way. `Team` is never
 declared complete: a label value no workload uses any more says nothing about
-the team. The sync's cadence is the source's schedule. Each sync stores one
+the team, so a label value nobody uses any more leaves its `Team` behind. The sync's cadence is the source's schedule. Each sync stores one
 watermark per snapshot scope (issue #136), so a short interval costs storage
 until issue #194 stores a steady cadence compactly; the demo reads every few
 minutes.

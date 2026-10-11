@@ -86,6 +86,9 @@ func checkAgainstKubernetesDeclaration(t *testing.T, kinds map[string]*modelv1al
 		t.Fatalf("declared attribute types not respected: %v", err)
 	}
 
+	if len(e.GetAliases()) != 0 || len(e.GetLinkedIds()) != 0 || d.GetEvidence() != nil || len(d.GetAttributeClaims()) != 0 {
+		t.Errorf("aliases, linked_ids, evidence and attribute_claims are outside the adapter's field list")
+	}
 	ns, keyType, id, err := Key(e.GetKey()).Parse()
 	if err != nil || ns != "kubernetes" {
 		t.Fatalf("entity key %q: got namespace %q (%v), want kubernetes", e.GetKey(), ns, err)
@@ -146,6 +149,9 @@ func checkWorkload(t *testing.T, id string, o *eventv1alpha1.Observation) {
 	for _, r := range d.GetRelations() {
 		seen[r.GetType()] = true
 		q := r.GetAttributes()
+		if len(q) > 1 {
+			t.Errorf("%s has qualifiers %v, want at most the one that names its source", r.GetType(), q)
+		}
 		switch r.GetType() {
 		case "deployed_to":
 			if want := "kubernetes:namespace/" + parts[0] + "/" + parts[1]; r.GetTo() != want {
