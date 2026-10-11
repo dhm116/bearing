@@ -2,8 +2,9 @@
 
 `cmd/bearing-bench` measures the PostgreSQL store ([ADR 14](../adr/0014-postgres-is-the-default-store.md))
 at its design target: thousands of repositories and people and about ten
-million facts. Results are in [`store-10m.md`](store-10m.md), with the raw lines under
-[`results/`](results). This page says
+million facts. Results are in [`store-10m.md`](store-10m.md) and, for `Apply` with the audit log
+on and off, [`ingest-throughput.md`](ingest-throughput.md), with the raw lines
+under [`results/`](results). This page says
 how the benchmark works and how to run it again.
 
 ## What it does
@@ -38,6 +39,12 @@ and analyzes the schema, then measures:
 | Slowest statements and their plans | `pg_stat_statements` (if loaded), `EXPLAIN (ANALYZE, BUFFERS)` of the store's load queries |
 | Cost of resolving one event | dry-run `Resolve` of a new Change and of unchanged repository, team and person reads |
 | Applies per second | 1, 4 and 16 writers, at the store (ChangeSets built ahead) and through the resolver; waiters on the head row lock; stale retries |
+| Audit log on and off | one consumer holding the head, as the server's apply loop will, three pairs of 30-second runs in alternating order; `Apply` time and events per second with and without audit entries, and the statements it ran (`apply_audit`, `apply_audit_statements`) |
+
+The audit entries are the ones the spec says the resolver will write (a mint, a
+binding, a status change for each fact, ...), added by the benchmark to each
+ChangeSet (`audit.go`) because the resolver does not write them yet. `--audit=false`
+loads and measures a log that stays empty.
 
 Two experiments need a store of their own: `merges` (1,000, 10,000 and
 100,000 merge records) and `history` (series history against sync count).
@@ -77,4 +84,7 @@ about 45 GB for the tables plus the write-ahead log (set `max_wal_size` to
 suit). The 2026-10-10 run stopped at 3 million for want of space.
 
 `measure --only resolve` runs only the resolver timings with the database's
-own transaction and row counters.
+own transaction and row counters. `measure --only audit` runs only the audit
+on/off comparison, with sizes of the tables; `--cpuprofile FILE` writes a CPU
+profile of the whole run (`go tool pprof`). The role needs `EXECUTE` on
+`pg_stat_statements_reset(oid, oid, bigint)` for the per-run statements.
