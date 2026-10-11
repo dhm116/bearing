@@ -245,19 +245,21 @@ func TestCheckListenRefusesUnsafeSettings(t *testing.T) {
 		l    ListenConfig
 		want string // empty: valid
 	}{
-		"nothing to listen on":      {ListenConfig{}, "socket, an address"},
-		"a relative socket":         {ListenConfig{Socket: "bearing.sock"}, "absolute"},
-		"TCP with no authenticator": {ListenConfig{Addr: "127.0.0.1:8443"}, "authentication"},
-		"a bad address":             {ListenConfig{Addr: "nonsense", Authenticator: authn}, "address"},
-		"plaintext off loopback":    {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn}, "TLS"},
-		"a name that is not local":  {ListenConfig{Addr: "bearing.example:8443", Authenticator: authn}, "TLS"},
-		"a certificate and no key":  {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn, CertFile: "c.pem"}, "both"},
-		"plaintext on loopback":     {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn}, ""},
-		"localhost":                 {ListenConfig{Addr: "localhost:8443", Authenticator: authn}, ""},
-		"IPv6 loopback":             {ListenConfig{Addr: "[::1]:8443", Authenticator: authn}, ""},
-		"plaintext allowed":         {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, InsecurePlaintext: true}, ""},
-		"TLS off loopback":          {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, CertFile: "c.pem", KeyFile: "k.pem"}, ""},
-		"a socket":                  {ListenConfig{Socket: "/run/bearing/api.sock"}, ""},
+		"nothing to listen on":        {ListenConfig{}, "socket, an address"},
+		"a relative socket":           {ListenConfig{Socket: "bearing.sock"}, "absolute"},
+		"TCP with no authenticator":   {ListenConfig{Addr: "127.0.0.1:8443"}, "authentication"},
+		"a bad address":               {ListenConfig{Addr: "nonsense", Authenticator: authn}, "address"},
+		"plaintext off loopback":      {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn}, "TLS"},
+		"a name that is not local":    {ListenConfig{Addr: "bearing.example:8443", Authenticator: authn}, "TLS"},
+		"a certificate and no key":    {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn, CertFile: "c.pem"}, "both"},
+		"plaintext on loopback":       {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn}, ""},
+		"localhost":                   {ListenConfig{Addr: "localhost:8443", Authenticator: authn}, ""},
+		"IPv6 loopback":               {ListenConfig{Addr: "[::1]:8443", Authenticator: authn}, ""},
+		"plaintext allowed":           {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, InsecurePlaintext: true}, ""},
+		"TLS off loopback":            {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, CertFile: "c.pem", KeyFile: "k.pem"}, ""},
+		"a socket":                    {ListenConfig{Socket: "/run/bearing/api.sock"}, ""},
+		"webhooks on the socket only": {ListenConfig{Socket: "/run/bearing/api.sock", Webhooks: http.NotFoundHandler()}, "TCP listener"},
+		"webhooks on TCP":             {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn, Webhooks: http.NotFoundHandler()}, ""},
 	} {
 		err := checkListen(&tt.l)
 		switch {
@@ -409,5 +411,74 @@ func TestPeerUIDRefusesAConnectionThatIsNotLocal(t *testing.T) {
 	defer func() { _ = b.Close() }()
 	if _, err := peerUID(a); err == nil {
 		t.Error("got nil, want an error for a connection that is not a Unix socket")
+	}
+}
+
+// A delivery on the TCP listener proves itself by its signature, with no
+// token; the same listener's API routes still want a token, and the socket
+// never serves the webhook route (C-INGEST-2, C-API-2).
+func TestAPITCPListenerTakesSignedWebhooksWithoutAToken(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	r := newRig(t)
+	certFile, keyFile, pool := selfSigned(t)
+	addr := freeAddr(t)
+	sock := filepath.Join(privateDir(t), "bearing.sock")
+	serveAPI(t, w, ListenConfig{Socket: sock, Addr: addr, Authenticator: w.authn, CertFile: certFile, KeyFile: keyFile, Webhooks: r.in})
+
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	url := "https://" + addr
+	waitFor(t, "the TCP listener", func() bool {
+		resp, err := client.Get(url + "/healthz")
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	})
+	waitForSocket(t, sock)
+
+	post := func(c *http.Client, base, path string, body []byte, h http.Header) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, base+path, strings.NewReader(string(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header = h.Clone()
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	body := []byte(`{"zen":"Keep it logically awesome."}`)
+	if code := post(client, url, "/webhooks/"+source, body, http.Header{"X-Hub-Signature-256": {"sha256=00"}}); code != http.StatusUnauthorized {
+		t.Fatalf("a badly signed delivery: got %d, want 401", code)
+	}
+	if n := len(r.logged()); n != 0 {
+		t.Fatalf("got %d events logged, want none from a refused delivery", n)
+	}
+	if code := post(client, url, "/webhooks/"+source, body, signed(body)); code != http.StatusAccepted {
+		t.Fatalf("a signed delivery with no token: got %d, want 202", code)
+	}
+	if n := len(r.logged()); n != 1 {
+		t.Fatalf("got %d events logged, want the delivery on the log before the 202", n)
+	}
+
+	// The API behind it keeps its own checks, however the path is spelled.
+	for _, path := range []string{"/v1/changes", "/webhooks/../v1/changes"} {
+		if code, _ := get(t, client, url+path); code == http.StatusOK {
+			t.Errorf("GET %s with no token: got %d, want it refused", path, code)
+		}
+	}
+	// The socket has no webhook route: a local caller is an administrator, and
+	// a delivery is not a way to be one.
+	local := unixClient(sock)
+	if code := post(local, "http://bearing", "/webhooks/"+source, body, signed(body)); code != http.StatusNotFound {
+		t.Errorf("a signed delivery on the socket: got %d, want 404", code)
+	}
+	if n := len(r.logged()); n != 1 {
+		t.Errorf("got %d events logged, want the socket's refusal to store nothing", n)
 	}
 }

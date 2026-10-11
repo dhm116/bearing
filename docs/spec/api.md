@@ -122,7 +122,17 @@ JSON); the sync itself runs later. `--json` through `--server` prints the
 fields this client's types know, so a field a newer server adds shows only once
 the client is updated.
 
+## Webhook deliveries
+
+`POST /webhooks/{source}` is served by the TCP listener only, never the Unix
+socket, and ahead of the API's token check: a delivery is authenticated by its
+source's signature, and everything else about it (body limit, rate limits,
+answers with a status and a request ID only, 2xx only once the event is on the
+log) is the ingest rules of the threat model (C-INGEST-2 to C-INGEST-11). The
+rest of the path space is the API's: a path under `/webhooks/` that is not a
+source is a 401 to a POST, as for an unknown source, and no other path reaches the
+handler.
+
 ## Not here yet
 
-Webhook deliveries (`POST /webhooks/{source}`, authenticated by the source's
-signature, not a token), the metrics listener and configuration routes.
+The metrics listener and configuration routes.

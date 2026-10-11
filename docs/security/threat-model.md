@@ -255,6 +255,10 @@ Assets: A1, A7, the event log.
   transports (HTTP webhooks and CloudEvents in the MVP). Each transport is
   configured on its own (address, port, protocol, TLS) and can be turned off.
   Ingest is off until a Source that pushes events is configured.
+  In the MVP server the HTTP webhook transport is served by the API's TCP
+  listener (`POST /webhooks/<source>`, same address and TLS), ahead of token
+  authentication, since a delivery proves itself by its signature; the Unix
+  socket never serves it. A listener of its own is a later option.
 - **C-INGEST-2** The host authenticates every pushed event for its Source
   before anything is stored or acknowledged, using the method the Source
   configures: an HMAC signature over the raw body; a client certificate
@@ -292,7 +296,8 @@ Assets: A1, A7, the event log.
   update time, event-log order decides.
 - **C-INGEST-6** Transports bind TLS 1.2 or later. Plain HTTP on a
   non-loopback address requires `insecure_ingest_plaintext` (for example
-  behind a TLS-terminating proxy).
+  behind a TLS-terminating proxy). While the webhook route shares the API's
+  TCP listener, that listener's `insecure_api_plaintext` is the setting.
 - **C-INGEST-7** Ingest responses carry only a status code and a request ID.
   An unknown route and a failed check get the same response. Everything
   before the signature check (method, per-peer limit, body limit) is the same
