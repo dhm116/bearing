@@ -622,8 +622,9 @@ Assets: A3, A5, A4, A7.
   `azp`/`client_id` and gets only the roles its client ID is mapped to; an
   unmapped client is denied. The authenticator sets a client ID only for such a
   token: one with no subject, a subject equal to the client ID, or the
-  provider's marker for client credentials. A caller with a client ID is a
-  client and its groups claim is ignored, so a token cannot lift a client
+  claim `gty` equal to `client-credentials`. A caller with a client ID is a
+  client, the verifier does not pass on its groups claim and an `Authorizer`
+  ignores it, so a token cannot lift a client
   above its mapping, and the application a user signed in through is not who
   is asking. The authenticator also refuses a token whose subject begins
   `system:` or `local:`, which are the audit log's names for components and

@@ -915,7 +915,8 @@ The server authenticates first: it checks a token against the identity
 provider, or accepts a caller on the Unix socket, and builds a `Caller` from
 what that proved. The `Authorizer` never sees a token. A `Caller` holds the
 issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
-(`azp` or `client_id`) only for a token a client got for itself, the groups
+(`azp` or `client_id`) only for a token a client got for itself (no subject, a
+subject equal to the client ID, or `gty` equal to `client-credentials`), the groups
 claim, and a `Local` flag only the server sets. The authenticator refuses a
 token whose subject begins `system:` or `local:`, which the audit log uses for
 components and the socket (C-AUDIT-6). The server also checks that a `Source`
