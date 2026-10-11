@@ -36,7 +36,7 @@ func NewCheckpoint(head contracts.AuditHead, now time.Time, s *Signer) (*modelv1
 	return newCheckpoint(head, now, s, false)
 }
 
-// NewCutCheckpoint returns the checkpoint to write before AuditLog.Cut removes
+// NewCutCheckpoint returns the checkpoint to write before AuditRetention.Cut removes
 // the records through through: it names the last of them and is marked as
 // written at a cut, so Verify accepts a log that starts after it. It is
 // always signed, since an unsigned marker would let whoever controls the

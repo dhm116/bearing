@@ -302,7 +302,8 @@ func TestAuditCommandsRejectBadInput(t *testing.T) {
 		{"checkpoint with a stray argument", []string{"checkpoint", "extra"}, true, "flags only"},
 		{"reanchor with a stray argument", []string{"reanchor", "extra"}, true, "flags only"},
 		{"reanchor without a key", []string{"reanchor"}, false, "needs --key-id and --key-env"},
-		{"reanchor of a log that starts at record 1", []string{"reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"}, false, "starts at record 1"},
+		{"reanchor without the record it vouches for", []string{"reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"}, false, "needs --expect-seq"},
+		{"reanchor of a log that starts at record 1", []string{"reanchor", "--expect-seq", "1", "--key-id", "audit-1", "--key-env", "KEY_VAR"}, false, "starts at record 1"},
 		{"an unknown flag", []string{"verify", "--nope"}, true, "nope"},
 		{"max-age that is not a duration", []string{"verify", "--checkpoints", cpFile, "--max-age", "soon"}, false, "--max-age"},
 		{"max-age of zero", []string{"verify", "--checkpoints", cpFile, "--max-age", "0h"}, false, "--max-age"},
@@ -566,7 +567,7 @@ func TestAuditVerifyAcceptsACutLogAndReanchorRestoresAMissingMarker(t *testing.T
 	}
 	pub := a.keys("audit-1")
 	keys := []string{"--key", "audit-1=" + pub}
-	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "starts at record 1") {
+	if out, err := a.run("reanchor", "--expect-seq", "1", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "starts at record 1") {
 		t.Fatalf("got %q, %v, want a log that starts at record 1 refused", out, err)
 	}
 	cpFile := a.file("cp.ndjson")
@@ -582,7 +583,10 @@ func TestAuditVerifyAcceptsACutLogAndReanchorRestoresAMissingMarker(t *testing.T
 	}
 	// The operator re-anchors the current start with the current key.
 	re := a.file("re.ndjson")
-	out, err = a.run("reanchor", "--out", re, "--key-id", "audit-1", "--key-env", "KEY_VAR")
+	if out, err := a.run("reanchor", "--expect-seq", "2", "--out", re, "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "not --expect-seq 2") {
+		t.Fatalf("got %q, %v, want a wrong expected record refused", out, err)
+	}
+	out, err = a.run("reanchor", "--expect-seq", "3", "--out", re, "--key-id", "audit-1", "--key-env", "KEY_VAR")
 	if err != nil || !strings.Contains(out, "cut checkpoint of record 3") || !strings.Contains(out, "starts at record 4") {
 		t.Fatalf("got %q, %v, want the cut checkpoint of record 3", out, err)
 	}
@@ -594,7 +598,7 @@ func TestAuditVerifyAcceptsACutLogAndReanchorRestoresAMissingMarker(t *testing.T
 func TestAuditReanchorOfAnEmptyOrTamperedLogIsRefused(t *testing.T) {
 	a := newAuditWorld(t)
 	a.keys("audit-1")
-	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "empty") {
+	if out, err := a.run("reanchor", "--expect-seq", "1", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "empty") {
 		t.Fatalf("got %q, %v, want an empty log refused", out, err)
 	}
 	for _, e := range []string{"e1", "e2", "e3"} {
@@ -602,7 +606,7 @@ func TestAuditReanchorOfAnEmptyOrTamperedLogIsRefused(t *testing.T) {
 	}
 	a.cut(2, "")
 	a.log = editedLog{AuditLog: a.log, seq: 3}
-	if out, err := a.run("reanchor", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
+	if out, err := a.run("reanchor", "--expect-seq", "2", "--key-id", "audit-1", "--key-env", "KEY_VAR"); err == nil || !strings.Contains(err.Error(), "does not match its hash") {
 		t.Fatalf("got %q, %v, want an edited start refused", out, err)
 	}
 }

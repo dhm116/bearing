@@ -112,6 +112,11 @@ func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, 
 	if i == len(recs) || recs[i].GetSeq() != c.Through || !bytes.Equal(recs[i].GetHash(), c.Hash) {
 		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
 	}
+	// A record that does not match its own hash is not cut, so a cut never
+	// launders a tampered prefix.
+	if h, err := audit.Hash(recs[i]); err != nil || !bytes.Equal(h, c.Hash) {
+		return 0, fmt.Errorf("%w: record %d does not match its hash", contracts.ErrAuditCutMismatch, c.Through)
+	}
 	// A copy, so the removed records can be collected.
 	a.s.audit = slices.Clone(recs[i+1:])
 	return uint64(i) + 1, nil //nolint:gosec // G115: an index is never negative

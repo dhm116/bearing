@@ -110,10 +110,13 @@ func (r *retentionSuite) prefix(t *testing.T) {
 	head, err := l.Head(ctx)
 	failIf(t, err != nil || head.Seq != 6, "Head: got %+v, %v, want record 6", head, err)
 
+	// The oldest record alone is a cut like any other.
+	_, n := k.cut(t, s, clk, 1)
+	failIf(t, n != 1, "Cut through the oldest record removed %d records, want 1", n)
 	cp, n := k.cut(t, s, clk, 3)
-	failIf(t, n != 3, "Cut removed %d records, want 3", n)
+	failIf(t, n != 2, "Cut removed %d records, want 2", n)
 	got := records(t, l)
-	failIf(t, len(got) != 3 || got[0].GetSeq() != 4, "got %d records from %d, want 3 from record 4", len(got), got[0].GetSeq())
+	failIf(t, len(got) != 3 || got[0].GetSeq() != 4, "got %d records, want 3 from record 4", len(got))
 	for i, rec := range got {
 		failIf(t, rec.GetHash() == nil || !bytes.Equal(rec.GetHash(), before[i+3].GetHash()), "record %d was changed by the cut", rec.GetSeq())
 	}
@@ -138,8 +141,10 @@ func (r *retentionSuite) prefix(t *testing.T) {
 	failIf(t, err != nil || !rep.OK() || rep.Last != 8 || rep.Records != 5, "Verify after more applies: got %+v, %v, want records 4 to 8 intact", rep, err)
 
 	// A second cut is another marker; the first is history.
+	_, n = k.cut(t, s, clk, 4)
+	failIf(t, n != 1, "Cut through the oldest record removed %d records, want 1", n)
 	cp2, n := k.cut(t, s, clk, 6)
-	failIf(t, n != 3, "second Cut removed %d records, want 3", n)
+	failIf(t, n != 2, "second Cut removed %d records, want 2", n)
 	rep, err = audit.Verify(ctx, l, []*modelv1alpha1.AuditCheckpoint{cp, cp2}, audit.Options{Keys: k.keys})
 	failIf(t, err != nil || !rep.OK() || rep.First != 7 || rep.Records != 2, "Verify after two cuts: got %+v, %v, want records 7 and 8 intact", rep, err)
 }

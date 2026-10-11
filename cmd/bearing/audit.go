@@ -368,6 +368,7 @@ func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.W
 	out := fs.String("out", "", "append the checkpoint to this file (created with mode 0600); default stdout")
 	keyID := fs.String("key-id", "", "the signing key's ID, a label that verifiers know the public key by")
 	keyEnv := fs.String("key-env", "", "the name of the environment variable that holds the signing key as a PKCS #8 PEM (never the key itself)")
+	expect := fs.Uint64("expect-seq", 0, "the number of the last record that was removed, which you know from an earlier checkpoint or a backup; must be the log's oldest record minus one")
 	pos, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -380,6 +381,9 @@ func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.W
 	}
 	if *keyID == "" || *keyEnv == "" {
 		return errors.New("audit reanchor signs, so it needs --key-id and --key-env: an unsigned marker never counts")
+	}
+	if *expect == 0 {
+		return errors.New("audit reanchor needs --expect-seq: the number of the last record that was removed, which only an earlier checkpoint file or a backup can tell you; signing the start of a log you have not checked would bless a deleted prefix")
 	}
 	signer, err := loadSigner(env, *keyID, *keyEnv)
 	if err != nil {
@@ -397,6 +401,9 @@ func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.W
 	if len(recs) == 0 {
 		return errors.New("the audit log is empty, so there is no start to anchor")
 	}
+	if recs[0].GetSeq() != *expect+1 {
+		return fmt.Errorf("the log starts at record %d, so the last removed record is %d, not --expect-seq %d: run `bearing audit verify` and investigate before signing", recs[0].GetSeq(), recs[0].GetSeq()-1, *expect)
+	}
 	cp, err := audit.NewStartCheckpoint(recs[0], env.Now(), signer)
 	if err != nil {
 		return err
@@ -413,7 +420,7 @@ func auditReanchor(ctx context.Context, env queryEnv, args []string, stdout io.W
 	if err := appendFile(*out, line); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "wrote the cut checkpoint of record %d (hash %s, signed by %s) to %s; the log now starts at record %d\n", cp.GetSeq(), hex.EncodeToString(cp.GetHeadHash())[:12], signer.KeyID, *out, recs[0].GetSeq())
+	_, err = fmt.Fprintf(stdout, "wrote the cut checkpoint of record %d (hash %s, signed by %s) to %s; the log now starts at record %d. Compare the hash with the one in an earlier checkpoint or a backup\n", cp.GetSeq(), hex.EncodeToString(cp.GetHeadHash()), signer.KeyID, *out, recs[0].GetSeq())
 	return err
 }
 

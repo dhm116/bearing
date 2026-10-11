@@ -898,7 +898,7 @@ when both are set. `Head` returns the newest record's `seq`, hash and
 `recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin
 role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
 
-`bearing audit reanchor [--out FILE] --key-id ID --key-env VAR` writes the
+`bearing audit reanchor [--out FILE] --expect-seq N --key-id ID --key-env VAR` writes the
 cut checkpoint for the log's current start, for a log that was cut and lost
 its marker (a rotated key, a lost checkpoint file): the record the old marker
 named is gone, but the oldest record's `prev_hash` is its hash. It always
@@ -906,8 +906,10 @@ signs (an unsigned marker never counts), takes the key as `checkpoint` does,
 refuses a log that starts at record 1, an empty one and an oldest record that
 does not match its hash, and writes the line as `checkpoint` does. It does not
 delete anything. Signing it says the records before the start were removed on
-purpose, which only the operator can know: check it against an earlier
-checkpoint file or a backup first (C-AUDIT-5).
+purpose, which only the operator can know, so `--expect-seq` is required: the
+number of the last removed record, taken from an earlier checkpoint file or a
+backup, which must be the oldest record's number minus one. The command prints
+the hash it signed for; compare it with that earlier checkpoint (C-AUDIT-5).
 
 ### Audit retention
 
@@ -937,10 +939,13 @@ server's retention job alone (threat model C-AUDIT-5).
   log, a `Through` of 0 or a hash that is not 32 bytes is `ErrInvalidAuditCut`.
 - A cut that is already done, because `Through` is below the oldest record the
   log holds, removes nothing and succeeds, so a retry after a crash is safe.
-- It runs under the same lock as `Apply`: no record is added while it runs,
-  the chain stays unbroken from the first record left, and the head is
-  unchanged. Its cost is proportional to what it removes, so the caller cuts in
-  bounded batches.
+- It is atomic with `Apply` and `Restore`: it takes the same head lock, so it
+  runs between applies and is refused while a restore runs, the chain stays
+  unbroken from the first record left, and the head is unchanged. It also
+  recomputes the hash of the record at `Through` and refuses to cut one that
+  does not match it, so a cut never launders a tampered prefix. The contract
+  sets no maximum on a cut and its cost, and the time it holds the lock, grow
+  with what it removes, so the caller cuts in bounded batches.
 
 A cut goes in this order, for each call:
 
@@ -955,10 +960,18 @@ A cut goes in this order, for each call:
    run ended and for good if the server stopped partway.
 3. It calls `Cut` with the same record number and hash.
 
-A crash between 2 and 3 leaves a marker with nothing missing, which is fine:
-`Verify` checks a cut checkpoint against a record still in the log like any
-checkpoint, and the next run repeats the cut. Records missing with no marker
-are what `Verify` finds.
+A crash between 2 and 3 leaves a marker with nothing missing, which `Verify`
+accepts: it checks a cut checkpoint against a record still in the log like any
+checkpoint. Until the cut completes, though, that marker is a standing licence
+for anyone with store access to delete the records up to it without `Verify`
+noticing, so the job repeats the cut through the same record before choosing
+another and reports a marker it cannot complete. The job also runs `Verify`
+against the checkpoints it holds before step 2, since it signs the hash it
+reads from the store; and `Verify` fails when two trusted checkpoints disagree
+about a record that has been cut. `Cut` does not see the marker: pairing them is
+the job's discipline. Records missing with no marker are what `Verify` finds.
+`Verify` reads the log in pages and assumes no cut lands while it runs; one
+that does can show as a gap, so rerun it.
 
 What the marker means to `Verify`: the log may start at record `S + 1` when a
 trusted cut checkpoint with `seq = S` holds the oldest record's `prev_hash`.

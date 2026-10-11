@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/pkg/audit"
 	"bearing.example/pkg/contracts"
 )
 
@@ -212,7 +213,7 @@ func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, 
 	through := int64(c.Through) //nolint:gosec // G115: below the head's sequence number, which is below 2^63
 	var oldest *int64
 	if err := tx.QueryRow(ctx, `SELECT min(seq) FROM audit_record`).Scan(&oldest); err != nil {
-		return 0, fmt.Errorf("read the oldest audit record: %w", err)
+		return 0, fmt.Errorf("read the oldest audit record: %w", cleanError(err))
 	}
 	if oldest == nil {
 		return 0, fmt.Errorf("%w: the log holds no records", contracts.ErrAuditCutMismatch)
@@ -225,7 +226,7 @@ func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, 
 	case errors.Is(err, pgx.ErrNoRows):
 		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
 	case err != nil:
-		return 0, fmt.Errorf("read audit record %d: %w", through, err)
+		return 0, fmt.Errorf("read audit record %d: %w", through, cleanError(err))
 	}
 	rec := &modelv1alpha1.AuditRecord{}
 	if err := proto.Unmarshal(data, rec); err != nil {
@@ -234,12 +235,17 @@ func (a auditRetention) Cut(ctx context.Context, c contracts.AuditCut) (uint64, 
 	if rec.GetSeq() != c.Through || !bytes.Equal(rec.GetHash(), c.Hash) {
 		return 0, fmt.Errorf("%w: record %d", contracts.ErrAuditCutMismatch, c.Through)
 	}
+	// A record that does not match its own hash is not cut, so a cut never
+	// launders a tampered prefix.
+	if h, err := audit.Hash(rec); err != nil || !bytes.Equal(h, c.Hash) {
+		return 0, fmt.Errorf("%w: record %d does not match its hash", contracts.ErrAuditCutMismatch, c.Through)
+	}
 	tag, err := tx.Exec(ctx, `DELETE FROM audit_record WHERE seq <= $1`, through)
 	if err != nil {
-		return 0, fmt.Errorf("delete audit records: %w", err)
+		return 0, fmt.Errorf("delete audit records: %w", cleanError(err))
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit audit cut: %w", err)
+		return 0, fmt.Errorf("commit audit cut: %w", cleanError(err))
 	}
 	return uint64(tag.RowsAffected()), nil //nolint:gosec // G115: a row count is never negative
 }

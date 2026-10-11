@@ -180,14 +180,26 @@ To report a vulnerability, see [SECURITY.md](../../SECURITY.md).
   retention is refused without a signing key and is off by default. Any other
   deleted prefix is found, and so is a cut that went further than its marker.
   Residual risks: a marker authorizes removing records up to it, so whoever
-  holds the signing key can bless a deleted prefix, and in the window between
-  writing a marker and the `Cut` call someone with store access can delete
-  that prefix without going through the job (a marker never written is never
-  honored, and a repeated run finishes the cut). `bearing audit reanchor`
-  signs the marker for the log's current start when an earlier marker is lost
-  (a rotated key, a lost file): it vouches that what came before was removed
-  on purpose, which the operator must have checked by other means, such as
-  an earlier checkpoint file or a backup. Retention bounds the audit table
+  holds the signing key can bless a deleted prefix. Until a cut through the
+  marker's record completes, the marker is a standing licence for anyone with
+  store access to delete records 1 to that record with `Verify` still
+  passing, and it stays in the checkpoint file for good; so the job must not
+  leave markers behind (a failed `Cut` is retried through the same record
+  before another is chosen, and a marker that cannot be completed is
+  reported). The link between the marker and `Cut` is the job's discipline:
+  `Cut` compares the hash it is given with the stored record and with that
+  record's own content, and refuses on a difference, but it never sees the
+  marker, and `store.Store.AuditRetention` is a field like the others, so
+  keeping it away from everything but the job is a matter of wiring. The job
+  also signs the hash it reads from the store, so before signing it runs
+  `Verify` against the checkpoints it holds; a rewritten prefix that a cut
+  then removes would otherwise hide, and `Verify` finds checkpoints that
+  disagree about a record that is gone. `bearing audit reanchor` signs the
+  marker for the log's current start when an earlier marker is lost (a
+  rotated key, a lost file): it vouches that what came before was removed on
+  purpose, which the operator must have checked by other means, such as an
+  earlier checkpoint file or a backup, so it takes the number of the last
+  removed record (`--expect-seq`) and prints the hash it signed for. Retention bounds the audit table
   only: the journal, `Restore` and backups still hold the entries, and a
   restore rebuilds the whole chain, so a cut is not a way to erase a person's
   name from the system.
@@ -329,7 +341,11 @@ Assets: A1, A7, the event log.
   adapter. If a failed sync is run again and a page of it is already on the
   log, the rerun never claims `complete_sync` (the log keeps the first copy of
   a page, so its pages may mix two runs), and the next scheduled sync starts
-  over. Not yet bounded: the pages and bytes one sync may put on the log.
+  over. The look-up of an event already given up on reads the audit log, so
+  once a retention cut (C-AUDIT-5) removes that entry, an event that was
+  dead-lettered but never committed is retried and dead-lettered again after a
+  restart instead of only committed; rare and harmless. Not yet bounded: the
+  pages and bytes one sync may put on the log.
 
 ### B2. Adapter modules
 

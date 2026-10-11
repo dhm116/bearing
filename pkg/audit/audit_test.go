@@ -468,6 +468,11 @@ func TestVerifyRefusesAStartThatNoSignedCutExcuses(t *testing.T) {
 			l.recs = l.recs[5:]
 			return cp
 		}, Options{Keys: keys}, "records 1 to 5 are missing"},
+		{"a marker whose flag was stripped after signing", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
+			cp := l.cutAt(t, 5, s)
+			cp.Cut = false
+			return cp
+		}, Options{Keys: keys}, "signature does not match"},
 		{"a marker for an earlier record than the log's start", func(t *testing.T, l *fakeLog) *modelv1alpha1.AuditCheckpoint {
 			cp := l.cutAt(t, 4, s)
 			l.recs = l.recs[1:]
@@ -526,6 +531,34 @@ func TestVerifyChecksACutCheckpointAgainstARecordThatIsStillThere(t *testing.T) 
 		t.Fatal(err)
 	}
 	wantFailure(t, verify(t, l, []*modelv1alpha1.AuditCheckpoint{bad}, Options{Keys: keys}), 4, "different hash")
+}
+
+// Records that were cut can't be compared with the checkpoints that name them,
+// so those checkpoints must at least agree with each other: a chain rewritten
+// before the cut could otherwise hide behind it.
+func TestVerifyFindsCheckpointsThatDisagreeAboutACutRecord(t *testing.T) {
+	l := chain(t, 8)
+	s, pub := signer(t, "audit-1")
+	keys := map[string]ed25519.PublicKey{"audit-1": pub}
+	first, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: l.recs[2].GetHash()}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: l.recs[2].GetHash()}, t0.Add(time.Minute), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := l.cutAt(t, 5, s)
+	// Checkpoints that agree are fine, whether or not the record is still there.
+	cps := []*modelv1alpha1.AuditCheckpoint{first, same, marker}
+	if rep := verify(t, l, cps, Options{Keys: keys}); !rep.OK() {
+		t.Fatalf("got %+v, want agreeing checkpoints of a cut record accepted", rep.Failures)
+	}
+	forged, err := NewCheckpoint(contracts.AuditHead{Seq: 3, Hash: bytes.Repeat([]byte{8}, HashSize)}, t0, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFailure(t, verify(t, l, append(cps, forged), Options{Keys: keys}), 3, "two trusted checkpoints hold different hashes")
 }
 
 func TestNewCutCheckpointIsSignedAndMarkedAsACut(t *testing.T) {

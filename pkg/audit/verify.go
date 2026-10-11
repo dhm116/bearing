@@ -83,6 +83,9 @@ func (r Report) OK() bool { return len(r.Failures) == 0 }
 //   - every checkpoint is signed (unless Options.AllowUnsigned) and its
 //     signature verifies against a trusted key.
 //
+// Verify reads the log in pages and assumes no retention cut lands while it
+// runs; one that does can show as a gap, so rerun it.
+//
 // A checkpoint that fails its signature is reported and not used to judge the
 // chain. Verify stops reading at the first broken record, since nothing after
 // it can be trusted, so records past it are not counted. It returns an error
@@ -170,6 +173,22 @@ func Verify(ctx context.Context, log contracts.AuditLog, checkpoints []*modelv1a
 			prev = rec
 			rep.Records++
 			rep.Last = rec.GetSeq()
+		}
+	}
+	if !broken && rep.First > 1 {
+		// A record that was cut can no longer be compared with the checkpoints
+		// that name it, so they must at least agree with each other: a chain
+		// rewritten before the cut would otherwise hide behind it.
+		for seq, cps := range bySeq {
+			if seq >= rep.First {
+				continue
+			}
+			for _, cp := range cps[1:] {
+				if !bytes.Equal(cp.GetHeadHash(), cps[0].GetHeadHash()) {
+					fail(seq, "was cut, and two trusted checkpoints hold different hashes for it")
+					break
+				}
+			}
 		}
 	}
 	if !broken && maxSeq > rep.Last {
