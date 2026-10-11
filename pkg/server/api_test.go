@@ -327,11 +327,10 @@ func TestAPIUnknownPathsAndMethodsAreRefusedBeforeCredentials(t *testing.T) {
 func TestAPIRefusesABodyOnEveryRoute(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
-	big := strings.NewReader(strings.Repeat("x", 100<<10))
 	for _, rt := range routes {
 		target := strings.NewReplacer("{source}", testSource).Replace(strings.SplitN(rt.pattern, " ", 2)[1])
-		for name, body := range map[string]io.Reader{"a large body": big, "a small one": strings.NewReader("{}")} {
-			req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, body)
+		for name, body := range map[string]string{"a large body": strings.Repeat("x", 100<<10), "a small one": "{}"} {
+			req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, strings.NewReader(body))
 			req.Header.Set("Authorization", "Bearer admin")
 			rec := httptest.NewRecorder()
 			w.h.ServeHTTP(rec, req)

@@ -58,7 +58,7 @@ is a 400. Times are RFC 3339.
 `ref` is a subject ID or a key such as `github:repo/acme/payments`, at most
 1,024 bytes. The answers are the JSON of the `pkg/query` types, the same ones
 the command line prints; their field names are the wire format, and within
-`/v1` fields are only added. A golden-file test for each is a follow-up. With no `since` or `until`, `changes`
+`/v1` fields are only added. With no `since` or `until`, `changes`
 asks about the last 24 hours.
 
 **Page tokens.** A token carries the whole question and is not signed. It is
