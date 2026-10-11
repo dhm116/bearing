@@ -80,6 +80,10 @@ var auditCuts = must(meter.Int64Counter("bearing.retention.audit_cuts",
 	metric.WithDescription("Audit-log cuts made by the retention job by result: cut, or failed with the step that failed (key, read, choose, verify, marker or cut). A failure repeats at every run until someone acts; verify means the log or its checkpoints do not add up."),
 	metric.WithUnit("{cut}")))
 
+var auditCheckpoints = must(meter.Int64Counter("bearing.audit.checkpoints",
+	metric.WithDescription("Audit checkpoint writer runs by result: written, unchanged (the head had not moved), or failed with the step that failed (key, head, checkpoint or write). A failure repeats at every run until someone acts; key means a configured key does not load and nothing is written, head means the log's head does not match its newest record."),
+	metric.WithUnit("{run}")))
+
 func resultStageAttrs(result, stage string) metric.AddOption {
 	if stage == "" {
 		return metric.WithAttributes(attrResult.String(result))

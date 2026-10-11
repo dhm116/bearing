@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -62,8 +63,11 @@ func ReadCheckpoints(r io.Reader) ([]*modelv1alpha1.AuditCheckpoint, error) {
 // CheckpointFile is a file of checkpoints on disk: the place the operator
 // keeps them where the store's writers can't change them (threat model
 // C-AUDIT-3). It is the destination `bearing audit checkpoint` appends to and
-// the one the server's retention job writes its cut checkpoints to.
+// the one the server's checkpoint writer and retention job write to.
 type CheckpointFile struct{ Path string }
+
+// appendMu serializes the appends of this process.
+var appendMu sync.Mutex
 
 // Append writes cp as a line of the file, created with mode 0600, and syncs
 // it before it returns: a checkpoint that is lost in a crash pins nothing,
@@ -75,6 +79,10 @@ func (f CheckpointFile) Append(_ context.Context, cp *modelv1alpha1.AuditCheckpo
 		return err
 	}
 	line = append(line, '\n')
+	// The server's checkpoint writer and its retention job append to the same
+	// file; one failing write must not truncate the other's line.
+	appendMu.Lock()
+	defer appendMu.Unlock()
 	_, statErr := os.Stat(f.Path)
 	created := errors.Is(statErr, os.ErrNotExist)
 	file, err := os.OpenFile(f.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o600)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"crypto/ed25519"
@@ -289,24 +288,9 @@ func auditCheckpoint(ctx context.Context, env queryEnv, args []string, stdout io
 		return err
 	}
 	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	head, err := log.Head(ctx)
+	head, err := audit.CheckedHead(ctx, log)
 	if err != nil {
 		return err
-	}
-	// The head comes from the store's bookkeeping, not from a record. A
-	// checkpoint is appended to a file that cannot be edited, so it must not
-	// sign a head that no record carries.
-	if head.Seq > 0 {
-		recs, err := log.Query(ctx, contracts.AuditFilter{After: head.Seq - 1, Limit: 1})
-		if err != nil {
-			return err
-		}
-		if len(recs) != 1 || recs[0].GetSeq() != head.Seq || !bytes.Equal(recs[0].GetHash(), head.Hash) {
-			return fmt.Errorf("the log's head (record %d) does not match its newest record: run `bearing audit verify` and investigate before taking a checkpoint", head.Seq)
-		}
-		if want, err := audit.Hash(recs[0]); err != nil || !bytes.Equal(want, head.Hash) {
-			return fmt.Errorf("record %d does not match its hash: run `bearing audit verify` and investigate before taking a checkpoint", head.Seq)
-		}
 	}
 	cp, err := audit.NewCheckpoint(head, env.Now(), signer)
 	if err != nil {
