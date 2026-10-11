@@ -145,7 +145,9 @@ command line, a store's too, text that a terminal would act on is written as a
 JSON `\uXXXX` escape: DEL, the C1 controls (U+0080 to U+009F, which include the
 8-bit CSI and OSC), format characters such as bidi overrides, and the line and
 paragraph separators. The document means what it meant (a JSON reader decodes
-the escape to the same character); only what a terminal would print differs.
+the escape to the same character); only what a terminal would print differs. The guarantee is for a terminal in
+UTF-8 mode; one that is not still reads parts of ordinary non-ASCII text as
+controls (#284).
 The checkpoint lines that `audit checkpoint` and `audit reanchor` write are not
 `--json`, and their signed bytes stay as they are. An answer that would indent
 to more than 64 MiB (a deeply nested one) is printed compact, and one that is

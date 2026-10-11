@@ -843,7 +843,11 @@ Assets: A3, A5, A4, A7.
     OSC, which some terminals act on) and format characters such as bidi
     overrides, so the escaper writes those as `\uXXXX` as well. Through
     `--server`, `--json` prints the body the server sent after that escaping, so
-    it is the server's text but cannot move the operator's terminal.
+    it is the server's text but cannot move the operator's terminal, if that
+    terminal is in UTF-8 mode. A terminal that is not reads the bytes 0x80 to
+    0x9F inside the multi-byte form of ordinary non-ASCII text as C1 controls;
+    escaping every non-ASCII character would close that, at a cost in
+    readability, and is open as #284.
   - Residual risks: a socket path is trusted as given, so a local user who
     plants a socket where `$BEARING_SERVER` points can forge answers (no token
     is exposed); the URL of each request, which holds the question and a page
