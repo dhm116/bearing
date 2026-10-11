@@ -735,6 +735,34 @@ Assets: A3, A5, A4, A7.
   not have asked for.
 - **C-API-7** Errors return a code, a message written for the caller and a
   request ID. Details go to logs, not responses.
+  The server's `API` (`pkg/server`, routes in
+  [docs/spec/api.md](../spec/api.md)) puts C-API-1 to C-API-7 in one wrapper
+  that every route goes through, in this order: in-flight cap,
+  authentication, per-caller rate limit, authorization, parameters. The
+  routes are one table, built into the mux from the same list a test reads, so
+  a route cannot skip a check, and a test fails for a route whose method has
+  no role (C-API-5) or that is missing from the 401 and 403 table. Choices and
+  residual risks:
+  - The socket is Linux only (the UID comes from the kernel's peer
+    credentials); elsewhere it refuses every connection. Its directory is
+    checked at start (mode 0700, the service user's), a file that is not a
+    socket at its path is never replaced, and a peer that is neither the
+    service user nor root is closed before it sends a byte.
+  - An unknown source in a sync request is a 404 before the Authorizer is
+    asked, since only a configured source is ever put to it. So any
+    authenticated caller can tell, by 403 against 404, whether a source name
+    exists. Source names are not secret: every read caller sees them in the
+    supports of facts.
+  - A page token is decoded only after the request is authenticated and
+    authorized, bounded to 512 bytes, and cannot be mixed with the question's
+    own parameters; a withdrawn role ends paging on the next page.
+  - The TLS certificate is read once at start, so a rotated one needs a
+    restart. Per-caller tables (rate, reads in flight) are bounded at 10,000
+    callers and reset or refuse past that, so a flood of distinct callers
+    cannot grow memory.
+  - The per-caller rate limit is applied after authentication, so it does not
+    slow an attacker who sends bad tokens; token checking is bounded by the
+    verifier (C-IDP-1) and the in-flight cap.
 - **C-MCP-1** MCP is read-only. It exposes only query tools that need the
   `read` role: no config, sync, ingest or action tools.
 - **C-MCP-2** Source text in MCP results is returned only as objects

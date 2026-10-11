@@ -6,6 +6,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -119,3 +120,19 @@ func (s *Server) observeGauges() (stop func()) {
 	}
 	return func() { _ = reg.Unregister() }
 }
+
+// apiRequests counts API requests by method and result. The method is one of
+// the API's fixed names, never a caller's value, and no label names a caller.
+var apiRequests = must(meter.Int64Counter("bearing.api.requests",
+	metric.WithDescription("API requests by method and result: ok, unauthenticated, unavailable (credentials or authorization could not be checked), denied, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated or denied is a client with the wrong credentials or role, or probing; error is a fault to read the logs for."),
+	metric.WithUnit("{request}")))
+
+func apiAttrs(method contracts.Method, result string) metric.AddOption {
+	return metric.WithAttributes(attribute.String("bearing.authz.method", string(method)), attrResult.String(result))
+}
+
+// apiPeersRefused counts connections the Unix socket turned away because the
+// peer's UID is not the service user's or root (C-API-1).
+var apiPeersRefused = must(meter.Int64Counter("bearing.api.peers_refused",
+	metric.WithDescription("Connections to the local API socket refused because the peer's UID is not the service user's or root. Never labelled with the UID."),
+	metric.WithUnit("{connection}")))
