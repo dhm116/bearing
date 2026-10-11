@@ -1,6 +1,6 @@
 # 7. Bearing is always on and every input is a durable event
 
-Date: 2026-09-29 · Status: proposed
+Date: 2026-09-29 · Status: accepted
 
 ## Context
 
@@ -42,8 +42,8 @@ the graph quietly.
 - **`EventLog` replaces the `EventBus` contract.** It is durable, ordered
   within a partition and replayable from an offset:
   `Append`, `Read(from offset)` for a consumer group, `Commit`.
-  Partitions are keyed by source entity key, so events about one entity stay
-  in order.
+  ~~Partitions are keyed by source entity key, so events about one entity stay
+  in order.~~
   *Amended 2026-10-10: a partition is the configured source an event is
   about (`manual` and `core/<name>` for events that belong to none), so the
   events of one source stay in order and the log needs no key extraction.
@@ -59,8 +59,10 @@ the graph quietly.
   changes nothing.
 - **Backends.** The default is a log table in the same store as the graph
   (ADR 5), so a single binary needs nothing else. NATS JetStream is the
-  option for scale, and Kafka is an alternative. All three pass one
+  option for scale, and Kafka is an alternative. All three would pass one
   `conformance.EventLog` suite.
+  *Amended 2026-10-11: `memstore` and `pgstore` are the two backends so far;
+  NATS and Kafka are not built.*
 - **Retention.** Raw events are kept for a configurable window (default 30
   days) for replay and debugging. Facts and their history are kept
   indefinitely, and the graph can be rebuilt from a full resync plus the
@@ -71,6 +73,13 @@ the graph quietly.
   log acknowledged to a sender is never deleted before it was applied. A group
   that is not named holds nothing back. A later setting may cap the log by age
   or size and discard unapplied events anyway; it is off by default.*
+
+*Accepted 2026-10-11: `bearing server --settings` runs this design: the
+event log, ingest and the signed webhook route, one apply worker per
+partition with retries and dead letters, the scheduler, the store's instance
+lock, health checks, and the audit checkpoint writer and retention job
+([ADR 8](0008-audit-log.md)). The CLI's queries and sync requests go through
+the server's API. How to run it is in [`docs/operations.md`](../operations.md).*
 
 ## Shape
 
@@ -83,7 +92,7 @@ A webhook delivery, end to end:
 
 ![GitHub posts a webhook; ingest appends it to the event log keyed by the delivery ID and only then answers 202 Accepted.](diagrams/adr7-seq-ingest.svg)
 
-![A worker takes an event from the log, runs the adapter, and in one transaction checks the processed-ID table, writes facts and audit records, and marks the event done before committing its offset.](diagrams/adr7-seq-apply.svg)
+![A worker takes a webhook event from the log, runs the adapter and appends the observations to the log as a new event. It then takes that event and, in one transaction, checks the processed-ID table, writes facts and audit records and marks the ID done before committing its offset.](diagrams/adr7-seq-apply.svg)
 
 ## Consequences
 
