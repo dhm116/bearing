@@ -115,17 +115,18 @@ def adr7_seq_apply():
         ((596, 364), 188, "OBSERVATIONS", "dash", 480),
         ((356, 120), 220, "APPEND · OBSERVATIONS EVENT", "", 238),
         ((356, 120), 252, "COMMIT OFFSET 1042", "", 238),
-        ((120, 356), 288, "DELIVER OFFSET 1043", "", 238),
+        ((120, 356), 288, "DELIVER A LATER OFFSET", "", 238),
         ((364, 836), 318, "BEGIN · SEEN THIS ID?", "", 480),
         ((364, 836), 398, "UPSERT FACTS · AUDIT", "", 480),
         ((364, 836), 430, "MARK ID PROCESSED", "", 480),
         ((364, 836), 478, "COMMIT", "acc", 480),
-        ((356, 120), 514, "COMMIT OFFSET 1043", "", 238),
+        ((356, 120), 514, "COMMIT THAT OFFSET", "", 238),
     ]
     for (x1, x2), y, text, kind, lx in msgs:
         d.path([(x1, y), (x2, y)], kind)
         d.label(lx, y - 12, text, "acc" if "acc" in kind else "")
-    d.text(480, 576, "A crash before COMMIT means redelivery, and the processed-ID check turns it into a no-op.", "t-callout", "middle")
+    d.text(480, 570, "Each observation is applied in its own transaction.", "t-callout", "middle")
+    d.text(480, 588, "A crash before COMMIT OFFSET means redelivery; if the store had committed, the ID check makes it a no-op.", "t-callout", "middle")
     d.legend([("arrow", "", "Call"), ("arrow", "dash", "Return"), ("arrow", "acc", "Headline step"),
               ("zone", "", "Runs only for a new observation")])
     return d
