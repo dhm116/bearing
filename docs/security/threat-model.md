@@ -622,12 +622,14 @@ Assets: A3, A5, A4, A7.
   `azp`/`client_id` and gets only the roles its client ID is mapped to; an
   unmapped client is denied. The authenticator sets a client ID only for such a
   token: one with no subject, a subject equal to the client ID, or the
-  provider's marker for client credentials. A caller with a client ID is a
-  client and its groups claim is ignored, so a token cannot lift a client
+  claim `gty` equal to `client-credentials`. A caller with a client ID is a
+  client, the verifier does not pass on its groups claim and an `Authorizer`
+  ignores it, so a token cannot lift a client
   above its mapping, and the application a user signed in through is not who
-  is asking. The authenticator also refuses a token whose subject begins
+  is asking. The authenticator also refuses a token whose subject or client ID begins
   `system:` or `local:`, which are the audit log's names for components and
-  the socket (C-AUDIT-6). An **agent** is a client whose only role is
+  the socket (C-AUDIT-6), or is longer than 1,024 bytes, which the audit log
+  could not record as an actor. An **agent** is a client whose only role is
   `read`, for queries and MCP. A client may also be mapped to `ingest` for named Sources
   only. A mapping that gives a client `admin` is rejected at config apply.
 - **C-API-5** Each API method declares its required role in one table. A
@@ -684,7 +686,12 @@ Assets: caller identity, role mapping, A7 (API availability).
   whose `issuer` must equal the configured issuer exactly. Fetches have
   timeouts and size limits. Keys are cached; an unknown `kid` triggers at
   most one refresh per minute, and keys missing from a refreshed JWKS are
-  dropped. With no valid keys, verification fails closed. The Unix socket
+  dropped. Keys are refreshed after an hour; while the IdP cannot be reached
+  the cached keys are used for up to 24 hours. A revoked key can therefore
+  still verify tokens for up to an hour, or up to a day while the IdP is
+  down. The `jwks_uri` may be any https host the issuer's document names.
+  A refresh is not cancelled with the request that started it, and one that
+  yields no usable key keeps the old keys. With no valid keys, verification fails closed. The Unix socket
   keeps working while the IdP is down.
 - **C-IDP-3** Roles come only from the configured groups claim (and, for
   clients, client ID) through the configured mapping. Other claims never

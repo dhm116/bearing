@@ -1,6 +1,6 @@
-// Package auth answers who may call Bearing (ADR 12). It holds the default
-// contracts.Authorizer, which maps the groups and client ID a verified
-// caller carries to roles. Bearing issues no credentials and stores none:
-// what a token proves is checked elsewhere, and this package decides only
-// what the proven identity may do.
+// Package auth answers who may call Bearing (ADR 12). Verifier checks an OIDC
+// bearer token against the issuer's keys and builds the contracts.Caller it
+// proves; RoleAuthorizer, the default contracts.Authorizer, maps the groups
+// and client ID of that caller to roles. Bearing issues no credentials and
+// stores none.
 package auth

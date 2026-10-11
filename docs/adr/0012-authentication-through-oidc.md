@@ -74,7 +74,7 @@ the MVP plan already rely on.
 - Roles are only as good as the identity provider's groups. Changing
   who is an administrator is done there, not in Bearing.
 - The `Authorizer` interface and its conformance suite are in
-  `pkg/contracts`, with the default group-to-role backend in `pkg/auth`. The
-  token verification and the API servers arrive with M3 (durable, always-on
+  `pkg/contracts`, with the default group-to-role backend and the token
+  verifier in `pkg/auth`. The API servers arrive with M3 (durable, always-on
   core), and the status above flips to accepted in the change that makes the
   server enforce them.
