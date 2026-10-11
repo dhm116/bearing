@@ -31,6 +31,8 @@ const (
 	// refresh keeps failing, after which verification fails closed.
 	maxKeyAge   = time.Hour
 	maxKeyStale = 24 * time.Hour
+	// fetchTimeout bounds one refresh, whatever HTTP client was injected.
+	fetchTimeout = 15 * time.Second
 )
 
 var (
@@ -78,9 +80,8 @@ func (k *keySet) lookup(ctx context.Context, kid string) (jwk, error) {
 		return j, nil
 	}
 	if k.sinceAttempt() >= refreshInterval {
-		if err := k.refresh(ctx); err != nil {
-			telemetry.Logger(pkgName).WarnContext(ctx, "identity provider keys not refreshed", "error", err.Error())
-		}
+		// refresh reports its own failure; the old keys stay in use.
+		_ = k.refresh(ctx)
 		if j, ok := k.cached(kid); ok {
 			return j, nil
 		}
@@ -133,6 +134,12 @@ func (k *keySet) empty() bool {
 // cached keys with it: keys the issuer no longer lists are dropped (a revoked
 // key stops working at the next refresh). A failed fetch keeps the old keys.
 func (k *keySet) refresh(ctx context.Context) (err error) {
+	// The fetch serves every caller that waits behind it and counts against
+	// the one-a-minute limit, so it must not die with the request that
+	// happened to start it: a dropped connection would leave all callers
+	// without keys for a minute.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+	defer cancel()
 	ctx, span := telemetry.Tracer(pkgName).Start(ctx, "auth.refresh_keys", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 	k.mu.Lock()
@@ -169,6 +176,11 @@ func (k *keySet) refresh(ctx context.Context) (err error) {
 	keys, err := parseJWKS(raw)
 	if err != nil {
 		return fmt.Errorf("key set: %w", err)
+	}
+	if len(keys) == 0 {
+		// A set with nothing usable is a failed fetch, not a revocation of
+		// every key: the old keys stay until they age out.
+		return errors.New("key set has no usable keys")
 	}
 	k.mu.Lock()
 	k.keys, k.fetchedAt = keys, k.now()

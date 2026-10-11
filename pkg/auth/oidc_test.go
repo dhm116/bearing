@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -22,9 +23,51 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
 )
+
+var (
+	spans   = tracetest.NewSpanRecorder()
+	metrics = sdkmetric.NewManualReader()
+)
+
+func TestMain(m *testing.M) {
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)))
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(metrics)))
+	os.Exit(m.Run())
+}
+
+// authCounts returns the auth counters by "name/result".
+func authCounts(t *testing.T) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := metrics.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				result, _ := dp.Attributes.Value(attribute.Key("bearing.result"))
+				out[m.Name+"/"+result.AsString()] += dp.Value
+			}
+		}
+	}
+	return out
+}
 
 const (
 	testAudience = "bearing"
@@ -103,6 +146,7 @@ type idp struct {
 	issuerName string // what the discovery document says; empty means the URL
 	jwksURI    string // empty means the real one
 	jwksBody   []byte // when set, served instead of the key list
+	discBody   []byte // when set, served instead of the discovery document
 	fetches    atomic.Int64
 }
 
@@ -119,6 +163,10 @@ func newIDP(t *testing.T) *idp {
 		p.fetches.Add(1)
 		if p.status != 0 {
 			w.WriteHeader(p.status)
+			return
+		}
+		if p.discBody != nil {
+			_, _ = w.Write(p.discBody)
 			return
 		}
 		doc := map[string]string{"issuer": p.srv.URL, "jwks_uri": p.srv.URL + "/jwks"}
@@ -291,7 +339,11 @@ func TestVerifyRefusesTokensItCannotTrust(t *testing.T) {
 		{"padding", parts[0] + "=." + parts[1] + "." + parts[2], "malformed"},
 		{"not base64", "!!." + parts[1] + "." + parts[2], "malformed"},
 		{"empty", "", "malformed"},
-		{"too long", strings.Repeat("a", MaxTokenBytes+1), "malformed"},
+		{"too long", func() string {
+			c := p.claims()
+			c["pad"] = strings.Repeat("a", MaxTokenBytes)
+			return p.token(t, algES256, kidEC, c)
+		}(), "malformed"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := p.verifier(t).Verify(t.Context(), tt.token)
@@ -577,7 +629,10 @@ func TestDiscoveryAndKeyFetchesAreHeldToTheRules(t *testing.T) {
 		{"the key set URL has credentials", func(p *idp) { p.jwksURI = strings.Replace(p.srv.URL, "https://", "https://u:p@", 1) + "/jwks" }},
 		{"the key set URL is empty", func(p *idp) { p.jwksURI = "not a url" }},
 		{"the key set redirects", func(p *idp) { p.jwksURI = p.srv.URL + "/moved" }},
-		{"the key set is over a megabyte", func(p *idp) { p.jwksBody = []byte(`{"keys":[],"pad":"` + strings.Repeat("a", maxIDPBody) + `"}`) }},
+		{"the key set is over a megabyte", func(p *idp) { p.jwksBody = paddedKeySet(t, p, maxIDPBody+1) }},
+		{"the discovery document is over a megabyte", func(p *idp) {
+			p.discBody = []byte(`{"issuer":"` + p.srv.URL + `","jwks_uri":"` + p.srv.URL + `/jwks","pad":"` + strings.Repeat("a", maxIDPBody) + `"}`)
+		}},
 		{"the key set is not JSON", func(p *idp) { p.jwksBody = []byte("<html>") }},
 		{"the key set has no keys", func(p *idp) { p.jwksBody = []byte(`{"keys":[]}`) }},
 	} {
@@ -773,5 +828,189 @@ func TestAClientCredentialsTokenWithAnAdminGroupGetsOnlyItsClientRoles(t *testin
 		if err != nil || d.Allowed != tt.want {
 			t.Errorf("%s: got %+v, %v, want allowed=%v", tt.name, d, err, tt.want)
 		}
+	}
+}
+
+func TestAKeyThatNamesAnAlgorithmIsUsedForThatOneOnly(t *testing.T) {
+	p := newIDP(t)
+	k := keys(t)
+	pinned := jwkRSA("rsa-pinned", &k.rsa.PublicKey)
+	pinned["alg"] = algRS256
+	p.set(func(p *idp) { p.jwks = append(p.jwks, pinned) })
+	v := p.verifier(t)
+	if _, err := v.Verify(t.Context(), p.token(t, algRS256, "rsa-pinned", p.claims())); err != nil {
+		t.Fatalf("RS256 under a key that names RS256: %v", err)
+	}
+	if _, err := v.Verify(t.Context(), p.token(t, algPS256, "rsa-pinned", p.claims())); Reason(err) != "signature" {
+		t.Fatalf("PS256 under a key that names RS256: got %v, want a signature refusal", err)
+	}
+}
+
+func TestRSAKeysOutsideTheAcceptedSizesAndExponentsAreSkipped(t *testing.T) {
+	k := keys(t)
+	good := jwkRSA("ok", &k.rsa.PublicKey)
+	small := jwkRSA("small-e", &k.rsa.PublicKey)
+	small["e"] = b64([]byte{3})
+	huge := jwkRSA("huge", &k.rsa.PublicKey)
+	huge["n"] = b64(append([]byte{0xff}, make([]byte, maxRSABits/8)...))
+	raw, err := json.Marshal(map[string]any{"keys": []any{good, small, huge}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseJWKS(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["ok"]; !ok || len(got) != 1 {
+		t.Fatalf("got keys %v, want only ok", slices.Collect(func(yield func(string) bool) {
+			for k := range got {
+				if !yield(k) {
+					return
+				}
+			}
+		}))
+	}
+}
+
+func TestSubjectsAndClientIDsAreBoundedAndCannotPoseAsAuditNames(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t, func(c *OIDCConfig) { c.AccessTokenJWT, c.AllowedClients = true, nil })
+	for _, tt := range []struct {
+		name string
+		edit func(c map[string]any)
+		ok   bool
+	}{
+		{"a client named system:resolver", func(c map[string]any) { delete(c, "sub"); c["azp"] = "system:resolver" }, false},
+		{"a client named local:0", func(c map[string]any) { delete(c, "sub"); c["azp"] = "local:0" }, false},
+		{"a client_id named system:x", func(c map[string]any) { delete(c, "sub"); delete(c, "azp"); c["client_id"] = "system:x" }, false},
+		{"a user token through a system: application", func(c map[string]any) { c["azp"] = "system:app" }, false},
+		{"a subject over the audit limit", func(c map[string]any) { c["sub"] = strings.Repeat("s", maxActorBytes+1) }, false},
+		{"a client ID over the audit limit", func(c map[string]any) { delete(c, "sub"); c["azp"] = strings.Repeat("c", maxActorBytes+1) }, false},
+		{"a subject of exactly the limit", func(c map[string]any) { c["sub"] = strings.Repeat("s", maxActorBytes) }, true},
+		{"a subject with a control character", func(c map[string]any) { c["sub"] = "a\nb" }, false},
+		{"an ordinary client", func(c map[string]any) { delete(c, "sub") }, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := p.claims()
+			tt.edit(c)
+			_, err := v.Verify(t.Context(), p.token(t, algEdDSA, kidEd, c, map[string]any{"typ": "at+jwt"}))
+			if (err == nil) != tt.ok || (err != nil && Reason(err) != "claims") {
+				t.Errorf("got %v, want accepted=%v", err, tt.ok)
+			}
+		})
+	}
+}
+
+// paddedKeySet is a valid key set of exactly size bytes, so only a size limit
+// can refuse it. The caller holds no lock on p.
+func paddedKeySet(t *testing.T, p *idp, size int) []byte {
+	t.Helper()
+	p.mu.Lock()
+	list, err := json.Marshal(p.jwks)
+	p.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const head, mid, tail = `{"keys":`, `,"pad":"`, `"}`
+	pad := size - len(head) - len(list) - len(mid) - len(tail)
+	if pad < 0 {
+		t.Fatalf("size %d is smaller than the key list", size)
+	}
+	return []byte(head + string(list) + mid + strings.Repeat("a", pad) + tail)
+}
+
+func TestAKeySetOfExactlyTheLimitIsAccepted(t *testing.T) {
+	p := newIDP(t)
+	body := paddedKeySet(t, p, maxIDPBody)
+	p.set(func(p *idp) { p.jwksBody = body })
+	if _, err := p.verifier(t).Verify(t.Context(), p.token(t, algES256, kidEC, p.claims())); err != nil {
+		t.Fatalf("a key set of exactly the limit was refused: %v", err)
+	}
+}
+
+func TestAColdStartWithManyTokensFetchesKeysOnce(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t)
+	good := p.token(t, algES256, kidEC, p.claims())
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.Verify(t.Context(), good); err != nil {
+				t.Errorf("got %v, want accepted", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := p.fetches.Load(); got != 1 {
+		t.Fatalf("%d fetches for a cold start, want 1", got)
+	}
+}
+
+func TestACancelledCallerDoesNotLeaveEveryoneWithoutKeys(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t)
+	good := p.token(t, algES256, kidEC, p.claims())
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+	// The caller that starts the fetch has hung up; the fetch is not theirs.
+	_, _ = v.Verify(gone, good)
+	if _, err := v.Verify(t.Context(), good); err != nil {
+		t.Fatalf("the next caller got %v, want accepted", err)
+	}
+}
+
+func TestAnEmptyKeySetDoesNotReplaceWorkingKeys(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t)
+	if _, err := v.Verify(t.Context(), p.token(t, algES256, kidEC, p.claims())); err != nil {
+		t.Fatal(err)
+	}
+	p.set(func(p *idp) { p.jwksBody = []byte(`{"keys":[]}`) })
+	p.clock.Advance(2 * time.Hour)
+	c := p.claims()
+	c["exp"] = p.clock.Now().Add(time.Hour).Unix()
+	if _, err := v.Verify(t.Context(), p.token(t, algES256, kidEC, c)); err != nil {
+		t.Fatalf("an empty refresh dropped the working keys: %v", err)
+	}
+}
+
+func TestATokenWithNeitherSubjectNorClientIsRefused(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t, func(c *OIDCConfig) { c.AccessTokenJWT, c.AllowedClients = true, nil })
+	c := p.claims()
+	delete(c, "sub")
+	delete(c, "azp")
+	_, err := v.Verify(t.Context(), p.token(t, algES256, kidEC, c, map[string]any{"typ": "at+jwt"}))
+	if Reason(err) != "claims" {
+		t.Fatalf("got %v, want a claims refusal", err)
+	}
+}
+
+func TestVerificationIsCountedAndKeyFetchesAreTraced(t *testing.T) {
+	p := newIDP(t)
+	v := p.verifier(t)
+	before := authCounts(t)
+	good := p.token(t, algES256, kidEC, p.claims())
+	wrongAud := p.claims()
+	wrongAud["aud"] = "other"
+	for _, tok := range []string{good, p.token(t, algES256, kidEC, wrongAud), "not a token"} {
+		_, _ = v.Verify(t.Context(), tok)
+	}
+	got := authCounts(t)
+	for key, want := range map[string]int64{"bearing.auth.tokens/ok": 1, "bearing.auth.tokens/audience": 1, "bearing.auth.tokens/malformed": 1, "bearing.auth.key_refreshes/ok": 1} {
+		if d := got[key] - before[key]; d != want {
+			t.Errorf("%s: counted %d, want %d (all: %v)", key, d, want, got)
+		}
+	}
+	var found bool
+	for _, sp := range spans.Ended() {
+		if sp.Name() == "auth.refresh_keys" && sp.SpanKind() == trace.SpanKindClient && slices.Contains(sp.Attributes(), attribute.Int("bearing.auth.keys", 3)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no auth.refresh_keys client span with the key count")
 	}
 }

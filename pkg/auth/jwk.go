@@ -24,8 +24,12 @@ const (
 	algEdDSA = "EdDSA"
 )
 
-// minRSABits is the smallest RSA modulus accepted.
-const minRSABits = 2048
+// The RSA modulus sizes accepted. The upper bound keeps one verification fast:
+// a 2^20-bit modulus takes seconds.
+const (
+	minRSABits = 2048
+	maxRSABits = 8192
+)
 
 // jwk is one parsed key of a JWK Set (RFC 7517) that Bearing can use.
 type jwk struct {
@@ -86,7 +90,7 @@ func (j jwkJSON) parse() (jwk, error) {
 	case "RSA":
 		n, err1 := b64Int(j.N)
 		e, err2 := b64Int(j.E)
-		if err1 != nil || err2 != nil || n.BitLen() < minRSABits || !e.IsInt64() || e.Int64() < 65537 || e.Int64() > 1<<31-1 || e.Bit(0) == 0 {
+		if err1 != nil || err2 != nil || n.BitLen() < minRSABits || n.BitLen() > maxRSABits || !e.IsInt64() || e.Int64() < 65537 || e.Int64() > 1<<31-1 || e.Bit(0) == 0 {
 			return jwk{}, errors.New("unusable RSA key")
 		}
 		if j.Alg != "" && j.Alg != algRS256 && j.Alg != algPS256 {

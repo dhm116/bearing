@@ -918,8 +918,9 @@ issuer, the subject (`sub`, or `local:<uid>` for the socket), the client ID
 (`azp` or `client_id`) only for a token a client got for itself (no subject, a
 subject equal to the client ID, or `gty` equal to `client-credentials`), the groups
 claim, and a `Local` flag only the server sets. The authenticator refuses a
-token whose subject begins `system:` or `local:`, which the audit log uses for
-components and the socket (C-AUDIT-6). The server also checks that a `Source`
+token whose subject or client ID begins `system:` or `local:` (the audit log's
+names for components and the socket, C-AUDIT-6), or is longer than 1,024 bytes
+(the audit log refuses a longer actor). The server also checks that a `Source`
 names a configured source before it asks, so the backend decides only who may
 act on it.
 

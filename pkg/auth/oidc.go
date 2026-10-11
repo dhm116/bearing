@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
@@ -23,6 +25,9 @@ import (
 
 // Limits on a token and its claims.
 const (
+	// maxActorBytes is the longest subject or client ID accepted; the audit log
+	// refuses an actor ID longer than this (model.MaxActorBytes).
+	maxActorBytes = 1024
 	// MaxTokenBytes bounds the bearer token read from a request.
 	MaxTokenBytes = 16 << 10
 	// maxGroups and maxGroupBytes bound the groups claim.
@@ -244,8 +249,16 @@ func (v *Verifier) claims(typ string, raw []byte) (contracts.Caller, error) {
 	// The audit log names components and the socket caller "system:<name>" and
 	// "local:<uid>" (C-AUDIT-6); a token's subject must not be able to pose as
 	// one of them.
-	if strings.HasPrefix(sub, "system:") || strings.HasPrefix(sub, "local:") {
-		return contracts.Caller{}, refuse("claims", "the subject uses a name Bearing reserves")
+	// The same goes for the client ID, which becomes the audit actor of a
+	// client. Both are bounded by the audit log's actor limit, so a caller
+	// whose name cannot be recorded is refused here and not at its first write.
+	for _, name := range []string{sub, clientID} {
+		switch {
+		case strings.HasPrefix(name, "system:") || strings.HasPrefix(name, "local:"):
+			return contracts.Caller{}, refuse("claims", "a subject or client ID uses a name Bearing reserves")
+		case len(name) > maxActorBytes || !utf8.ValidString(name) || strings.ContainsFunc(name, unicode.IsControl):
+			return contracts.Caller{}, refuse("claims", "a subject or client ID is too long or holds a control character")
+		}
 	}
 	groups, err := v.groups(c)
 	if err != nil {

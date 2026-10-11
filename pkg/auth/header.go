@@ -13,7 +13,9 @@ var ErrNoToken = errors.New("auth: no bearer token")
 // nowhere else: not a query parameter, a cookie or a second header (C-IDP-1,
 // C-IDP-5), since those end up in logs and referrers. It returns ErrNoToken
 // when there is no header, and an error wrapping ErrInvalidToken for one that
-// is not exactly "Bearer <token>".
+// is not exactly "Bearer <token>". Only Verify counts tokens in
+// bearing.auth.tokens, so a server that refuses a header here counts it as
+// "malformed" itself.
 func BearerToken(h http.Header) (string, error) {
 	values := h.Values("Authorization")
 	switch len(values) {
