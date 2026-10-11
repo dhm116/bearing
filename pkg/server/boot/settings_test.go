@@ -43,6 +43,7 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 	}{
 		{"no store", `"graph": "mem://"`, `"graph": ""`, "store.graph is required"},
 		{"memory events under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "mem://"`, "store.events is in memory"},
+		{"memory events in capitals under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "MEM://x"`, "store.events is in memory"},
 		{"no listener", `"socket": "/run/bearing/api.sock"`, `"socket": ""`, "listen needs a socket"},
 		{"a typo in a limit", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns": 0`, "max_conns must be positive"},
 		{"a negative per-peer cap", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns_per_peer": -1`, "max_conns_per_peer must be positive"},
@@ -54,8 +55,8 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"a source for an adapter that is not installed", `"adapter": "github"`, `"adapter": "gitlab"`, "is not in adapters"},
 		{"a secret written as a value", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"ghp_notAReference"`, "must be a reference"},
 		{"a file reference before M5", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"file:/run/secrets/bearing/token"`, "until M5"},
-		{"Bearing's own variable as a secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_STORE_PASSWORD"`, "not in the secret allowlist"},
-		{"a webhook secret outside the allowlist", `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, `"env:HOME"`, "not in the secret allowlist"},
+		{"Bearing's own variable as a secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_STORE_PASSWORD"`, "the secret allowlist"},
+		{"a webhook secret outside the allowlist", `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, `"env:HOME"`, "the secret allowlist"},
 		{"a schedule that is not ISO 8601", `"PT1H"`, `"1h"`, "ISO 8601"},
 		{"a schedule that is a typo for seconds", `"PT1H"`, `"PT5S"`, "shorter than"},
 		{"authority before M5", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "not supported until M5"},
@@ -103,16 +104,13 @@ func TestSecretAllowlistIsAPrefixAndCanBeNarrowedOrMoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "not in the secret allowlist") {
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "the secret allowlist") {
 		t.Fatalf("got %v, want the default prefix no longer allowed", err)
 	}
-	for _, bad := range []string{`"*"`, `"A*B*"`, `"NOSTAR"`} {
+	for _, bad := range []string{`"A*B*"`, `"NOSTAR"`, `"*"`, `"P*"`, `"BEARING_*"`, `"BEARING_STORE_*"`} {
 		s, err := Parse([]byte(strings.Replace(goodSettings, `"store"`, `"secrets": {"env_allowlist": [`+bad+`]}, "store"`, 1)))
 		if err != nil {
 			t.Fatal(err)
-		}
-		if bad == `"*"` {
-			continue // a bare * is a prefix of everything, which the operator may choose
 		}
 		if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "env_allowlist") {
 			t.Fatalf("%s: got %v, want the allowlist entry refused", bad, err)
@@ -193,6 +191,20 @@ func TestParseScheduleReadsISODurationsAndRefusesTheRest(t *testing.T) {
 		got, err := ParseSchedule(tt.in)
 		if (err != nil) != tt.bad || got != tt.want {
 			t.Errorf("ParseSchedule(%q) = %v, %v; want %v, error %v", tt.in, got, err, tt.want, tt.bad)
+		}
+	}
+}
+
+// A token pasted after env: must not come back in the error or the log.
+func TestSettingsDoNotEchoAWronglyWrittenSecret(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"ghp_canaryToken123", "not a name!"} {
+		s, err := Parse([]byte(strings.Replace(goodSettings, `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:`+bad+`"`, 1)))
+		if err == nil {
+			err = s.Validate()
+		}
+		if err == nil || strings.Contains(err.Error(), bad) {
+			t.Fatalf("got %v, want an error that does not contain %q", err, bad)
 		}
 	}
 }

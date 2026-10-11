@@ -63,6 +63,8 @@ type managed struct {
 	ctx    context.Context //nolint:containedctx // the process outlives the call that starts it
 	clk    clock.Clock
 
+	reaping sync.WaitGroup // dropped processes still being reaped
+
 	mu      sync.Mutex
 	proc    Process
 	fails   int
@@ -111,11 +113,17 @@ func (m *managed) drop(p Process, why error) {
 		return
 	}
 	m.proc = nil
-	m.failLocked()
+	if m.ctx.Err() == nil { // a call cut short by the server stopping is not the adapter's failure
+		m.failLocked()
+	}
+	m.reaping.Add(1)
 	m.mu.Unlock()
 	_ = p.Kill()
 	telemetry.Logger(pkgName).Warn("an adapter process was dropped", "bearing.source", m.source, "error", why.Error())
-	go func() { _ = p.Close() }() // reaps it; a killed process exits with an error
+	go func() { // reaps it; a killed process exits with an error
+		defer m.reaping.Done()
+		_ = p.Close()
+	}()
 }
 
 // ok records a call that came back, so the next failure starts the pauses
@@ -183,6 +191,7 @@ func (m *managed) Close() error {
 	m.proc = nil
 	m.retryAt = time.Time{}
 	m.mu.Unlock()
+	defer m.reaping.Wait()
 	if p == nil {
 		return nil
 	}

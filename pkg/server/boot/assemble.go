@@ -40,6 +40,10 @@ type Env struct {
 	Getenv func(string) string
 	// Clock is the time source; nil means clock.Real.
 	Clock clock.Clock
+
+	// Seams for the tests of the paths a healthy store never takes.
+	lockInstance func(context.Context, *store.Store) (store.InstanceLock, error) // nil means st.LockInstance
+	afterLock    func() error                                                    // fails Assemble after the lock is held
 }
 
 // Running is a server that has been assembled and not yet run: its store is
@@ -130,14 +134,23 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	var procs []*managed
 	defer func() {
 		if err != nil {
+			logClose(closeAll(procs, lock, st))
 			cancel()
-			closeAll(procs, lock, st)
 		}
 	}()
 	// A second server on the same store could apply a source's events out of
 	// order, so this one does not start without the lock (#176, #235).
-	if lock, err = st.LockInstance(ctx); err != nil {
+	lockInstance := env.lockInstance
+	if lockInstance == nil {
+		lockInstance = func(ctx context.Context, st *store.Store) (store.InstanceLock, error) { return st.LockInstance(ctx) }
+	}
+	if lock, err = lockInstance(ctx, st); err != nil {
 		return nil, fmt.Errorf("boot: another server holds the store, or its lock cannot be taken: %w", err)
+	}
+	if env.afterLock != nil {
+		if err = env.afterLock(); err != nil {
+			return nil, err
+		}
 	}
 
 	res, err := resolver.New(rcfg, st.Graph)
@@ -182,7 +195,8 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 
 // Run serves until ctx ends or the server or a listener fails, then stops
 // both, gives the adapters time to exit, releases the instance lock and
-// closes the store. It returns what stopped it, nil for a stop by ctx.
+// closes the store. It returns what stopped it, nil for a stop by ctx, and
+// anything that did not shut down cleanly.
 func (r *Running) Run(ctx context.Context) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -192,35 +206,46 @@ func (r *Running) Run(ctx context.Context) error {
 	first := <-errs
 	stop()
 	second := <-errs
+	// The adapters are asked to exit before their context ends: cancelling
+	// first would kill them with no chance to finish.
+	closed := closeAll(r.procs, r.lock, r.st)
 	r.cancel()
-	closeAll(r.procs, r.lock, r.st)
-	return errors.Join(first, second)
+	return errors.Join(first, second, closed)
 }
 
 // Close releases an assembled server that was never run.
 func (r *Running) Close() {
+	logClose(closeAll(r.procs, r.lock, r.st))
 	r.cancel()
-	closeAll(r.procs, r.lock, r.st)
 }
 
 // closeAll stops the adapters, then gives the instance lock up and closes the
-// store. Errors are logged: there is no one to return them to.
-func closeAll(procs []*managed, lock store.InstanceLock, st *store.Store) {
-	log := telemetry.Logger(pkgName)
+// store. It carries on past a failure and returns every one.
+func closeAll(procs []*managed, lock store.InstanceLock, st *store.Store) error {
+	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
-			log.Warn("an adapter did not exit cleanly", "bearing.source", m.source, "error", err.Error())
+			errs = append(errs, fmt.Errorf("adapter for source %s did not exit cleanly: %w", m.source, err))
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
 	defer cancel()
 	if lock != nil {
 		if err := lock.Release(ctx); err != nil {
-			log.Warn("the instance lock was not released", "error", err.Error())
+			errs = append(errs, fmt.Errorf("release the instance lock: %w", err))
 		}
 	}
 	if err := st.Close(ctx); err != nil {
-		log.Warn("the store did not close cleanly", "error", err.Error())
+		errs = append(errs, fmt.Errorf("close the store: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// logClose reports what closeAll could not do on a path with no caller to
+// return it to.
+func logClose(err error) {
+	if err != nil {
+		telemetry.Logger(pkgName).Warn("the server did not shut down cleanly", "error", err.Error())
 	}
 }
 
@@ -327,8 +352,8 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 }
 
 // checkCommands refuses an adapter command that is not an installed
-// executable that only its owner can change. The path is resolved here, once;
-// a restart never looks one up again.
+// executable that only the service user or root can change. The check runs at
+// start; a restart does not repeat it (see C-OPS-3).
 func checkCommands(s *Settings) error {
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
@@ -340,6 +365,9 @@ func checkCommands(s *Settings) error {
 			return fmt.Errorf("boot: settings: adapters[%d].command: %s is not an executable file", i, filepath.Base(a.Command))
 		case fi.Mode().Perm()&0o022 != 0:
 			return fmt.Errorf("boot: settings: adapters[%d].command: %s is writable by its group or by others", i, filepath.Base(a.Command))
+		}
+		if err := checkOwner(fi); err != nil {
+			return fmt.Errorf("boot: settings: adapters[%d].command: %s: %w", i, filepath.Base(a.Command), err)
 		}
 	}
 	return nil

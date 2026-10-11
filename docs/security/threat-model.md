@@ -1143,7 +1143,10 @@ Assets: A5, A2, A6, the container and host.
   adapter commands and the identity provider, so write access to it is code
   execution: the server refuses to start if it is writable by its group or by
   others or owned by anyone but the service user or root, if an adapter
-  command is not an absolute path to an executable only its owner can change,
+  command is not an absolute path to an executable owned by the service user
+  or root and not writable by its group or others (checked at start only: an
+  adapter binary replaced while the server runs is started at the next
+  restart of that adapter, which is why the file's owner must be trusted),
   if a secret reference does not resolve, if a source's adapter is not
   listed, or if a durable graph store is paired with an in-memory event log.
   It takes the instance lock before it runs and refuses to start without it

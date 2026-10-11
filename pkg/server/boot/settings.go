@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -165,12 +166,21 @@ func checkOwnership(file string, fi os.FileInfo) error {
 	if fi.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("boot: settings: %s must not be writable by its group or by others (mode %04o)", file, fi.Mode().Perm())
 	}
+	if err := checkOwner(fi); err != nil {
+		return fmt.Errorf("boot: settings: %s: %w", file, err)
+	}
+	return nil
+}
+
+// checkOwner refuses a file owned by anyone but the service user or root: the
+// owner can swap its contents for code that runs as the service.
+func checkOwner(fi os.FileInfo) error {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
-		return fmt.Errorf("boot: settings: cannot tell who owns %s on this platform", file)
+		return errors.New("cannot tell who owns it on this platform")
 	}
 	if uid := int(st.Uid); uid != os.Geteuid() && uid != 0 {
-		return fmt.Errorf("boot: settings: %s must be owned by the service user or root, not uid %d", file, uid)
+		return fmt.Errorf("must be owned by the service user or root, not uid %d", uid)
 	}
 	return nil
 }
@@ -213,7 +223,7 @@ func (s *Settings) check() (*checked, error) {
 	if s.Store.Graph == "" {
 		return nil, errors.New("boot: settings: store.graph is required, for example mem:// or postgres://bearing@db/bearing?sslmode=verify-full")
 	}
-	if strings.HasPrefix(s.Store.Events, "mem://") && !strings.HasPrefix(s.Store.Graph, "mem://") {
+	if inMemory(s.Store.Events) && !inMemory(s.Store.Graph) {
 		return nil, errors.New("boot: settings: store.events is in memory but store.graph is durable: a restart would lose the events ADR 7 exists to keep")
 	}
 	if err := s.checkListen(); err != nil {
@@ -276,8 +286,25 @@ func (s *Settings) checkSecrets() error {
 		if _, err := path.Match(p, ""); err != nil || !strings.HasSuffix(p, "*") || strings.Count(p, "*") != 1 {
 			return fmt.Errorf("boot: settings: secrets.env_allowlist: %q must be a name prefix followed by *", p)
 		}
+		if reserved(p) {
+			return fmt.Errorf("boot: settings: secrets.env_allowlist: %q would let a source read one of Bearing's own variables or the adapter's PATH", p)
+		}
 	}
 	return nil
+}
+
+// reservedNames are variables a secret reference must never name: Bearing's
+// own configuration, and the PATH the server fixes for an adapter.
+var reservedNames = []string{"PATH", "BEARING_STORE_PASSWORD", "BEARING_SETTINGS", "BEARING_TOKEN"}
+
+// reserved reports whether the allowlist pattern p matches a reserved name.
+func reserved(p string) bool {
+	for _, n := range reservedNames {
+		if ok, _ := path.Match(p, n); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Settings) checkWebhooks() error {
@@ -311,6 +338,13 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 		}
 	}
 	return nil
+}
+
+// inMemory reports whether a store URL names the in-memory backend. The scheme
+// is matched as pkg/store matches it, without regard to case.
+func inMemory(u string) bool {
+	p, err := url.Parse(u)
+	return err == nil && strings.EqualFold(p.Scheme, "mem")
 }
 
 // allowed reports whether an `env:` reference may name name.
@@ -377,10 +411,10 @@ func (s *Settings) envRef(ref string) (string, error) {
 		return "", errors.New("only env:NAME references work until M5")
 	case !ok:
 		return "", errors.New("must be a reference, env:NAME; a secret is never written in the settings")
-	case !envName.MatchString(name):
-		return "", fmt.Errorf("%q is not a variable name", model.Clip(name))
-	case !s.allowed(name):
-		return "", fmt.Errorf("%s is not in the secret allowlist (default %s)", name, strings.Join(DefaultSecretAllowlist, ", "))
+	case !envName.MatchString(name), !s.allowed(name):
+		// The text is not echoed: someone who pasted a token after env: would
+		// otherwise see it in the error and the log.
+		return "", fmt.Errorf("must name a variable in the secret allowlist (default %s), as env:NAME", strings.Join(DefaultSecretAllowlist, ", "))
 	}
 	return name, nil
 }

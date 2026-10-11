@@ -71,8 +71,10 @@ programs the server runs.
   leave it out for webhooks and manual syncs only. `spec.authority` and
   `spec.capabilities` are refused until then.
 - **Adapters** are programs you installed. `command` is an absolute path to an
-  executable that only its owner can change, checked once at start; the server
-  never looks one up on a `PATH` and never discovers one. `declaration` is the
+  executable owned by the service user or root and not writable by its group
+  or others. That is checked once at start, so replace an adapter by stopping
+  the server first; the server never looks one up on a `PATH` and never
+  discovers one. `declaration` is the
   adapter's `AdapterDeclaration` in ProtoJSON (the reference ones are in
   `testdata/declarations/`), and its `name` must be the adapter's name. Until
   the adapter service lands an adapter is a stdio child process, one for each

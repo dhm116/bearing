@@ -6,17 +6,20 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/store"
 )
 
 const (
@@ -258,6 +261,14 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			_ = os.Chmod(p, 0o777)                            //nolint:gosec // G302: the test needs a file anyone can write
 			s.Adapters[0].Command = p
 		}, "writable by its group or by others"},
+		{"an executable another user owns", func(s *Settings, w *world) {
+			p := filepath.Join(w.dir, "adapter")
+			_ = os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755) //nolint:gosec // G306: the test needs an executable
+			if err := os.Chown(p, 12345, -1); err != nil {
+				t.Skipf("cannot give the file to another user: %v", err)
+			}
+			s.Adapters[0].Command = p
+		}, "must be owned by the service user or root"},
 		{"a missing declaration", func(s *Settings, _ *world) { s.Adapters[0].Declaration = "/nonexistent.json" }, "adapters[0].declaration"},
 		{"a declaration for another adapter", func(s *Settings, _ *world) { s.Adapters[0].Name = "gitlab"; s.Sources = nil }, "is for \"github\", not \"gitlab\""},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
@@ -355,7 +366,52 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 	r.Close()
 }
 
-func TestAssembleReleasesWhatItTookWhenALaterStepFails(t *testing.T) {
+// recordingLock wraps the store's lock and notes that it was given up.
+type recordingLock struct {
+	store.InstanceLock
+	released atomic.Bool
+}
+
+func (l *recordingLock) Release(ctx context.Context) error {
+	l.released.Store(true)
+	return l.InstanceLock.Release(ctx)
+}
+
+func TestAssembleReleasesTheLockWhenALaterStepFails(t *testing.T) {
+	w := newWorld(t, nil)
+	var lock *recordingLock
+	env := Env{
+		Getenv: w.getenv,
+		lockInstance: func(ctx context.Context, st *store.Store) (store.InstanceLock, error) {
+			l, err := st.LockInstance(ctx)
+			lock = &recordingLock{InstanceLock: l}
+			return lock, err
+		},
+		afterLock: func() error { return errors.New("a later step failed") },
+	}
+	if _, err := Assemble(t.Context(), w.settings, env); err == nil || !strings.Contains(err.Error(), "a later step failed") {
+		t.Fatalf("got %v, want the later step's error", err)
+	}
+	if lock == nil || !lock.released.Load() {
+		t.Fatal("the instance lock was taken and not released when Assemble failed")
+	}
+}
+
+func TestAssembleRefusesToStartWhenAnotherServerHoldsTheStore(t *testing.T) {
+	w := newWorld(t, nil)
+	env := Env{
+		Getenv: w.getenv,
+		lockInstance: func(context.Context, *store.Store) (store.InstanceLock, error) {
+			return nil, store.ErrInstanceLocked
+		},
+	}
+	_, err := Assemble(t.Context(), w.settings, env)
+	if !errors.Is(err, store.ErrInstanceLocked) || !strings.Contains(err.Error(), "another server holds the store") {
+		t.Fatalf("got %v, want a refusal naming the held lock", err)
+	}
+}
+
+func TestAssembleStopsOnAnIssuerThatIsNotHTTPS(t *testing.T) {
 	w := newWorld(t, func(s *Settings) {
 		s.Listen = ListenSettings{Addr: "127.0.0.1:0"}
 		s.Auth = AuthSettings{Issuer: "http://not-https.example", Audience: "bearing", AccessTokenJWT: true}
