@@ -94,6 +94,8 @@ func TestLoadRoundRejectsBadInput(t *testing.T) {
 		{"approve with blockers", `{"round":1,"reviewers":[{"name":"go","state":"approve","blockers":["x"]}]}`, "approves with blocking"},
 		{"unknown field", `{"round":1,"reviewers":[{"name":"go","state":"approve","summary":"x"}]}`, "unknown field"},
 		{"line break in a blocker", `{"round":1,"reviewers":[{"name":"go","state":"changes","blockers":["a\nb"]}]}`, "line break"},
+		{"tab in a blocker", `{"round":1,"reviewers":[{"name":"go","state":"changes","blockers":["a\tb"]}]}`, "control character"},
+		{"no ponytail", `{"round":1,"reviewers":[{"name":"go","state":"approve"}]}`, "no ponytail"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "round.json")
@@ -275,8 +277,8 @@ func TestPostEditsTheRoundCommentInPlace(t *testing.T) {
 	if indexOf(f.posted(), "--edit-last") < 0 {
 		t.Fatal("got a new comment, want --edit-last")
 	}
-	if len(f.hidden()) != 0 {
-		t.Fatalf("hid %q during an update", f.hidden())
+	if got, want := f.hidden(), []string{"old"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("hid %q, want %q: the earlier round again, never this one", got, want)
 	}
 	for _, want := range []string{"<details>tables</details>", "&#34;cap&#34; &lt;check&gt;", "review-round-2-light-uuid"} {
 		if !strings.Contains(f.patched, want) {
@@ -302,7 +304,7 @@ func TestPostRefusesWhenTheRoundCommentIsNotTheLatest(t *testing.T) {
 func TestRunRendersWithoutPosting(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "round.json")
-	if err := os.WriteFile(p, []byte(`{"round":1,"reviewers":[{"name":"go","state":"approve"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(`{"round":1,"reviewers":[{"name":"go","state":"approve"},{"name":"ponytail","state":"approve"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "cards")

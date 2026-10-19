@@ -20,12 +20,13 @@
 //	go -C tools run ./reviewcard -round /tmp/round.json -out /tmp/cards   # render only
 //
 // round.json names the round and each reviewer's state: queued, running,
-// approve, discuss or changes.
+// approve, discuss or changes. Every round lists ponytail, which runs last.
 //
 //	{"round": 2, "reviewers": [
 //	  {"name": "security", "state": "changes", "suggestions": 3,
 //	   "blockers": ["Webhook body is read before the size cap"]},
-//	  {"name": "go", "state": "running"}]}
+//	  {"name": "go", "state": "running"},
+//	  {"name": "ponytail", "state": "queued"}]}
 package main
 
 import (
@@ -39,6 +40,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -86,7 +88,7 @@ func run(args []string, stdout, stderr io.Writer, gh ghFunc) int {
 	fs.SetOutput(stderr)
 	pr := fs.Int("pr", 0, "pull request number")
 	roundFile := fs.String("round", "", "JSON file with the round number and each reviewer's state")
-	detailsFile := fs.String("details", "", "Markdown placed under the cards: the findings tables (optional)")
+	detailsFile := fs.String("details", "", "Markdown placed under the cards: the findings tables, required once every reviewer is done")
 	out := fs.String("out", "", "write the cards and the comment body to this directory instead of posting")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -189,6 +191,10 @@ func loadRound(path string) (round, error) {
 				return rd, fmt.Errorf("%s: %s: blocking finding %q has a line break or control character", path, r.Name, b)
 			}
 		}
+	}
+	// Every round ends with the ponytail review (docs/review-process.md, "Rounds").
+	if !slices.ContainsFunc(rd.Reviewers, func(r reviewer) bool { return r.Name == "ponytail" }) {
+		return rd, fmt.Errorf("%s: no ponytail reviewer; list it, queued until the others finish", path)
 	}
 	return rd, nil
 }
@@ -295,13 +301,13 @@ func post(gh ghFunc, pr int, rd round, details, dir string) (int64, error) {
 	if _, err := gh(args...); err != nil {
 		return 0, err
 	}
-	if currentID == 0 {
-		// Hide the earlier rounds only now, so a failed post leaves them showing.
-		for _, c := range mine {
-			if isReview(c.Body) {
-				if _, err := gh("api", "graphql", "-f", "query=mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){clientMutationId}}", "-f", "id="+c.NodeID); err != nil {
-					return 0, fmt.Errorf("hide comment %d: %w", c.ID, err)
-				}
+	// Hide the earlier rounds only after the post, so a failed post leaves
+	// them showing. Every run hides them again (hiding a hidden comment
+	// succeeds), so a run that failed here is repaired by the next.
+	for _, c := range mine {
+		if c.ID != currentID && isReview(c.Body) {
+			if _, err := gh("api", "graphql", "-f", "query=mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){clientMutationId}}", "-f", "id="+c.NodeID); err != nil {
+				return 0, fmt.Errorf("hide comment %d: %w", c.ID, err)
 			}
 		}
 	}

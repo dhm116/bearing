@@ -39,7 +39,7 @@ Every round ends with the ponytail reviewer (the `ponytail-review` skill
 from the ponytail plugin). Once the PR's reviewers have all finished, the
 lead runs it over the change and the round's findings, and starts no fix
 and no next round until it has finished. It is part of the round and has a
-card of its own.
+card of its own; `reviewcard` refuses a round that doesn't list it.
 
 ## Review comment
 
