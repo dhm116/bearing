@@ -55,6 +55,7 @@ minimal.
 | `docs/spec/` | The specification: data model, adapter protocol, component contracts. The spec is the product; code implements it. |
 | `docs/adr/` | Architecture decision records, numbered. [`template.md`](docs/adr/template.md) for new ones. |
 | `docs/telemetry.md` | Catalog of spans, metrics and telemetry config. Keep it current. |
+| `docs/review-process.md` | How PRs are reviewed and merged: reviewers, findings, rounds, the review-round comment, merge, shared files. |
 | `docs/security/threat-model.md` | Trust boundaries, threats and controls (`C-<AREA>-<n>` IDs). Update it when adding an input, a boundary or an `insecure_*` setting. |
 | `proto/bearing/{model,event,config}/v1alpha1` | Protobuf: the only source of truth for the data model, declarations, events, audit records and configuration resources ([ADR 6](docs/adr/0006-protobuf-contracts.md)). Linted and formatted by buf (`buf.yaml`). `v1alpha1` until the MVP closes. |
 | `proto/bearing/resolver/v1alpha1` | The resolver's private state, stored by `GraphStore` as opaque `Any` values (not part of the data model; add-only until the MVP closes, see `docs/spec/contracts.md`). |
@@ -84,7 +85,7 @@ minimal.
 | `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, or ask a running server given by `--server` or `$BEARING_SERVER` through `pkg/apiclient` (`query.go`; the answers are the same; a token for a network server comes from the variable `--token-env` names, default `$BEARING_TOKEN`), optionally `--as-of` and `--recorded-at`, `source sync` (`source.go`, asks a server to sync a source now), and `audit verify`, `audit checkpoint` and `audit reanchor` (`audit.go`), which read the store's audit log and the checkpoint file, and `server --settings` (`server.go`), which runs the server through `pkg/server/boot`. |
 | `cmd/bearing-bench` | Store benchmark (`make bench`): loads a generated org into a store up to ~10M facts and measures sizes, reads, applies and plans. Takes hours at full size, so never part of `make check` or CI. Results and method in `docs/benchmarks/`. |
 | `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
-| `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, and the coverage gate (`tools/covergate`). Never imported by Bearing code. |
+| `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, the coverage gate (`tools/covergate`) and the review-round comment poster (`tools/reviewcard`). Never imported by Bearing code. |
 
 The Go module path is the placeholder `bearing.example`. Import packages as
 `bearing.example/pkg/...`; don't rename the module unless asked.
@@ -316,91 +317,11 @@ Both are plain Markdown checklists; any agent can follow them.
 
 ## Review and merge process
 
-- **Reviewers.** Each PR gets one or two reviewers, chosen from
-  [`.github/reviewers.yml`](.github/reviewers.yml) by the paths it touches.
-  If `security` matches, it always takes one of the two slots. If more than
-  two domain reviewers match, the lead picks the two most relevant and says
-  why in the PR. `go` takes the second slot when only one domain reviewer
-  matches and the PR changes Go, and is the only reviewer when no domain
-  reviewer matches. A PR that matches no rule gets the file's `default`.
-  Reviewer definitions live in [`.claude/agents/`](.claude/agents/).
-- **Findings.** Every finding states severity, effort to fix now, how hard
-  it is to change later, and whether leaving it opens an important gap
-  against the project's goals. A defect that makes the change wrong,
-  unsafe, or not do what it claims (a bug, a missing check, a test that
-  cannot fail) leaves an important gap. Style and polish do not. Only
-  findings that are hard to change later or leave an important gap block;
-  the rest become follow-up issues. The lead files them as GitHub issues
-  linked from the PR before merging.
-- **Rounds.** A round is one push answering the findings plus the
-  reviewers' re-review. Up to five rounds per PR. After the fifth round
-  with blocking findings open, the lead stops and mentions @dhm116 (Doug,
-  the maintainer) in that review's comment. The comment's Round field is
-  the review's number: the first review is Round 1, so push k's
-  re-review is Round k+1 and the fifth push ends with Round 6.
-- **Review comment.** After every review, including the first and one that
-  approves outright, the lead posts one PR comment in the format below.
-  Each reviewer gets a verdict and a summary. Blocking findings go under
-  Critical Issues; everything else goes under Non-blocking Suggestions. A
-  Critical Issues row has no Status column, so its description ends with
-  the status (open, fixed in a named commit, or withdrawn with the
-  reason). A suggestion's Status is fixed in a named commit, `Filed as #N`,
-  or open until that issue is filed. When a later push settles an open
-  item, the lead edits that comment. An edit sends no notification, so the
-  next review's Summary also lists the earlier items it settled, for
-  example "Settles from Round 1: ...". A table with no rows is replaced by
-  "None.". Someone reading only the PR sees what the reviewers caught and
-  how each item was settled.
-
-  ````markdown
-  ## Code Review:
-
-  **Round**: [review round]
-
-  **Participants**: [agents]
-
-  ### Verdict
-  - **[agent]**: [🟢 Approve / 🔴 Request Changes / 🟡 Needs Discussion]
-
-    **Summary**: [1-2 sentence overview of the changes and overall quality]
-
-  <!-- Use `<details open>` when critical issue count > 0, else `<details>`. -->
-  <details [open]>
-
-  <summary>Critical Issues: [count]</summary>
-
-  <!-- Sort from most to least severe. -->
-  | # | File | Line | Reviewer | Issue | Severity |
-  |---|------|------|----------|-------|----------|
-  | 1 | [file] | [line] | [agent] | [description and status] | 🔴 Critical |
-
-  </details>
-
-  <!-- Use `<details open>` when critical issue count is 0 and suggestions count > 0, else `<details>`. -->
-  <details [open]>
-
-  <summary>Non-blocking Suggestions: [count]</summary>
-
-  | # | File | Line | Reviewer | Suggestion | Category | Status |
-  |---|------|------|----------|------------|----------|--------|
-  | 1 | [file] | [line] | [agent] | [description] | Performance | Filed as #130 |
-
-  </details>
-  ````
-
-  The blank lines after `<details>` and after `</summary>` are required
-  for GitHub to render the Markdown inside. Leave the HTML comments out of
-  the posted comment.
-- **Merge.** The lead merges once CI passes (or the change needs no tests),
-  the assigned reviewers approve, and every review comment shows each
-  finding as fixed, withdrawn or linked to an issue.
-- **Milestones** close only with Doug's review and approval.
-- **Shared files** are owned by the lead: `proto/`, `gen/go`,
-  `pkg/contracts`, `docs/spec/contracts.md`, `go.mod`/`go.sum`, `Makefile`,
-  `AGENTS.md`, `docs/telemetry.md`. Other contributors propose changes to
-  them through the lead. Contract changes (`pkg/contracts`, `proto/`,
-  `docs/spec/contracts.md`) land first, in their own PR, before code that
-  depends on them.
+The full process is in [`docs/review-process.md`](docs/review-process.md):
+how reviewers are picked, what a finding states and which findings block,
+rounds, the review-round comment (posted with `tools/reviewcard`), when to
+merge, milestone sign-off, and which shared files the lead owns. Read it
+before reviewing or merging, and before changing a shared file.
 
 ## Brand
 
