@@ -29,6 +29,7 @@ keeps the adapters that fetch it small.
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
+| [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
 | [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`, `bearing.resolver.v1alpha1`): the only source of truth for the data model, events, audit records and configuration |

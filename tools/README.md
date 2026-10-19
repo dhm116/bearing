@@ -11,6 +11,7 @@ is. The Makefile builds them into `bin/tools/`.
 | [protoc-gen-go](https://pkg.go.dev/google.golang.org/protobuf/cmd/protoc-gen-go) | v1.36.12 (matches the root module's runtime) | BSD-3-Clause |
 | [protoc-gen-jsonschema](https://github.com/bufbuild/protoschema-plugins) | v0.6.0 | Apache-2.0 |
 | `covergate` (this directory) | | Apache-2.0, standard library only |
+| `reviewcard` (this directory) | | Apache-2.0, standard library only |
 
 These are development and CI tools only. Bearing code never imports them,
 they are never linked into a Bearing binary, and they are not distributed

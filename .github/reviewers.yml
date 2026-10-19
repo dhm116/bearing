@@ -1,4 +1,4 @@
-# Path-to-reviewer map (see "Review and merge process" in AGENTS.md). Each
+# Path-to-reviewer map (see "Reviewers" in docs/review-process.md). Each
 # name maps to the agent .claude/agents/<name>-reviewer.md.
 #
 # Each PR gets one or two reviewers, chosen from this file by the paths it
@@ -89,6 +89,7 @@ reviewers:
     # Process and design docs, which otherwise match no rule.
     - "docs/adr/"
     - "AGENTS.md"
+    - "docs/review-process.md"
     - "README.md"
     - "CONTRIBUTING.md"
     - ".github/reviewers.yml"
