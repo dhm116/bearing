@@ -10,9 +10,9 @@ Each PR gets one or two reviewers, chosen from
 [`.github/reviewers.yml`](../.github/reviewers.yml) by the paths it touches.
 If `security` matches, it always takes one of the two slots. If more than
 two domain reviewers match, the lead picks the two most relevant and says
-why in the PR. `go` takes the second slot when only one domain reviewer
-matches and the PR changes Go, and is the only reviewer when no domain
-reviewer matches. A PR that matches no rule gets the file's `default`.
+why in the PR description. `go` takes the second slot when only one domain
+reviewer matches and the PR changes Go, and is the only reviewer when no
+domain reviewer matches. A PR that matches no rule gets the file's `default`.
 Reviewer definitions live in [`.claude/agents/`](../.claude/agents/).
 
 ## Findings
@@ -35,21 +35,33 @@ fifth push's round ends with blocking findings open, the lead stops and
 mentions @dhm116 (Doug, the maintainer) in a new comment: the round's own
 comment is updated by editing, and an edit notifies no one.
 
+Every round ends with the ponytail reviewer (the `ponytail-review` skill
+from the ponytail plugin). Once the PR's reviewers have all finished, the
+lead runs it over the change and the round's findings, and starts no fix
+and no next round until it has finished. It is part of the round and has a
+card of its own.
+
 ## Review comment
 
-Each round has one PR comment, posted and kept current with
+Every round, including the first review and one that approves outright,
+has one PR comment, posted and kept current with
 [`tools/reviewcard`](../tools/reviewcard/main.go):
 
 1. **The round starts.** Before the reviewers run, the lead posts the round
-   with every reviewer `running`. The first post for a round hides the
-   lead's earlier review comments on the PR (minimized as outdated, never
-   deleted), so the PR shows only the current round.
+   with every reviewer `running` and `ponytail` `queued`. The first post
+   for a round hides the lead's earlier review comments on the PR
+   (minimized as outdated, never deleted), so the PR shows only the
+   current round.
 2. **A reviewer finishes.** The lead runs it again with that reviewer's
    verdict (`approve`, `discuss` for Needs Discussion, or `changes` for
    Request Changes), each blocking finding in a few words, and its number of
    suggestions. This edits the same comment.
-3. **The round ends.** The lead runs it once more with the findings tables
-   as `-details`.
+3. **The reviewers are done.** The lead marks `ponytail` `running` and runs
+   the ponytail review.
+4. **The round ends.** The lead posts ponytail's verdict and the findings
+   tables (`-details`) in one run. Once every reviewer is done,
+   `reviewcard` refuses a run without `-details`, so a later correction
+   keeps the tables too.
 
 The comment is a picture of the round with the tables under it. The
 picture has one card per reviewer, showing its verdict, its counts and its
@@ -64,7 +76,8 @@ cat > /tmp/round.json <<'EOF'
 {"round": 2, "reviewers": [
   {"name": "security", "state": "changes", "suggestions": 3,
    "blockers": ["Webhook body is read before the size cap"]},
-  {"name": "go", "state": "running"}]}
+  {"name": "go", "state": "running"},
+  {"name": "ponytail", "state": "queued"}]}
 EOF
 go -C tools run ./reviewcard -pr 292 -round /tmp/round.json
 go -C tools run ./reviewcard -pr 292 -round /tmp/round.json -details /tmp/findings.md
@@ -75,9 +88,11 @@ instead of `-pr` writes the cards and the comment body to `DIR` without
 posting.
 
 While a round runs, its comment must be the lead's latest comment on the
-PR. gh uploads images only by editing the caller's latest comment, and
-`reviewcard` refuses rather than edit a different one. Post other notes
-after the round ends.
+PR. gh can add images to an existing comment only by editing the caller's
+latest one, and `reviewcard` refuses rather than edit a different one. Run
+updates one at a time, and post other notes after the round ends. A note
+the lead owes before the round, such as why it picked two of several
+matching reviewers, goes in the PR description.
 
 The comment is created when the round starts, so that is when watchers are
 notified; the verdicts arrive as edits, which notify no one.

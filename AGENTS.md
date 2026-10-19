@@ -263,7 +263,9 @@ what it doesn't catch.
   `bearing.describe`) for breaking changes.
 - **Contracts:** update `docs/spec/contracts.md`, `pkg/contracts`, the
   conformance suite, the instrument wrapper, and every backend
-  (`memstore`, `pgstore`) together.
+  (`memstore`, `pgstore`) together. Contract changes land first, in their
+  own PR, before code that depends on them
+  ([`docs/review-process.md`](docs/review-process.md), "Shared files").
 - **ADR diagrams** are SVGs generated from `docs/adr/diagrams/src/`; edit
   the Python there and re-export (see `docs/adr/diagrams/README.md`), never
   the SVGs by hand.

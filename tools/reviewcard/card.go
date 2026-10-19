@@ -35,16 +35,19 @@ var icons = map[string]string{
 	"x":        `<path d="m5.5 5.5 9 9M14.5 5.5l-9 9"/>`,
 	"question": `<path d="M7.5 7.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6v.6"/><path d="M10 15.5v.01"/>`,
 	"wait":     `<circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/>`,
+	"spark":    `<path d="M10 2.5c.6 3.9 2.6 5.9 6.5 6.5-3.9.6-5.9 2.6-6.5 6.5-.6-3.9-2.6-5.9-6.5-6.5 3.9-.6 5.9-2.6 6.5-6.5ZM16 14.5l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5.5-1.5Z"/>`,
 }
 
-// personas maps each reviewer in .claude/agents/<name>-reviewer.md to its
-// card title and icon.
+// personas maps each reviewer in .claude/agents/<name>-reviewer.md, and the
+// ponytail reviewer that checks every round's findings after them, to its card
+// title and icon.
 var personas = map[string][2]string{
 	"security": {"Security", "lock"},
 	"data":     {"Data", "layers"},
 	"go":       {"Go", "code"},
 	"spec":     {"Spec", "book"},
 	"search":   {"Search", "eye"},
+	"ponytail": {"Ponytail", "spark"},
 }
 
 const (

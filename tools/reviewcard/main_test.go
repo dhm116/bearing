@@ -60,6 +60,7 @@ func TestOverallWaitsForEveryReviewerThenTakesTheWorst(t *testing.T) {
 		{"discuss beats approve", []string{"approve", "discuss"}, "discuss"},
 		{"changes beats discuss", []string{"changes", "discuss"}, "changes"},
 		{"discuss after changes", []string{"discuss", "changes"}, "changes"},
+		{"one queued", []string{"approve", "queued"}, "running"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var rs []reviewer
@@ -92,6 +93,7 @@ func TestLoadRoundRejectsBadInput(t *testing.T) {
 		{"findings while running", `{"round":1,"reviewers":[{"name":"go","state":"running","suggestions":1}]}`, "has findings"},
 		{"approve with blockers", `{"round":1,"reviewers":[{"name":"go","state":"approve","blockers":["x"]}]}`, "approves with blocking"},
 		{"unknown field", `{"round":1,"reviewers":[{"name":"go","state":"approve","summary":"x"}]}`, "unknown field"},
+		{"line break in a blocker", `{"round":1,"reviewers":[{"name":"go","state":"changes","blockers":["a\nb"]}]}`, "line break"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "round.json")
@@ -107,7 +109,7 @@ func TestLoadRoundRejectsBadInput(t *testing.T) {
 
 func TestLoadRoundAcceptsAgentNames(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "round.json")
-	if err := os.WriteFile(p, []byte(`{"round":2,"reviewers":[{"name":"security-reviewer","state":"running"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(`{"round":2,"reviewers":[{"name":"security-reviewer","state":"running"},{"name":"ponytail","state":"queued"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rd, err := loadRound(p)
@@ -116,6 +118,9 @@ func TestLoadRoundAcceptsAgentNames(t *testing.T) {
 	}
 	if got := rd.Reviewers[0].Name; got != "security" {
 		t.Fatalf("got %q, want %q", got, "security")
+	}
+	if got := svg(themes[0], rd); !strings.Contains(got, "Ponytail") {
+		t.Fatal("got no Ponytail card")
 	}
 }
 
@@ -152,7 +157,10 @@ func (f *fakeGH) run(args ...string) ([]byte, error) {
 		text := string(b)
 		for i, a := range args {
 			if a == "--attach" {
-				name := strings.TrimSuffix(filepath.Base(args[i+1]), ".svg")
+				_, name, ok := strings.Cut(args[i+1], "#")
+				if !ok {
+					return nil, errors.New("upload without alt text: " + args[i+1])
+				}
 				text += "\n![" + name + "](https://github.com/user-attachments/assets/" + name + "-uuid)\n"
 			}
 		}
@@ -227,6 +235,9 @@ func TestPostStartsARoundAndHidesOnlyTheLeadsOldReviews(t *testing.T) {
 	if indexOf(f.posted(), "--edit-last") >= 0 {
 		t.Fatal("got --edit-last for a new round")
 	}
+	if first := f.firstCall("graphql"); first < f.firstCall("comment") {
+		t.Fatal("hid the old reviews before the new one was posted")
+	}
 	if id != 101 {
 		t.Fatalf("got comment %d, want 101", id)
 	}
@@ -251,7 +262,7 @@ func TestPostEditsTheRoundCommentInPlace(t *testing.T) {
 		{ID: 10, NodeID: "human", Login: "someone", Body: "Looks fine"},
 	}}
 	done := round{Round: 2, Reviewers: []reviewer{
-		{Name: "security", State: "changes", Blockers: []string{"Body read before the cap"}, Suggestions: 3},
+		{Name: "security", State: "changes", Blockers: []string{`Body read before the "cap" <check>`}, Suggestions: 3},
 		{Name: "go", State: "approve", Suggestions: 1},
 	}}
 	id, err := post(f.run, 7, done, "<details>tables</details>", t.TempDir())
@@ -267,7 +278,7 @@ func TestPostEditsTheRoundCommentInPlace(t *testing.T) {
 	if len(f.hidden()) != 0 {
 		t.Fatalf("hid %q during an update", f.hidden())
 	}
-	for _, want := range []string{"<details>tables</details>", "Body read before the cap", "review-round-2-light-uuid"} {
+	for _, want := range []string{"<details>tables</details>", "&#34;cap&#34; &lt;check&gt;", "review-round-2-light-uuid"} {
 		if !strings.Contains(f.patched, want) {
 			t.Errorf("patched body has no %q:\n%s", want, f.patched)
 		}
@@ -311,5 +322,31 @@ func TestRunRendersWithoutPosting(t *testing.T) {
 	}
 	if code := run([]string{"-round", p}, &stdout, &stderr, never); code != 2 {
 		t.Fatalf("got exit %d without -pr or -out, want 2", code)
+	}
+}
+
+// firstCall is the index of the first call whose second argument is arg.
+func (f *fakeGH) firstCall(arg string) int {
+	for i, c := range f.calls {
+		if c[1] == arg {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestRunRefusesAFinishedRoundWithoutTables(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "round.json")
+	if err := os.WriteFile(p, []byte(`{"round":1,"reviewers":[{"name":"go","state":"approve"},{"name":"ponytail","state":"approve"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	called := false
+	never := func(...string) ([]byte, error) { called = true; return nil, nil }
+	if code := run([]string{"-pr", "7", "-round", p}, &stdout, &stderr, never); code != 2 {
+		t.Fatalf("got exit %d, want 2: %s", code, stderr.String())
+	}
+	if called || !strings.Contains(stderr.String(), "-details") {
+		t.Fatalf("got gh called %v and %q, want a refusal naming -details", called, stderr.String())
 	}
 }

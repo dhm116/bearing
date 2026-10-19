@@ -29,6 +29,7 @@ keeps the adapters that fetch it small.
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
+| [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
 | [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`, `bearing.resolver.v1alpha1`): the only source of truth for the data model, events, audit records and configuration |
@@ -40,7 +41,6 @@ keeps the adapters that fetch it small.
 | [`pkg/audit`](pkg/audit) | The audit log's hash chain, signed checkpoints and verifier |
 | [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, audit retention and checkpoints, the health checks and the API for callers |
 | [`docs/operations.md`](docs/operations.md) | Running `bearing server`: the settings file, secrets, what makes it refuse to start, and the limits to size |
-| [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
 | [`pkg/server/boot`](pkg/server/boot) | Builds and runs `bearing server` from its settings file |
 | [`pkg/auth`](pkg/auth) | OIDC bearer-token verification and the default `Authorizer`: IdP groups and client IDs to the `read`, `ingest` and `admin` roles |
 | [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers over a store, and requests a sync |

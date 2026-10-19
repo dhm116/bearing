@@ -6,10 +6,12 @@
 // The first run for a round hides the lead's earlier review comments on the
 // PR (minimized as outdated, not deleted) and posts the round's comment. Each
 // later run for the same round edits that comment. gh uploads images only
-// through `gh pr comment --attach`, which edits nothing but the caller's
-// latest comment (--edit-last), so a run refuses when the round's comment is
-// no longer the latest. gh appends the uploads as Markdown images; the run
-// then rewrites the comment so the <picture> points at them.
+// through `gh pr comment --attach`, and can add them to an existing comment
+// only by editing the caller's latest one (--edit-last), so a run refuses when
+// the round's comment is no longer the latest; runs must go one at a time. gh
+// appends the uploads as Markdown images; the run then rewrites the comment so
+// the <picture> points at them. Once every reviewer is done, a run needs
+// -details, so the final verdict and the findings tables go out together.
 //
 // Usage, from the repository root (paths resolve against tools/, so give
 // absolute ones):
@@ -123,6 +125,10 @@ func run(args []string, stdout, stderr io.Writer, gh ghFunc) int {
 		_, _ = fmt.Fprintln(stdout, *out)
 		return 0
 	}
+	if overall(rd.Reviewers) != "running" && strings.TrimSpace(details) == "" {
+		_, _ = fmt.Fprintln(stderr, "reviewcard: every reviewer is done, so pass the findings tables with -details")
+		return 2
+	}
 	dir, err := os.MkdirTemp("", "reviewcard-")
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "reviewcard: %v\n", err)
@@ -176,6 +182,13 @@ func loadRound(path string) (round, error) {
 		if r.State == "approve" && len(r.Blockers) > 0 {
 			return rd, fmt.Errorf("%s: %s approves with blocking findings", path, r.Name)
 		}
+		for _, b := range r.Blockers {
+			// A line break ends GitHub's HTML block mid-<picture>; other
+			// control characters make the SVG invalid.
+			if strings.IndexFunc(b, func(c rune) bool { return c < 0x20 || c == 0x7f }) >= 0 {
+				return rd, fmt.Errorf("%s: %s: blocking finding %q has a line break or control character", path, r.Name, b)
+			}
+		}
 	}
 	return rd, nil
 }
@@ -197,8 +210,8 @@ func body(rd round, light, dark, details string) string {
 	return b
 }
 
-// writeCards writes the round's light and dark SVGs into dir. gh names each
-// upload after its file, which is how post finds them again.
+// writeCards writes the round's light and dark SVGs into dir. post names each
+// upload after its file, which is how it finds them again.
 func writeCards(dir string, rd round) (light, dark string, err error) {
 	paths := make([]string, len(themes))
 	for i, t := range themes {
@@ -230,7 +243,7 @@ func listComments(gh ghFunc, pr int) ([]comment, error) {
 }
 
 // assetURL finds the URL gh gave the upload named name, from the Markdown
-// image gh appended to the comment.
+// image gh appended to the comment with that name as its alt text.
 func assetURL(body, name string) (string, error) {
 	re := regexp.MustCompile(`!\[` + regexp.QuoteMeta(name) + `\]\((https://github\.com/user-attachments/assets/[^)\s]+)\)`)
 	m := re.FindAllStringSubmatch(body, -1)
@@ -252,14 +265,14 @@ func post(gh ghFunc, pr int, rd round, details, dir string) (int64, error) {
 		return 0, err
 	}
 	var mine []comment
-	var current *comment
+	var currentID int64 // the round's comment, 0 when the round is new
 	for _, c := range cs {
 		if c.Login != me {
 			continue
 		}
 		mine = append(mine, c)
 		if strings.Contains(c.Body, marker(rd.Round)) {
-			current = &mine[len(mine)-1]
+			currentID = c.ID
 		}
 	}
 	light, dark, err := writeCards(dir, rd)
@@ -270,8 +283,20 @@ func post(gh ghFunc, pr int, rd round, details, dir string) (int64, error) {
 	if err := os.WriteFile(bodyFile, []byte(body(rd, "./"+filepath.Base(light), "./"+filepath.Base(dark), details)), 0o600); err != nil { //nolint:gosec // G703: dir is this run's own temporary directory
 		return 0, err
 	}
-	args := []string{"pr", "comment", strconv.Itoa(pr), "--body-file", bodyFile, "--attach", light, "--attach", dark}
-	if current == nil {
+	// Name each upload ourselves: the read-back below finds it by that name.
+	name := func(p string) string { return strings.TrimSuffix(filepath.Base(p), ".svg") }
+	args := []string{"pr", "comment", strconv.Itoa(pr), "--body-file", bodyFile, "--attach", light + "#" + name(light), "--attach", dark + "#" + name(dark)}
+	if currentID != 0 {
+		if last := mine[len(mine)-1]; last.ID != currentID {
+			return 0, fmt.Errorf("round %d's comment %d is not your latest on PR #%d (%d is), so gh would edit the wrong one; post other notes after the round", rd.Round, currentID, pr, last.ID)
+		}
+		args = append(args, "--edit-last")
+	}
+	if _, err := gh(args...); err != nil {
+		return 0, err
+	}
+	if currentID == 0 {
+		// Hide the earlier rounds only now, so a failed post leaves them showing.
 		for _, c := range mine {
 			if isReview(c.Body) {
 				if _, err := gh("api", "graphql", "-f", "query=mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){clientMutationId}}", "-f", "id="+c.NodeID); err != nil {
@@ -279,14 +304,6 @@ func post(gh ghFunc, pr int, rd round, details, dir string) (int64, error) {
 				}
 			}
 		}
-	} else {
-		if last := mine[len(mine)-1]; last.ID != current.ID {
-			return 0, fmt.Errorf("round %d's comment %d is not your latest on PR #%d (%d is), so gh would edit the wrong one; post other notes after the round", rd.Round, current.ID, pr, last.ID)
-		}
-		args = append(args, "--edit-last")
-	}
-	if _, err := gh(args...); err != nil {
-		return 0, err
 	}
 	// Read the comment back to learn the upload URLs gh appended to it.
 	cs, err = listComments(gh, pr)
@@ -296,14 +313,13 @@ func post(gh ghFunc, pr int, rd round, details, dir string) (int64, error) {
 	var target *comment
 	for i := range cs {
 		c := &cs[i]
-		if c.Login == me && strings.Contains(c.Body, marker(rd.Round)) && (current == nil || c.ID == current.ID) {
+		if c.Login == me && strings.Contains(c.Body, marker(rd.Round)) && (currentID == 0 || c.ID == currentID) {
 			target = c
 		}
 	}
 	if target == nil {
 		return 0, fmt.Errorf("round %d's comment not found on PR #%d after posting", rd.Round, pr)
 	}
-	name := func(p string) string { return strings.TrimSuffix(filepath.Base(p), ".svg") }
 	lightURL, err := assetURL(target.Body, name(light))
 	if err != nil {
 		return 0, err
