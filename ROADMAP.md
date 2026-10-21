@@ -20,6 +20,16 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
 4. **Resolution.** Deterministic rules first: CODEOWNERS, team membership,
    Kubernetes labels and owner references, package manifests. Inferred
    links are stored as proposals.
+   Found by the Acme end-to-end test (`internal/e2e`), each with a skipped
+   test waiting for it:
+   - Only authoritative `linked_ids` may merge entities. Authority is in
+     the adapter declaration, which `Ingest` doesn't see yet (Tom Becker
+     is merged today).
+   - Teams from the directory and GitHub share no keys, so they stay
+     apart. Needs a matching rule (for example same kind and normalized
+     name, proposed rather than merged) or links from the directory.
+   - `CompleteSync` must close the facts of entities a full sync no longer
+     lists (deleted repositories and teams).
 5. **Queries.** CLI, REST and MCP over one query layer, plus a
    `find_entities` lookup for names.
 6. **Config.** One server file plus one block per adapter, loaded at start.
