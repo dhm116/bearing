@@ -14,7 +14,7 @@ var _ Applier = StoreApplier{}
 // StoreApplier is the Applier the server runs: it validates every
 // observation and ingests the page into Store in one transaction.
 type StoreApplier struct {
-	Store graph.Store
+	Store graph.Graph
 	// Declared maps a source to the attributes its adapter declares beyond
 	// the registry (model.DeclaredAttributes); a source not listed has none.
 	Declared map[string]map[string]model.Predicate

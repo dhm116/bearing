@@ -16,8 +16,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -73,7 +73,7 @@ func (s *Server) runWorkers(ctx context.Context) error {
 	}
 }
 
-func (s *Server) claim(p contracts.Partition) bool {
+func (s *Server) claim(p store.Partition) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.inflight[p] {
@@ -83,7 +83,7 @@ func (s *Server) claim(p contracts.Partition) bool {
 	return true
 }
 
-func (s *Server) release(p contracts.Partition) {
+func (s *Server) release(p store.Partition) {
 	s.mu.Lock()
 	delete(s.inflight, p)
 	s.mu.Unlock()
@@ -100,12 +100,12 @@ func (s *Server) wakeUp() {
 
 // duePartitions lists the partitions that hold events the group has not
 // applied, and records the age of the oldest of them.
-func (s *Server) duePartitions(ctx context.Context) ([]contracts.Partition, error) {
+func (s *Server) duePartitions(ctx context.Context) ([]store.Partition, error) {
 	parts, err := s.cfg.Log.Partitions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("partitions: %w", err)
 	}
-	var due []contracts.Partition
+	var due []store.Partition
 	var oldest time.Duration
 	now := s.clk.Now()
 	for _, p := range parts {
@@ -135,7 +135,7 @@ func (s *Server) duePartitions(ctx context.Context) ([]contracts.Partition, erro
 // drain applies a partition from the group's offset until nothing is left. It
 // commits an offset only after the event is applied or given up on, so a crash
 // repeats the event, which the processed-event mark makes harmless.
-func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
+func (s *Server) drain(ctx context.Context, p store.Partition) error {
 	after, err := s.cfg.Log.Committed(ctx, s.cfg.Group, p)
 	if err != nil {
 		return fmt.Errorf("committed %s: %w", p, err)
@@ -164,7 +164,7 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 // after MaxAttempts (a dead letter). It returns nil once the entry is applied
 // or given up on, and an error only when the caller should stop: the context
 // ended or the log or store would not take the dead letter.
-func (s *Server) process(ctx context.Context, e contracts.Entry) error {
+func (s *Server) process(ctx context.Context, e store.Entry) error {
 	ctx, span := tracer.Start(ctx, "worker.process")
 	defer span.End()
 	span.SetAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
@@ -209,7 +209,7 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 // under EventTimeout, and gives the slot back before the caller waits to try
 // again: an event that keeps failing, or a partition with a long backlog,
 // never keeps a slot from the other sources.
-func (s *Server) handleInSlot(ctx context.Context, e contracts.Entry) (string, error) {
+func (s *Server) handleInSlot(ctx context.Context, e store.Entry) (string, error) {
 	select {
 	case s.slots <- struct{}{}:
 	case <-ctx.Done():
@@ -243,7 +243,7 @@ func (s *Server) storeDown(ctx context.Context) error {
 // handle applies one entry and says what it did. Events the server has no
 // handler for yet are skipped, and counted, so a type added ahead of its
 // handler cannot hold a partition.
-func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, err error) {
+func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err error) {
 	// An in-process adapter, the store or a decoder that panics on one
 	// event must not take the server down: a restart would read the same
 	// event and panic again, and no event would ever reach its dead letter.
@@ -282,11 +282,11 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 	return workerSkipped, nil
 }
 
-// deadLetter gives up on an event in the steps of docs/spec/contracts.md,
+// deadLetter gives up on an event in the steps of docs/spec/store.md,
 // "Dead letters", in that order, so a crash between them repeats safely:
 // the record and then (by the caller) the commit. Re-applying an observation
 // ID is a no-op, so the event needs no processed mark in the graph.
-func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.Entry, attempts int, cause error) error {
+func (s *Server) deadLetter(ctx context.Context, span trace.Span, e store.Entry, attempts int, cause error) error {
 	text := cleanErrorText(cause.Error())
 	span.SetAttributes(attribute.Bool("bearing.dead_letter", true))
 	msg := &eventv1alpha1.EventDeadLettered{
@@ -300,7 +300,7 @@ func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.En
 		return fmt.Errorf("encode dead letter: %w", err)
 	}
 	// 1. The record, kept until someone releases it.
-	got, err := s.cfg.Log.Append(ctx, []contracts.Event{{
+	got, err := s.cfg.Log.Append(ctx, []store.Event{{
 		ID: string(deadLetterPartition) + "/" + hexSHA256(e.ID), Partition: deadLetterPartition,
 		Type: typ, Time: s.clk.Now().UTC(), Data: data, Retain: true,
 	}})

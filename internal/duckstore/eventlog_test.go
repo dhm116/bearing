@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"bearing.example/internal/testkit"
-	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/contracts/conformance"
+	"bearing.example/pkg/store"
+	"bearing.example/pkg/store/storetest"
 )
 
 func TestEventLogConformance(t *testing.T) {
-	conformance.EventLog(t, func(t *testing.T) (contracts.EventLog, conformance.Clock) {
+	storetest.EventLog(t, func(t *testing.T) (store.EventLog, storetest.Clock) {
 		clk := testkit.NewClock(time.Time{})
 		return newStore(t, Config{Now: clk.Now}), clk
 	})
@@ -23,8 +23,8 @@ func TestEventLogRefusesACancelledContext(t *testing.T) {
 	s := newStore(t, Config{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	ev := contracts.Event{ID: "github-acme/d1", Partition: "github-acme", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}
-	if _, err := s.Append(ctx, []contracts.Event{ev}); !errors.Is(err, context.Canceled) {
+	ev := store.Event{ID: "github-acme/d1", Partition: "github-acme", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}
+	if _, err := s.Append(ctx, []store.Event{ev}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want context.Canceled", err)
 	}
 	if ps, err := s.Partitions(context.Background()); err != nil || len(ps) != 0 {

@@ -6,7 +6,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -54,7 +53,7 @@ const (
 
 // workerEvents counts the outcomes of the apply workers by event type and
 // result. A rise in retried is a source or the store failing; dead_lettered
-// is an event given up on (docs/spec/contracts.md, "Dead letters").
+// is an event given up on (docs/spec/store.md, "Dead letters").
 var workerEvents = must(meter.Int64Counter("bearing.worker.events",
 	metric.WithDescription("Events handled by the apply workers by type and result: applied, skipped (a type the server does not handle yet), retried or dead_lettered."),
 	metric.WithUnit("{event}")))
@@ -116,7 +115,7 @@ var apiRequests = must(meter.Int64Counter("bearing.api.requests",
 	metric.WithDescription("API requests by method and result: ok, unauthenticated, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated is a client with the wrong token, or probing; error is a fault to read the logs for."),
 	metric.WithUnit("{request}")))
 
-func apiAttrs(method contracts.Method, result string) metric.AddOption {
+func apiAttrs(method Method, result string) metric.AddOption {
 	return metric.WithAttributes(attribute.String("bearing.authz.method", string(method)), attrResult.String(result))
 }
 

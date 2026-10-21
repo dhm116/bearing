@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
+	_ "bearing.example/internal/duckstore" // registers the mem scheme
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/store"
 )
 
 const (
@@ -361,7 +362,7 @@ func TestAssembledServerTakesASignedWebhookOnItsTCPListener(t *testing.T) {
 	if code := post(signed("canary-webhook-secret", body), body); code/100 != 2 {
 		t.Fatalf("a signed delivery: got %d, want 2xx", code)
 	}
-	entries, err := r.st.Events.Read(t.Context(), contracts.Partition("github-acme"), 0, 100)
+	entries, err := r.st.Events().Read(t.Context(), store.Partition("github-acme"), 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

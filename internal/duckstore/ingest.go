@@ -19,7 +19,7 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// Ingest implements graph.Store. Callers validate observations first; this
+// Ingest implements graph.Graph. Callers validate observations first; this
 // trusts their shape and only rejects ones with no entity.
 func (s *Store) Ingest(ctx context.Context, source string, obs []*eventv1alpha1.Observation) (graph.IngestResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -1,7 +1,7 @@
-// Package conformance holds test suites that every implementation of a
-// contracts interface must pass. A backend's own tests call the suite with a
-// factory that returns a fresh, empty store.
-package conformance
+// Package storetest holds the conformance suites every store.Store
+// implementation runs. A store's own tests call a suite with a factory that
+// returns a fresh, empty store.
+package storetest
 
 import (
 	"testing"

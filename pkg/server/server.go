@@ -14,12 +14,12 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 // Defaults of Config. The attempts and the pause come from
-// docs/spec/contracts.md, "Dead letters".
+// docs/spec/store.md, "Dead letters".
 const (
 	DefaultGroup        = "apply"
 	DefaultWorkers      = 4
@@ -38,9 +38,9 @@ const (
 	// readBatch is how many entries a worker reads at a time.
 	readBatch = 100
 	// deadLetterPartition holds the records of events given up on.
-	deadLetterPartition contracts.Partition = "core/dead_letter"
-	// manualPartition holds operators' requests (docs/spec/contracts.md).
-	manualPartition contracts.Partition = "manual"
+	deadLetterPartition store.Partition = "core/dead_letter"
+	// manualPartition holds operators' requests (docs/spec/store.md).
+	manualPartition store.Partition = "manual"
 )
 
 // ErrUnknownSource is returned for a source that is not configured.
@@ -71,7 +71,7 @@ type Applier interface {
 // Config configures a Server. Zero fields take the defaults above.
 type Config struct {
 	// Log is the event log every input goes through.
-	Log contracts.EventLog
+	Log store.EventLog
 	// Applier applies observations.
 	Applier Applier
 	// Sources are the configured sources.
@@ -84,7 +84,7 @@ type Config struct {
 	// never read by two workers, since its events must be applied in order.
 	Workers int
 	// PollInterval is how long an idle server waits before reading the log
-	// again; Read does not block (docs/spec/contracts.md, "EventLog").
+	// again; Read does not block (docs/spec/store.md, "EventLog").
 	PollInterval time.Duration
 	// MaxAttempts is how many times a worker tries an event before it gives
 	// up on it (a dead letter). RetryPause is the pause after the first
@@ -120,7 +120,7 @@ type Server struct {
 	clk     clock.Clock
 
 	mu       sync.Mutex
-	inflight map[contracts.Partition]bool
+	inflight map[store.Partition]bool
 	// syncs holds, for each source, the latest sync request made and a lock
 	// that keeps two callers from both making one. The map is built in New and
 	// not changed after.
@@ -152,7 +152,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Group == "" {
 		cfg.Group = DefaultGroup
 	}
-	if err := contracts.CheckGroup(cfg.Group); err != nil {
+	if err := store.CheckGroup(cfg.Group); err != nil {
 		return nil, fmt.Errorf("server: group: %w", err)
 	}
 	cfg.Workers = orDefault(cfg.Workers, DefaultWorkers)
@@ -173,7 +173,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
-		inflight: map[contracts.Partition]bool{}, syncs: map[string]*syncSlot{},
+		inflight: map[store.Partition]bool{}, syncs: map[string]*syncSlot{},
 		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, wake: make(chan struct{}, 1),
 	}
 	for i := range cfg.Sources {
@@ -247,7 +247,7 @@ func (s *Server) HasSource(name string) bool {
 type SyncRequest struct {
 	// ID and Offset name the request's event.
 	ID     string
-	Offset contracts.Offset
+	Offset store.Offset
 	// Pending is set when the source already had a request that the apply
 	// workers have not applied, and this is that one: nothing new was logged.
 	Pending bool
@@ -257,7 +257,7 @@ type SyncRequest struct {
 type syncSlot struct {
 	lock chan struct{} // one token; a channel so a waiter can give up with its context
 	id   string
-	off  contracts.Offset
+	off  store.Offset
 }
 
 // RequestSync puts a SyncRequested event for source on the log. The
@@ -281,7 +281,7 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 		return SyncRequest{}, fmt.Errorf("wait for the source's sync slot: %w", ctx.Err())
 	}
 	if slot.off > 0 {
-		applied, err := s.cfg.Log.Committed(ctx, s.cfg.Group, contracts.Partition(source))
+		applied, err := s.cfg.Log.Committed(ctx, s.cfg.Group, store.Partition(source))
 		if err != nil {
 			return SyncRequest{}, fmt.Errorf("find whether the last sync request is applied: %w", err)
 		}
@@ -295,11 +295,11 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 	if err != nil {
 		return SyncRequest{}, fmt.Errorf("encode sync request: %w", err)
 	}
-	ev := contracts.Event{
-		ID: source + "/" + s.cfg.NewID(), Partition: contracts.Partition(source),
+	ev := store.Event{
+		ID: source + "/" + s.cfg.NewID(), Partition: store.Partition(source),
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
 	}
-	got, err := s.cfg.Log.Append(ctx, []contracts.Event{ev})
+	got, err := s.cfg.Log.Append(ctx, []store.Event{ev})
 	if err != nil {
 		return SyncRequest{}, fmt.Errorf("append sync request: %w", err)
 	}
@@ -313,7 +313,7 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 
 // pageEventID is the ID of page n of the output for a causing event: the
 // source, a slash and the hex SHA-256 of the causing event's ID, a NUL and the
-// page number, so a replayed run repeats its IDs (docs/spec/contracts.md,
+// page number, so a replayed run repeats its IDs (docs/spec/store.md,
 // "Event IDs").
 func pageEventID(source, trigger string, page int) string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d", trigger, page))

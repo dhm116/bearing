@@ -20,7 +20,7 @@ const factCols = `f.id, f.subject_id, f.predicate, f.object_id, CAST(f.value AS 
 // maxMergeHops bounds the merged_into chain so a corrupt loop cannot hang a read.
 const maxMergeHops = 100
 
-// Entity implements graph.Store.
+// Entity implements graph.Graph.
 func (s *Store) Entity(ctx context.Context, ref string) (graph.Entity, error) {
 	id, ok, err := s.survivor(ctx, ref)
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *Store) keys(ctx context.Context, ids []string) (map[string][]model.Key,
 	return out, rows.Err()
 }
 
-// Find implements graph.Store. Exact matches rank first, then substrings,
+// Find implements graph.Graph. Exact matches rank first, then substrings,
 // then names and keys at least 0.8 similar (Jaro-Winkler).
 func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit int) ([]graph.Match, error) {
 	if limit <= 0 {
@@ -188,7 +188,7 @@ ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
 	return out, nil
 }
 
-// Facts implements graph.Store.
+// Facts implements graph.Graph.
 func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, error) {
 	var err error
 	if f.Subject, err = s.resolveID(ctx, f.Subject); err != nil {
@@ -230,7 +230,7 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 	return facts, nil
 }
 
-// Walk implements graph.Store. A path-tracking recursive CTE ends cycles; a
+// Walk implements graph.Graph. A path-tracking recursive CTE ends cycles; a
 // fact reached by several paths is returned once, at its shallowest depth.
 // shortcut: the CTE enumerates paths, so a dense DAG can blow up; switch to
 // a level-by-level walk if graphs get that shape.
@@ -286,7 +286,7 @@ ORDER BY d.depth, f.id`, all...)
 	return steps, s.attachSources(ctx, ptrs)
 }
 
-// Changes implements graph.Store. A zero Since or Until leaves that end of
+// Changes implements graph.Graph. A zero Since or Until leaves that end of
 // the window open. Only asserted facts are reported.
 func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
 	if r.Limit <= 0 {

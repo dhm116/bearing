@@ -32,9 +32,6 @@ const childPath = "/usr/bin:/bin"
 // operator names absolute paths.
 const childDir = "/"
 
-// releaseTimeout bounds closing the store when the server stops.
-const releaseTimeout = 10 * time.Second
-
 // Env is what Assemble reads from the process, replaceable in tests.
 type Env struct {
 	// Getenv reads secrets; nil means os.Getenv.
@@ -49,7 +46,7 @@ type Running struct {
 	srv    *server.Server
 	api    *server.API
 	listen server.ListenConfig
-	st     *store.Store
+	st     store.Store
 	procs  []*managed
 	// sockets is the private directory of the local adapters' sockets.
 	sockets string
@@ -147,14 +144,14 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
 	srv, err := server.New(server.Config{
-		Log: st.Events, Applier: server.StoreApplier{Store: st.Graph, Declared: declared},
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared},
 		Sources: sources, Clock: env.Clock,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if len(webhooks) > 0 {
-		ic := server.IngestConfig{Log: st.Events, Sources: webhooks}
+		ic := server.IngestConfig{Log: st.Events(), Sources: webhooks}
 		if v := s.Webhooks.MaxInFlight; v != nil {
 			ic.MaxInFlight = *v
 		}
@@ -168,7 +165,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		l.Webhooks = in
 	}
 	api, err := server.NewAPI(server.APIConfig{
-		Server: srv, Query: &query.Querier{Graph: st.Graph},
+		Server: srv, Query: &query.Querier{Graph: st.Graph()},
 	})
 	if err != nil {
 		return nil, err
@@ -204,7 +201,7 @@ func (r *Running) Close() {
 
 // closeAll stops the adapters, removes their socket directory, then closes
 // the store. It carries on past a failure and returns every one.
-func closeAll(procs []*managed, st *store.Store, sockets string) error {
+func closeAll(procs []*managed, st store.Store, sockets string) error {
 	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
@@ -216,9 +213,7 @@ func closeAll(procs []*managed, st *store.Store, sockets string) error {
 			errs = append(errs, fmt.Errorf("remove the adapter socket directory: %w", err))
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
-	defer cancel()
-	if err := st.Close(ctx); err != nil {
+	if err := st.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("close the store: %w", err))
 	}
 	return errors.Join(errs...)

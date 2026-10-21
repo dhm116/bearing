@@ -134,7 +134,7 @@ func (w *world) ingest(source string, at time.Time, data ...*modelv1alpha1.Obser
 func (w *world) cli(args ...string) (string, error) {
 	w.t.Helper()
 	env := queryEnv{
-		Open: func(_ context.Context, url string) (graph.Store, func(context.Context) error, error) {
+		Open: func(_ context.Context, url string) (graph.Graph, func(context.Context) error, error) {
 			if url != "mem://" {
 				return nil, nil, fmt.Errorf("test store: unexpected URL %q", url)
 			}

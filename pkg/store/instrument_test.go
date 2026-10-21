@@ -1,4 +1,4 @@
-package instrument_test
+package store_test
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"bearing.example/internal/duckstore"
-	"bearing.example/pkg/contracts/instrument"
+	_ "bearing.example/internal/duckstore" // registers mem and duckdb
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/store"
 )
 
 var spans = tracetest.NewSpanRecorder()
@@ -25,12 +25,12 @@ func TestMain(m *testing.M) {
 
 func TestGraphTracesCallsAndIgnoresNotFound(t *testing.T) {
 	ctx := context.Background()
-	d, err := duckstore.Open(ctx, duckstore.Config{})
+	st, err := store.Open(ctx, store.Config{URL: "mem://"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := instrument.Graph(d)
-	t.Cleanup(func() { _ = s.Close() })
+	t.Cleanup(func() { _ = st.Close() })
+	s := st.Graph()
 
 	if _, err := s.Entity(ctx, "missing"); !errors.Is(err, graph.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)

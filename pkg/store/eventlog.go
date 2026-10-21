@@ -1,4 +1,4 @@
-package contracts
+package store
 
 import (
 	"context"
@@ -11,6 +11,9 @@ import (
 
 	"bearing.example/pkg/model"
 )
+
+// ErrNotFound is returned when a lookup matches nothing.
+var ErrNotFound = errors.New("contracts: not found")
 
 // ErrInvalidEvent is returned by Append and Release for an event or ID that
 // breaks CheckEvent. Nothing is written.
@@ -134,7 +137,7 @@ type PartitionInfo struct {
 // Events are ordered within a partition only. A consumer reads a partition
 // after the offset its group last committed, processes the entries, and
 // commits the last offset it finished. Delivery is therefore at least once,
-// and the consumer's own idempotency (graph.Store.Ingest skips an
+// and the consumer's own idempotency (graph.Graph.Ingest skips an
 // observation ID it already holds) makes a repeat harmless. The log does not hand partitions to
 // consumers or lock them: two consumers of one group on one partition would
 // process out of order, so the caller runs one. A new group starts at
