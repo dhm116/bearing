@@ -285,7 +285,6 @@ func TestSchedulerRunsOnItsInterval(t *testing.T) {
 		c.Clock = clk
 		c.Sources[0].Interval = time.Hour
 		c.Sources[0].SyncOnStart = true
-		c.LockCheck = 24 * time.Hour
 		c.PollInterval = 24 * time.Hour
 	})
 	h.start()
@@ -328,58 +327,6 @@ func TestRetentionCountsDeadLetters(t *testing.T) {
 	h.s.refreshDeadLetters(t.Context())
 	if got := h.s.deadLetters.Load(); got != 2 {
 		t.Fatalf("got %d dead letters, want 2", got)
-	}
-}
-
-// lockStub is an instance lock a test can lose.
-type lockStub struct{ lost atomic.Bool }
-
-func (l *lockStub) Held(context.Context) error {
-	if l.lost.Load() {
-		return errors.New("session ended")
-	}
-	return nil
-}
-func (*lockStub) Release(context.Context) error { return nil }
-
-func TestServerStopsWhenItLosesTheInstanceLock(t *testing.T) {
-	clk := testkit.NewClock(time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC))
-	lock := &lockStub{}
-	h := newHarness(t, func(c *Config) { c.Clock = clk; c.Lock = lock; c.LockCheck = time.Minute })
-	done := make(chan error, 1)
-	go func() { done <- h.s.Run(t.Context()) }()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	if err := clk.BlockUntilWaiters(ctx, 3); err != nil {
-		t.Fatal(err)
-	}
-	clk.Advance(time.Minute) // still held
-	select {
-	case err := <-done:
-		t.Fatalf("Run returned %v with the lock held", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	if err := h.s.Ready(ctx); err != nil {
-		t.Errorf("not ready with the lock held: %v", err)
-	}
-	lock.lost.Store(true)
-	if err := clk.BlockUntilWaiters(ctx, 3); err != nil {
-		t.Fatal(err)
-	}
-	clk.Advance(time.Minute)
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrLockLost) {
-			t.Fatalf("got %v, want ErrLockLost", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not stop")
-	}
-	if h.s.Live() == nil {
-		t.Error("a server that stopped for a lost lock reports itself live")
-	}
-	if err := h.s.Ready(ctx); !errors.Is(err, ErrLockLost) {
-		t.Errorf("got %v from Ready after the lock was lost, want ErrLockLost", err)
 	}
 }
 

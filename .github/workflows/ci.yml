@@ -14,22 +14,11 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  # internal/pgstore and pkg/store run against the server the
-  # .github/actions/postgres action starts. The administrator's password
-  # guards a throwaway server on the runner; the suites provision a role
-  # without administrator rights and a schema per test, and run as that role
-  # (C-STORE-2).
-  BEARING_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/postgres
-  BEARING_TEST_POSTGRES_PASSWORD: postgres
-  BEARING_TEST_POSTGRES_SCOPED: "1"
-
 # `make check` runs everything below in one process. Here it is split into
 # jobs that run side by side, so a push is answered in the time of the
 # slowest of static, race and the longest test shard, plus the gate. The
 # tests, and the same tests at the merge base, are what take the time, so
-# each runs in the shards the Makefile names (SHARDS), one runner and one
-# PostgreSQL apiece.
+# each runs in the shards the Makefile names (SHARDS), one runner apiece.
 jobs:
   # Everything that needs no test run.
   static:
@@ -59,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [random, pgstore, resolver, packages]
+        shard: [resolver, packages]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,10 +60,6 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
-
-      # pkg/resolver has no PostgreSQL suites.
-      - uses: ./.github/actions/postgres
-        if: matrix.shard != 'resolver'
 
       - run: make cover SHARD=${{ matrix.shard }} COVER_OUT=cover-${{ matrix.shard }}.out
 
@@ -88,13 +73,9 @@ jobs:
           overwrite: true
 
   # The packages that take locks or run goroutines, under the race detector.
-  # No PostgreSQL: the empty setting makes the suites that need it skip, so
-  # the job needs no server.
   race:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      BEARING_TEST_POSTGRES: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [random, pgstore, resolver, packages]
+        shard: [resolver, packages]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,9 +117,6 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
-
-      - uses: ./.github/actions/postgres
-        if: matrix.shard != 'resolver'
 
       # Writes baseline/base-<shard>.out, or nothing when the gate would skip
       # (only documentation changed). The marker keeps the artifact from

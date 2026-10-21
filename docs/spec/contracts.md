@@ -1143,7 +1143,6 @@ without ever labelling a metric with the caller.
 
 [`internal/memstore`](../../internal/memstore) is the reference `GraphStore`,
 `VectorIndex` and `EventLog` and shows the pattern.
-[`internal/pgstore`](../../internal/pgstore) passes the `VectorIndex`,
-`GraphStore` and `EventLog` suites. A backend that keeps events past the
+A backend that keeps events past the
 process also tests that a second store on the same data sees them, since the
 suite cannot restart it.

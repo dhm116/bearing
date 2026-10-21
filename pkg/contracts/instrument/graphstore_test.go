@@ -52,12 +52,6 @@ func TestWrappedStoreConforms(t *testing.T) {
 	conformance.GraphStore(t, newStore)
 }
 
-func TestWrappedIndexConforms(t *testing.T) {
-	conformance.VectorIndex(t, func(*testing.T) contracts.VectorIndex {
-		return instrument.VectorIndex(memstore.New(), "memory")
-	})
-}
-
 func TestExpectedErrorsAreNotSpanErrors(t *testing.T) {
 	s, _, _ := newStore(t)
 	ctx := context.Background()
