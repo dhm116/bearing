@@ -28,11 +28,20 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 		return graph.IngestResult{}, fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
-	g := &ingest{ctx: ctx, tx: tx, s: s, source: source, recorded: s.now().UTC().Truncate(time.Microsecond)}
+	g := &ingest{
+		ctx: ctx, tx: tx, s: s, source: source, authoritative: r.Authoritative,
+		recorded: s.now().UTC().Truncate(time.Microsecond),
+	}
 	for _, o := range obs {
 		if err := g.observation(o); err != nil {
 			return graph.IngestResult{}, fmt.Errorf("observation %s: %w", o.GetId(), err)
 		}
+	}
+	if err := g.complete(r.Complete, r.SyncStarted); err != nil {
+		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)
+	}
+	if err := recluster(ctx, tx, g.dirty); err != nil {
+		return graph.IngestResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("commit: %w", err)
@@ -42,12 +51,15 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 
 // ingest is the state of one Ingest call.
 type ingest struct {
-	ctx      context.Context
-	tx       *sql.Tx
-	s        *Store
-	source   string
-	recorded time.Time
-	res      graph.IngestResult
+	ctx           context.Context
+	tx            *sql.Tx
+	s             *Store
+	source        string
+	authoritative func(model.Key) bool
+	recorded      time.Time
+	res           graph.IngestResult
+	// dirty are records whose cluster may have changed; recomputed before commit.
+	dirty []string
 
 	// Per observation.
 	obsID    string
@@ -170,39 +182,45 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// resolve finds or creates the entity the observation is about, binds its
-// keys and merges entities that turn out to be one.
+// resolve finds or creates the record the observation is about and binds its
+// keys. Keys and aliases already bound to other records are not moved: each
+// such record gets an asserted same_as link (shared_key) to this one, and
+// each linked ID one to the record its key names (linked_ids), asserted when
+// the source vouches for that key type.
 func (g *ingest) resolve(e *modelv1alpha1.Entity) (string, error) {
 	keys := []string{e.GetKey()}
-	for _, k := range append(slices.Clone(e.GetAliases()), e.GetLinkedIds()...) {
+	for _, k := range e.GetAliases() {
 		if !slices.Contains(keys, k) {
 			keys = append(keys, k)
 		}
 	}
-	type ent struct {
+	type rec struct {
 		id, kind string
 		created  time.Time
 	}
-	var ents []ent
+	var recs []rec // the records keys are bound to, oldest first
 	boundTo := map[string]string{}
 	for _, k := range keys {
-		var id string
-		err := g.tx.QueryRowContext(g.ctx, `SELECT entity_id FROM alias WHERE key = ?`, k).Scan(&id)
+		var x rec
+		err := g.tx.QueryRowContext(g.ctx, `SELECT e.id, e.kind, e.created_at FROM alias a JOIN entity e ON e.id = a.entity_id
+			WHERE a.key = ?`, k).Scan(&x.id, &x.kind, &x.created)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {
 			return "", err
 		}
-		boundTo[k] = id
-		if !slices.ContainsFunc(ents, func(x ent) bool { return x.id == id }) {
-			x := ent{id: id}
-			if err := g.tx.QueryRowContext(g.ctx, `SELECT kind, created_at FROM entity WHERE id = ?`, id).Scan(&x.kind, &x.created); err != nil {
-				return "", err
-			}
-			ents = append(ents, x)
+		boundTo[k] = x.id
+		if !slices.ContainsFunc(recs, func(y rec) bool { return y.id == x.id }) {
+			recs = append(recs, x)
 		}
 	}
+	slices.SortFunc(recs, func(a, b rec) int {
+		if c := a.created.Compare(b.created); c != 0 {
+			return c
+		}
+		return strings.Compare(a.id, b.id)
+	})
 
 	name := tail(e.GetKey())
 	nameGiven := false
@@ -212,39 +230,28 @@ func (g *ingest) resolve(e *modelv1alpha1.Entity) (string, error) {
 		}
 	}
 
-	kinds := map[string]bool{}
-	for _, x := range ents {
-		if x.kind != "" {
-			kinds[x.kind] = true
-		}
-	}
-	var id string
-	switch {
-	case len(kinds) > 1: // different kinds: never merged (docs/edge-cases)
-		id = boundTo[e.GetKey()]
-	case len(ents) > 0:
-		slices.SortFunc(ents, func(a, b ent) int {
-			if c := a.created.Compare(b.created); c != 0 {
-				return c
-			}
-			return strings.Compare(a.id, b.id)
-		})
-		id = ents[0].id
-		for _, x := range ents[1:] {
-			if err := g.merge(x.id, id); err != nil {
-				return "", fmt.Errorf("merge %s into %s: %w", x.id, id, err)
-			}
+	// The primary key's record, else the oldest one an alias names that has
+	// no kind or this kind.
+	id := boundTo[e.GetKey()]
+	for _, x := range recs {
+		if id == "" && (x.kind == "" || x.kind == e.GetKind()) {
+			id = x.id
 		}
 	}
 	if id == "" {
 		id = g.s.newID()
-		if _, err := g.exec(`INSERT INTO entity VALUES (?, ?, ?, NULL, ?)`, id, e.GetKind(), name, g.recorded); err != nil {
+		if _, err := g.exec(`INSERT INTO entity (id, kind, name, created_at, cluster_id) VALUES (?, ?, ?, ?, ?)`,
+			id, e.GetKind(), name, g.recorded, id); err != nil {
 			return "", err
 		}
 		g.res.Entities++
 	} else {
-		if _, err := g.exec(`UPDATE entity SET kind = ? WHERE id = ? AND kind = ''`, e.GetKind(), id); err != nil {
+		n, err := g.exec(`UPDATE entity SET kind = ? WHERE id = ? AND kind = '' AND ? <> ''`, e.GetKind(), id, e.GetKind())
+		if err != nil {
 			return "", err
+		}
+		if n > 0 {
+			g.dirty = append(g.dirty, id) // a kindless record may now sit in a cluster of another kind
 		}
 		if nameGiven {
 			if _, err := g.exec(`UPDATE entity SET name = ? WHERE id = ?`, name, id); err != nil {
@@ -259,82 +266,46 @@ func (g *ingest) resolve(e *modelv1alpha1.Entity) (string, error) {
 			return "", fmt.Errorf("bind %s: %w", k, err)
 		}
 	}
+	for _, x := range recs {
+		if x.id != id {
+			if err := g.link(id, x.id, graph.Asserted, ruleSharedKey); err != nil {
+				return "", fmt.Errorf("shared key with %s: %w", x.id, err)
+			}
+		}
+	}
+	for _, k := range e.GetLinkedIds() {
+		other, err := g.target(k)
+		if err != nil {
+			return "", fmt.Errorf("linked %s: %w", k, err)
+		}
+		if other == id {
+			continue
+		}
+		status := graph.Proposed
+		if g.authoritative != nil && g.authoritative(model.Key(k)) {
+			status = graph.Asserted
+		}
+		if err := g.link(id, other, status, ruleLinkedIDs); err != nil {
+			return "", fmt.Errorf("linked %s: %w", k, err)
+		}
+	}
 	return id, nil
+}
+
+// link opens or reinforces a same_as link with this observation as evidence.
+func (g *ingest) link(a, b string, status graph.Status, rule string) error {
+	_, changed, err := g.s.upsertLink(g.ctx, g.tx, graph.Proposal{
+		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: status, Rule: rule,
+		Deposit: graph.Deposit{At: g.observed, Weight: 1, ObservationID: g.obsID},
+	})
+	if changed {
+		g.dirty = append(g.dirty, a, b)
+	}
+	return err
 }
 
 // tail is the part of a key after its last slash.
 func tail(key string) string { return key[strings.LastIndex(key, "/")+1:] }
-
-// merge folds loser into winner.
-func (g *ingest) merge(loser, winner string) error {
-	for _, q := range []string{
-		`UPDATE alias SET entity_id = ? WHERE entity_id = ?`,
-		`UPDATE fact SET subject_id = ? WHERE subject_id = ?`,
-		`UPDATE fact SET object_id = ? WHERE object_id = ?`,
-	} {
-		if _, err := g.exec(q, winner, loser); err != nil {
-			return err
-		}
-	}
-	if _, err := g.exec(`UPDATE entity SET merged_into = ? WHERE id = ?`, winner, loser); err != nil {
-		return err
-	}
-	g.res.Merges++
-	return g.collapse(winner)
-}
-
-// collapse cleans up winner's facts after a merge: a relation between the
-// two merged entities now points at itself and is closed, and two open
-// copies of one fact from one source become the oldest, which keeps every
-// source of both.
-func (g *ingest) collapse(winner string) error {
-	if _, err := g.exec(`UPDATE fact SET valid_to = greatest(valid_from, ?)
-		WHERE subject_id = ? AND object_id = ? AND valid_to IS NULL`, g.observed, winner, winner); err != nil {
-		return err
-	}
-	// dup pairs each open copy with the copy it folds into: the oldest open
-	// fact with the same subject, predicate, object or value, and source.
-	const dup = `WITH open AS (
-			SELECT id, subject_id, predicate, object_id, CAST(value AS VARCHAR) AS v, source, valid_from
-			FROM fact WHERE valid_to IS NULL AND (subject_id = ? OR object_id = ?)
-		), ranked AS (
-			SELECT id, first_value(id) OVER (
-				PARTITION BY subject_id, predicate, object_id, v, source
-				ORDER BY valid_from, id) AS keep
-			FROM open
-		)
-		SELECT id, keep FROM ranked WHERE id <> keep`
-	rows, err := g.tx.QueryContext(g.ctx, dup, winner, winner)
-	if err != nil {
-		return err
-	}
-	var pairs [][2]string
-	for rows.Next() {
-		var p [2]string
-		if err := rows.Scan(&p[0], &p[1]); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		pairs = append(pairs, p)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, p := range pairs {
-		drop, keep := p[0], p[1]
-		if _, err := g.exec(`INSERT INTO fact_source SELECT ?, observation_id FROM fact_source
-			WHERE fact_id = ? ON CONFLICT DO NOTHING`, keep, drop); err != nil {
-			return err
-		}
-		if _, err := g.exec(`DELETE FROM fact_source WHERE fact_id = ?`, drop); err != nil {
-			return err
-		}
-		if _, err := g.exec(`DELETE FROM fact WHERE id = ?`, drop); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 func (g *ingest) relation(r *modelv1alpha1.Relation) error {
 	other, outward := r.GetTo(), true
@@ -381,7 +352,8 @@ func (g *ingest) target(key string) (string, error) {
 		return "", err
 	}
 	id = g.s.newID()
-	if _, err := g.exec(`INSERT INTO entity VALUES (?, '', ?, NULL, ?)`, id, tail(key), g.recorded); err != nil {
+	if _, err := g.exec(`INSERT INTO entity (id, kind, name, created_at, cluster_id) VALUES (?, '', ?, ?, ?)`,
+		id, tail(key), g.recorded, id); err != nil {
 		return "", err
 	}
 	if _, err := g.exec(`INSERT INTO alias VALUES (?, ?, ?, ?, ?)`, key, id, g.source, g.observed, g.observed); err != nil {
@@ -601,4 +573,27 @@ func (g *ingest) snapshot(sc *modelv1alpha1.SnapshotScope) error {
 		}
 	}
 	return g.closeUntouched(where+rel, args...)
+}
+
+// complete ends what a complete listing no longer shows: records of those
+// kinds that this source observed before started and not since have their
+// open facts from this source (as subject or object) closed at started. A
+// fact some observation since started supports is left open.
+func (g *ingest) complete(kinds []model.Kind, started time.Time) error {
+	if len(kinds) == 0 {
+		return nil
+	}
+	started = started.UTC().Truncate(time.Microsecond)
+	gone := `SELECT a.entity_id FROM observation o JOIN alias a ON a.key = o.key JOIN entity e ON e.id = a.entity_id
+		WHERE o.source = ? AND e.kind IN (` + placeholders(len(kinds)) + `)
+		GROUP BY a.entity_id HAVING max(o.observed_at) < ?`
+	goneArgs := append(append([]any{g.source}, anySlice(kinds)...), started)
+	args := append([]any{started, started, g.source, started}, goneArgs...)
+	args = append(args, goneArgs...)
+	n, err := g.exec(`UPDATE fact SET valid_to = ? WHERE valid_to IS NULL AND valid_from <= ? AND source = ?
+		AND NOT EXISTS (SELECT 1 FROM fact_source fs JOIN observation o ON o.id = fs.observation_id
+			WHERE fs.fact_id = fact.id AND o.observed_at >= ?)
+		AND (subject_id IN (`+gone+`) OR object_id IN (`+gone+`))`, args...)
+	g.res.Closed += int(n)
+	return err
 }

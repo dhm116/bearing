@@ -214,44 +214,6 @@ func TestIngestRelationToUnknownKeyCreatesKindlessEntityLaterFilled(t *testing.T
 	}
 }
 
-func TestIngestSharedAliasMergesEntitiesAndRewritesFacts(t *testing.T) {
-	s := ingestStore(t)
-	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false)))
-	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", attrs("language", "Go")))
-	ingestOK(t, s, "gh", obs("o3", 2, "Team", "gh:team/t", rel("owns", "bs:comp/api", false)))
-	r := ingestOK(t, s, "bs", obs("o4", 3, "Component", "bs:comp/api", aliases("gh:repo/api")))
-	if r.Merges != 1 {
-		t.Fatalf("got %+v, want one merge", r)
-	}
-	var winner string
-	if err := s.db.QueryRow(`SELECT merged_into FROM entity WHERE merged_into IS NOT NULL`).Scan(&winner); err != nil || winner != "id-1" {
-		t.Fatalf("got winner %q, %v, want id-1 (the oldest)", winner, err)
-	}
-	if n := count(t, s, `SELECT count(*) FROM alias WHERE entity_id = 'id-1'`); n != 2 {
-		t.Fatalf("got %d keys on the survivor, want 2", n)
-	}
-	if n := count(t, s, `SELECT count(*) FROM fact WHERE 'id-3' IN (subject_id, object_id)`); n != 0 {
-		t.Fatalf("got %d facts still on the merged entity, want 0", n)
-	}
-}
-
-func TestIngestDifferentKindsAreNotMerged(t *testing.T) {
-	s := ingestStore(t)
-	ingestOK(t, s, "a", obs("o1", 0, "Component", "a:x/1"))
-	ingestOK(t, s, "a", obs("o2", 1, "Team", "a:x/2"))
-	r := ingestOK(t, s, "a", obs("o3", 2, "Team", "a:x/2", aliases("a:x/1")))
-	if r.Merges != 0 {
-		t.Fatalf("got %+v, want no merge", r)
-	}
-	if n := count(t, s, `SELECT count(*) FROM entity WHERE merged_into IS NOT NULL`); n != 0 {
-		t.Fatalf("got %d merged entities, want 0", n)
-	}
-	var id string
-	if err := s.db.QueryRow(`SELECT entity_id FROM alias WHERE key = 'a:x/1'`).Scan(&id); err != nil || id != "id-1" {
-		t.Fatalf("got %q, %v, want the other key left on id-1", id, err)
-	}
-}
-
 func TestIngestDeletedEntityClosesOnlyItsSourcesFacts(t *testing.T) {
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", attrs("language", "Go"), rel("depends_on", "k:a/db", false)))
@@ -267,12 +229,12 @@ func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
 	s := ingestStore(t)
 	bad := &eventv1alpha1.Observation{Id: "bad", Time: timestamppb.New(at(1))}
 	_, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "gh", Observations: []*eventv1alpha1.Observation{
-		obs("o1", 0, "Component", "k:a/api", attrs("language", "Go")), bad,
+		obs("o1", 0, "Component", "k:a/api", attrs("language", "Go"), linked("k:b/api")), bad,
 	}})
 	if err == nil {
 		t.Fatal("got nil error, want one")
 	}
-	for _, tb := range []string{"observation", "entity", "alias", "fact", "fact_source"} {
+	for _, tb := range []string{"observation", "entity", "alias", "fact", "fact_source", "identity_link", "link_deposit"} {
 		if n := count(t, s, "SELECT count(*) FROM "+tb); n != 0 {
 			t.Fatalf("got %d rows in %s, want 0", n, tb)
 		}
@@ -289,18 +251,6 @@ func TestIngestStaleObservationDoesNotCloseNewerFact(t *testing.T) {
 		t.Fatalf("got %+v, want nothing closed or opened", r)
 	}
 	wantFacts(t, s, `api depends_on db [10,open) x1`, `api language "Rust" [10,open) x1`)
-}
-
-func TestIngestMergeCollapsesDuplicateFactsAndClosesSelfLoops(t *testing.T) {
-	s := ingestStore(t)
-	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false)))
-	ingestOK(t, s, "gh", obs("o2", 1, "Component", "x:comp/api",
-		rel("depends_on", "k:a/db", false), rel("depends_on", "gh:repo/api", false)))
-	ingestOK(t, s, "gh", obs("o3", 3, "Component", "x:comp/api", aliases("gh:repo/api")))
-	wantFacts(t, s,
-		"api depends_on api [1,3) x1",
-		"api depends_on db [0,open) x2",
-	)
 }
 
 // relWith is rel with qualifiers.

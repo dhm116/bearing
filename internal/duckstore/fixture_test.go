@@ -13,19 +13,21 @@ func load(t *testing.T, s *Store, query string, args ...any) {
 // loadAcme loads a small world: team payments (t-pay), people Alice and Bob,
 // services api, ledger and db. api depends on ledger, ledger on db and db on
 // ledger (a cycle). db was owned by the team until March; a proposed fact
-// says Alice owns it. api's version changed on 2026-06-01. s-old was merged
-// into s-api.
+// says Alice owns it. api's version changed on 2026-06-01. s-old is a second
+// record in s-api's cluster.
 func loadAcme(t *testing.T, s *Store) {
 	t.Helper()
 	load(t, s, `
 INSERT INTO entity VALUES
- ('t-pay', 'Team', 'payments', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('p-alice', 'Person', 'Alice', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('p-bob', 'Person', 'Bob', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('s-api', 'Service', 'api', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('s-ledger', 'Service', 'ledger', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('s-db', 'Service', 'db', NULL, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
- ('s-old', 'Service', 'api-legacy', 's-api', TIMESTAMPTZ '2026-01-01 00:00:00+00');
+ ('t-pay', 'Team', 'payments', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-pay'),
+ ('p-alice', 'Person', 'Alice', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'p-alice'),
+ ('p-bob', 'Person', 'Bob', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'p-bob'),
+ ('s-api', 'Service', 'api', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-api'),
+ ('s-ledger', 'Service', 'ledger', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-ledger'),
+ ('s-db', 'Service', 'db', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-db'),
+ ('s-old', 'Service', 'api-legacy', TIMESTAMPTZ '2026-01-02 00:00:00+00', 's-api');
+INSERT INTO identity_link VALUES
+ ('l1', 's-api', 's-old', 'same_as', 'asserted', 'shared_key', TIMESTAMPTZ '2026-01-02 00:00:00+00', NULL);
 INSERT INTO alias VALUES
  ('team:payments', 't-pay', 'dir', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00'),
  ('person:alice', 'p-alice', 'dir', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00'),

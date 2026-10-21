@@ -27,7 +27,7 @@ func factIDs(fs []graph.Fact) []string {
 	return ids
 }
 
-func TestEntityResolvesIDsKeysAndMerges(t *testing.T) {
+func TestEntityResolvesIDsKeysAndRecordsToTheCluster(t *testing.T) {
 	s := acme(t)
 	for _, ref := range []string{"s-api", "svc:api", "svc:api-old", "s-old", "svc:legacy-api"} {
 		t.Run(ref, func(t *testing.T) {
@@ -35,8 +35,8 @@ func TestEntityResolvesIDsKeysAndMerges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantKeys := []model.Key{"svc:api", "svc:api-old"}
-			if e.ID != "s-api" || e.Kind != "Service" || e.Name != "api" || !slices.Equal(e.Keys, wantKeys) {
+			wantKeys := []model.Key{"svc:api", "svc:api-old", "svc:legacy-api"}
+			if e.ID != "s-api" || e.Kind != "Service" || e.Name != "api" || !slices.Equal(e.Keys, wantKeys) || len(e.Records) != 2 {
 				t.Fatalf("got %+v, want s-api with keys %v", e, wantKeys)
 			}
 		})
@@ -55,7 +55,7 @@ func TestFindRanksExactSubstringThenFuzzy(t *testing.T) {
 		limit int
 		want  []graph.EntityID
 	}{
-		{"exact name, merged entity hidden", "API", "", 0, []graph.EntityID{"s-api"}},
+		{"exact name, second record folded into its cluster", "API", "", 0, []graph.EntityID{"s-api"}},
 		{"substring of a key", "payments", "", 0, []graph.EntityID{"t-pay"}},
 		{"fuzzy", "ledgr", "", 0, []graph.EntityID{"s-ledger"}},
 		{"kind filter", "alice", "Service", 0, nil},
@@ -91,7 +91,7 @@ func TestFactsFilterAndTimeTravel(t *testing.T) {
 		want []string
 	}{
 		{"subject now", graph.FactFilter{Subject: "s-api"}, []string{"f01", "f08", "f04", "f10"}},
-		{"by merged id", graph.FactFilter{Subject: "s-old", Predicate: "version"}, []string{"f10"}},
+		{"by another record of the cluster", graph.FactFilter{Subject: "s-old", Predicate: "version"}, []string{"f10"}},
 		{"past version", graph.FactFilter{Subject: "s-api", Predicate: "version", At: day(3, 1)}, []string{"f09"}},
 		{"closed boundary", graph.FactFilter{Subject: "s-api", Predicate: "version", At: day(6, 1)}, []string{"f10"}},
 		{"object", graph.FactFilter{Object: "t-pay", Predicate: "owned_by"}, []string{"f04", "f05"}},
@@ -157,7 +157,7 @@ func TestWalkFollowsEdgesOnceAndEndsCycles(t *testing.T) {
 		{"out, cycle ends", graph.WalkRequest{From: "s-api", Predicates: []string{"depends_on"}}, []step{{1, "f01"}, {2, "f02"}}},
 		{"max depth", graph.WalkRequest{From: "s-api", Predicates: []string{"depends_on"}, MaxDepth: 1}, []step{{1, "f01"}}},
 		{"in", graph.WalkRequest{From: "s-ledger", Predicates: []string{"depends_on"}, Direction: graph.In}, []step{{1, "f01"}, {1, "f03"}}},
-		{"merged start", graph.WalkRequest{From: "s-old", Predicates: []string{"depends_on"}, MaxDepth: 1}, []step{{1, "f01"}}},
+		{"start at another record", graph.WalkRequest{From: "s-old", Predicates: []string{"depends_on"}, MaxDepth: 1}, []step{{1, "f01"}}},
 		{
 			"every relation, proposed and closed hidden",
 			graph.WalkRequest{From: "t-pay", Direction: graph.In, MaxDepth: 1},
@@ -211,7 +211,7 @@ func TestChangesListsOpenedAndClosedNewestFirst(t *testing.T) {
 		{"subject as object", graph.ChangesRequest{Subject: "t-pay", Since: day(2, 1), Until: day(6, 2)}, []change{
 			{graph.Closed, "f06", day(3, 1)}, {graph.Opened, "f13", day(2, 1)},
 		}},
-		{"subject as subject, by merged id", graph.ChangesRequest{Subject: "s-old", Since: day(5, 1), Until: day(7, 1)}, []change{
+		{"subject as subject, by another record of the cluster", graph.ChangesRequest{Subject: "s-old", Since: day(5, 1), Until: day(7, 1)}, []change{
 			{graph.Closed, "f09", day(6, 1)}, {graph.Opened, "f10", day(6, 1)},
 		}},
 		{"limit", graph.ChangesRequest{Since: day(2, 1), Until: day(6, 2), Limit: 1}, []change{{graph.Closed, "f09", day(6, 1)}}},

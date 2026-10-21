@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"bearing.example/adapters/github"
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/duckstore"
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
@@ -91,11 +93,43 @@ func (w *world) ingest(source string, obs []*eventv1alpha1.Observation) graph.In
 			w.t.Fatalf("%s: %v", o.GetId(), err)
 		}
 	}
-	res, err := w.store.Ingest(w.t.Context(), graph.IngestRequest{Source: source, Observations: obs})
+	res, err := w.store.Ingest(w.t.Context(), graph.IngestRequest{
+		Source: source, Observations: obs, Authoritative: authoritative(w.t, adapterOf[source]),
+	})
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	return res
+}
+
+// adapterOf names the adapter behind each source the tests sync.
+var adapterOf = map[string]string{"github-acme": "github", "directory": "authentik", "kubernetes-acme": "kubernetes"}
+
+// authoritative reads the adapter's declaration in testdata/declarations: a
+// linked key is vouched for when its issuer and key type are declared as an
+// authoritative link (model.LinkDeclaration) in any kind.
+func authoritative(t *testing.T, adapter string) func(model.Key) bool {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("../../testdata/declarations", adapter+".json")) //nolint:gosec // a fixed test fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &modelv1alpha1.AdapterDeclaration{}
+	if err := model.DecodeJSON(b, d); err != nil {
+		t.Fatal(err)
+	}
+	vouched := map[string]bool{}
+	for _, k := range d.GetKinds() {
+		for _, l := range k.GetLinks() {
+			if l.GetAuthority().GetAuthoritative() {
+				vouched[l.GetIssuerType()+":"+l.GetKeyType()] = true
+			}
+		}
+	}
+	return func(k model.Key) bool {
+		issuer, keyType, _, err := k.Parse()
+		return err == nil && vouched[issuer+":"+keyType]
+	}
 }
 
 // id resolves a key or entity ID to the entity's ID.
@@ -164,16 +198,18 @@ func TestAcmeJoinsPeopleByAuthoritativeLinks(t *testing.T) {
 }
 
 // TestAcmeKeepsTomBeckerApart: the directory records only his GitHub login,
-// which is not authoritative evidence. The store treats every linked ID
-// alike, so this fails today (see the report).
+// which its declaration does not vouch for, so the link stays a proposal.
 func TestAcmeKeepsTomBeckerApart(t *testing.T) {
-	t.Skip("pending roadmap step 4: only authoritative linked_ids may merge (ROADMAP.md)")
 	t.Parallel()
 	w := newWorld(t)
 	w.syncGitHub()
 	w.syncDirectory()
 	if a, b := w.id("github:user/tbecker"), w.id("authentik:username/tbecker"); a == b {
-		t.Errorf("Tom Becker: GitHub user and directory person merged into %s on a login link that is not authoritative", a)
+		t.Errorf("Tom Becker: GitHub user and directory person joined into %s on a login link that is not authoritative", a)
+	}
+	ls, err := w.store.Links(t.Context(), graph.LinkFilter{Entity: w.id("authentik:username/tbecker")})
+	if err != nil || len(ls) != 1 || ls[0].Status != graph.Proposed || ls[0].Rule != "linked_ids" {
+		t.Errorf("Tom Becker's links: got %+v, %v, want one proposed linked_ids link for review", ls, err)
 	}
 }
 
