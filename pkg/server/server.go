@@ -74,20 +74,10 @@ type Config struct {
 	// Log is the event log every input goes through.
 	Log contracts.EventLog
 	// Graph is the store the apply workers write; it is read for health
-	// and for the dead-letter audit.
+	// and to mark dead letters processed.
 	Graph contracts.GraphStore
 	// Applier applies observations.
 	Applier Applier
-	// Audit, if set, lets a restarted worker see that the event it resumes
-	// at was already given up on, when the server stopped between a dead
-	// letter's audit entry and its commit (docs/spec/contracts.md, "Dead
-	// letters"). Without it that event is tried again.
-	Audit contracts.AuditLog
-	// AuditRetention, if enabled, cuts the oldest audit records.
-	AuditRetention AuditRetention
-	// AuditCheckpoints, if enabled, checkpoints the audit log's head at an
-	// interval.
-	AuditCheckpoints AuditCheckpoints
 	// Sources are the configured sources.
 	Sources []Source
 
@@ -140,10 +130,7 @@ type Server struct {
 	// not changed after.
 	syncs  map[string]*syncSlot
 	warned map[string]bool
-	// resumed holds the partitions whose first event after the start has
-	// been checked against the audit log.
-	resumed map[contracts.Partition]bool
-	wake    chan struct{}
+	wake   chan struct{}
 
 	oldestUnapplied atomic.Int64 // seconds
 	deadLetters     atomic.Int64
@@ -190,16 +177,10 @@ func New(cfg Config) (*Server, error) {
 	if cfg.NewID == nil {
 		cfg.NewID = randomID
 	}
-	if err := checkAuditRetention(&cfg); err != nil {
-		return nil, err
-	}
-	if err := checkAuditCheckpoints(&cfg); err != nil {
-		return nil, err
-	}
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
 		inflight: map[contracts.Partition]bool{}, syncs: map[string]*syncSlot{},
-		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, resumed: map[contracts.Partition]bool{}, wake: make(chan struct{}, 1),
+		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, wake: make(chan struct{}, 1),
 	}
 	for i := range cfg.Sources {
 		src := cfg.Sources[i]
@@ -252,8 +233,6 @@ func (s *Server) Run(ctx context.Context) error {
 	run("workers", s.runWorkers)
 	run("scheduler", s.runScheduler)
 	run("retention", s.runRetention)
-	run("audit retention", s.runAuditRetention)
-	run("audit checkpoints", s.runAuditCheckpoints)
 	<-ctx.Done()
 	wg.Wait()
 	err := context.Cause(ctx)

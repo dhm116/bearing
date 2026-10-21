@@ -172,7 +172,7 @@ func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 	h.graph = &downGraph{GraphStore: h.mem}
 	h.log = &flakyLog{EventLog: h.mem}
 	h.cfg = Config{
-		Log: h.log, Graph: h.graph, Audit: h.mem.AuditLog(), Applier: h.ap,
+		Log: h.log, Graph: h.graph, Applier: h.ap,
 		Sources:      []Source{{Name: testSource, Adapter: h.ad, Config: json.RawMessage(`{"org":"acme"}`)}},
 		PollInterval: 5 * time.Millisecond, RetryPause: time.Millisecond, MaxAttempts: 3,
 		TrimEvery: time.Hour, Retention: -1,
@@ -405,21 +405,7 @@ func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 	if strings.Contains(string(dl[0].Data), "repository") {
 		t.Error("the record copies the event's data")
 	}
-	// Step 2: one audit entry, from the worker, under the dead event's ID.
-	recs, err := h.mem.AuditLog().Query(t.Context(), contracts.AuditFilter{EventID: poison.ID, Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 1 {
-		t.Fatalf("%d audit records, want 1", len(recs))
-	}
-	e := recs[0].GetEntry()
-	if e.GetAction() != modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED || e.GetActor().GetId() != "system:worker" ||
-		e.GetActor().GetKind() != modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM || e.GetRule() != "attempts_exhausted" ||
-		e.GetTarget().GetKind() != modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT || e.GetTarget().GetId() != poison.ID ||
-		e.GetReason() != rec.GetError() {
-		t.Errorf("got audit entry %v", e)
-	}
+	// Step 2: the mark that the event is processed.
 	// The event is marked processed: a later apply of it is a duplicate.
 	res, err := h.mem.Apply(t.Context(), &modelv1alpha1.ChangeSet{EventId: poison.ID})
 	if err != nil || !res.Duplicate {

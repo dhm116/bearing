@@ -18,12 +18,6 @@
 //
 //	bearing source sync github-acme --server /run/bearing/api.sock
 //
-// and checks the audit log against checkpoints kept outside the store:
-//
-//	bearing audit verify --checkpoints cp.ndjson --key audit-1=audit-1.pub
-//	bearing audit checkpoint --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
-//	bearing audit reanchor --expect-seq 120 --out cp.ndjson --key-id audit-1 --key-env AUDIT_KEY
-//
 // The queries take --store (or $BEARING_STORE) to read a store, or --server (or
 // $BEARING_SERVER) to ask a running server, which answers the same questions
 // the same way: its Unix socket, which needs no token, or https://host:port with
@@ -64,9 +58,6 @@ const usage = `usage:
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
-  bearing audit verify [--store URL] [--checkpoints FILE] [--key ID=FILE]... [--allow-unsigned] [--max-age D] [--json]
-  bearing audit checkpoint [--store URL] [--out FILE] [--key-id ID --key-env VAR]
-  bearing audit reanchor [--store URL] [--out FILE] --expect-seq N --key-id ID --key-env VAR
 `
 
 // version is the CLI version, set at build time with -ldflags.
@@ -113,7 +104,7 @@ var errUsage = errors.New("see usage below")
 // its subcommand. Arguments such as a subject never go in it.
 func spanName(args []string) string {
 	switch {
-	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "audit" || args[0] == "source"):
+	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source"):
 		return "bearing " + args[0] + " " + args[1]
 	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server"):
 		return "bearing " + args[0]
@@ -135,8 +126,6 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 	switch args[0] {
 	case "server":
 		return serverCmd(ctx, args[1:], stdout)
-	case "audit":
-		return auditCmd(ctx, env, args[1:], stdout)
 	case "source":
 		return sourceCmd(ctx, env, args[1:], stdout)
 	case "adapter":

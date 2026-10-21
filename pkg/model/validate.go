@@ -49,7 +49,7 @@ const (
 	// ScopeObservation rejects the whole observation.
 	ScopeObservation Scope = iota
 	// ScopeClaim rejects only the claim the problem is in; the rest of the
-	// observation applies (see "Audit" in docs/spec/data-model.md).
+	// observation applies.
 	ScopeClaim
 )
 

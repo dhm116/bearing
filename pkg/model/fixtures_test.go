@@ -17,7 +17,7 @@ import (
 )
 
 // fixtureMessage returns an empty message for a fixture named
-// "<package>.<Message>.json", for example "model.AuditRecord.json".
+// "<package>.<Message>.json", for example "event.Actor.json".
 func fixtureMessage(t *testing.T, file string) proto.Message {
 	t.Helper()
 	parts := strings.Split(filepath.Base(file), ".")
@@ -37,7 +37,7 @@ func fixtureMessage(t *testing.T, file string) proto.Message {
 // write: unknown fields and numeric enums fail to decode or re-encode
 // differently.
 func TestExampleEventsAndConfigRoundTrip(t *testing.T) {
-	for _, glob := range []string{"../../testdata/events/*.json", "../../testdata/config/*.json", "../../testdata/audit/*.json"} {
+	for _, glob := range []string{"../../testdata/events/*.json", "../../testdata/config/*.json"} {
 		files, err := filepath.Glob(glob)
 		if err != nil || len(files) == 0 {
 			t.Fatalf("got %d fixtures for %s (%v), want some", len(files), glob, err)

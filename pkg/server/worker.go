@@ -63,13 +63,6 @@ func (s *Server) runWorkers(ctx context.Context) error {
 			go func() {
 				defer wg.Done()
 				err := s.drain(ctx, p)
-				if err != nil {
-					// The partition is read again from its committed offset, and
-					// that event may be one just given up on.
-					s.mu.Lock()
-					delete(s.resumed, p)
-					s.mu.Unlock()
-				}
 				s.release(p)
 				if err != nil && ctx.Err() == nil {
 					log.WarnContext(ctx, "applying a partition stopped; it is read again", "partition", string(p), "error", cleanErrorText(err.Error()))
@@ -161,19 +154,6 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 			return nil
 		}
 		for _, e := range entries {
-			given, err := s.givenUp(ctx, e)
-			if err != nil {
-				return err
-			}
-			if given {
-				// Its dead letter was recorded and audited before the server
-				// stopped; only the commit is missing.
-				if err := s.cfg.Log.Commit(ctx, s.cfg.Group, p, e.Offset); err != nil {
-					return fmt.Errorf("commit %s at %d: %w", p, e.Offset, err)
-				}
-				after = e.Offset
-				continue
-			}
 			if err := s.process(ctx, e); err != nil {
 				return err
 			}
@@ -183,33 +163,6 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 			after = e.Offset
 		}
 	}
-}
-
-// givenUp reports whether the entry was already given up on: the audit log
-// holds its dead-letter entry, which a server that stopped before the commit
-// left behind. Only the first entry a partition's worker meets after the start
-// can be in that state, since offsets are committed in order, so only that one
-// is looked up.
-func (s *Server) givenUp(ctx context.Context, e contracts.Entry) (bool, error) {
-	if s.cfg.Audit == nil {
-		return false, nil
-	}
-	s.mu.Lock()
-	done := s.resumed[e.Partition]
-	s.mu.Unlock()
-	if done {
-		return false, nil
-	}
-	recs, err := s.cfg.Audit.Query(ctx, contracts.AuditFilter{
-		EventID: e.ID, Limit: 1, Actions: []modelv1alpha1.AuditAction{modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED},
-	})
-	if err != nil {
-		return false, fmt.Errorf("audit lookup for %s: %w", e.ID, err)
-	}
-	s.mu.Lock()
-	s.resumed[e.Partition] = true
-	s.mu.Unlock()
-	return len(recs) > 0, nil
 }
 
 // process handles one entry, trying again when it fails, and gives up on it
@@ -330,8 +283,8 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 	}
 	if e.Partition == manualPartition {
 		// An operator's request that nothing can carry out yet must not be
-		// acknowledged and dropped: it becomes a dead letter, with an audit
-		// entry, that a person sees.
+		// acknowledged and dropped: it becomes a dead letter that a
+		// person sees.
 		return "", fmt.Errorf("no handler for manual event type %q", model.Clip(e.Type))
 	}
 	s.mu.Lock()
@@ -347,8 +300,7 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 
 // deadLetter gives up on an event in the three steps of docs/spec/contracts.md,
 // "Dead letters", in that order, so a crash between any two repeats safely:
-// the record, the audit entry with the processed mark, and then (by the
-// caller) the commit.
+// the record, the processed mark, and then (by the caller) the commit.
 func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.Entry, attempts int, cause error) error {
 	text := cleanErrorText(cause.Error())
 	span.SetAttributes(attribute.Bool("bearing.dead_letter", true))
@@ -373,30 +325,26 @@ func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.En
 	if len(got) == 1 && !got[0].Duplicate {
 		s.deadLetters.Add(1)
 	}
-	// 2. The audit entry, and the mark that the event is processed.
-	if err := s.auditDeadLetter(ctx, e, text); err != nil {
-		return fmt.Errorf("audit dead letter: %w", err)
+	// 2. The mark that the event is processed.
+	if err := s.markProcessed(ctx, e); err != nil {
+		return fmt.Errorf("mark dead letter processed: %w", err)
 	}
 	workerEvents.Add(ctx, 1, workerAttrs(e.Type, workerDeadLettered))
-	telemetry.Logger(pkgName).WarnContext(ctx, "gave up on an event", "event", e.ID, "partition", string(e.Partition),
-		"type", e.Type, "attempts", attempts, "error", text)
+	_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "gave up on an event", errors.New(text),
+		attribute.String("event", e.ID), attribute.String("partition", string(e.Partition)),
+		attribute.String("type", e.Type), attribute.Int("attempts", attempts))
 	return nil
 }
 
-// auditDeadLetter applies a ChangeSet that changes nothing and carries one
-// audit entry, under the dead event's ID.
-func (s *Server) auditDeadLetter(ctx context.Context, e contracts.Entry, text string) error {
+// markProcessed applies a ChangeSet that changes nothing, under the dead
+// event's ID, so the graph records the event as processed.
+func (s *Server) markProcessed(ctx context.Context, e contracts.Entry) error {
 	for range 16 {
 		head, err := s.cfg.Graph.Head(ctx)
 		if err != nil {
 			return err
 		}
-		cs := &modelv1alpha1.ChangeSet{EventId: e.ID, Audit: []*modelv1alpha1.AuditEntry{{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED,
-			Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:worker"},
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT, Id: e.ID},
-			Rule:   "attempts_exhausted", Reason: text,
-		}}}
+		cs := &modelv1alpha1.ChangeSet{EventId: e.ID}
 		if !head.IsZero() {
 			cs.BaseRecordedAt = timestamppb.New(head)
 		}
@@ -409,8 +357,7 @@ func (s *Server) auditDeadLetter(ctx context.Context, e contracts.Entry, text st
 	return contracts.ErrStale
 }
 
-// maxErrorBytes bounds the error text that goes into a dead letter and its
-// audit entry.
+// maxErrorBytes bounds the error text that goes into a dead letter.
 const maxErrorBytes = 1024
 
 // cleanErrorText makes error text safe to store: valid UTF-8, no control
@@ -421,7 +368,7 @@ func cleanErrorText(s string) string {
 	s = strings.Map(func(r rune) rune {
 		// Control characters, and the format and separator characters that
 		// reorder or hide text (bidi overrides, zero-width, line and
-		// paragraph separators), since the audit reason is kept for good.
+		// paragraph separators), since the dead letter is kept for good.
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return ' '
 		}

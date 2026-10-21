@@ -25,12 +25,9 @@ import (
 type queryEnv struct {
 	// Open connects to the graph store at a URL, reading its password
 	// variable through getenv, and returns it with a close function.
-	Open func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error)
-	// OpenAudit does the same for the audit log of the graph store at a URL.
-	OpenAudit func(ctx context.Context, url string, _ func(string) string) (contracts.AuditLog, func(context.Context) error, error)
-	Getenv    func(string) string
-	// Now is the time durations such as --since 72h count back from, and the
-	// time of a checkpoint it writes.
+	Open   func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error)
+	Getenv func(string) string
+	// Now is the time durations such as --since 72h count back from.
 	Now func() time.Time
 }
 
@@ -43,13 +40,6 @@ func defaultQueryEnv() queryEnv {
 				return nil, nil, err
 			}
 			return s.Graph, s.Close, nil
-		},
-		OpenAudit: func(ctx context.Context, url string, _ func(string) string) (contracts.AuditLog, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url})
-			if err != nil {
-				return nil, nil, err
-			}
-			return s.Audit, s.Close, nil
 		},
 		Getenv: os.Getenv,
 		Now:    time.Now,
@@ -378,4 +368,20 @@ func parseAge(s string) (time.Duration, error) {
 		dur *= 24
 	}
 	return dur, nil
+}
+
+// validEnvName reports whether s is a plausible environment variable name,
+// which a token is not.
+func validEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_', r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
 }

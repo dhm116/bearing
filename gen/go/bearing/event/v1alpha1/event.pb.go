@@ -468,8 +468,7 @@ func (x *ObservationsEmitted) GetCompleteSync() *v1alpha1.CompleteSync {
 
 // Actor is who asked for an event: a person, an agent acting for one, or a
 // Bearing component. A component's subject is "system:<name>", for example
-// "system:scheduler" or "system:loader"; the audit log records that as a
-// system actor.
+// "system:scheduler" or "system:loader".
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stable ID the authenticator gives a person or agent (OIDC subject
@@ -1591,7 +1590,7 @@ func (x *ConfigApplied) GetChanges() []*ConfigChange {
 // EventDeadLettered is the record of an event a worker gave up on after
 // repeated failures, appended to the core/dead_letter partition with Retain
 // (it holds no event data) so it outlives the retention window
-// (docs/spec/contracts.md, "Dead letters"). The worker audits the event,
+// (docs/spec/contracts.md, "Dead letters"). The worker reports the event,
 // marks it applied and commits past it, so one bad event cannot hold the log.
 type EventDeadLettered struct {
 	state protoimpl.MessageState `protogen:"open.v1"`

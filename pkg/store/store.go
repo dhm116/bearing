@@ -28,17 +28,10 @@ type Config struct {
 	Namespaces []string
 }
 
-// Store is an open graph store, audit log and event log, all instrumented
-// with OpenTelemetry.
+// Store is an open graph store and event log, both instrumented with
+// OpenTelemetry.
 type Store struct {
 	Graph contracts.GraphStore
-	// Audit is the graph store's audit log, which the graph store writes
-	// itself inside Apply (ADR 8); this reads it.
-	Audit contracts.AuditLog
-	// AuditRetention removes the audit log's oldest records. Only the
-	// server's retention job takes it, so the handlers that read the log hold
-	// nothing that can delete (threat model C-AUDIT-5).
-	AuditRetention contracts.AuditRetention
 	// Events is the durable event log (ADR 7).
 	Events  contracts.EventLog
 	closers []func(context.Context) error
@@ -57,8 +50,6 @@ func (s *Store) Close(ctx context.Context) error {
 type backend struct {
 	name   string // for telemetry: "memory"
 	graph  contracts.GraphStore
-	audit  contracts.AuditLog
-	retain contracts.AuditRetention
 	events contracts.EventLog
 	close  func(context.Context) error
 }
@@ -74,7 +65,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		return nil, err
 	}
 	s.closers = append(s.closers, g.close)
-	if g.graph == nil || g.audit == nil {
+	if g.graph == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
 	e := g
@@ -85,8 +76,6 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		s.closers = append(s.closers, e.close)
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
-	s.Audit = instrument.AuditLog(g.audit, g.name)
-	s.AuditRetention = instrument.AuditRetention(g.retain, g.name)
 	s.Events = instrument.EventLog(e.events, e.name)
 	return s, nil
 }
@@ -99,7 +88,7 @@ func open(raw string) (backend, error) {
 	if u.Scheme == "mem" {
 		m := memstore.New()
 		return backend{
-			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), events: m, close: func(context.Context) error { return nil },
+			name: "memory", graph: m, events: m, close: func(context.Context) error { return nil },
 		}, nil
 	}
 	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://", u.Scheme)

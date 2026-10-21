@@ -9,7 +9,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/anypb"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
@@ -156,10 +155,7 @@ func ChangeSetKeys(cs *modelv1alpha1.ChangeSet) map[Table][]string {
 }
 
 // SubjectsIn returns the subject IDs a message names in any subject_id,
-// subject_ids, survivor_id, merged_id or merged_into field, as the id of an
-// audit target of kind subject, in the first part of one of kind
-// subject_predicate, or in the messages an audit entry embeds as before and
-// after, refs ("new:…") left out, sorted and without repeats.
+// subject_ids, survivor_id, merged_id or merged_into field, refs ("new:…") left out, sorted and without repeats.
 func SubjectsIn(m proto.Message) []string {
 	var out []string
 	collect(m.ProtoReflect(), &out)
@@ -167,9 +163,7 @@ func SubjectsIn(m proto.Message) []string {
 	return slices.Compact(out)
 }
 
-// isSubjectField says whether a field holds a subject ID. SubjectsIn reads
-// these fields and the audit entries' embedded messages are rewritten through
-// them, so the two can't drift apart.
+// isSubjectField says whether a field holds a subject ID. SubjectsIn reads them.
 func isSubjectField(fd protoreflect.FieldDescriptor) bool {
 	if fd.Kind() != protoreflect.StringKind || fd.IsMap() {
 		return false
@@ -187,25 +181,6 @@ func collect(m protoreflect.Message, out *[]string) {
 	add := func(v string) {
 		if v != "" && !strings.HasPrefix(v, refPrefix) {
 			*out = append(*out, v)
-		}
-	}
-	switch x := m.Interface().(type) {
-	case *modelv1alpha1.AuditTarget:
-		switch x.GetKind() {
-		case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT:
-			add(x.GetId())
-		case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE:
-			id, _, _ := strings.Cut(x.GetId(), "/")
-			add(id)
-		}
-	case *modelv1alpha1.AuditEntry:
-		for _, a := range []*anypb.Any{x.GetBefore(), x.GetAfter()} {
-			if a == nil {
-				continue
-			}
-			if embedded, err := a.UnmarshalNew(); err == nil {
-				collect(embedded.ProtoReflect(), out)
-			}
 		}
 	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {

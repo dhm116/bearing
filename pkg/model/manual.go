@@ -80,9 +80,7 @@ func ValidateManualEvent(m proto.Message) error {
 	return c.err()
 }
 
-// The most bytes of the free text a manual operation carries, which the
-// audit log keeps for good (contracts.CheckChangeSetLimits holds audit
-// entries to the same bounds).
+// The most bytes of the free text a manual operation carries.
 const (
 	// MaxActorBytes bounds an actor's ID.
 	MaxActorBytes = 1024

@@ -49,9 +49,8 @@ message BackupTrailer {
   bytes sha256 = 2;
 }
 
-// JournalEntry is one apply in a store's change journal (not the audit log,
-// ADR 8): the ChangeSet as applied, with the store-set fields filled in,
-// and what the apply decided. The reference store's backup body is its
+// JournalEntry is one apply in a store's change journal: the ChangeSet as
+// applied, with the store-set fields filled in, and what the apply decided. The reference store's backup body is its
 // journal, one entry per record; replay re-decides each entry and fails if
 // the outcome differs.
 message JournalEntry {

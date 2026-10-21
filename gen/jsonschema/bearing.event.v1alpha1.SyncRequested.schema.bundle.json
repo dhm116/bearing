@@ -3,7 +3,7 @@
     "bearing.event.v1alpha1.Actor.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "Actor is who asked for an event: a person, an agent acting for one, or a\n Bearing component. A component's subject is \"system:\u003cname\u003e\", for example\n \"system:scheduler\" or \"system:loader\"; the audit log records that as a\n system actor.",
+      "description": "Actor is who asked for an event: a person, an agent acting for one, or a\n Bearing component. A component's subject is \"system:\u003cname\u003e\", for example\n \"system:scheduler\" or \"system:loader\".",
       "properties": {
         "agent": {
           "default": false,

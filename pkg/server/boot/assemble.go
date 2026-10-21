@@ -138,11 +138,6 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 			cancel()
 		}
 	}()
-	checkpoints, retention, err := auditConfig(s, c, st, env.Getenv)
-	if err != nil {
-		return nil, err
-	}
-
 	res, err := resolver.New(rcfg, st.Graph)
 	if err != nil {
 		return nil, fmt.Errorf("boot: resolver: %w", err)
@@ -154,9 +149,8 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
 	}
 	srv, err := server.New(server.Config{
-		Log: st.Events, Graph: st.Graph, Applier: res, Audit: st.Audit,
+		Log: st.Events, Graph: st.Graph, Applier: res,
 		Sources: sources, Clock: env.Clock,
-		AuditCheckpoints: checkpoints, AuditRetention: retention,
 	})
 	if err != nil {
 		return nil, err
@@ -288,7 +282,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 
 // childEnv is an adapter's whole environment: a fixed PATH, the secrets its
 // source names, and the variables the operator allowed it. The webhook
-// secret, the store password, the signing key and everything else the server
+// secret, the store password and everything else the server
 // was started with stay behind (C-SECRET-3).
 func childEnv(ad *AdapterSettings, secrets []string, getenv func(string) string) []string {
 	env := append([]string{"PATH=" + childPath}, secrets...)

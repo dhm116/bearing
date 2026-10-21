@@ -40,26 +40,6 @@ func TestConformance(t *testing.T) {
 	})
 }
 
-func TestAuditLogConformance(t *testing.T) {
-	conformance.AuditLog(t, func(*testing.T) (conformance.AuditStore, conformance.Clock, conformance.IDs) {
-		clk := testkit.NewClock(time.Time{})
-		s := New()
-		ids := testkit.NewUUIDv7s(clk.Now)
-		s.Now, s.IDs = clk.Now, ids
-		return s, clk, ids
-	})
-}
-
-func TestAuditRetentionConformance(t *testing.T) {
-	conformance.AuditRetention(t, func(*testing.T) (conformance.RetentionStore, conformance.Clock, conformance.IDs) {
-		clk := testkit.NewClock(time.Time{})
-		s := New()
-		ids := testkit.NewUUIDv7s(clk.Now)
-		s.Now, s.IDs = clk.Now, ids
-		return s, clk, ids
-	})
-}
-
 func mintTeam(event string) *modelv1alpha1.ChangeSet {
 	return &modelv1alpha1.ChangeSet{EventId: event, Mints: []*modelv1alpha1.Mint{
 		{Ref: "new:a", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION},
