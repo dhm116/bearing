@@ -134,7 +134,10 @@ func seedRepos() []*Repo {
 			DatabaseID: 525776495, Name: "payments-api", Description: "Payment processing API",
 			Language: "Go", Topics: []string{"payments", "tier-1"}, DefaultBranch: "main", Visibility: "private",
 			CreatedAt: day(2023, 1, 9), UpdatedAt: day(2026, 9, 20), PushedAt: day(2026, 9, 20),
-			Files: map[string]string{".github/CODEOWNERS": "# Payments service\n* @acme/payments\n"},
+			Files: map[string]string{
+				".github/CODEOWNERS": "# Payments service\n* @acme/payments\n",
+				"go.mod":             "module acme.example/payments-api\n\ngo 1.21\n",
+			},
 		},
 		{
 			// The root CODEOWNERS wins; docs/CODEOWNERS is stale and ignored.
@@ -144,6 +147,8 @@ func seedRepos() []*Repo {
 			Files: map[string]string{
 				"CODEOWNERS":      "* @acme/platform\n/docs/ @jdoe\n",
 				"docs/CODEOWNERS": "* @acme/payments\n",
+				"package.json":    "{\"name\": \"web\", \"engines\": {\"node\": \">=18\"}}\n",
+				".nvmrc":          "20\n",
 			},
 		},
 		{

@@ -21,13 +21,13 @@ import (
 // the fake's version of each; a test checks these select no more than that.
 type operation struct{ name, query string }
 
-const repoFields = `id databaseId name nameWithOwner url description isArchived
+var repoFields = `id databaseId name nameWithOwner url description isArchived
         defaultBranchRef { name }
         primaryLanguage { name }
         repositoryTopics(first: 100) { nodes { topic { name } } }
         githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
         rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
-        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }`
+        docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }` + manifestFields()
 
 const teamFields = `id databaseId slug name description url
         childTeams(first: 100, immediateOnly: true) { totalCount nodes { id } }`
@@ -136,6 +136,29 @@ type gqlRepo struct {
 	GithubCodeowners *gqlBlob `json:"githubCodeowners"`
 	RootCodeowners   *gqlBlob `json:"rootCodeowners"`
 	DocsCodeowners   *gqlBlob `json:"docsCodeowners"`
+	// The manifest blobs by alias; nil when absent.
+	Manifests map[string]*gqlBlob `json:"-"`
+}
+
+// UnmarshalJSON also collects the manifest aliases, which are a table.
+func (r *gqlRepo) UnmarshalJSON(b []byte) error {
+	type plain gqlRepo
+	if err := json.Unmarshal(b, (*plain)(r)); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	r.Manifests = map[string]*gqlBlob{}
+	for _, m := range manifests {
+		var blob *gqlBlob
+		if err := json.Unmarshal(raw[m.alias], &blob); err != nil && raw[m.alias] != nil {
+			return err
+		}
+		r.Manifests[m.alias] = blob
+	}
+	return nil
 }
 
 // codeowners returns the effective CODEOWNERS file: the first found. If it

@@ -17,7 +17,7 @@ import (
 // fields; aliases must match. Each connection pages by cursor in database
 // ID order, so pages stay stable when items are added or removed between
 // requests.
-var GraphQLQueries = map[string]string{
+var GraphQLQueries = withManifests(map[string]string{
 	"Repositories": `query Repositories($org: String!, $first: Int!, $after: String) {
   organization(login: $org) {
     repositories(first: $first, after: $after, orderBy: {field: CREATED_AT, direction: ASC}) {
@@ -31,6 +31,8 @@ var GraphQLQueries = map[string]string{
         githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
         rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
         docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+      MANIFESTS
+        MANIFESTS
       }
     }
   }
@@ -57,6 +59,7 @@ var GraphQLQueries = map[string]string{
       githubCodeowners: object(expression: "HEAD:.github/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
       rootCodeowners: object(expression: "HEAD:CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
       docsCodeowners: object(expression: "HEAD:docs/CODEOWNERS") { __typename ... on Blob { text isTruncated isBinary } }
+      MANIFESTS
     }
   }
 }`,
@@ -82,6 +85,31 @@ var GraphQLQueries = map[string]string{
     }
   }
 }`,
+})
+
+// manifestAliases are the files the adapters read for language versions,
+// by GraphQL alias. The Repositories and Repository queries select them
+// all.
+var manifestAliases = [][2]string{
+	{"goMod", "go.mod"},
+	{"packageJSON", "package.json"},
+	{"nvmrc", ".nvmrc"},
+	{"nodeVersion", ".node-version"},
+	{"pyproject", "pyproject.toml"},
+	{"pythonVersion", ".python-version"},
+	{"toolVersions", ".tool-versions"},
+}
+
+// withManifests expands the MANIFESTS marker in the queries.
+func withManifests(qs map[string]string) map[string]string {
+	var sel []string
+	for _, a := range manifestAliases {
+		sel = append(sel, fmt.Sprintf(`%s: object(expression: "HEAD:%s") { __typename ... on Blob { text isTruncated isBinary } }`, a[0], a[1]))
+	}
+	for k, q := range qs {
+		qs[k] = strings.ReplaceAll(q, "MANIFESTS", strings.Join(sel, "\n        "))
+	}
+	return qs
 }
 
 // codeownersAliases maps the Repositories query's aliases to the paths
@@ -290,7 +318,7 @@ func repoNode(r Repo, next bool) map[string]any {
 		"pushedAt": ghTime(r.PushedAt), "defaultBranchRef": named(r.DefaultBranch),
 		"primaryLanguage": named(r.Language), "repositoryTopics": map[string]any{"nodes": topics},
 	}
-	for _, a := range codeownersAliases {
+	for _, a := range append(codeownersAliases[:3:3], manifestAliases...) {
 		n[a[0]] = nil
 		if text, ok := r.Files[a[1]]; ok {
 			n[a[0]] = map[string]any{"__typename": "Blob", "text": text, "isTruncated": false, "isBinary": false}

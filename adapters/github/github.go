@@ -422,6 +422,9 @@ func (c *client) repoObservation(ctx context.Context, r gqlRepo, at time.Time) (
 	// including none when there is no file. A file that exists but can't be
 	// read in full (binary or truncated) leaves the facts alone: no scope,
 	// and codeowners_rules not read.
+	if rt, ok := c.runtimes(ctx, r); ok {
+		attrs["runtime"] = rt
+	}
 	path, text, found, readable := r.codeowners()
 	result, ev := "missing", r.URL
 	var rels []*modelv1alpha1.Relation
@@ -469,6 +472,40 @@ func (c *client) repoObservation(ctx context.Context, r gqlRepo, at time.Time) (
 		Snapshots: snapshots,
 		Evidence:  evidence(ev),
 	}), nil
+}
+
+// runtimes lists the language versions the repository's manifests declare,
+// as the complete value of runtime. ok is false when a manifest exists but
+// can't be read in full: the facts are then left alone. A manifest that
+// doesn't parse is skipped with a warning.
+func (c *client) runtimes(ctx context.Context, r gqlRepo) (*structpb.Value, bool) {
+	vals := []*structpb.Value{}
+	seen := map[runtime]bool{}
+	for _, m := range manifests {
+		b := r.Manifests[m.alias]
+		if b == nil || b.Typename == "Tree" || b.Typename == "Commit" {
+			continue
+		}
+		if !b.readable() {
+			return nil, false
+		}
+		found, err := m.parse(*b.Text)
+		if err != nil {
+			telemetry.Logger(pkgName).WarnContext(ctx, "skipping unparsable manifest", "repository", r.NameWithOwner, "file", m.path, "error", err.Error())
+			continue
+		}
+		for _, rt := range found {
+			rt.file = m.path
+			if seen[rt] {
+				continue
+			}
+			seen[rt] = true
+			vals = append(vals, structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{
+				"language": structpb.NewStringValue(rt.language), "version": structpb.NewStringValue(rt.version), "file": structpb.NewStringValue(rt.file),
+			}}))
+		}
+	}
+	return structpb.NewListValue(&structpb.ListValue{Values: vals}), true
 }
 
 func (c *client) teamObservation(t gqlTeam, members []member, at time.Time) (*eventv1alpha1.Observation, error) {
