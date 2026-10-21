@@ -185,14 +185,6 @@ linters:
       - path: ^site/
         linters: [gosec]
         text: G(204|304)
-      # The stdio protocol server speaks on stdout.
-      - path: ^pkg/adapter/server\.go$
-        linters: [forbidigo]
-        text: os\.Stdout
-      # An adapter's stderr (its console telemetry) passes through.
-      - path: ^pkg/adapter/client\.go$
-        linters: [forbidigo]
-        text: os\.Stderr
       # Console exporters default to stderr, and Setup installs slog's
       # default logger.
       - path: ^pkg/telemetry/

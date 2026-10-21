@@ -19,6 +19,12 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
 
 ## Writing an adapter
 
-Adapters are moving to a gRPC service ([ADR 4](docs/adr/0004-protobuf-and-grpc-adapters.md));
-the guide is rewritten when that lands. Until then
-[`adapters/github`](adapters/github) is the worked example.
+An adapter serves one gRPC service, `AdapterService` in
+`proto/bearing/adapter/v1alpha1/adapter.proto`
+([ADR 4](docs/adr/0004-protobuf-and-grpc-adapters.md)). In Go, implement
+`adapter.Adapter` (`Describe`, `Sync`, `Handle`) and make `main`
+`os.Exit(adapter.Main(name, version, a))`; [`adapters/github`](adapters/github)
+and [`adapters/kubernetes`](adapters/kubernetes) are worked examples. In
+another language, generate a gRPC server from that file and listen where
+`BEARING_ADAPTER_LISTEN` says. Try it with
+`bearing adapter describe -- <your binary>` and `bearing adapter sync`.

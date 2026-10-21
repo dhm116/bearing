@@ -8,8 +8,9 @@ being rewritten as each part lands.
    provenance.2. [Server API](api.md): the routes a running server offers and their
    limits.
 
-The adapter service is defined in `proto/` and gets a guide when the gRPC
-adapters land ([ADR 4](../adr/0004-protobuf-and-grpc-adapters.md)).
+The adapter service is `proto/bearing/adapter/v1alpha1/adapter.proto`
+([ADR 4](../adr/0004-protobuf-and-grpc-adapters.md)); writing one is in
+[CONTRIBUTING](../../CONTRIBUTING.md#writing-an-adapter).
 
 ## Conventions
 

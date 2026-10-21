@@ -37,7 +37,7 @@ keeps the adapters that fetch it small.
 | [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`): the only source of truth for the data model, events and configuration |
 | [`gen/`](gen/) | Code generated from `proto/` by `make generate`: Go types in `gen/go`, JSON Schema in `gen/jsonschema` |
 | [`pkg/model`](pkg/model) | Helpers around the generated types: kind and predicate registry, keys, validation, `fact_id` |
-| [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
+| [`pkg/adapter`](pkg/adapter) | The adapter service over gRPC: `Main` and `Serve` for adapter authors, `Start` and `Dial` for the core |
 | [`pkg/graph`](pkg/graph) | The store interface (ingest, entity, find, facts, walk, changes) and its types: the part another store can replace |
 | [`pkg/contracts`](pkg/contracts) | The event log interface the server uses |
 | [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, the health checks and the API for callers |
@@ -53,7 +53,8 @@ keeps the adapters that fetch it small.
 | [`internal/e2e`](internal/e2e) | End-to-end tests on the fictional Acme org |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
-| [`adapters/github`](adapters/github) | The GitHub adapter |
+| [`adapters/github`](adapters/github) | The GitHub adapter: repositories, teams, members, CODEOWNERS and language versions from manifests |
+| [`adapters/kubernetes`](adapters/kubernetes) | The Kubernetes adapter: workloads, namespaces, team labels and source repositories |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related` and `changes` from the store or from a running server, asks a server to sync a source, and runs the server (`bearing server --settings`) |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
@@ -66,7 +67,7 @@ Requires Go 1.27.2 or later (the `go` command downloads it automatically if need
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
-make build         # builds bin/bearing and bin/bearing-adapter-github
+make build         # builds bin/bearing and the adapters, bin/bearing-adapter-*
 
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github

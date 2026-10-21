@@ -19,8 +19,9 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
 3. **Adapters over gRPC.** Port the GitHub adapter (including manifest
    parsing for languages and versions) and add the directory (IdP) and
    Kubernetes adapters against the existing fakes.
-   Done so far: the gRPC service and transport, GitHub `runtime` facts from
-   manifests, and the Kubernetes adapter (workloads, namespaces, `owned_by`
+   Done: the gRPC service and transport (local adapters on a private
+   socket, remote ones over TLS with a token; stdio is gone), GitHub
+   `runtime` facts from manifests, and the Kubernetes adapter (workloads, namespaces, `owned_by`
    from a label, `defined_in` from an annotation or image). Still needed:
    - **A source of dependencies** for questions 4 and 5. Kubernetes doesn't
      emit `depends_on` yet: its declaration lacks it and the fake refuses

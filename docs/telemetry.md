@@ -23,27 +23,29 @@ Standard OpenTelemetry environment variables:
 Other `OTEL_EXPORTER_OTLP_*` variables (headers, per-signal endpoints,
 timeouts) are honored by the OTLP exporters.
 
-**Console output always goes to stderr.** Adapters use stdout for the
-adapter protocol, and the CLI uses it for command output, so nothing
-telemetry-related is ever written there.
+**Console output always goes to stderr.** The CLI uses stdout for command
+output, so nothing telemetry-related is ever written there.
 
-Adapters started by the core inherit its environment, so they export to the
-same place.
+Adapters the server starts get a minimal environment with no `OTEL_*`
+settings: they log to stderr, which the server captures and forwards.
+`bearing adapter sync` starts an adapter with the CLI's own environment, so
+it exports to the same place.
 
 ## Traces
 
-Trace context crosses the adapter protocol: the core puts W3C `traceparent`
-(and `tracestate`, `baggage`) in each request's `_meta` field, and the
-adapter's server span continues that trace. One `bearing adapter sync` shows
+Trace context crosses the adapter service: each gRPC call carries W3C
+`traceparent` (and `tracestate`, `baggage`) headers, and the adapter's server
+span continues that trace. One `bearing adapter sync` shows
 up as a single trace spanning both processes and every GitHub API call.
 
 | Span | Kind | Where | Key attributes |
 | --- | --- | --- | --- |
 | `bearing <command>` | internal | CLI, one per invocation | |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
-| `bearing.describe`, `bearing.sync`, `bearing.handle` | client | core, per protocol call | `rpc.system.name=jsonrpc`, `rpc.method`, `jsonrpc.request.id` |
-| `bearing.describe`, `bearing.sync`, `bearing.handle` | server | adapter, per request | same, plus `rpc.response.status_code` on error |
+| `bearing.adapter.v1alpha1.AdapterService/<Method>` | client | core, per adapter call (otelconnect) | `rpc.system=grpc`, `rpc.service`, `rpc.method`, `rpc.grpc.status_code` |
+| `bearing.adapter.v1alpha1.AdapterService/<Method>` | server | adapter, per call, continuing the core's trace | the same |
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.phase`, `bearing.github.sync.page` |
+| `kubernetes.sync <phase>` | internal | Kubernetes adapter, per list request | `bearing.kubernetes.cluster`, `bearing.kubernetes.sync.phase` |
 | `ingest.webhook` | server | core, one per webhook delivery, whatever its result | `bearing.source` (the configured source; absent for an unknown route), `bearing.result` |
 | `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up |
 | `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |
@@ -61,7 +63,7 @@ up as a single trace spanning both processes and every GitHub API call.
 
 | Metric | Type | Unit | Attributes | Why it matters |
 | --- | --- | --- | --- | --- |
-| `bearing.adapter.rpc.client.duration` | histogram | s | `rpc.method`, `bearing.adapter.name`, `error.type` | Latency the core sees per adapter call |
+| `bearing.adapter.rpc.client.duration` | histogram | s | `rpc.method`, `error.type` | Latency the core sees per adapter call |
 | `bearing.adapter.rpc.server.duration` | histogram | s | same | Time spent inside the adapter, vs. transport overhead |
 | `bearing.adapter.sync.duration` | histogram | s | `bearing.adapter.name`, `error.type` | How long a full sync takes; drives schedule choice |
 | `bearing.adapter.sync.pages` | counter | {page} | `bearing.adapter.name` | Sync progress and size |
