@@ -1,0 +1,27 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.SyncRequest.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "SyncRequest asks for one page.",
+      "properties": {
+        "config": {
+          "default": null,
+          "description": "The source's adapter configuration, as JSON.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "cursor": {
+          "default": "",
+          "description": "The cursor from the previous page; empty for the first.",
+          "type": "string"
+        }
+      },
+      "title": "Sync Request",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.SyncRequest.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.SyncRequest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

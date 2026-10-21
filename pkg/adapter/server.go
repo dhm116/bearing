@@ -26,12 +26,12 @@ import (
 // below it; adapters that hit it should return smaller pages.
 const maxMessage = 32 << 20
 
-// Serve answers protocol requests read from r and writes responses to w
+// serveStreams answers protocol requests read from r and writes responses to w
 // until r is closed or ctx is cancelled. Requests are handled one at a time.
 //
 // Each request runs in a server span that continues the caller's trace when
 // the request carries trace context in _meta.
-func Serve(ctx context.Context, a Adapter, r io.Reader, w io.Writer) error {
+func serveStreams(ctx context.Context, a Adapter, r io.Reader, w io.Writer) error {
 	log := telemetry.Logger(pkgName)
 	name := "unknown"
 	if d, err := a.Describe(ctx); err == nil && d.Name != "" {
@@ -109,7 +109,7 @@ func serveOne(ctx context.Context, a Adapter, name string, req request) response
 
 // ServeStdio is Serve on the process's stdin and stdout, for use in main.
 func ServeStdio(ctx context.Context, a Adapter) error {
-	return Serve(ctx, a, os.Stdin, os.Stdout)
+	return serveStreams(ctx, a, os.Stdin, os.Stdout)
 }
 
 func dispatch(ctx context.Context, a Adapter, req request) (any, *Error) {

@@ -48,13 +48,13 @@ func (p pager) Handle(context.Context, HandleParams) (HandleResult, error) {
 	return HandleResult{}, ErrNotSupported
 }
 
-func connect(t *testing.T, a Adapter) *Client {
+func connectPipe(t *testing.T, a Adapter) *Client {
 	t.Helper()
 	reqR, reqW := io.Pipe()
 	respR, respW := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, a, reqR, respW); _ = respW.Close() }()
+	go func() { done <- serveStreams(ctx, a, reqR, respW); _ = respW.Close() }()
 	t.Cleanup(func() {
 		_ = reqW.Close() // io.PipeWriter.Close always returns nil
 		cancel()
@@ -66,7 +66,7 @@ func connect(t *testing.T, a Adapter) *Client {
 }
 
 func TestDescribeFillsProtocolVersion(t *testing.T) {
-	c := connect(t, pager{n: 1})
+	c := connectPipe(t, pager{n: 1})
 	d, err := c.Describe(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestDescribeFillsProtocolVersion(t *testing.T) {
 }
 
 func TestSyncAllPagesUntilDone(t *testing.T) {
-	c := connect(t, pager{n: 3})
+	c := connectPipe(t, pager{n: 3})
 	var keys []model.Key
 	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
 		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
@@ -98,7 +98,7 @@ func TestSyncAllPagesUntilDone(t *testing.T) {
 }
 
 func TestSyncAllStopsRunawayAdapters(t *testing.T) {
-	c := connect(t, pager{n: 1000})
+	c := connectPipe(t, pager{n: 1000})
 	_, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 	if !errors.Is(err, ErrTooManyPages) {
 		t.Fatalf("got %v, want ErrTooManyPages", err)
@@ -106,7 +106,7 @@ func TestSyncAllStopsRunawayAdapters(t *testing.T) {
 }
 
 func TestHandleNotSupported(t *testing.T) {
-	c := connect(t, pager{n: 1})
+	c := connectPipe(t, pager{n: 1})
 	_, err := c.Handle(context.Background(), HandleParams{})
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeNotSupported {
@@ -118,7 +118,7 @@ func TestServeAnswersUnparseableRequests(t *testing.T) {
 	reqR, reqW := io.Pipe()
 	respR, respW := io.Pipe()
 	done := make(chan error, 1)
-	go func() { done <- Serve(context.Background(), pager{n: 1}, reqR, respW); _ = respW.Close() }()
+	go func() { done <- serveStreams(context.Background(), pager{n: 1}, reqR, respW); _ = respW.Close() }()
 	go func() {
 		_, _ = io.WriteString(reqW, "{not json\n")
 		_ = reqW.Close()
@@ -185,7 +185,7 @@ func TestStartReportsMissingExecutables(t *testing.T) {
 }
 
 func TestUnknownMethod(t *testing.T) {
-	c := connect(t, pager{n: 1})
+	c := connectPipe(t, pager{n: 1})
 	var out any
 	err := c.call(context.Background(), "bearing.nope", nil, &out)
 	var rpcErr *Error
@@ -221,7 +221,7 @@ func (mixed) Sync(_ context.Context, sp SyncParams) (SyncResult, error) {
 }
 
 func TestSyncAllSkipsAndCountsRejections(t *testing.T) {
-	c := connect(t, mixed{})
+	c := connectPipe(t, mixed{})
 	var keys []string
 	var rels []int
 	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
@@ -294,7 +294,7 @@ func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error
 }
 
 func TestClientHandleValidatesAndTruncates(t *testing.T) {
-	c := connect(t, coreFields{})
+	c := connectPipe(t, coreFields{})
 	_, err := c.Handle(context.Background(), HandleParams{Body: []byte("bad")})
 	var ve *model.ValidationError
 	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) {
@@ -321,7 +321,7 @@ func (c completer) Sync(ctx context.Context, sp SyncParams) (SyncResult, error) 
 }
 
 func TestSyncResultCarriesCompleteSyncOnTheLastPage(t *testing.T) {
-	c := connect(t, completer{pager{n: 2}})
+	c := connectPipe(t, completer{pager{n: 2}})
 	cfg := json.RawMessage(`{"prefix":"p"}`)
 	first, err := c.Sync(context.Background(), SyncParams{Config: cfg})
 	if err != nil || first.Done || first.CompleteSync != nil {
@@ -385,7 +385,7 @@ func TestSyncAllSkipsUndecodableObservationsOnTheWire(t *testing.T) {
 }
 
 func TestSyncSummaryCompleteIgnoresRejectedClaims(t *testing.T) {
-	c := connect(t, mixed{})
+	c := connectPipe(t, mixed{})
 	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	if err != nil || sum.Complete() {
 		t.Fatalf("got %+v (%v), want a sync that skipped observations to be incomplete", sum, err)
@@ -434,7 +434,7 @@ func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
 func TestServeReportsWriteFailures(t *testing.T) {
 	broken := errors.New("pipe closed")
 	req := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"` + MethodDescribe + `"}` + "\n")
-	err := Serve(context.Background(), pager{n: 1}, req, failingWriter{err: broken})
+	err := serveStreams(context.Background(), pager{n: 1}, req, failingWriter{err: broken})
 	if !errors.Is(err, broken) || !strings.HasPrefix(err.Error(), "adapter: write response: ") {
 		t.Fatalf("got %v, want an adapter: write response error wrapping %v", err, broken)
 	}

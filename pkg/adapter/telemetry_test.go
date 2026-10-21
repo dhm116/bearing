@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestTraceContextCrossesTheProtocol(t *testing.T) {
-	c := connect(t, pager{n: 2})
+	c := connectPipe(t, pager{n: 2})
 	// Other tests share the recorder, so scope this test to its own trace.
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
 	_, err := SyncAll(ctx, c, json.RawMessage(`{"Prefix":"x"}`), 10, func(*eventv1alpha1.Observation) error { return nil })
@@ -93,7 +93,7 @@ func TestTraceContextCrossesTheProtocol(t *testing.T) {
 }
 
 func TestSyncRecordsMetrics(t *testing.T) {
-	c := connect(t, pager{n: 3})
+	c := connectPipe(t, pager{n: 3})
 	if _, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestSyncReportsRejectedClaims(t *testing.T) {
 	}
 	before := count()
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
-	sum, err := SyncAll(ctx, connect(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	sum, err := SyncAll(ctx, connectPipe(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	test.End()
 	if err != nil {
 		t.Fatal(err)

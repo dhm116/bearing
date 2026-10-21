@@ -1,0 +1,15 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.DescribeRequest.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "DescribeRequest is empty.",
+      "properties": {},
+      "title": "Describe Request",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.DescribeRequest.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.DescribeRequest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

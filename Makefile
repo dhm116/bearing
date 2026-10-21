@@ -8,7 +8,8 @@ COVERGATE := $(TOOLS)/covergate
 BUF := $(TOOLS)/buf
 PROTOC_GEN_GO := $(TOOLS)/protoc-gen-go
 PROTOC_GEN_JSONSCHEMA := $(TOOLS)/protoc-gen-jsonschema
-PROTO_TOOLS := $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_JSONSCHEMA)
+PROTOC_GEN_CONNECT_GO := $(TOOLS)/protoc-gen-connect-go
+PROTO_TOOLS := $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_JSONSCHEMA) $(PROTOC_GEN_CONNECT_GO)
 
 # The coverage gate compares against the merge base with COVER_BASE. On a
 # GitHub pull request that is the PR's base branch.
@@ -148,6 +149,9 @@ $(PROTOC_GEN_GO): tools/go.mod tools/go.sum
 
 $(PROTOC_GEN_JSONSCHEMA): tools/go.mod tools/go.sum
 	go -C tools build -o ../$(TOOLS)/ github.com/bufbuild/protoschema-plugins/cmd/protoc-gen-jsonschema
+
+$(PROTOC_GEN_CONNECT_GO): tools/go.mod tools/go.sum
+	go -C tools build -o ../$(TOOLS)/ connectrpc.com/connect/cmd/protoc-gen-connect-go
 
 $(COVERGATE): tools/go.mod $(wildcard tools/covergate/*.go)
 	go -C tools build -o ../$(TOOLS)/ ./covergate

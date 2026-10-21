@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.WebhookSignature.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "WebhookSignature says how a source signs its webhook deliveries, so the\n core can check them before the adapter sees them.",
+      "patternProperties": {
+        "^(signatureHeader)$": {
+          "default": "",
+          "description": "The header that carries the signature.",
+          "type": "string"
+        },
+        "^(signaturePrefix)$": {
+          "default": "",
+          "description": "Text before the signature in that header, such as \"sha256=\".",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "scheme": {
+          "default": "",
+          "description": "The scheme, as a model.v1alpha1.WebhookScheme name, such as\n \"WEBHOOK_SCHEME_HMAC_SHA256\".",
+          "type": "string"
+        },
+        "signature_header": {
+          "default": "",
+          "description": "The header that carries the signature.",
+          "type": "string"
+        },
+        "signature_prefix": {
+          "default": "",
+          "description": "Text before the signature in that header, such as \"sha256=\".",
+          "type": "string"
+        }
+      },
+      "title": "Webhook Signature",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.WebhookSignature.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.WebhookSignature.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

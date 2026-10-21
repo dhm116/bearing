@@ -9,3 +9,6 @@ plugins:
   - local: bin/tools/protoc-gen-jsonschema
     out: gen/jsonschema
     opt: target=proto-bundle
+  - local: bin/tools/protoc-gen-connect-go
+    out: gen/go
+    opt: paths=source_relative

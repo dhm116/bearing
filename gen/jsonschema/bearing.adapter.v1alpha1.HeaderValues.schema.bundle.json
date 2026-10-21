@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.HeaderValues.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "HeaderValues are the values of one HTTP header.",
+      "properties": {
+        "values": {
+          "description": "The values, in the order received.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Header Values",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.HeaderValues.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.HeaderValues.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
