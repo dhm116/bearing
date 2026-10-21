@@ -3,8 +3,13 @@ package duckstore
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
+
+	"bearing.example/pkg/store"
 )
 
 // newStore opens an in-memory store that is closed when the test ends.
@@ -42,25 +47,33 @@ func TestOpenKeepsDataAcrossReopen(t *testing.T) {
 	}
 }
 
-func TestInMemoryStoreIsSharedAcrossConnections(t *testing.T) {
-	ctx := t.Context()
+func TestConcurrentReadsAndWritesFinish(t *testing.T) {
+	// The store runs on one connection (see Open); concurrent callers queue
+	// rather than crash DuckDB or deadlock.
 	s := newStore(t, Config{})
-	c1, err := s.db.Conn(ctx)
-	if err != nil {
+	ctx := t.Context()
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	wg.Go(func() {
+		for i := range 50 {
+			if _, err := s.Append(ctx, []store.Event{{ID: fmt.Sprintf("p/%d", i), Partition: "p", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}}); err != nil {
+				errs <- err
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		for range 50 {
+			if _, err := s.Partitions(ctx); err != nil {
+				errs <- err
+				return
+			}
+		}
+	})
+	wg.Wait()
+	close(errs)
+	for err := range errs {
 		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = c1.Close() })
-	c2, err := s.db.Conn(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = c2.Close() })
-	if _, err := c1.ExecContext(ctx, `INSERT INTO entity VALUES ('e1', 'Team', 'payments', now(), 'e1')`); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := c2.QueryRowContext(ctx, `SELECT count(*) FROM entity`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("got %d, %v from a second connection, want 1", n, err)
 	}
 }
 
