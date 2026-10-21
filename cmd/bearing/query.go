@@ -17,7 +17,6 @@ import (
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
-	"bearing.example/pkg/store"
 )
 
 // queryEnv is what the query commands take from outside the process, so
@@ -34,12 +33,8 @@ type queryEnv struct {
 // defaultQueryEnv reads the real store, environment and clock.
 func defaultQueryEnv() queryEnv {
 	return queryEnv{
-		Open: func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url})
-			if err != nil {
-				return nil, nil, err
-			}
-			return s.Graph, s.Close, nil
+		Open: func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+			return nil, nil, errors.New("store: queries over a store are not wired to pkg/store yet")
 		},
 		Getenv: os.Getenv,
 		Now:    time.Now,

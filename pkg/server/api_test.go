@@ -18,6 +18,7 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
@@ -81,6 +82,7 @@ func (g *apiGraph) ChangesPage(ctx context.Context, r contracts.ChangesRequest) 
 
 type apiWorld struct {
 	*harness
+	mem   *memstore.Store
 	clk   *testkit.FakeClock
 	api   *API
 	h     http.Handler
@@ -95,12 +97,13 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	t.Helper()
 	clk := testkit.NewClock(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 	h := newHarness(t, func(c *Config) { c.Clock = clk })
-	h.mem.Now, h.mem.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
-	w := &apiWorld{harness: h, clk: clk}
+	mem := memstore.New()
+	mem.Now, mem.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	w := &apiWorld{harness: h, mem: mem, clk: clk}
 	w.seed(t)
 
 	var err error
-	w.graph = &apiGraph{GraphStore: h.mem}
+	w.graph = &apiGraph{GraphStore: mem}
 	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}}
 	for _, m := range mod {
 		m(&cfg)

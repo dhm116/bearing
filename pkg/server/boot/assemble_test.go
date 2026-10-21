@@ -92,7 +92,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 	    "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",
 	    "settings": {"org": "acme"}}}`
 	w.settings = &Settings{
-		Store:    StoreSettings{Graph: "mem://"},
+		Store:    StoreSettings{URL: "mem://"},
 		Listen:   ListenSettings{Socket: w.socket, Addr: w.addr, InsecureAPIPlaintext: true},
 		Auth:     AuthSettings{TokenEnv: "BEARING_API_TOKEN"}, //nolint:gosec // G101: the name of a variable, not a credential
 		Adapters: []AdapterSettings{{Name: "github", Command: exe, Declaration: declFile, Env: []string{stubEnv, stubMarkEnv, "HTTPS_PROXY"}}},

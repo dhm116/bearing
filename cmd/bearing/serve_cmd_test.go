@@ -34,7 +34,7 @@ func TestServerCommandRunsUntilItIsStopped(t *testing.T) {
 	}
 	sock := filepath.Join(dir, "api.sock")
 	file := filepath.Join(dir, "settings.json")
-	if err := os.WriteFile(file, []byte(`{"store": {"graph": "mem://"}, "listen": {"socket": "`+sock+`"}}`), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte(`{"store": {"url": "mem://"}, "listen": {"socket": "`+sock+`"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

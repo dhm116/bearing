@@ -12,7 +12,6 @@ import (
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -131,9 +130,9 @@ func (s *Server) appendObservations(ctx context.Context, source, trigger string,
 	return len(got) == 1 && got[0].Duplicate, nil
 }
 
-// handleObservations applies the observations of a page, each as an event of
-// its own named for the page's event and the observation's place in it. A
-// repeated page repeats those IDs, and the store applies each ID once.
+// handleObservations applies the observations of a page in one call, so the
+// page is written in one transaction. A repeated page repeats the
+// observations' IDs, and the store applies each ID once.
 func (s *Server) handleObservations(ctx context.Context, e contracts.Entry) error {
 	msg := &eventv1alpha1.ObservationsEmitted{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
@@ -142,13 +141,8 @@ func (s *Server) handleObservations(ctx context.Context, e contracts.Entry) erro
 	if msg.GetSource() != string(e.Partition) {
 		return fmt.Errorf("event %s is in partition %q but names source %q", e.ID, e.Partition, model.Clip(msg.GetSource()))
 	}
-	for i, o := range msg.GetObservations() {
-		ev := resolver.Event{
-			ID: fmt.Sprintf("%s/%d", e.ID, i+1), Source: msg.GetSource(), Observation: o, IngestedAt: e.Time,
-		}
-		if _, err := s.cfg.Applier.Apply(ctx, ev); err != nil {
-			return fmt.Errorf("observation %d of %s: %w", i+1, e.ID, err)
-		}
+	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations()); err != nil {
+		return fmt.Errorf("event %s: %w", e.ID, err)
 	}
 	return nil
 }

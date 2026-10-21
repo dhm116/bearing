@@ -16,7 +16,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
@@ -244,12 +243,9 @@ func (s *Server) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// storeDown reports why the store or the log is not answering, or nil when
-// both are.
+// storeDown reports why the store is not answering, or nil when it is. The
+// graph and the event log share one database, so asking the log is enough.
 func (s *Server) storeDown(ctx context.Context) error {
-	if _, err := s.cfg.Graph.Head(ctx); err != nil {
-		return fmt.Errorf("graph store: %w", err)
-	}
 	if _, err := s.cfg.Log.Partitions(ctx); err != nil {
 		return fmt.Errorf("event log: %w", err)
 	}
@@ -298,9 +294,10 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 	return workerSkipped, nil
 }
 
-// deadLetter gives up on an event in the three steps of docs/spec/contracts.md,
-// "Dead letters", in that order, so a crash between any two repeats safely:
-// the record, the processed mark, and then (by the caller) the commit.
+// deadLetter gives up on an event in the steps of docs/spec/contracts.md,
+// "Dead letters", in that order, so a crash between them repeats safely:
+// the record and then (by the caller) the commit. Re-applying an observation
+// ID is a no-op, so the event needs no processed mark in the graph.
 func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.Entry, attempts int, cause error) error {
 	text := cleanErrorText(cause.Error())
 	span.SetAttributes(attribute.Bool("bearing.dead_letter", true))
@@ -325,36 +322,11 @@ func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.En
 	if len(got) == 1 && !got[0].Duplicate {
 		s.deadLetters.Add(1)
 	}
-	// 2. The mark that the event is processed.
-	if err := s.markProcessed(ctx, e); err != nil {
-		return fmt.Errorf("mark dead letter processed: %w", err)
-	}
 	workerEvents.Add(ctx, 1, workerAttrs(e.Type, workerDeadLettered))
 	_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "gave up on an event", errors.New(text),
 		attribute.String("event", e.ID), attribute.String("partition", string(e.Partition)),
 		attribute.String("type", e.Type), attribute.Int("attempts", attempts))
 	return nil
-}
-
-// markProcessed applies a ChangeSet that changes nothing, under the dead
-// event's ID, so the graph records the event as processed.
-func (s *Server) markProcessed(ctx context.Context, e contracts.Entry) error {
-	for range 16 {
-		head, err := s.cfg.Graph.Head(ctx)
-		if err != nil {
-			return err
-		}
-		cs := &modelv1alpha1.ChangeSet{EventId: e.ID}
-		if !head.IsZero() {
-			cs.BaseRecordedAt = timestamppb.New(head)
-		}
-		_, err = s.cfg.Graph.Apply(ctx, cs)
-		if errors.Is(err, contracts.ErrStale) {
-			continue
-		}
-		return err
-	}
-	return contracts.ErrStale
 }
 
 // maxErrorBytes bounds the error text that goes into a dead letter.

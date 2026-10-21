@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/contracts"
@@ -27,12 +28,17 @@ const apiToken = "api-token"
 
 var testCallers = server.TokenAuthenticator{Token: apiToken}
 
+// nopApplier applies nothing: these tests read the graph the world built.
+type nopApplier struct{}
+
+func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation) error { return nil }
+
 // api builds the server's API over the world's store, with the static API token
 // authenticator.
 func (w *world) api() *server.API {
 	w.t.Helper()
 	s, err := server.New(server.Config{
-		Log: w.store, Graph: w.store, Applier: w.resolver, Clock: w.clock,
+		Log: w.store, Applier: nopApplier{}, Clock: w.clock,
 		Sources: []server.Source{{Name: githubSource, Adapter: w.adapter, Config: w.cfg}},
 	})
 	if err != nil {

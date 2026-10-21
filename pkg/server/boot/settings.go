@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -46,10 +45,10 @@ type Settings struct {
 	Sources []json.RawMessage `json:"sources"`
 }
 
-// StoreSettings names the backends (pkg/store).
+// StoreSettings names the store (pkg/store): mem:// or
+// duckdb:///absolute/path.duckdb.
 type StoreSettings struct {
-	Graph  string `json:"graph"`
-	Events string `json:"events,omitempty"`
+	URL string `json:"url"`
 }
 
 // ListenSettings is where the API listens and how much of the TCP listener a
@@ -106,7 +105,7 @@ type AdapterSettings struct {
 	Command string `json:"command"`
 	// Args are its arguments.
 	Args []string `json:"args,omitempty"`
-	// Declaration is the AdapterDeclaration (ProtoJSON) the resolver and the
+	// Declaration is the AdapterDeclaration (ProtoJSON) the
 	// webhook check use until the module carries it.
 	Declaration string `json:"declaration"`
 	// Env names extra variables of this process the adapter may see, for
@@ -203,11 +202,8 @@ func (s *Settings) Validate() error {
 
 func (s *Settings) check() (*checked, error) {
 	c := &checked{schedule: map[string]time.Duration{}, adapters: map[string]*AdapterSettings{}}
-	if s.Store.Graph == "" {
-		return nil, errors.New("boot: settings: store.graph is required, for example mem://")
-	}
-	if inMemory(s.Store.Events) && !inMemory(s.Store.Graph) {
-		return nil, errors.New("boot: settings: store.events is in memory but store.graph is durable: a restart would lose the events ADR 7 exists to keep")
+	if s.Store.URL == "" {
+		return nil, errors.New("boot: settings: store.url is required, for example duckdb:///var/lib/bearing/bearing.duckdb")
 	}
 	if err := s.checkListen(); err != nil {
 		return nil, err
@@ -330,13 +326,6 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 		}
 	}
 	return nil
-}
-
-// inMemory reports whether a store URL names the in-memory backend. The scheme
-// is matched as pkg/store matches it, without regard to case.
-func inMemory(u string) bool {
-	p, err := url.Parse(u)
-	return err == nil && strings.EqualFold(p.Scheme, "mem")
 }
 
 // allowed reports whether an `env:` reference may name name.

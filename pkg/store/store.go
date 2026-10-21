@@ -1,11 +1,10 @@
-// Package store opens the graph store and event log Bearing runs on, from
-// connection URLs.
+// Package store opens the store Bearing runs on from a URL: the graph
+// (graph.Store) and the event log (contracts.EventLog), both served by one
+// DuckDB database and both instrumented with OpenTelemetry.
 //
-// One backend serves both contracts. Pointing Events at a different URL
-// splits them without changing any code that uses the contracts.
-//
-//	URL      Backend
-//	mem://   In-memory reference store, for tests and demos
+//	URL                            Database
+//	mem://                         In memory, for tests and demos
+//	duckdb:///absolute/path.duckdb A file, created if missing
 package store
 
 import (
@@ -13,120 +12,64 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 
-	"bearing.example/internal/memstore"
+	"bearing.example/internal/duckstore"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/contracts/instrument"
+	"bearing.example/pkg/graph"
 )
 
-// Config names the backends. Events defaults to Graph.
+// Config names the database.
 type Config struct {
-	Graph  string
-	Events string
-	// Namespaces are the configured source namespaces, which telemetry
-	// names in metric labels; it labels any other namespace "other".
-	Namespaces []string
+	URL string
 }
 
-// Store is an open graph store and event log, both instrumented with
-// OpenTelemetry.
+// Store is an open graph and event log on one database.
 type Store struct {
-	Graph contracts.GraphStore
+	Graph graph.Store
 	// Events is the durable event log (ADR 7).
-	Events  contracts.EventLog
-	closers []func(context.Context) error
+	Events contracts.EventLog
+	db     *duckstore.Store
 }
 
-// Close releases every backend connection.
-func (s *Store) Close(ctx context.Context) error {
-	var errs []error
-	for _, c := range s.closers {
-		errs = append(errs, c(ctx))
-	}
-	return errors.Join(errs...)
-}
+// Close releases the database.
+func (s *Store) Close(context.Context) error { return s.db.Close() }
 
-// backend is what one URL opens to.
-type backend struct {
-	name   string // for telemetry: "memory"
-	graph  contracts.GraphStore
-	events contracts.EventLog
-	close  func(context.Context) error
-}
+const usage = "use mem:// or duckdb:///absolute/path.duckdb"
 
-// Open connects to the backends in c.
+// Open opens or creates the database c.URL names.
 func Open(ctx context.Context, c Config) (*Store, error) {
-	if c.Graph == "" {
-		return nil, errors.New("store: a graph store URL is required, for example mem://")
-	}
-	s := &Store{}
-	g, err := open(c.Graph)
+	file, err := parse(c.URL)
 	if err != nil {
 		return nil, err
 	}
-	s.closers = append(s.closers, g.close)
-	if g.graph == nil {
-		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
-	}
-	e := g
-	if c.Events != "" && c.Events != c.Graph {
-		if e, err = open(c.Events); err != nil {
-			return nil, errors.Join(err, s.Close(ctx))
-		}
-		s.closers = append(s.closers, e.close)
-	}
-	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
-	s.Events = instrument.EventLog(e.events, e.name)
-	return s, nil
-}
-
-func open(raw string) (backend, error) {
-	u, err := parseURL(raw)
+	db, err := duckstore.Open(ctx, duckstore.Config{Path: file})
 	if err != nil {
-		return backend{}, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
-	if u.Scheme == "mem" {
-		m := memstore.New()
-		return backend{
-			name: "memory", graph: m, events: m, close: func(context.Context) error { return nil },
-		}, nil
-	}
-	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://", u.Scheme)
+	return &Store{
+		Graph:  instrument.Graph(db),
+		Events: instrument.EventLog(db, "duckdb"),
+		db:     db,
+	}, nil
 }
 
-// parseURL parses a store URL. Its errors never repeat the URL, which may
-// hold a secret.
-func parseURL(raw string) (*url.URL, error) {
+// parse returns the database file a URL names, empty for mem://. Its errors
+// never repeat the URL.
+func parse(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("store: a store URL is required; " + usage)
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return nil, fmt.Errorf("store: parse URL: %w", err)
+		return "", errors.New("store: parse URL; " + usage)
 	}
-	if u.Opaque != "" {
-		// The opaque part may hold "user:password@", so only the scheme is
-		// named.
-		return nil, fmt.Errorf("store: %s: URL has no // after the scheme; use %s://host", u.Scheme, u.Scheme)
+	switch {
+	case u.Scheme == "mem" && u.Opaque == "" && u.Host == "" && u.Path == "":
+		return "", nil
+	case u.Scheme == "duckdb" && u.Opaque == "" && u.Host == "" && path.IsAbs(u.Path):
+		return u.Path, nil
 	}
-	return u, nil
-}
-
-// redact names a URL in error messages without anything that may be secret.
-func redact(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "the URL"
-	}
-	return safeName(u)
-}
-
-// safeName is a URL's scheme and host. User info, path and query can hold
-// secrets, and URL.Redacted hides nothing in an opaque URL.
-func safeName(u *url.URL) string {
-	if u.Host == "" {
-		return u.Scheme + ":"
-	}
-	return u.Scheme + "://" + u.Host
+	return "", fmt.Errorf("store: unsupported URL with scheme %q; %s", u.Scheme, usage)
 }
