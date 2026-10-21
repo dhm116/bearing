@@ -25,9 +25,9 @@ import (
 type queryEnv struct {
 	// Open connects to the graph store at a URL, reading its password
 	// variable through getenv, and returns it with a close function.
-	Open func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error)
+	Open func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error)
 	// OpenAudit does the same for the audit log of the graph store at a URL.
-	OpenAudit func(ctx context.Context, url string, getenv func(string) string) (contracts.AuditLog, func(context.Context) error, error)
+	OpenAudit func(ctx context.Context, url string, _ func(string) string) (contracts.AuditLog, func(context.Context) error, error)
 	Getenv    func(string) string
 	// Now is the time durations such as --since 72h count back from, and the
 	// time of a checkpoint it writes.
@@ -37,15 +37,15 @@ type queryEnv struct {
 // defaultQueryEnv reads the real store, environment and clock.
 func defaultQueryEnv() queryEnv {
 	return queryEnv{
-		Open: func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url, Getenv: getenv})
+		Open: func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+			s, err := store.Open(ctx, store.Config{Graph: url})
 			if err != nil {
 				return nil, nil, err
 			}
 			return s.Graph, s.Close, nil
 		},
-		OpenAudit: func(ctx context.Context, url string, getenv func(string) string) (contracts.AuditLog, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url, Getenv: getenv})
+		OpenAudit: func(ctx context.Context, url string, _ func(string) string) (contracts.AuditLog, func(context.Context) error, error) {
+			s, err := store.Open(ctx, store.Config{Graph: url})
 			if err != nil {
 				return nil, nil, err
 			}

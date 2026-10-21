@@ -1,4 +1,4 @@
-// Package memstore is an in-memory GraphStore, VectorIndex and EventLog, the
+// Package memstore is an in-memory GraphStore and EventLog, the
 // reference implementation of the three contracts, and the engine that applies
 // the data model's rules. It is production code: the PostgreSQL backend
 // loads rows into a scratch Store and runs its operations here, so the rules
@@ -31,7 +31,7 @@ type IDSource interface {
 	Seed(last string) error
 }
 
-// Store is a concurrency-safe in-memory GraphStore and VectorIndex. Applies
+// Store is a concurrency-safe in-memory GraphStore. Applies
 // are serialized by one lock, the store's clock record.
 type Store struct {
 	// Now is the store's clock and IDs its subject ID source. Set them
@@ -64,7 +64,6 @@ type Store struct {
 	conflict     table                             // by subject, predicate
 	issues       table                             // by the resolver's key
 	state        table                             // by the resolver's key
-	vectors      map[string]contracts.VectorPoint
 	// log is the event log, which has its own lock and which Restore leaves alone.
 	log *eventLog
 }
@@ -73,7 +72,7 @@ var _ contracts.GraphStore = (*Store)(nil)
 
 // New returns an empty store.
 func New() *Store {
-	s := &Store{Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), vectors: map[string]contracts.VectorPoint{}, log: newEventLog()}
+	s := &Store{Now: time.Now, IDs: model.NewUUIDv7Source(time.Now, rand.Reader), log: newEventLog()}
 	s.reset()
 	return s
 }

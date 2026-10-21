@@ -47,12 +47,10 @@ type Settings struct {
 	Sources []json.RawMessage `json:"sources"`
 }
 
-// StoreSettings names the backends (pkg/store). The password comes from
-// BEARING_STORE_PASSWORD, never from a URL.
+// StoreSettings names the backends (pkg/store).
 type StoreSettings struct {
-	Graph   string `json:"graph"`
-	Events  string `json:"events,omitempty"`
-	Vectors string `json:"vectors,omitempty"`
+	Graph  string `json:"graph"`
+	Events string `json:"events,omitempty"`
 }
 
 // ListenSettings is where the API listens and how much of the TCP listener a
@@ -221,7 +219,7 @@ func (s *Settings) Validate() error {
 func (s *Settings) check() (*checked, error) {
 	c := &checked{schedule: map[string]time.Duration{}, adapters: map[string]*AdapterSettings{}}
 	if s.Store.Graph == "" {
-		return nil, errors.New("boot: settings: store.graph is required, for example mem:// or postgres://bearing@db/bearing?sslmode=verify-full")
+		return nil, errors.New("boot: settings: store.graph is required, for example mem://")
 	}
 	if inMemory(s.Store.Events) && !inMemory(s.Store.Graph) {
 		return nil, errors.New("boot: settings: store.events is in memory but store.graph is durable: a restart would lose the events ADR 7 exists to keep")

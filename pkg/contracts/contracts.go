@@ -1,13 +1,10 @@
 // Package contracts defines the interfaces between Bearing's components.
 // Each interface has one default implementation and can be backed by any
 // other technology that passes its conformance suite. One backend may serve
-// several interfaces; by default PostgreSQL serves both GraphStore and
-// VectorIndex (see docs/adr/0014-postgres-is-the-default-store.md and
-// pkg/store).
+// several interfaces (see pkg/store).
 //
 //	Interface      Default            Alternatives
 //	GraphStore     PostgreSQL         Neo4j, Apache AGE, Memgraph
-//	VectorIndex    PostgreSQL         Qdrant, OpenSearch, Weaviate
 //	EventLog       PostgreSQL         NATS JetStream, Kafka
 //	Extractor      self-hosted model  hosted models, only when an operator opts in
 //	Judge          Kev 4B             Jev hosted API
@@ -25,40 +22,6 @@ import (
 
 // ErrNotFound is returned when a lookup matches nothing.
 var ErrNotFound = errors.New("contracts: not found")
-
-// VectorPoint is one embedded item in the semantic index. Every point refers
-// back to a graph subject; the index is never the source of truth.
-type VectorPoint struct {
-	ID        string         `json:"id"`
-	SubjectID SubjectID      `json:"subject_id"`
-	Vector    []float32      `json:"vector"`
-	Text      string         `json:"text,omitempty"`
-	Payload   map[string]any `json:"payload,omitempty"`
-}
-
-// VectorQuery searches the index.
-type VectorQuery struct {
-	Vector []float32
-	Limit  int
-	// Kinds filters on each point's "kind" payload field.
-	Kinds []model.Kind
-}
-
-// VectorHit is one search result.
-type VectorHit struct {
-	Point VectorPoint `json:"point"`
-	Score float32     `json:"score"`
-}
-
-// VectorIndex is the semantic index over subjects and documents.
-type VectorIndex interface {
-	Upsert(ctx context.Context, points []VectorPoint) error
-	Search(ctx context.Context, q VectorQuery) ([]VectorHit, error)
-	DeleteBySubject(ctx context.Context, id SubjectID) error
-	// Repoint moves every point of subject from to subject to, after a
-	// merge (ApplyResult.Merges).
-	Repoint(ctx context.Context, from, to SubjectID) error
-}
 
 // Document is unstructured text for candidate extraction.
 type Document struct {

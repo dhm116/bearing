@@ -37,30 +37,24 @@ const childPath = "/usr/bin:/bin"
 // operator names absolute paths.
 const childDir = "/"
 
-// releaseTimeout bounds giving the instance lock up and closing the store
-// when the server stops.
+// releaseTimeout bounds closing the store when the server stops.
 const releaseTimeout = 10 * time.Second
 
 // Env is what Assemble reads from the process, replaceable in tests.
 type Env struct {
-	// Getenv reads secrets and the store password; nil means os.Getenv.
+	// Getenv reads secrets; nil means os.Getenv.
 	Getenv func(string) string
 	// Clock is the time source; nil means clock.Real.
 	Clock clock.Clock
-
-	// Seams for the tests of the paths a healthy store never takes.
-	lockInstance func(context.Context, *store.Store) (store.InstanceLock, error) // nil means st.LockInstance
-	afterLock    func() error                                                    // fails Assemble after the lock is held
 }
 
 // Running is a server that has been assembled and not yet run: its store is
-// open, the instance lock is held and its listeners are configured.
+// open and its listeners are configured.
 type Running struct {
 	srv    *server.Server
 	api    *server.API
 	listen server.ListenConfig
 	st     *store.Store
-	lock   store.InstanceLock
 	procs  []*managed
 	cancel context.CancelFunc // ends the adapter processes
 }
@@ -130,36 +124,20 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	warnLimits(s)
 
 	st, err := store.Open(ctx, store.Config{
-		Graph: s.Store.Graph, Events: s.Store.Events, Vectors: s.Store.Vectors,
-		Namespaces: namespaces(c), Getenv: env.Getenv,
+		Graph: s.Store.Graph, Events: s.Store.Events,
+		Namespaces: namespaces(c),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
-	var lock store.InstanceLock
 	procCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	var procs []*managed
 	defer func() {
 		if err != nil {
-			logClose(closeAll(procs, lock, st))
+			logClose(closeAll(procs, st))
 			cancel()
 		}
 	}()
-	// A second server on the same store could apply a source's events out of
-	// order, so this one does not start without the lock (#176, #235).
-	lockInstance := env.lockInstance
-	if lockInstance == nil {
-		lockInstance = func(ctx context.Context, st *store.Store) (store.InstanceLock, error) { return st.LockInstance(ctx) }
-	}
-	if lock, err = lockInstance(ctx, st); err != nil {
-		return nil, fmt.Errorf("boot: another server holds the store, or its lock cannot be taken: %w", err)
-	}
-	if env.afterLock != nil {
-		if err = env.afterLock(); err != nil {
-			return nil, err
-		}
-	}
-
 	checkpoints, retention, err := auditConfig(s, c, st, env.Getenv)
 	if err != nil {
 		return nil, err
@@ -177,7 +155,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	}
 	srv, err := server.New(server.Config{
 		Log: st.Events, Graph: st.Graph, Applier: res, Audit: st.Audit,
-		Sources: sources, Lock: lock, Clock: env.Clock,
+		Sources: sources, Clock: env.Clock,
 		AuditCheckpoints: checkpoints, AuditRetention: retention,
 	})
 	if err != nil {
@@ -203,11 +181,11 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	return &Running{srv: srv, api: api, listen: l, st: st, lock: lock, procs: procs, cancel: cancel}, nil
+	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, cancel: cancel}, nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops
-// both, gives the adapters time to exit, releases the instance lock and
+// both, gives the adapters time to exit and
 // closes the store. It returns what stopped it, nil for a stop by ctx, and
 // anything that did not shut down cleanly.
 func (r *Running) Run(ctx context.Context) error {
@@ -221,20 +199,20 @@ func (r *Running) Run(ctx context.Context) error {
 	second := <-errs
 	// The adapters are asked to exit before their context ends: cancelling
 	// first would kill them with no chance to finish.
-	closed := closeAll(r.procs, r.lock, r.st)
+	closed := closeAll(r.procs, r.st)
 	r.cancel()
 	return errors.Join(first, second, closed)
 }
 
 // Close releases an assembled server that was never run.
 func (r *Running) Close() {
-	logClose(closeAll(r.procs, r.lock, r.st))
+	logClose(closeAll(r.procs, r.st))
 	r.cancel()
 }
 
-// closeAll stops the adapters, then gives the instance lock up and closes the
+// closeAll stops the adapters, then closes the
 // store. It carries on past a failure and returns every one.
-func closeAll(procs []*managed, lock store.InstanceLock, st *store.Store) error {
+func closeAll(procs []*managed, st *store.Store) error {
 	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
@@ -243,11 +221,6 @@ func closeAll(procs []*managed, lock store.InstanceLock, st *store.Store) error 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
 	defer cancel()
-	if lock != nil {
-		if err := lock.Release(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("release the instance lock: %w", err))
-		}
-	}
 	if err := st.Close(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("close the store: %w", err))
 	}

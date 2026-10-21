@@ -29,16 +29,11 @@ func (s *Server) Live() error {
 	return nil
 }
 
-// Ready reports whether the server can do its work now: it is live, the
-// store and the log answer, and the last check of the instance lock held. The
-// lock is checked by the server's own loop, not here, so probes never share
-// its connection, and a probe that goes away cannot end the lock's session.
+// Ready reports whether the server can do its work now: it is live and the
+// store and the log answer.
 func (s *Server) Ready(ctx context.Context) error {
 	if err := s.Live(); err != nil {
 		return err
-	}
-	if err := s.lockErr.Load(); err != nil {
-		return *err
 	}
 	s.readyMu.Lock()
 	defer s.readyMu.Unlock()

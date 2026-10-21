@@ -19,6 +19,5 @@
 // ObservationsEmitted events; a WebhookReceived event goes to the adapter's
 // Handle the same way; each observation of an ObservationsEmitted event is
 // applied through the resolver. A partition is applied in order by one worker,
-// an event that keeps failing becomes a dead letter, and a lock on the store
-// (store.LockInstance) keeps a second server away (C-STORE-12).
+// an event that keeps failing becomes a dead letter.
 package server

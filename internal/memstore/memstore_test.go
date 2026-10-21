@@ -60,10 +60,6 @@ func TestAuditRetentionConformance(t *testing.T) {
 	})
 }
 
-func TestVectorConformance(t *testing.T) {
-	conformance.VectorIndex(t, func(*testing.T) contracts.VectorIndex { return New() })
-}
-
 func mintTeam(event string) *modelv1alpha1.ChangeSet {
 	return &modelv1alpha1.ChangeSet{EventId: event, Mints: []*modelv1alpha1.Mint{
 		{Ref: "new:a", Kind: "Team", Rule: modelv1alpha1.MintRule_MINT_RULE_OBSERVATION},

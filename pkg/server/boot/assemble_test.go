@@ -6,20 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/store"
 )
 
 const (
@@ -398,51 +395,6 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 		t.Fatal("a webhook route was mounted for a source with no secret")
 	}
 	r.Close()
-}
-
-// recordingLock wraps the store's lock and notes that it was given up.
-type recordingLock struct {
-	store.InstanceLock
-	released atomic.Bool
-}
-
-func (l *recordingLock) Release(ctx context.Context) error {
-	l.released.Store(true)
-	return l.InstanceLock.Release(ctx)
-}
-
-func TestAssembleReleasesTheLockWhenALaterStepFails(t *testing.T) {
-	w := newWorld(t, nil)
-	var lock *recordingLock
-	env := Env{
-		Getenv: w.getenv,
-		lockInstance: func(ctx context.Context, st *store.Store) (store.InstanceLock, error) {
-			l, err := st.LockInstance(ctx)
-			lock = &recordingLock{InstanceLock: l}
-			return lock, err
-		},
-		afterLock: func() error { return errors.New("a later step failed") },
-	}
-	if _, err := Assemble(t.Context(), w.settings, env); err == nil || !strings.Contains(err.Error(), "a later step failed") {
-		t.Fatalf("got %v, want the later step's error", err)
-	}
-	if lock == nil || !lock.released.Load() {
-		t.Fatal("the instance lock was taken and not released when Assemble failed")
-	}
-}
-
-func TestAssembleRefusesToStartWhenAnotherServerHoldsTheStore(t *testing.T) {
-	w := newWorld(t, nil)
-	env := Env{
-		Getenv: w.getenv,
-		lockInstance: func(context.Context, *store.Store) (store.InstanceLock, error) {
-			return nil, store.ErrInstanceLocked
-		},
-	}
-	_, err := Assemble(t.Context(), w.settings, env)
-	if !errors.Is(err, store.ErrInstanceLocked) || !strings.Contains(err.Error(), "another server holds the store") {
-		t.Fatalf("got %v, want a refusal naming the held lock", err)
-	}
 }
 
 func TestAssembleStopsOnAnIssuerThatIsNotHTTPS(t *testing.T) {

@@ -29,7 +29,6 @@ const (
 	DefaultRetryPause   = 2 * time.Second
 	DefaultRetention    = 30 * 24 * time.Hour
 	DefaultTrimEvery    = time.Hour
-	DefaultLockCheck    = 10 * time.Second
 	DefaultMaxPages     = 10_000
 	// DefaultEventTimeout bounds one attempt at one event, a full sync of a
 	// large organization included.
@@ -47,10 +46,6 @@ const (
 
 // ErrUnknownSource is returned for a source that is not configured.
 var ErrUnknownSource = errors.New("server: unknown source")
-
-// ErrLockLost is returned by Run when the instance lock could not be shown
-// to be held. Another server may have started, so this one stops.
-var ErrLockLost = errors.New("server: the instance lock is lost")
 
 // Source is a configured source the server syncs and takes webhooks for.
 type Source struct {
@@ -74,13 +69,6 @@ type Applier interface {
 	Apply(ctx context.Context, ev resolver.Event) (resolver.Applied, error)
 }
 
-// InstanceLock is the lock that makes this the only server using the store
-// (store.InstanceLock).
-type InstanceLock interface {
-	Held(ctx context.Context) error
-	Release(ctx context.Context) error
-}
-
 // Config configures a Server. Zero fields take the defaults above.
 type Config struct {
 	// Log is the event log every input goes through.
@@ -102,9 +90,6 @@ type Config struct {
 	AuditCheckpoints AuditCheckpoints
 	// Sources are the configured sources.
 	Sources []Source
-	// Lock, if set, is checked every LockCheck; when it is no longer held
-	// the server stops with ErrLockLost.
-	Lock InstanceLock
 
 	// Group is the consumer group of the apply workers: the one group
 	// Trim waits for.
@@ -124,8 +109,6 @@ type Config struct {
 	// trimming off. TrimEvery is how often the server trims.
 	Retention time.Duration
 	TrimEvery time.Duration
-	// LockCheck is how often Lock is checked.
-	LockCheck time.Duration
 	// MaxPages bounds the pages of one sync.
 	MaxPages int
 	// EventTimeout bounds one attempt at one event. An adapter that hangs
@@ -166,9 +149,6 @@ type Server struct {
 	deadLetters     atomic.Int64
 	running         atomic.Bool
 	failed          atomic.Pointer[error]
-	// lockErr is why the last check of the instance lock failed, nil while it
-	// holds. Readiness reads it instead of asking the database again.
-	lockErr atomic.Pointer[error]
 	// slots holds one token per event being handled, Workers at most.
 	slots chan struct{}
 
@@ -201,7 +181,6 @@ func New(cfg Config) (*Server, error) {
 	cfg.PollInterval = orDefault(cfg.PollInterval, DefaultPollInterval)
 	cfg.RetryPause = orDefault(cfg.RetryPause, DefaultRetryPause)
 	cfg.TrimEvery = orDefault(cfg.TrimEvery, DefaultTrimEvery)
-	cfg.LockCheck = orDefault(cfg.LockCheck, DefaultLockCheck)
 	if cfg.Retention == 0 {
 		cfg.Retention = DefaultRetention
 	}
@@ -250,9 +229,7 @@ func orDefault[T int | time.Duration](v, def T) T {
 }
 
 // Run runs the server until ctx ends or something it cannot go on without
-// fails, and returns that error (nil for a stop by ctx). It does not take
-// the instance lock; the caller holds it before it starts the server and
-// releases it after Run returns.
+// fails, and returns that error (nil for a stop by ctx).
 func (s *Server) Run(ctx context.Context) error {
 	if !s.running.CompareAndSwap(false, true) {
 		return errors.New("server: already running")
@@ -277,7 +254,6 @@ func (s *Server) Run(ctx context.Context) error {
 	run("retention", s.runRetention)
 	run("audit retention", s.runAuditRetention)
 	run("audit checkpoints", s.runAuditCheckpoints)
-	run("lock", s.watchLock)
 	<-ctx.Done()
 	wg.Wait()
 	err := context.Cause(ctx)
@@ -286,32 +262,6 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.failed.Store(&err)
 	return err
-}
-
-// watchLock stops the server when the instance lock is no longer shown to be
-// held.
-func (s *Server) watchLock(ctx context.Context) error {
-	if s.cfg.Lock == nil {
-		return nil
-	}
-	t := s.clk.NewTicker(s.cfg.LockCheck)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-t.C():
-		}
-		if err := s.cfg.Lock.Held(ctx); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			lost := fmt.Errorf("%w: %w", ErrLockLost, err)
-			s.lockErr.Store(&lost)
-			return lost
-		}
-		s.lockErr.Store(nil)
-	}
 }
 
 // HasSource reports whether name is a configured source.

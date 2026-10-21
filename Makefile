@@ -1,4 +1,4 @@
-.PHONY: all build test test-postgres bench fmt lint vet race cover shard-check shard-profiles covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test fmt lint vet race cover shard-check shard-profiles covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -19,28 +19,19 @@ COVER_OUT ?= cover.out
 # A hung CI job dumps its goroutines before the job's 20-minute limit.
 COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpkg=./... -coverprofile
 
-# CI runs the tests in shards, one runner (and one PostgreSQL) each, because
-# the PostgreSQL suites of internal/pgstore alone take about 490 CPU-seconds
-# on a runner. SHARD names one; left empty, cover, covergate-base and
-# covergate-report run every test in one go, as `make check` does.
+# CI runs the tests in shards, one runner each. SHARD names one; left empty,
+# cover, covergate-base and covergate-report run every test in one go, as
+# `make check` does.
 #
-#   random    internal/pgstore: the random histories compared with the reference
-#   pgstore   the rest of internal/pgstore (everything -skip leaves, so a new
-#             test lands here by default and none can be dropped)
 #   resolver  pkg/resolver, the longest package
 #   packages  every other package (go list, so a new package lands here)
 #
-# Every conformance suite runs whole, in one shard, against both backends.
 # Each shard writes its own profile; the gate merges them (a block is covered
 # if any shard covers it) and compares with the same shards at the merge base.
-SHARDS := random pgstore resolver packages
-PGSTORE_PKG := ./internal/pgstore/
-PGSTORE_RANDOM := ^TestRandom
+SHARDS := resolver packages
 COVER_ARGS_ := ./...
-COVER_ARGS_random := $(PGSTORE_PKG) -run "$(PGSTORE_RANDOM)"
-COVER_ARGS_pgstore := $(PGSTORE_PKG) -skip "$(PGSTORE_RANDOM)"
 COVER_ARGS_resolver := ./pkg/resolver/
-COVER_ARGS_packages := $$(go list ./... | grep -vxF -e "$$(go list -m)/internal/pgstore" -e "$$(go list -m)/pkg/resolver")
+COVER_ARGS_packages := $$(go list ./... | grep -vxF "$$(go list -m)/pkg/resolver")
 SHARD ?=
 COVER_ARGS = $(COVER_ARGS_$(SHARD))
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
@@ -51,7 +42,7 @@ all: fmt test build
 
 # check is everything CI runs, in one process. CI runs the same steps as
 # parallel jobs so a push is answered in the time of the slowest one: static
-# (no test run), cover (the tests, with PostgreSQL), covergate-base (the same
+# (no test run), cover (the tests), covergate-base (the same
 # tests at the merge base), race (the packages below under the race detector)
 # and covergate-report (compares the two profiles). vuln goes last because it
 # needs the network (vuln.go.dev).
@@ -66,22 +57,6 @@ build:
 test:
 	go vet ./...
 	go test ./...
-
-# Runs the PostgreSQL backend's suites against a server, e.g.
-#   docker run --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16
-#   make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=postgres
-# The role must be allowed to create roles and schemas. Set POSTGRES_SCOPED=1
-# to run the stores as a role without administrator rights, as CI does.
-test-postgres:
-	BEARING_TEST_POSTGRES=$(POSTGRES) BEARING_TEST_POSTGRES_PASSWORD=$(POSTGRES_PASS) \
-		BEARING_TEST_POSTGRES_SCOPED=$(POSTGRES_SCOPED) \
-		go test -count=1 -timeout 30m ./internal/pgstore/ ./pkg/store/
-
-# Runs the store benchmark (docs/benchmarks/README.md), e.g.
-#   make bench BENCH='load --store postgres://bench@127.0.0.1:5432/bench?schema=main --facts 1000000' BEARING_STORE_PASSWORD=...
-# It is not part of check: the full run takes hours.
-bench:
-	go run ./cmd/bearing-bench $(BENCH)
 
 # The tools module is separate, so ./... does not reach it; lint it with the
 # same config from inside it.
@@ -121,23 +96,17 @@ generate-check: $(PROTO_TOOLS)
 cover: shard-check
 	$(COVER_TEST)=$(COVER_OUT) $(COVER_ARGS)
 
-# shard-check fails if SHARD is not one of SHARDS, or if the pattern that picks
-# the random tests matches none (a renamed test would otherwise leave the
-# shard empty and move its tests into the pgstore shard unnoticed).
+# shard-check fails if SHARD is not one of SHARDS.
 shard-check:
 	@[ -z '$(SHARD)' ] || case ' $(SHARDS) ' in *' $(SHARD) '*) ;; *) echo 'SHARD=$(SHARD) is not one of: $(SHARDS)'; exit 1;; esac
-	@case '$(SHARD)' in random|pgstore) \
-		n=$$(go test -coverpkg=./... -list '$(PGSTORE_RANDOM)' $(PGSTORE_PKG) | grep -c '^Test'); \
-		[ "$$n" -gt 0 ] || { echo "shard pattern $(PGSTORE_RANDOM) in the Makefile matches no test in $(PGSTORE_PKG)"; exit 1; };; \
-	esac
 
-# The packages that take locks or run goroutines. internal/pgstore needs
-# PostgreSQL, and pkg/resolver takes about 450 seconds under -race, far more
-# than the rest together; neither belongs in the CI run (about five minutes).
+# The packages that take locks or run goroutines. pkg/resolver takes about 450
+# seconds under -race, far more than the rest together, so it stays out of the
+# CI run (about five minutes).
 RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/auth/ ./pkg/audit/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
 
 # race runs RACE_PKGS under the race detector, which needs cgo and a C
-# compiler. PostgreSQL suites skip unless BEARING_TEST_POSTGRES is set.
+# compiler.
 race:
 	go test -race -count=1 -timeout $(if $(GITHUB_ACTIONS),10m,20m) $(RACE_PKGS)
 

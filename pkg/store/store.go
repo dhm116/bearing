@@ -1,28 +1,11 @@
-// Package store opens the graph store, vector index and event log Bearing
-// runs on, from connection URLs.
+// Package store opens the graph store and event log Bearing runs on, from
+// connection URLs.
 //
-// By default one backend serves all three contracts, so a small install has
-// one database to run. Pointing Vectors or Events at a different URL splits
-// them, for example a graph in PostgreSQL and vectors in Qdrant, without
-// changing any code that uses the contracts.
+// One backend serves both contracts. Pointing Events at a different URL
+// splits them without changing any code that uses the contracts.
 //
-//	URL                                    Backend
-//	mem://                                 In-memory reference store, for tests and demos
-//	postgres://user@host/db                PostgreSQL server (graph; add ?vector_dimensions=N for pgvector)
-//
-// PostgreSQL URLs (postgres:// or postgresql://) take ?schema=<name> (default
-// bearing), sslmode, sslrootcert, sslcert, sslkey, connect_timeout,
-// application_name, pool_max_conns, host=<socket directory> and
-// vector_dimensions=<1 to 2000>, which turns on the pgvector index (the
-// extension must be installed by an administrator and the number fixed for the
-// schema), and refuse every other parameter. A connection to a host other
-// than the local machine requires sslmode=verify-full unless
-// insecure_store_plaintext=true (C-STORE-6), and a role that can create roles
-// or databases is refused unless insecure_store_superuser=true (C-STORE-2);
-// pgstore.Provision makes a role and schema that pass.
-//
-// The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
-// carries one, so it never ends up in config files, process lists or logs.
+//	URL      Backend
+//	mem://   In-memory reference store, for tests and demos
 package store
 
 import (
@@ -30,31 +13,23 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 
 	"bearing.example/internal/memstore"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/contracts/instrument"
 )
 
-// PasswordEnv is the environment variable that holds the password for the
-// user named in a store URL.
-const PasswordEnv = "BEARING_STORE_PASSWORD"
-
-// Config names the backends. Vectors and Events default to Graph.
+// Config names the backends. Events defaults to Graph.
 type Config struct {
-	Graph   string
-	Vectors string
-	Events  string
+	Graph  string
+	Events string
 	// Namespaces are the configured source namespaces, which telemetry
 	// names in metric labels; it labels any other namespace "other".
 	Namespaces []string
-	// Getenv reads PasswordEnv; nil means os.Getenv.
-	Getenv func(string) string
 }
 
-// Store is an open graph store, audit log, vector index and event log, all
-// instrumented with OpenTelemetry.
+// Store is an open graph store, audit log and event log, all instrumented
+// with OpenTelemetry.
 type Store struct {
 	Graph contracts.GraphStore
 	// Audit is the graph store's audit log, which the graph store writes
@@ -65,37 +40,8 @@ type Store struct {
 	// nothing that can delete (threat model C-AUDIT-5).
 	AuditRetention contracts.AuditRetention
 	// Events is the durable event log (ADR 7).
-	Events contracts.EventLog
-	// Vectors is nil when the graph backend does not serve vectors (a
-	// PostgreSQL graph store without vector_dimensions) and no vector URL
-	// was given; check before use.
-	Vectors contracts.VectorIndex
-	lock    func(context.Context) (InstanceLock, error)
+	Events  contracts.EventLog
 	closers []func(context.Context) error
-}
-
-// ErrInstanceLocked is returned by LockInstance when another server already
-// uses the store.
-var ErrInstanceLocked = errors.New("store: another server is using this store")
-
-// InstanceLock is held by the one server that uses a store.
-type InstanceLock interface {
-	// Held reports an error when the lock is no longer certain to be held,
-	// for example because the database connection that holds it was lost. A
-	// server that cannot show it stops, since another may have started.
-	Held(ctx context.Context) error
-	// Release gives the lock up.
-	Release(ctx context.Context) error
-}
-
-// LockInstance takes the lock that keeps a second server from using the
-// graph store at the same time, without waiting. Until the event log has a
-// lease for each partition, a second server could apply a source's events
-// out of order (docs/spec/contracts.md, "EventLog"). It returns
-// ErrInstanceLocked when another server holds it. The in-memory store has
-// one user by construction, so its lock always succeeds.
-func (s *Store) LockInstance(ctx context.Context) (InstanceLock, error) {
-	return s.lock(ctx)
 }
 
 // Close releases every backend connection.
@@ -107,33 +53,23 @@ func (s *Store) Close(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// backend is what one URL opens to. A backend may implement one or both
-// contracts.
+// backend is what one URL opens to.
 type backend struct {
-	name   string // for telemetry: "memory", "postgresql"
+	name   string // for telemetry: "memory"
 	graph  contracts.GraphStore
 	audit  contracts.AuditLog
 	retain contracts.AuditRetention
-	vector contracts.VectorIndex
 	events contracts.EventLog
-	lock   func(context.Context) (InstanceLock, error)
 	close  func(context.Context) error
 }
 
 // Open connects to the backends in c.
 func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Graph == "" {
-		return nil, errors.New("store: a graph store URL is required, for example mem:// or postgres://bearing@localhost/bearing")
-	}
-	if c.Getenv == nil {
-		c.Getenv = os.Getenv
-	}
-	explicitVectors := c.Vectors != ""
-	if c.Vectors == "" {
-		c.Vectors = c.Graph
+		return nil, errors.New("store: a graph store URL is required, for example mem://")
 	}
 	s := &Store{}
-	g, err := open(ctx, c.Graph, c.Getenv)
+	g, err := open(c.Graph)
 	if err != nil {
 		return nil, err
 	}
@@ -141,21 +77,9 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if g.graph == nil || g.audit == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
-	v := g
-	if c.Vectors != c.Graph {
-		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {
-			return nil, errors.Join(err, s.Close(ctx))
-		}
-		s.closers = append(s.closers, v.close)
-	}
-	// A backend that serves only the graph leaves Vectors nil unless a
-	// vector index was asked for by its own URL.
-	if v.vector == nil && (c.Vectors != c.Graph || explicitVectors) {
-		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
-	}
 	e := g
 	if c.Events != "" && c.Events != c.Graph {
-		if e, err = open(ctx, c.Events, c.Getenv); err != nil {
+		if e, err = open(c.Events); err != nil {
 			return nil, errors.Join(err, s.Close(ctx))
 		}
 		s.closers = append(s.closers, e.close)
@@ -164,33 +88,25 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	s.Audit = instrument.AuditLog(g.audit, g.name)
 	s.AuditRetention = instrument.AuditRetention(g.retain, g.name)
 	s.Events = instrument.EventLog(e.events, e.name)
-	s.lock = g.lock
-	if v.vector != nil {
-		s.Vectors = instrument.VectorIndex(v.vector, v.name)
-	}
 	return s, nil
 }
 
-func open(ctx context.Context, raw string, getenv func(string) string) (backend, error) {
+func open(raw string) (backend, error) {
 	u, err := parseURL(raw)
 	if err != nil {
 		return backend{}, err
 	}
-	switch u.Scheme {
-	case "mem":
+	if u.Scheme == "mem" {
 		m := memstore.New()
 		return backend{
-			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), vector: m, events: m, close: func(context.Context) error { return nil },
-			lock: func(context.Context) (InstanceLock, error) { return noLock{}, nil },
+			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), events: m, close: func(context.Context) error { return nil },
 		}, nil
-	case "postgres", "postgresql":
-		return openPostgres(ctx, u, getenv)
 	}
-	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem:// or postgres://", u.Scheme)
+	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem://", u.Scheme)
 }
 
-// parseURL parses a store URL and rejects one with a password in it. Its
-// errors never repeat the URL, which may hold a secret.
+// parseURL parses a store URL. Its errors never repeat the URL, which may
+// hold a secret.
 func parseURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -200,14 +116,9 @@ func parseURL(raw string) (*url.URL, error) {
 		}
 		return nil, fmt.Errorf("store: parse URL: %w", err)
 	}
-	if _, ok := u.User.Password(); ok {
-		return nil, fmt.Errorf("store: %s URL has a password in it; remove it and set %s instead", safeName(u), PasswordEnv)
-	}
 	if u.Opaque != "" {
-		// "postgres:host:5432" parses with no host; say what's wrong
-		// rather than dialing somewhere unexpected. The opaque part may hold
-		// "user:password@", which Redacted does not hide, so only the
-		// scheme is named.
+		// The opaque part may hold "user:password@", so only the scheme is
+		// named.
 		return nil, fmt.Errorf("store: %s: URL has no // after the scheme; use %s://host", u.Scheme, u.Scheme)
 	}
 	return u, nil
@@ -230,9 +141,3 @@ func safeName(u *url.URL) string {
 	}
 	return u.Scheme + "://" + u.Host
 }
-
-// noLock is the lock of a store that only one process can use.
-type noLock struct{}
-
-func (noLock) Held(context.Context) error    { return nil }
-func (noLock) Release(context.Context) error { return nil }

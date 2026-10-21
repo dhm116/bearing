@@ -244,7 +244,7 @@ func TestAuditCheckpointsRunAtStartAndOnTheirTimerInARunningServer(t *testing.T)
 	t.Parallel()
 	w := newCheckpointWorld(t, true)
 	w.cfg.AuditCheckpoints.Every = time.Minute
-	w.cfg.LockCheck, w.cfg.PollInterval = 24*time.Hour, 24*time.Hour
+	w.cfg.PollInterval = 24 * time.Hour
 	var err error
 	if w.s, err = New(w.cfg); err != nil {
 		t.Fatal(err)
