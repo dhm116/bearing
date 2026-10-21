@@ -10,7 +10,7 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// fake is an in-memory Graph: it opens a link per new unordered pair, adds a
+// fake is an in-memory IdentityGraph: it opens a link per new unordered pair, adds a
 // deposit to a known one and closes links on request. It does not cluster.
 type fake struct {
 	recs  []graph.Record
@@ -272,5 +272,45 @@ func TestRunReviewOrderedStrongestFirst(t *testing.T) {
 	if len(res.Review) != 2 || res.Review[0].Link.ID != "S" ||
 		res.Review[0].Score.Strength <= res.Review[1].Score.Strength {
 		t.Fatalf("got %+v", res.Review)
+	}
+}
+
+// stubMatcher scores every candidate the same, under its own rule.
+type stubMatcher struct{ score float64 }
+
+func (stubMatcher) Rule() string { return "matcher/stub" }
+
+func (m stubMatcher) Match(_ context.Context, cs []Candidate, _ Evidence) ([]Judgement, error) {
+	out := make([]Judgement, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, Judgement{Candidate: c, Score: m.score, Features: map[string]float64{"stub": m.score}})
+	}
+	return out, nil
+}
+
+func TestRunUsesTheConfiguredMatchers(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		score float64
+		want  int
+	}{
+		{"above the bar proposes", 0.9, 1},
+		{"below the bar proposes nothing", 0.1, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g := newFake()
+			res, err := Run(context.Background(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }, Matchers: []Matcher{stubMatcher{tt.score}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Proposed != tt.want {
+				t.Fatalf("got %d proposals, want %d", res.Proposed, tt.want)
+			}
+			for _, l := range g.links {
+				if l.Rule != "matcher/stub" {
+					t.Errorf("got rule %q, want matcher/stub", l.Rule)
+				}
+			}
+		})
 	}
 }

@@ -11,7 +11,7 @@ func rec(id, name string, kind model.Kind, keys ...model.Key) graph.Record {
 	return graph.Record{ID: graph.EntityID(id), Cluster: graph.EntityID(id), Kind: kind, Name: name, Keys: keys}
 }
 
-func TestBlockFindsCandidatePairs(t *testing.T) {
+func TestCandidatesFindsCandidatePairs(t *testing.T) {
 	members := map[graph.EntityID]map[graph.EntityID]bool{
 		"g-sre": {"p1": true, "p2": true},
 		"k-rel": {"p2": true},
@@ -29,7 +29,7 @@ func TestBlockFindsCandidatePairs(t *testing.T) {
 	skip := func(a, b graph.EntityID) bool { return a == "d-pay" && b == "g-roll" }
 
 	var got []string
-	for _, c := range Block(recs, members, skip) {
+	for _, c := range Candidates(recs, members, skip) {
 		got = append(got, string(c.A.ID)+"+"+string(c.B.ID))
 	}
 	want := []string{"d-pay+g-pay", "g-sre+k-rel", "d-pay+t-pay"}
@@ -48,14 +48,14 @@ func TestBlockFindsCandidatePairs(t *testing.T) {
 	}
 }
 
-func TestBlockSkipsSameClusterAndOtherKinds(t *testing.T) {
+func TestCandidatesSkipsSameClusterAndOtherKinds(t *testing.T) {
 	a, b := rec("a", "payments", model.KindTeam), rec("b", "payments", model.KindTeam)
 	b.Cluster = "a"
-	if got := Block([]graph.Record{a, b}, nil, nil); len(got) != 0 {
+	if got := Candidates([]graph.Record{a, b}, nil, nil); len(got) != 0 {
 		t.Fatalf("same cluster: got %v", got)
 	}
 	c := rec("c", "payments", model.KindPerson)
-	if got := Block([]graph.Record{a, c}, nil, nil); len(got) != 0 {
+	if got := Candidates([]graph.Record{a, c}, nil, nil); len(got) != 0 {
 		t.Fatalf("other kind: got %v", got)
 	}
 }

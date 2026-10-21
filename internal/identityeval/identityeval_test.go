@@ -132,11 +132,11 @@ func TestPrecisionRecall(t *testing.T) {
 			}
 		})
 	}
-	if got := BlockingRecall(cases, []Pair{{"y:k/a", "x:k/a"}, {"x:k/d", "y:k/d"}}); got != 1.0/3 {
-		t.Errorf("blocking recall: got %v, want 1/3", got)
+	if got := CandidateRecall(cases, []Pair{{"y:k/a", "x:k/a"}, {"x:k/d", "y:k/d"}}); got != 1.0/3 {
+		t.Errorf("candidate recall: got %v, want 1/3", got)
 	}
-	if got := BlockingRecall(nil, nil); got != 1 {
-		t.Errorf("blocking recall of no cases: got %v, want 1", got)
+	if got := CandidateRecall(nil, nil); got != 1 {
+		t.Errorf("candidate recall of no cases: got %v, want 1", got)
 	}
 }
 

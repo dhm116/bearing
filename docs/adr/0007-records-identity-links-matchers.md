@@ -46,7 +46,8 @@ GitHub `user_node` but not for a login) and how a field can be matched
   otherwise. A source's settings may override the declaration (both ways)
   for one key type. `Ingest` takes each source's declaration.
 - **Matchers.** A matcher looks at candidate pairs and proposes links:
-  `Match(ctx, candidates) []Proposal`. Candidates come from blocking (same
+  `Match(ctx, candidates) []Judgement`. Candidate pairs come from a cheap
+  first pass (what record linkage calls blocking: same
   kind and a normalized name; shared linked keys). The first matcher is
   transparent: a weighted score over name similarity, shared members or
   neighbours (`MATCH_METHOD_MEMBERS`) and email, with weights in code and
@@ -74,7 +75,7 @@ GitHub `user_node` but not for a login) and how a field can be matched
 - **Evaluation.** `internal/e2e` gains a labelled identity set from the Acme
   org (Jane and Mei the same, Tom apart, the payments teams joined, the
   Kubernetes `payments` label joined to the GitHub team) and reports
-  precision and recall of proposals and recall of blocking. A matcher is
+  precision and recall of proposals and the recall of candidate pairs. A matcher is
   adopted when it beats the one it replaces there.
   For decay, the set also replays the Acme timeline (the team rename, the
   deleted team, a membership that ends) and reports how long a stale
@@ -98,7 +99,7 @@ GitHub `user_node` but not for a login) and how a field can be matched
    order are fixed and versioned, the probabilities are calibrated on the
    labelled set, and the set is grown from the Acme fakes (renamed teams,
    other naming conventions, near-miss names) until it is large enough to
-   calibrate on. Embeddings for blocking are a separate, later experiment.
+   calibrate on. Embeddings for finding candidate pairs are a separate, later experiment.
    The spike merges only through a later ADR.
 
 ## Consequences

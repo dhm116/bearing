@@ -31,9 +31,9 @@ func PrecisionRecall(cases []Case, proposed []Pair) (precision, recall float64) 
 	return ratio(tp, len(seen)), ratio(tp, len(same))
 }
 
-// BlockingRecall is the share of pairs labelled same that candidates
-// contains: a pair blocking misses can never be proposed.
-func BlockingRecall(cases []Case, candidates []Pair) float64 {
+// CandidateRecall is the share of pairs labelled same that candidates
+// contains: a pair the candidate pass misses can never be proposed.
+func CandidateRecall(cases []Case, candidates []Pair) float64 {
 	have := map[Pair]bool{}
 	for _, p := range candidates {
 		have[NewPair(p.A, p.B)] = true

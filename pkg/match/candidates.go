@@ -6,22 +6,23 @@ import (
 	"bearing.example/pkg/graph"
 )
 
-// nameBlock is the Jaro-Winkler similarity at which two names make a
+// nameSimilar is the Jaro-Winkler similarity at which two names make a
 // candidate pair.
-const nameBlock = 0.9
+const nameSimilar = 0.9
 
 // Candidate is a pair of records worth scoring.
 type Candidate struct {
 	A, B graph.Record
 }
 
-// Block returns candidate pairs of records of one kind in different
-// clusters: equal normalized names, Jaro-Winkler of at least 0.9 on names, or
+// Candidates is the cheap first pass before scoring (what record linkage
+// calls blocking): it returns the pairs of records of one kind, in different
+// clusters, that are worth a matcher's time: equal normalized names, Jaro-Winkler of at least 0.9 on names, or
 // a shared member (members maps a cluster to the clusters that are
 // member_of it). Pairs for which skip is true are left out. The scan is
 // quadratic within a kind; upgrade to a name index when kinds hold tens of
 // thousands of records.
-func Block(recs []graph.Record, members map[graph.EntityID]map[graph.EntityID]bool, skip func(a, b graph.EntityID) bool) []Candidate {
+func Candidates(recs []graph.Record, members map[graph.EntityID]map[graph.EntityID]bool, skip func(a, b graph.EntityID) bool) []Candidate {
 	byKind := map[string][]graph.Record{}
 	for _, r := range recs {
 		byKind[string(r.Kind)] = append(byKind[string(r.Kind)], r)
@@ -61,7 +62,7 @@ func cmpID(a, b graph.EntityID) int {
 
 func candidate(a, b graph.Record, members map[graph.EntityID]map[graph.EntityID]bool) bool {
 	na, nb := normalize(a.Name), normalize(b.Name)
-	if na != "" && nb != "" && jaroWinkler(na, nb) >= nameBlock {
+	if na != "" && nb != "" && jaroWinkler(na, nb) >= nameSimilar {
 		return true
 	}
 	for m := range members[a.Cluster] {

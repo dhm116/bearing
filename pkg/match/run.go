@@ -14,8 +14,8 @@ import (
 type Config struct {
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
-	// Weights default to name 0.6, members 0.3, email 0.4.
-	Weights Weights
+	// Matchers score candidate pairs; nil means []Matcher{Transparent{}}.
+	Matchers []Matcher
 	// ProposeAt is the score at which a pair becomes a proposal (default 0.6,
 	// so an exact name alone qualifies and a near name alone does not).
 	ProposeAt float64
@@ -37,8 +37,8 @@ func (c Config) withDefaults() Config {
 	if c.Now == nil {
 		c.Now = time.Now
 	}
-	if c.Weights == (Weights{}) {
-		c.Weights = Weights{Name: 0.6, Members: 0.3, Email: 0.4}
+	if c.Matchers == nil {
+		c.Matchers = []Matcher{Transparent{}}
 	}
 	if c.ProposeAt == 0 {
 		c.ProposeAt = 0.6
@@ -80,7 +80,7 @@ type Reviewable struct {
 // Run applies the key rules, proposes links for candidate pairs, then closes
 // proposals whose evidence has decayed. Running twice on unchanged evidence
 // adds nothing the second time.
-func Run(ctx context.Context, g Graph, cfg Config) (Result, error) {
+func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	cfg = cfg.withDefaults()
 	now := cfg.Now()
 	for _, r := range cfg.Rules {
@@ -137,19 +137,28 @@ func Run(ctx context.Context, g Graph, cfg Config) (Result, error) {
 	res.Asserted = len(ps)
 
 	ev := gather(facts)
-	for _, c := range Block(recs, ev.members, func(a, b graph.EntityID) bool { return skip(a, b) || seen[pairOf(a, b)] }) {
-		f := ev.features(c)
-		s := cfg.Weights.score(f)
-		at := laterOf(ev.newest[c.A.Cluster], ev.newest[c.B.Cluster])
-		if s < cfg.ProposeAt || at.IsZero() || !at.After(lastAt[pairOf(c.A.ID, c.B.ID)]) {
-			continue
+	cands := Candidates(recs, ev.Members, func(a, b graph.EntityID) bool { return skip(a, b) || seen[pairOf(a, b)] })
+	for _, m := range cfg.Matchers {
+		js, err := m.Match(ctx, cands, ev)
+		if err != nil {
+			return Result{}, fmt.Errorf("match: %s: %w", m.Rule(), err)
 		}
-		f["score"] = s
-		ps = append(ps, graph.Proposal{
-			A: c.A.ID, B: c.B.ID, Kind: graph.SameAs, Status: graph.Proposed,
-			Rule: TransparentRule, Deposit: graph.Deposit{At: at, Weight: s, Features: f},
-		})
-		res.Proposed++
+		for _, j := range js {
+			c := j.Candidate
+			at := laterOf(ev.Newest[c.A.Cluster], ev.Newest[c.B.Cluster])
+			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(lastAt[pairOf(c.A.ID, c.B.ID)]) {
+				continue
+			}
+			f := map[string]float64{"score": j.Score}
+			for k, v := range j.Features {
+				f[k] = v
+			}
+			ps = append(ps, graph.Proposal{
+				A: c.A.ID, B: c.B.ID, Kind: graph.SameAs, Status: graph.Proposed,
+				Rule: m.Rule(), Deposit: graph.Deposit{At: at, Weight: j.Score, Features: f},
+			})
+			res.Proposed++
+		}
 	}
 	if len(ps) > 0 {
 		if _, err := g.Link(ctx, ps); err != nil {
