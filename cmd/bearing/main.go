@@ -4,7 +4,7 @@
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
 //
-// runs the server (bearing server --settings FILE, see docs/operations.md),
+// runs the server (bearing server --settings FILE),
 // and answers questions about what Bearing knows, with the source, event,
 // confidence and observed time of each fact, from the graph store directly or
 // from a running server:

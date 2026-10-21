@@ -19,7 +19,6 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
 
 ## Writing an adapter
 
-Read the [adapter protocol](docs/spec/adapter-protocol.md). In Go, implement
-`adapter.Adapter` and call `adapter.ServeStdio` from `main`;
-[`adapters/github`](adapters/github) is the worked example. In other
-languages, speak the JSON-RPC protocol directly.
+Adapters are moving to a gRPC service ([ADR 4](docs/adr/0004-protobuf-and-grpc-adapters.md));
+the guide is rewritten when that lands. Until then
+[`adapters/github`](adapters/github) is the worked example.

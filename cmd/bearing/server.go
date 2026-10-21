@@ -14,7 +14,7 @@ import (
 
 // serverCmd runs `bearing server --settings FILE` until it is interrupted or
 // told to stop. The settings file, its Source resources and the start
-// refusals are described in docs/operations.md.
+// refusals are in pkg/server/boot.
 func serverCmd(ctx context.Context, args []string, _ io.Writer) error {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

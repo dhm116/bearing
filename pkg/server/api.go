@@ -130,8 +130,8 @@ type API struct {
 type route struct {
 	pattern string
 	method  contracts.Method
-	// write marks a route that changes state, which the 401 and 403 table
-	// test covers.
+	// write marks a route that changes state, which the 401 table test
+	// covers.
 	write  bool
 	handle func(a *API, w http.ResponseWriter, r *http.Request, c contracts.Caller)
 }

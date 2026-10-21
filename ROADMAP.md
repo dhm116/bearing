@@ -8,14 +8,10 @@ rules are in [`AGENTS.md`](AGENTS.md) and [`docs/adr/`](docs/adr/).
 Done when the five questions in `AGENTS.md` are answered end to end, with
 evidence, on the Acme scenario, and Bearing runs in Docker Compose.
 
-1. **Delete what the MVP doesn't use.** `pkg/audit` and the `audit`
-   commands; audit checkpoints and retention in `pkg/server`;
-   `internal/pgstore`; `internal/memstore` once the DuckDB store replaces
-   it; `pkg/auth` (OIDC); the instance lock; the stdio adapter transport;
-   `cmd/bearing-bench`; `pkg/contracts/conformance`; the docs that describe
-   them (`docs/spec/`, `docs/security/threat-model.md`,
-   `docs/operations.md`, `docs/benchmarks/`). Trim `proto/` to
-   observations, the adapter service and events.
+1. **Delete what the MVP doesn't use.** Done: Postgres, the vector index,
+   the benchmark, the instance lock, the audit log and OIDC are gone; the
+   API takes one static token. The stdio transport goes in step 3,
+   `memstore` and the conformance suite in step 2.
 2. **DuckDB store.** Observation log, entities, facts with provenance;
    batched writes; recursive CTEs for dependency walks.
 3. **Adapters over gRPC.** Port the GitHub adapter (including manifest

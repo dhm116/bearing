@@ -46,7 +46,7 @@ collections:
   - id: spec
     title: Specification
     short: Spec
-    description: The data model, adapter protocol and component contracts.
+    description: The data model and the server API.
     dir: docs/spec
     path: spec
-    order: [data-model.md, adapter-protocol.md, contracts.md]
+    order: [data-model.md, api.md]

@@ -51,8 +51,6 @@ features:
     area: Connect your tools
     summary: A published guide and protocol for connecting a tool Bearing doesn't support yet.
     milestone: 5
-    links:
-      - { label: Connector protocol, href: spec/adapter-protocol/ }
   - name: AWS
     area: Connect your tools
     summary: Cloud accounts and resources, the tags that say who they belong to, and who changed what.
@@ -161,12 +159,6 @@ features:
     issues: [13, 11]
     links:
       - { label: Read the spec, href: spec/ }
-  - name: Swap any part
-    area: Run it your way
-    summary: Each part sits behind a published interface with tests, so you can replace the database, or any other part, with your own.
-    status: available
-    links:
-      - { label: Component contracts, href: spec/contracts/ }
   - name: One database to start
     area: Run it your way
     summary: PostgreSQL, the widely used open source database, holds both the facts and the search index, so there is one database to run.

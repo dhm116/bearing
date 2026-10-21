@@ -1,19 +1,17 @@
 # Bearing specification
 
-Version 0.3 (draft). 0.3 builds on 0.2's stable subjects and facts over
-time; see the [data model](data-model.md)'s "Changes in this revision". The
-[contracts](contracts.md) follow 0.3. The [adapter protocol](adapter-protocol.md)
-still describes the stdio scaffold (protocol 0.2) until the Protobuf adapter
-service replaces it.
+What callers and adapter authors can rely on. Bearing is being rebuilt from
+a smaller scope (see the [roadmap](../../ROADMAP.md)), so this section is
+being rewritten as each part lands.
 
-The specification is the product. Code in this repository implements it, but
-anyone should be able to write an adapter or a backend from these documents
-alone.
+1. [Data model](data-model.md): subjects, facts over time and observations.
+   It still describes the code from before the restart; a short concepts
+   page replaces it with the DuckDB store.
+2. [Server API](api.md): the routes a running server offers and their
+   limits.
 
-1. [Data model](data-model.md): subjects, aliases, facts over time, observations and resolver rules
-2. [Adapter protocol](adapter-protocol.md): how adapters and the core talk
-3. [Component contracts](contracts.md): the interfaces between core components
-4. [Server API](api.md): the routes a running server offers, their roles and limits
+The adapter service is defined in `proto/` and gets a guide when the gRPC
+adapters land ([ADR 4](../adr/0004-protobuf-and-grpc-adapters.md)).
 
 ## Conventions
 
@@ -21,23 +19,3 @@ alone.
 - JSON field names use `snake_case`, except CloudEvents envelope fields, which
   follow the CloudEvents spec.
 - Times are RFC 3339 in UTC.
-
-## Versioning
-
-- The data model is versioned by observation type
-  (`dev.bearing.observation.v1`). Adding kinds, relation types or optional
-  fields is backwards compatible. Removing or changing the meaning of
-  anything requires `v2`, except that before spec 1.0 a draft may make
-  listed incompatible changes within `v1` (as 0.2 does, below).
-  Readers decode observations strictly, so "compatible" means the core is
-  upgraded before an adapter sends a new field: a core rejects an
-  observation with a field it doesn't define (`malformed`).
-- The specification as a whole has a draft version (0.1, 0.2, …) that
-  changes whenever its rules change. Rules that change what the core builds
-  from the same observations (resolution, ordering, confidence) change the
-  spec version even when the observation format does not. 0.2 keeps the
-  observation type `dev.bearing.observation.v1` despite a few listed
-  incompatibilities (see the data model's "Compatibility"), which pre-1.0
-  allows; the Protobuf model (issue #11) follows this document.
-- The adapter protocol has its own version (`0.2`), reported by adapters in
-  `bearing.describe`. Until `1.0`, minor versions may break compatibility.

@@ -26,8 +26,6 @@ Include what you can:
 - the affected component and commit
 - steps to reproduce, or a proof of concept
 - the impact you expect (what an attacker gains)
-- any threat or control IDs from the [threat model](docs/security/threat-model.md)
-  that the issue breaks, for example `C-ADAPTER-5`
 
 ## What to expect
 
@@ -50,13 +48,11 @@ images built from it, and the deployment files it ships (for example the
 compose file).
 
 Out of scope: vulnerabilities in source systems, identity providers or
-PostgreSQL itself (report those upstream), and the risks the threat model
-lists as accepted. Risks that an `insecure_*` setting knowingly
-accepts are out of scope; a setting that fails to warn or audit (C-GEN-1)
-is in scope.
+DuckDB itself (report those upstream). Risks that an `insecure_*` setting knowingly
+accepts are out of scope; a setting that fails to warn is in scope.
 
 ## Threat model
 
-[docs/security/threat-model.md](docs/security/threat-model.md) describes
-Bearing's trust boundaries, the threats at each one and the controls that
-answer them.
+Bearing is being rebuilt from a smaller scope (see the [roadmap](ROADMAP.md)),
+and the threat model is rewritten with it. The pre-pivot model is at the
+[`pre-pivot`](https://github.com/dhm116/bearing/blob/pre-pivot/docs/security/threat-model.md) tag.
