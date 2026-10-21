@@ -51,7 +51,9 @@ type Running struct {
 	listen server.ListenConfig
 	st     *store.Store
 	procs  []*managed
-	cancel context.CancelFunc // ends the adapter processes
+	// sockets is the private directory of the local adapters' sockets.
+	sockets string
+	cancel  context.CancelFunc // ends the adapter processes
 }
 
 // Assemble checks s and builds the server it describes. It refuses to start
@@ -116,9 +118,10 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	}
 	procCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	var procs []*managed
+	var sockets string
 	defer func() {
 		if err != nil {
-			logClose(closeAll(procs, st))
+			logClose(closeAll(procs, st, sockets))
 			cancel()
 		}
 	}()
@@ -126,7 +129,16 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	declared := map[string]map[string]model.Predicate{}
 	for _, p := range plans {
 		declared[p.name] = model.DeclaredAttributes(p.decl)
-		m := newManaged(procCtx, p.name, p.launcher, env.Clock)
+		if sockets == "" {
+			// Private (0700) and new for each run, so no other user can
+			// reach an adapter and no stale socket is in the way.
+			if sockets, err = os.MkdirTemp("", "bearing-"); err != nil {
+				return nil, fmt.Errorf("boot: adapter socket directory: %w", err)
+			}
+		}
+		cfg := p.start
+		cfg.SocketDir = sockets
+		m := newManaged(procCtx, p.name, func(ctx context.Context) (Process, error) { return adapter.Start(ctx, cfg) }, env.Clock)
 		procs = append(procs, m)
 		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
 	}
@@ -157,7 +169,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, cancel: cancel}, nil
+	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, sockets: sockets, cancel: cancel}, nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops
@@ -175,24 +187,29 @@ func (r *Running) Run(ctx context.Context) error {
 	second := <-errs
 	// The adapters are asked to exit before their context ends: cancelling
 	// first would kill them with no chance to finish.
-	closed := closeAll(r.procs, r.st)
+	closed := closeAll(r.procs, r.st, r.sockets)
 	r.cancel()
 	return errors.Join(first, second, closed)
 }
 
 // Close releases an assembled server that was never run.
 func (r *Running) Close() {
-	logClose(closeAll(r.procs, r.st))
+	logClose(closeAll(r.procs, r.st, r.sockets))
 	r.cancel()
 }
 
-// closeAll stops the adapters, then closes the
-// store. It carries on past a failure and returns every one.
-func closeAll(procs []*managed, st *store.Store) error {
+// closeAll stops the adapters, removes their socket directory, then closes
+// the store. It carries on past a failure and returns every one.
+func closeAll(procs []*managed, st *store.Store, sockets string) error {
 	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("adapter for source %s did not exit cleanly: %w", m.source, err))
+		}
+	}
+	if sockets != "" {
+		if err := os.RemoveAll(sockets); err != nil {
+			errs = append(errs, fmt.Errorf("remove the adapter socket directory: %w", err))
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
@@ -218,10 +235,11 @@ type sourcePlan struct {
 	config        json.RawMessage
 	every         time.Duration
 	webhookSecret []byte
-	launcher      Launcher
+	// start runs the adapter; Assemble sets SocketDir.
+	start adapter.StartConfig
 }
 
-// planSources resolves every source's secrets and builds its launcher. A
+// planSources resolves every source's secrets and how to start its adapter. A
 // reference that does not resolve to a value stops the start, naming the
 // field and the variable, never a value (C-SECRET-2).
 func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration, getenv func(string) string) ([]sourcePlan, error) {
@@ -255,8 +273,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			}
 			p.config = b
 		}
-		cfg := adapter.StartConfig{Name: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
-		p.launcher = func(ctx context.Context) (Process, error) { return adapter.StartWith(ctx, cfg) }
+		p.start = adapter.StartConfig{Name: name, Command: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
 		plans = append(plans, p)
 	}
 	return plans, nil

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"connectrpc.com/otelconnect"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	adapterv1alpha1 "bearing.example/gen/go/bearing/adapter/v1alpha1"
 	"bearing.example/gen/go/bearing/adapter/v1alpha1/adapterv1alpha1connect"
@@ -36,7 +38,9 @@ type ServeConfig struct {
 // Unix socket) or whatever lis provides; terminate TLS in lis or in front
 // of it for a remote adapter.
 func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) error {
-	otel, err := otelconnect.NewInterceptor()
+	// The only caller that gets past the token is the core, so its spans parent
+	// the adapter's, and one trace covers a sync on both sides.
+	otel, err := otelconnect.NewInterceptor(otelconnect.WithTrustRemote())
 	if err != nil {
 		return fmt.Errorf("adapter: telemetry: %w", err)
 	}
@@ -123,14 +127,59 @@ func (s grpcServer) Handle(ctx context.Context, req *connect.Request[adapterv1al
 	return connect.NewResponse(&adapterv1alpha1.HandleResponse{Observations: res.Observations}), nil
 }
 
-// toConnect gives an adapter error its gRPC code: an optional method the
-// adapter doesn't implement is Unimplemented, anything else Unknown.
+// errCodeKey carries an adapter's *Error code across the wire, so the core
+// can tell an error the adapter answered with from a call that broke.
+const errCodeKey = "Bearing-Adapter-Error-Code"
+
+// maxMessage bounds one response the core reads from an adapter, so a remote
+// adapter cannot exhaust its memory. Pages should stay well below it.
+const maxMessage = 32 << 20
+
+// toConnect gives an adapter error its gRPC code (an optional method the
+// adapter doesn't implement is Unimplemented, anything else Unknown) and
+// carries the adapter's own code in errCodeKey.
 func toConnect(err error) error {
-	var e *Error
-	if errors.As(err, &e) && e.Code == CodeNotSupported {
-		return connect.NewError(connect.CodeUnimplemented, err)
+	e := toError(err)
+	code := connect.CodeUnknown
+	if e.Code == CodeNotSupported {
+		code = connect.CodeUnimplemented
 	}
-	return connect.NewError(connect.CodeUnknown, err)
+	ce := connect.NewError(code, err)
+	ce.Meta().Set(errCodeKey, strconv.Itoa(e.Code))
+	return ce
+}
+
+// fromConnect turns an error the adapter answered with back into its *Error.
+// Anything else, such as a call that never reached the adapter, is returned
+// as it is.
+func fromConnect(err error) error {
+	var ce *connect.Error
+	if errors.As(err, &ce) {
+		if n, perr := strconv.Atoi(ce.Meta().Get(errCodeKey)); perr == nil {
+			return &Error{Code: n, Message: ce.Message()}
+		}
+	}
+	return err
+}
+
+// toError is the *Error an adapter's error travels as; an error that isn't
+// one is CodeInternal.
+func toError(err error) *Error {
+	var e *Error
+	if errors.As(err, &e) {
+		return e
+	}
+	return &Error{Code: CodeInternal, Message: err.Error()}
+}
+
+func countEmitted(ctx context.Context, method string, obs Observations) {
+	byKind := map[string]int64{}
+	for _, o := range obs {
+		byKind[o.GetData().GetEntity().GetKind()]++
+	}
+	for k, n := range byKind {
+		observationsEmitted.Add(ctx, n, metric.WithAttributes(semconv.RPCMethod(method), attrKind.String(k)))
+	}
 }
 
 func recordRPC(ctx context.Context, h metric.Float64Histogram, method string, start time.Time, err error) {
@@ -227,7 +276,7 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("adapter: telemetry: %w", err)
 	}
-	opts := []connect.ClientOption{connect.WithGRPC(), connect.WithInterceptors(otel)}
+	opts := []connect.ClientOption{connect.WithGRPC(), connect.WithInterceptors(otel), connect.WithReadMaxBytes(maxMessage)}
 	if c.Token != "" {
 		opts = append(opts, connect.WithInterceptors(bearer(c.Token)))
 	}
@@ -262,7 +311,7 @@ func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 	res, err := r.client.Describe(ctx, connect.NewRequest(&adapterv1alpha1.DescribeRequest{}))
 	recordRPC(ctx, rpcClientDuration, "describe", start, err)
 	if err != nil {
-		return DescribeResult{}, fmt.Errorf("adapter %s: describe: %w", r.name, err)
+		return DescribeResult{}, fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))
 	}
 	return describeFromProto(res.Msg), nil
 }
@@ -273,7 +322,7 @@ func (r *Remote) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
 	res, err := r.client.Sync(ctx, connect.NewRequest(&adapterv1alpha1.SyncRequest{Config: p.Config, Cursor: p.Cursor}))
 	recordRPC(ctx, rpcClientDuration, "sync", start, err)
 	if err != nil {
-		return SyncResult{}, fmt.Errorf("adapter %s: sync: %w", r.name, err)
+		return SyncResult{}, fmt.Errorf("adapter %s: sync: %w", r.name, fromConnect(err))
 	}
 	m := res.Msg
 	return SyncResult{Observations: m.GetObservations(), NextCursor: m.GetNextCursor(), Done: m.GetDone(), CompleteSync: m.GetCompleteSync()}, nil
@@ -293,7 +342,7 @@ func (r *Remote) Handle(ctx context.Context, p HandleParams) (HandleResult, erro
 		return HandleResult{}, &Error{Code: CodeNotSupported, Message: fmt.Sprintf("adapter %s does not handle webhooks", r.name)}
 	}
 	if err != nil {
-		return HandleResult{}, fmt.Errorf("adapter %s: handle: %w", r.name, err)
+		return HandleResult{}, fmt.Errorf("adapter %s: handle: %w", r.name, fromConnect(err))
 	}
 	return HandleResult{Observations: res.Msg.GetObservations()}, nil
 }
