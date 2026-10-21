@@ -46,7 +46,8 @@
         "predicates": [
           "deployed_to",
           "owned_by",
-          "defined_in"
+          "defined_in",
+          "depends_on"
         ]
       }
     ]

@@ -144,6 +144,17 @@
 //     reads, plus a Secret volume, a service account, and a label and an
 //     annotation the adapter doesn't report. [Canaries] lists every such
 //     value, payments-api's included.
+//   - billing-api (a Deployment), ledger (a Deployment) and postgres (a
+//     StatefulSet) in billing, each labelled team=billing, with a Service of
+//     the same name selecting it (app=<name>; payments-api has one too).
+//     billing-api's environment names its dependencies: LEDGER_URL is
+//     http://billing-api:<canary>@ledger:8080/v1 (a bare Service name in a
+//     URL whose credentials are a canary), DATABASE_URL is
+//     postgres://postgres.billing.svc.cluster.local:5432/ledger,
+//     PAYMENTS_API_KEY is a canary that names nothing, and
+//     PAYMENTS_API_SERVICE_HOST, a name Kubernetes injects for every
+//     Service, holds payments-api.payments, which an adapter must skip on
+//     its name.
 //   - svclb-traefik (a DaemonSet) and coredns (a Deployment) in
 //     kube-system, which the adapter does not read.
 //
@@ -151,14 +162,14 @@
 // goes from 2 replicas to 3), [ImageBumpedAt] (1.4.1 to 1.4.2, the Tuesday
 // the spec's samples use), [TeamLabelClearedAt] (billing-core's team label
 // becomes ""), [AnnotationEditedAt] (payments-api's annotation becomes
-// TODO), [WorkloadDeletedAt] (legacy-billing) and [NamespaceExcludedAt]
+// TODO), [DependencyRemovedAt] (billing-api loses LEDGER_URL), [WorkloadDeletedAt] (legacy-billing) and [NamespaceExcludedAt]
 // (billing joins the adapter's exclude_namespaces: nothing changes in the
 // cluster, so [ExcludedNamespaces] gives the setting at a time; a test
 // that tells the delete from the exclusion, 16 hours apart, syncs more
 // often than that). Mutations
 // ([Cluster.SetImage], [Cluster.SetReplicas], [Cluster.SetLabel],
-// [Cluster.SetAnnotation], [Cluster.DeleteWorkload], [Cluster.AddWorkload],
-// [Cluster.AddNamespace]) take their time from the Cluster's clock and
+// [Cluster.SetAnnotation], [Cluster.RemoveEnv], [Cluster.DeleteWorkload],
+// [Cluster.AddWorkload], [Cluster.AddService], [Cluster.AddNamespace]) take their time from the Cluster's clock and
 // stamp it in the object's metadata.managedFields. The lists as the
 // adapter reads them at [ImageBumpedAt] are recorded in
 // testdata/acme/kubernetes.ndjson at the repository root.
@@ -177,7 +188,8 @@
 // Bearer tokens only: a request with none, or with a token other than
 // [KubernetesOptions.Token], gets the API server's 401 Status. The token
 // is the adapter's read-only one ([ServiceAccountUser]): it may list
-// namespaces and Deployments, StatefulSets and DaemonSets, and every other
+// namespaces, Services (one namespace at a time) and Deployments,
+// StatefulSets and DaemonSets, and every other
 // call is a 403 Status naming what was refused, whether a Secret, a
 // ConfigMap, a Pod, a get of one workload, a watch or a write. The token
 // is checked first, so an unknown caller gets the 401 even on a refused
@@ -187,6 +199,10 @@
 // that probes them would fail here and pass there.
 //
 //   - GET /api/v1/namespaces
+//   - GET /api/v1/namespaces/{namespace}/services: a Service has a selector
+//     over the workloads' pod template labels and ports (name, number,
+//     appProtocol); an ExternalName Service has no selector. A cluster-wide
+//     list is refused.
 //   - GET /apis/apps/v1/deployments, /statefulsets and /daemonsets, and the
 //     same under /apis/apps/v1/namespaces/{namespace}/. A namespace that
 //     doesn't exist lists as empty. The all-namespaces form is served, as a

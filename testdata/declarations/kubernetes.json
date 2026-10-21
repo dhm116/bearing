@@ -14,7 +14,8 @@
         { "predicate": "replicas", "type": "VALUE_TYPE_FLOAT", "cardinality": "CARDINALITY_ONE" },
         { "predicate": "deployed_to" },
         { "predicate": "owned_by" },
-        { "predicate": "defined_in" }
+        { "predicate": "defined_in" },
+        { "predicate": "depends_on" }
       ]
     },
     {

@@ -336,6 +336,45 @@ func TestKubernetesAgreesWithTheSpecSamples(t *testing.T) {
 	})
 }
 
+// envOf returns the first container's variables of a served workload.
+func envOf(w map[string]any) map[string]string {
+	out := map[string]string{}
+	for i := 0; at(w, "spec", "template", "spec", "containers", 0, "env", i) != nil; i++ {
+		out[fmt.Sprint(at(w, "spec", "template", "spec", "containers", 0, "env", i, "name"))] = fmt.Sprint(at(w, "spec", "template", "spec", "containers", 0, "env", i, "value"))
+	}
+	return out
+}
+
+// TestKubernetesServesServicesPerNamespace: Services list one namespace at a
+// time, with a selector the workloads' pod template labels match, and a
+// cluster-wide list is refused.
+func TestKubernetesServesServicesPerNamespace(t *testing.T) {
+	kb, _, _ := newKubernetes(t, KubernetesOptions{})
+	list := kubeGet(t, kb, "/api/v1/namespaces/billing/services")
+	if list["kind"] != "ServiceList" {
+		t.Errorf("got kind %v, want ServiceList", list["kind"])
+	}
+	if got := kubeNames(t, list); !slices.Equal(got, []string{"billing/billing-api", "billing/ledger", "billing/postgres"}) {
+		t.Errorf("services: got %v", got)
+	}
+	items := kubeItems(t, list)
+	if got := at(items[1], "spec", "selector", "app"); got != "ledger" {
+		t.Errorf("ledger selector app: got %v", got)
+	}
+	if got := at(items[2], "spec", "ports", 0, "name"); got != "postgres" {
+		t.Errorf("postgres port name: got %v", got)
+	}
+	if got := kubeNames(t, kubeGet(t, kb, "/api/v1/namespaces/nowhere/services")); len(got) != 0 {
+		t.Errorf("nowhere: got %v, want none", got)
+	}
+	if status, _ := kubeDo(t, kb, http.MethodGet, "/api/v1/services", kubeToken); status != http.StatusForbidden {
+		t.Errorf("cluster-wide services: got %d, want 403", status)
+	}
+	if status, _ := kubeDo(t, kb, http.MethodGet, "/api/v1/namespaces/billing/services/ledger", kubeToken); status != http.StatusForbidden {
+		t.Errorf("get one service: got %d, want 403", status)
+	}
+}
+
 func TestKubernetesListShape(t *testing.T) {
 	kb, _, _ := newKubernetes(t, KubernetesOptions{})
 
@@ -361,7 +400,7 @@ func TestKubernetesListShape(t *testing.T) {
 		t.Errorf("nowhere: got %v, want none", got)
 	}
 	// Each kind is its own list; a DaemonSet has no replicas.
-	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/namespaces/billing/statefulsets")); !slices.Equal(got, []string{"billing/billing-core"}) {
+	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/namespaces/billing/statefulsets")); !slices.Equal(got, []string{"billing/billing-core", "billing/postgres"}) {
 		t.Errorf("statefulsets: got %v", got)
 	}
 	ds := kubeWorkload(t, kb, Ref{KindDaemonSet, "kube-system", "svclb-traefik"})
@@ -372,7 +411,7 @@ func TestKubernetesListShape(t *testing.T) {
 		t.Error("a DaemonSet is served with spec.replicas")
 	}
 	// All namespaces at once, in namespace and name order.
-	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/deployments")); !slices.Equal(got, []string{"billing/legacy-billing", "kube-system/coredns", "payments/payments-api"}) {
+	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/deployments")); !slices.Equal(got, []string{"billing/billing-api", "billing/ledger", "billing/legacy-billing", "kube-system/coredns", "payments/payments-api"}) {
 		t.Errorf("deployments: got %v", got)
 	}
 	// Only v1 of apps is served.
@@ -425,10 +464,10 @@ func TestKubernetesAuthentication(t *testing.T) {
 	})
 }
 
-// TestKubernetesForbidsAnythingButTheFourLists is the read-only token the
-// spec asks for: it may list namespaces and the three workload kinds, and
+// TestKubernetesForbidsAnythingButTheFiveLists is the read-only token the
+// spec asks for: it may list namespaces, Services and the three workload kinds, and
 // every other call is a 403 that names what was refused and is recorded.
-func TestKubernetesForbidsAnythingButTheFourLists(t *testing.T) {
+func TestKubernetesForbidsAnythingButTheFiveLists(t *testing.T) {
 	kb, _, _ := newKubernetes(t, KubernetesOptions{})
 	tests := []struct {
 		method, path string
@@ -548,8 +587,8 @@ func TestKubernetesPagesWithLimitAndContinue(t *testing.T) {
 				break
 			}
 		}
-		if len(all) != 7 || !slices.IsSorted(all) {
-			t.Errorf("got %v, want 7 deployments in order", all)
+		if len(all) != 9 || !slices.IsSorted(all) {
+			t.Errorf("got %v, want 9 deployments in order", all)
 		}
 	})
 
@@ -714,11 +753,26 @@ func TestKubernetesStoryLandsAtItsTimes(t *testing.T) {
 	if kubeWorkload(t, kb, legacy) == nil {
 		t.Fatal("legacy-billing is gone before it is deleted")
 	}
+	api := Ref{KindDeployment, "billing", "billing-api"}
+	hasLedgerURL := func() bool {
+		_, ok := envOf(kubeWorkload(t, kb, api))["LEDGER_URL"]
+		return ok
+	}
+	if !hasLedgerURL() {
+		t.Fatal("billing-api lacks LEDGER_URL before the story removes it")
+	}
+	step(DependencyRemovedAt)
+	if hasLedgerURL() || envOf(kubeWorkload(t, kb, api))["DATABASE_URL"] == "" {
+		t.Error("the step should remove LEDGER_URL and keep DATABASE_URL")
+	}
+	if got, want := modified(api), kubeTime(DependencyRemovedAt); got != want {
+		t.Errorf("billing-api modified at %s, want %s", got, want)
+	}
 	step(WorkloadDeletedAt)
 	if kubeWorkload(t, kb, legacy) != nil {
 		t.Error("legacy-billing is still served after it is deleted")
 	}
-	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/namespaces/billing/deployments")); len(got) != 0 {
+	if got := kubeNames(t, kubeGet(t, kb, "/apis/apps/v1/namespaces/billing/deployments")); !slices.Equal(got, []string{"billing/billing-api", "billing/ledger"}) {
 		t.Errorf("billing deployments after the delete: %v", got)
 	}
 
@@ -750,6 +804,7 @@ func TestKubernetesServesTheCanaries(t *testing.T) {
 	var served strings.Builder
 	for _, path := range []string{
 		"/apis/apps/v1/namespaces/payments/deployments",
+		"/apis/apps/v1/namespaces/billing/deployments",
 		"/apis/apps/v1/namespaces/billing/statefulsets",
 	} {
 		status, body := kubeDo(t, kb, http.MethodGet, path, kubeToken)
@@ -850,6 +905,7 @@ func TestKubernetesRecordedLists(t *testing.T) {
 		for _, resource := range []string{"deployments", "statefulsets", "daemonsets"} {
 			record("/apis/apps/v1/namespaces/" + ns.Name + "/" + resource)
 		}
+		record("/api/v1/namespaces/" + ns.Name + "/services")
 	}
 
 	if *update {
