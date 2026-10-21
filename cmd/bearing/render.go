@@ -41,120 +41,84 @@ func (o *out) flush(w io.Writer) error {
 // stamp renders a time in UTC, in RFC 3339 with the fraction only if any.
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
-// percent renders parts per million as a percentage: 950000 is "95%".
-func percent(ppm uint32) string {
-	s := strconv.FormatFloat(float64(ppm)/10000, 'f', 2, 64)
+// percent renders a confidence between 0 and 1 as a percentage: 0.95 is
+// "95%".
+func percent(c float64) string {
+	s := strconv.FormatFloat(c*100, 'f', 2, 64)
 	s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
 	return s + "%"
 }
 
-// span renders a valid-time interval, or "" if it is unbounded.
-func span(from, to *time.Time) string {
-	switch {
-	case from != nil && to != nil:
-		return " valid " + stamp(*from) + " until " + stamp(*to)
-	case from != nil:
-		return " valid from " + stamp(*from)
-	case to != nil:
-		return " valid until " + stamp(*to)
+// refText renders a Ref as `Payments [Team 01a0…] github:team/acme/payments`.
+func refText(r query.Ref) string {
+	var b strings.Builder
+	if r.Name != "" {
+		b.WriteString(r.Name + " ")
 	}
-	return ""
+	if r.Kind != "" {
+		fmt.Fprintf(&b, "[%s %s]", r.Kind, r.ID)
+	} else {
+		fmt.Fprintf(&b, "[%s]", r.ID)
+	}
+	if r.Key != "" {
+		b.WriteString(" " + r.Key)
+	}
+	return b.String()
 }
 
-// when says what a Point asks for.
-func when(p query.Point) string {
-	v, r := "now", "now"
-	if !p.Valid.IsZero() {
-		v = stamp(p.Valid)
+// when says what time a question was asked at.
+func when(at time.Time) string {
+	if at.IsZero() {
+		return "as of now"
 	}
-	if !p.Recorded.IsZero() {
-		r = stamp(p.Recorded)
-	}
-	return fmt.Sprintf("as of %s, as known %s", v, r)
+	return "as of " + stamp(at)
 }
 
-// supports prints the provenance of a fact.
-func (o *out) supports(indent int, sups []query.Support) {
-	for _, s := range sups {
-		adapter := ""
-		if s.Adapter != "" {
-			adapter = " adapter " + s.Adapter
-		}
-		o.line(indent, "%s: %s, observed %s, event %s%s", s.Source, percent(s.ConfidencePPM), stamp(s.ObservedAt), s.EventID, adapter)
-		valid := strings.TrimSpace(span(s.ValidFrom, s.ValidTo))
-		if valid == "" {
-			valid = "valid at all times"
-		}
-		o.line(indent+1, "%s, recorded %s", valid, stamp(s.RecordedAt))
-		if s.EvidenceURL != "" {
-			o.line(indent+1, "evidence %s", s.EvidenceURL)
-		}
-		for _, q := range s.Qualifiers {
-			b, err := json.Marshal(q)
-			if err != nil {
-				b = []byte(err.Error())
-			}
-			o.line(indent+1, "qualifier %s", b)
-		}
+// what renders a fact's object or value.
+func what(f query.Fact) string {
+	if f.Object != nil {
+		return refText(*f.Object)
 	}
+	b, err := json.Marshal(f.Value)
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
 }
 
-// fact prints a fact's status line and its supports. The subject is named
-// only if showSubject, for lists that mix subjects.
+// fact prints a fact and its sources. The subject is named only if
+// showSubject, for lists that mix subjects.
 func (o *out) fact(indent int, f query.Fact, showSubject bool) {
 	subject := ""
 	if showSubject {
-		subject = f.Subject.String() + " "
+		subject = refText(f.Subject) + " "
 	}
-	reason := ""
-	if f.StatusReason != "none" {
-		reason = " (" + f.StatusReason + ")"
+	valid := " valid from " + stamp(f.ValidFrom)
+	if f.ValidTo != nil {
+		valid += " until " + stamp(*f.ValidTo)
 	}
-	o.line(indent, "%s%s %s: %s %s%s%s", subject, f.Predicate, f.Object, f.Status, percent(f.ConfidencePPM), reason, span(f.ValidFrom, f.ValidTo))
-	o.supports(indent+1, f.Supports)
+	o.line(indent, "%s%s %s: %s %s%s", subject, f.Predicate, what(f), f.Status, percent(f.Confidence), valid)
+	o.sources(indent+1, f.Sources)
 }
 
-func (o *out) conflicts(indent int, cs []query.Conflict) {
-	for _, c := range cs {
-		resolution := ""
-		if c.Resolution != "unspecified" && c.Resolution != "" {
-			resolution = ", decided by " + c.Resolution
-		}
-		o.line(indent, "%s%s%s", c.Predicate, span(c.ValidFrom, c.ValidTo), resolution)
-		for _, p := range c.Positions {
-			var objs []string
-			for _, ob := range p.Objects {
-				objs = append(objs, ob.String())
-			}
-			authority := ""
-			if p.Authoritative {
-				authority = " (authoritative)"
-			}
-			o.line(indent+1, "%s%s: %s", p.SourceSystem, authority, strings.Join(objs, ", "))
+// sources prints the provenance of a fact.
+func (o *out) sources(indent int, srcs []query.Source) {
+	for _, s := range srcs {
+		o.line(indent, "%s: observed %s, observation %s", s.Source, stamp(s.ObservedAt), s.ObservationID)
+		if s.URL != "" {
+			o.line(indent+1, "evidence %s", s.URL)
 		}
 	}
 }
 
-// unmergeHint is printed under a subject's merges. Splitting aliases off the
-// survivor of a chain of merges mints a new subject rather than restoring the
-// one that was merged first, so an exact undo goes one merge at a time.
-const unmergeHint = "hint: to undo a merge, un-merge the aliases the merged subject had when it merged. " +
-	"If the survivor has itself been merged into another subject since, un-merging those aliases from the top subject " +
-	"creates a new subject instead; to restore the original exactly, un-merge the later merge first, then this one."
-
-func renderEntity(w io.Writer, e *query.Entity) error {
+func renderEntity(w io.Writer, e *query.Entity, at time.Time) error {
 	var o out
-	o.line(0, "%s", e.Subject)
-	o.line(0, "%s", when(e.Point))
-	o.line(0, "status %s, minted %s by event %s", e.Status, stamp(e.MintedAt), e.MintedBy)
+	o.line(0, "%s", refText(e.Ref))
+	o.line(0, "%s", when(at))
 	o.line(0, "")
 	o.line(0, "keys")
 	for _, k := range e.Keys {
-		redirect := ""
-		if k.Redirect {
-			redirect = " (old name, redirects here)"
-		}
-		o.line(1, "%s%s%s", k.Alias, redirect, span(k.ValidFrom, k.ValidTo))
+		o.line(1, "%s", k)
 	}
 	o.line(0, "")
 	o.line(0, "facts")
@@ -164,146 +128,64 @@ func renderEntity(w io.Writer, e *query.Entity) error {
 	for _, f := range e.Facts {
 		o.fact(1, f, false)
 	}
-	if len(e.Conflicts) > 0 {
-		o.line(0, "")
-		o.line(0, "conflicts")
-		o.conflicts(1, e.Conflicts)
-	}
-	if len(e.Merges) > 0 {
-		o.line(0, "")
-		o.line(0, "merges")
-		undoable := false
-		for _, m := range e.Merges {
-			ended := ""
-			if m.UnmergedAt != nil {
-				ended = ", un-merged " + stamp(*m.UnmergedAt)
-			} else if m.Rule != "placeholder" { // a placeholder merge can't be un-merged
-				undoable = true
-			}
-			o.line(1, "%s into %s by %s at %s, event %s%s", m.Merged, m.Survivor, m.Rule, percent(m.ConfidencePPM), m.EventID, ended)
-			if rv := m.Review; rv != nil {
-				scores := ""
-				if rv.SurvivorScorePPM != 0 || rv.MergedScorePPM != 0 {
-					scores = fmt.Sprintf(" (survivor side %s, merged side %s)", percent(rv.SurvivorScorePPM), percent(rv.MergedScorePPM))
-				}
-				o.line(2, "review %s%s, event %s", rv.Status, scores, rv.EventID)
-			}
-		}
-		if undoable {
-			o.line(1, "%s", unmergeHint)
-		}
-	}
-	if len(e.Unmerges) > 0 {
-		o.line(0, "")
-		o.line(0, "un-merges")
-		for _, u := range e.Unmerges {
-			how := "back to"
-			if u.Split {
-				how = "to a new subject,"
-			}
-			o.line(1, "%s left %s %s %s at %s, event %s", strings.Join(u.Aliases, ", "), u.Subject, how, u.Target, stamp(u.RecordedAt), u.EventID)
-		}
-	}
 	return o.flush(w)
 }
 
-func renderOwnership(w io.Writer, ow *query.Ownership) error {
+func renderOwnership(w io.Writer, ow *query.Ownership, at time.Time) error {
 	var o out
-	o.line(0, "owners of %s", ow.Subject)
-	o.line(0, "%s", when(ow.Point))
+	o.line(0, "owners of %s", refText(ow.Subject))
+	o.line(0, "%s", when(at))
 	o.line(0, "")
 	if len(ow.Owners) == 0 {
 		o.line(0, "no asserted owner")
 	}
 	for _, f := range ow.Owners {
-		o.line(0, "%s", f.Object)
-		o.line(1, "%s %s%s", f.Status, percent(f.ConfidencePPM), span(f.ValidFrom, f.ValidTo))
-		o.supports(1, f.Supports)
-	}
-	if len(ow.NotAsserted) > 0 {
-		o.line(0, "")
-		o.line(0, "not asserted, so not owners")
-		for _, f := range ow.NotAsserted {
-			o.fact(1, f, false)
-		}
-	}
-	if len(ow.Conflicts) > 0 {
-		o.line(0, "")
-		o.line(0, "conflicts")
-		o.conflicts(1, ow.Conflicts)
+		o.fact(0, f, false)
 	}
 	return o.flush(w)
 }
 
-func renderRelations(w io.Writer, r *query.Relations) error {
+func renderRelations(w io.Writer, r *query.Relations, at time.Time) error {
 	var o out
-	o.line(0, "relations of %s", r.Subject)
-	o.line(0, "%s", when(r.Point))
+	o.line(0, "relations of %s, direction %s", refText(r.Subject), r.Direction)
+	o.line(0, "%s", when(at))
 	o.line(0, "")
-	o.line(0, "from this subject")
-	if len(r.Out) == 0 {
-		o.line(1, "none")
+	if len(r.Steps) == 0 {
+		o.line(0, "none")
 	}
-	for _, f := range r.Out {
-		o.fact(1, f, false)
-	}
-	o.line(0, "")
-	o.line(0, "to this subject")
-	if len(r.In) == 0 {
-		o.line(1, "none")
-	}
-	for _, f := range r.In {
-		o.fact(1, f, true)
+	for _, s := range r.Steps {
+		o.line(0, "depth %d", s.Depth)
+		o.fact(1, s.Fact, true)
 	}
 	return o.flush(w)
 }
 
-func renderChanges(w io.Writer, c *query.Changes, continued bool) error {
+func renderChanges(w io.Writer, c *query.Changes, ref string) error {
 	var o out
 	scope := ""
-	if c.Subject != nil {
-		scope = " of " + c.Subject.String()
+	if ref != "" {
+		scope = " of " + ref
 	}
-	o.line(0, "changes%s from %s to %s, %s axis", scope, stamp(c.Since), stamp(c.Until), c.Axis)
+	o.line(0, "changes%s from %s to %s", scope, stamp(c.Since), stamp(c.Until))
 	if len(c.Changes) == 0 {
 		o.line(0, "")
-		o.line(0, "%s", nothingChanged(c, continued))
+		o.line(0, "nothing changed")
 	}
 	for _, ch := range c.Changes {
 		o.line(0, "")
-		o.line(0, "%s %s %s", ch.Subject, ch.Predicate, ch.Object)
-		o.line(1, "%s %s to %s %s, changed %s", ch.From.Status, percent(ch.From.ConfidencePPM), ch.To.Status, percent(ch.To.ConfidencePPM), stamp(ch.ChangedAt))
-		if len(ch.Before) > 0 {
-			o.line(1, "before")
-			o.supports(2, ch.Before)
-		}
-		if len(ch.After) > 0 {
-			o.line(1, "after")
-			o.supports(2, ch.After)
-		}
-	}
-	if c.NextPageToken != "" {
-		o.line(0, "")
-		o.line(0, "%d changes shown, newest first. For the next page, run bearing changes --page-token %s with the same --store or --server", len(c.Changes), c.NextPageToken)
+		o.line(0, "%s %s", stamp(ch.At), ch.Kind)
+		o.fact(1, ch.Fact, true)
 	}
 	return o.flush(w)
 }
 
-// nothingChanged says that a window held no changes and when the newest
-// change before it was, if there was one. A page reached by a token that
-// comes back empty says only that the changes ran out.
-func nothingChanged(c *query.Changes, continued bool) string {
-	if continued {
-		// The question was answered on an earlier page; the rest of it ran out.
-		return "no further changes in this window"
+func renderMatches(w io.Writer, ms []query.Match) error {
+	var o out
+	if len(ms) == 0 {
+		o.line(0, "no match")
 	}
-	within := "from " + stamp(c.Since) + " to " + stamp(c.Until)
-	then := " before then"
-	if c.DefaultWindow {
-		within, then = fmt.Sprintf("within the last %d hours", int(c.Until.Sub(c.Since).Hours())), ""
+	for _, m := range ms {
+		o.line(0, "%s %s", percent(m.Score), refText(m.Ref))
 	}
-	if c.MostRecentChange == nil {
-		return "nothing changed " + within + "; no change has been recorded" + then
-	}
-	return "nothing changed " + within + "; the most recent change" + then + " occurred on " + stamp(*c.MostRecentChange)
+	return o.flush(w)
 }

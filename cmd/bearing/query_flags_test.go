@@ -10,10 +10,7 @@ import (
 	"testing"
 	"time"
 
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/internal/fakes"
-	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/model"
+	"bearing.example/pkg/graph"
 )
 
 func TestParseTime(t *testing.T) {
@@ -62,13 +59,13 @@ func TestRepoRef(t *testing.T) {
 
 func TestPercent(t *testing.T) {
 	tests := []struct {
-		ppm  uint32
+		c    float64
 		want string
-	}{{0, "0%"}, {1000000, "100%"}, {950000, "95%"}, {933333, "93.33%"}, {700000, "70%"}, {1, "0%"}}
+	}{{0, "0%"}, {1, "100%"}, {0.95, "95%"}, {0.933333, "93.33%"}, {0.7, "70%"}, {0.000001, "0%"}}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := percent(tt.ppm); got != tt.want {
-				t.Errorf("percent(%d) = %q, want %q", tt.ppm, got, tt.want)
+			if got := percent(tt.c); got != tt.want {
+				t.Errorf("percent(%v) = %q, want %q", tt.c, got, tt.want)
 			}
 		})
 	}
@@ -98,7 +95,7 @@ func TestSpanNameNeverHoldsArguments(t *testing.T) {
 // emptyEnv has a store but no environment variables.
 func emptyEnv(w *world) queryEnv {
 	return queryEnv{
-		Open: func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+		Open: func(context.Context, string) (graph.Store, func(context.Context) error, error) {
 			return w.store, func(context.Context) error { return nil }, nil
 		},
 		Getenv: func(string) string { return "" },
@@ -108,34 +105,31 @@ func emptyEnv(w *world) queryEnv {
 
 func TestQueryCommandsRejectBadInput(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	tests := []struct {
 		name    string
 		args    []string
 		usage   bool
 		wantErr string
 	}{
-		{"get without a subject", []string{"get"}, true, "a subject"},
-		{"get with two subjects", []string{"get", "a:b/c", "d:e/f"}, true, "a subject"},
+		{"get without a ref", []string{"get"}, true, "a ref"},
+		{"get with two refs", []string{"get", "a:b/c", "d:e/f"}, true, "a ref"},
 		{"owner without a repository", []string{"owner"}, true, "a repository"},
-		{"changes with a token and a subject", []string{"changes", "--page-token", "abc", "github:repo/acme/x"}, true, "page-token"},
-		{"changes with a token and a start", []string{"changes", "--page-token", "abc", "--since", "72h"}, true, "page-token"},
-		{"changes with a token and an end", []string{"changes", "--page-token", "abc", "--as-of", "2026-09-29"}, true, "page-token"},
-		{"changes with a token and an axis", []string{"changes", "--page-token", "abc", "--axis", "record"}, true, "page-token"},
+		{"find without a name", []string{"find"}, true, "a name"},
 		{"changes with a limit out of range", []string{"changes", "--limit", "5000"}, true, "limit"},
 		{"changes with a limit below one", []string{"changes", "--limit", "0"}, true, "limit"},
+		{"find with a limit out of range", []string{"find", "x", "--limit", "101"}, true, "limit"},
 		{"a limit on get", []string{"get", "github:user/jdoe", "--limit", "5"}, true, "limit"},
-		{"a bad page token", []string{"changes", "--page-token", "abc"}, true, "page token"},
-		{"changes with two subjects", []string{"changes", "--since", "72h", "a:b/c", "d:e/f"}, true, "at most one"},
+		{"related too deep", []string{"related", "github:user/jdoe", "--depth", "11"}, true, "depth"},
+		{"related with no depth", []string{"related", "github:user/jdoe", "--depth", "0"}, true, "depth"},
+		{"related sideways", []string{"related", "github:user/jdoe", "--direction", "up"}, true, "direction"},
+		{"a retired flag", []string{"get", "github:user/jdoe", "--recorded-at", "2026-09-29"}, true, "recorded-at"},
+		{"a page token", []string{"changes", "--page-token", "abc"}, true, "page-token"},
+		{"changes with two refs", []string{"changes", "--since", "72h", "a:b/c", "d:e/f"}, true, "at most one"},
 		{"unknown flag", []string{"get", "a:b/c", "--nope"}, true, "nope"},
 		{"bad as-of", []string{"get", "github:user/jdoe", "--as-of", "soon"}, false, "--as-of"},
-		{"bad recorded-at", []string{"get", "github:user/jdoe", "--recorded-at", "soon"}, false, "--recorded-at"},
 		{"bad since", []string{"changes", "--since", "soon"}, false, "--since"},
-		{"unknown axis", []string{"changes", "--since", "72h", "--axis", "sideways"}, false, "axis"},
-		{"since after the end", []string{"changes", "--since", "2026-09-30", "--as-of", "2026-09-29"}, false, "starts after"},
-		{"changes takes no recorded-at", []string{"changes", "--since", "72h", "--recorded-at", "2026-09-29"}, true, "recorded-at"},
-		{"unknown subject", []string{"get", "github:repo/acme/nope"}, false, "no subject"},
+		{"since after the end", []string{"changes", "--since", "2026-09-30", "--as-of", "2026-09-29"}, false, "starts at or after"},
+		{"unknown ref", []string{"get", "github:repo/acme/nope"}, false, "not found"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,7 +146,6 @@ func TestQueryCommandsRejectBadInput(t *testing.T) {
 
 func TestStoreComesFromTheEnvironment(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
 	env := emptyEnv(w)
 	var out bytes.Buffer
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err == nil || !strings.Contains(err.Error(), storeEnv) {
@@ -160,28 +153,24 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	}
 	var opened string
 	open := env.Open
-	var passwordEnv string
-	env.Open = func(ctx context.Context, url string, getenv func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
-		opened, passwordEnv = url, getenv(storeEnv)
-		return open(ctx, url, getenv)
+	env.Open = func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error) {
+		opened = url
+		return open(ctx, url)
 	}
 	env.Getenv = func(k string) string {
 		if k == storeEnv {
-			return "postgres://bearing@db.example.com/bearing"
+			return "duckdb:///var/lib/bearing/bearing.duckdb"
 		}
 		return ""
 	}
-	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err != nil || opened != "postgres://bearing@db.example.com/bearing" {
+	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err != nil || opened != "duckdb:///var/lib/bearing/bearing.duckdb" {
 		t.Fatalf("got %v, opened %q, want the store from the environment", err, opened)
-	}
-	if passwordEnv != opened {
-		t.Fatalf("the store was opened with getenv(%s) = %q, want the injected environment", storeEnv, passwordEnv)
 	}
 	opened = ""
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "mem://"}, &out); err != nil || opened != "mem://" {
 		t.Fatalf("got %v, opened %q, want the flag to win", err, opened)
 	}
-	env.Open = func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+	env.Open = func(context.Context, string) (graph.Store, func(context.Context) error, error) {
 		return nil, nil, errors.New("down")
 	}
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err == nil || !strings.Contains(err.Error(), "down") {
@@ -191,8 +180,6 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 
 func TestFlagsMayComeBeforeOrAfterTheSubject(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	after, err := w.cli("get", "github:user/jdoe", "--as-of", "2026-09-29")
 	if err != nil {
 		t.Fatal(err)
@@ -207,16 +194,16 @@ func TestFlagsMayComeBeforeOrAfterTheSubject(t *testing.T) {
 }
 
 // failingStore fails the way a broken backend would.
-type failingStore struct{ contracts.GraphStore }
+type failingStore struct{ graph.Store }
 
-func (failingStore) ResolveKey(context.Context, model.Key, time.Time, time.Time) (*modelv1alpha1.Subject, error) {
-	return nil, errors.New("backend down")
+func (failingStore) Entity(context.Context, string) (graph.Entity, error) {
+	return graph.Entity{}, errors.New("backend down")
 }
 
 func TestStoreErrorsReachTheCaller(t *testing.T) {
 	w := newWorld(t)
 	env := emptyEnv(w)
-	env.Open = func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+	env.Open = func(context.Context, string) (graph.Store, func(context.Context) error, error) {
 		return failingStore{w.store}, func(context.Context) error { return errors.New("close failed") }, nil
 	}
 	err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "x"}, &bytes.Buffer{})

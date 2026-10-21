@@ -109,38 +109,41 @@ func TestQuestionsGoOutAsTheAPIExpectsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid := time.Date(2026, 10, 1, 12, 0, 0, 5, time.UTC)
-	recorded := time.Date(2026, 10, 2, 0, 0, 0, 0, time.FixedZone("x", 3600))
-	p := query.Point{Valid: valid, Recorded: recorded}
+	at := time.Date(2026, 10, 1, 12, 0, 0, 5, time.UTC)
+	until := time.Date(2026, 10, 2, 0, 0, 0, 0, time.FixedZone("x", 3600))
 	for name, tt := range map[string]struct {
 		call   func() error
 		path   string
 		params map[string]string
 	}{
 		"get": {
-			func() error { _, err := c.Get(t.Context(), "github:repo/acme/a b", p); return err }, "/v1/get",
-			map[string]string{"ref": "github:repo/acme/a b", "valid_at": "2026-10-01T12:00:00.000000005Z", "recorded_at": "2026-10-01T23:00:00Z"},
+			func() error { _, err := c.Get(t.Context(), "github:repo/acme/a b", at); return err }, "/v1/get",
+			map[string]string{"ref": "github:repo/acme/a b", "at": "2026-10-01T12:00:00.000000005Z"},
 		},
-		"get now": {func() error { _, err := c.Get(t.Context(), "x", query.Point{}); return err }, "/v1/get", map[string]string{"ref": "x"}},
+		"get now": {func() error { _, err := c.Get(t.Context(), "x", time.Time{}); return err }, "/v1/get", map[string]string{"ref": "x"}},
 		"owner": {
-			func() error { _, err := c.Owners(t.Context(), "github:repo/acme/a", p); return err }, "/v1/owner",
-			map[string]string{"ref": "github:repo/acme/a", "valid_at": "2026-10-01T12:00:00.000000005Z", "recorded_at": "2026-10-01T23:00:00Z"},
+			func() error { _, err := c.Owners(t.Context(), "github:repo/acme/a", at); return err }, "/v1/owner",
+			map[string]string{"ref": "github:repo/acme/a", "at": "2026-10-01T12:00:00.000000005Z"},
 		},
 		"related": {
-			func() error { _, err := c.Related(t.Context(), "x", "member_of", query.Point{}); return err }, "/v1/related",
-			map[string]string{"ref": "x", "predicate": "member_of"},
+			func() error { _, err := c.Related(t.Context(), "x", "member_of", "in", 3, time.Time{}); return err }, "/v1/related",
+			map[string]string{"ref": "x", "predicate": "member_of", "direction": "in", "depth": "3"},
 		},
-		"related without a predicate": {
-			func() error { _, err := c.Related(t.Context(), "x", "", query.Point{}); return err }, "/v1/related",
+		"related with defaults": {
+			func() error { _, err := c.Related(t.Context(), "x", "", "", 0, time.Time{}); return err }, "/v1/related",
 			map[string]string{"ref": "x"},
 		},
 		"changes": {func() error {
-			_, err := c.Changes(t.Context(), query.ChangesRequest{Ref: "x", Since: valid, Until: recorded, Axis: query.AxisRecord, Limit: 7})
+			_, err := c.Changes(t.Context(), "x", at, until, 7)
 			return err
-		}, "/v1/changes", map[string]string{"ref": "x", "since": "2026-10-01T12:00:00.000000005Z", "until": "2026-10-01T23:00:00Z", "axis": "record", "limit": "7"}},
-		"changes by token": {
-			func() error { _, err := c.Changes(t.Context(), query.ChangesRequest{PageToken: "abc="}); return err }, "/v1/changes",
-			map[string]string{"page_token": "abc="},
+		}, "/v1/changes", map[string]string{"ref": "x", "since": "2026-10-01T12:00:00.000000005Z", "until": "2026-10-01T23:00:00Z", "limit": "7"}},
+		"changes of everything": {
+			func() error { _, err := c.Changes(t.Context(), "", time.Time{}, time.Time{}, 0); return err }, "/v1/changes",
+			map[string]string{},
+		},
+		"find": {
+			func() error { _, err := c.Find(t.Context(), "pay ments", "Repository", 5); return err }, "/v1/find",
+			map[string]string{"q": "pay ments", "kind": "Repository", "limit": "5"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -182,9 +185,11 @@ func TestAnswersDecodeIntoTheQueryTypes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/changes":
-			jsonAnswer(&query.Changes{NextPageToken: "next", Changes: []query.Change{{}}})(w, r)
+			jsonAnswer(&query.Changes{Changes: []query.Change{{Kind: "opened", At: changed}}})(w, r)
 		case "/v1/get":
-			jsonAnswer(&query.Entity{Subject: query.Ref{ID: "s-1", Kind: "Repository"}, MintedAt: changed})(w, r)
+			jsonAnswer(&query.Entity{Ref: query.Ref{ID: "s-1", Kind: "Repository"}, Keys: []string{"k"}})(w, r)
+		case "/v1/find":
+			jsonAnswer(map[string]any{"matches": []query.Match{{Ref: query.Ref{ID: "s-2"}, Score: 0.9}}})(w, r)
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"new_field_a_later_version_adds":1}`))
@@ -195,15 +200,18 @@ func TestAnswersDecodeIntoTheQueryTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := c.Changes(t.Context(), query.ChangesRequest{})
-	if err != nil || ch.NextPageToken != "next" || len(ch.Changes) != 1 {
-		t.Fatalf("got %+v, %v, want one change and the next token", ch, err)
+	ch, err := c.Changes(t.Context(), "", time.Time{}, time.Time{}, 0)
+	if err != nil || len(ch.Changes) != 1 || !ch.Changes[0].At.Equal(changed) {
+		t.Fatalf("got %+v, %v, want one change", ch, err)
 	}
-	if e, err := c.Get(t.Context(), "x", query.Point{}); err != nil || e.Subject.ID != "s-1" || !e.MintedAt.Equal(changed) {
+	if e, err := c.Get(t.Context(), "x", time.Time{}); err != nil || e.ID != "s-1" || len(e.Keys) != 1 {
 		t.Fatalf("got %+v, %v, want the entity", e, err)
 	}
+	if ms, err := c.Find(t.Context(), "x", "", 0); err != nil || len(ms) != 1 || ms[0].ID != "s-2" || ms[0].Score != 0.9 {
+		t.Fatalf("got %+v, %v, want one match", ms, err)
+	}
 	// Fields a later version adds are not an error.
-	if _, err := c.Owners(t.Context(), "x", query.Point{}); err != nil {
+	if _, err := c.Owners(t.Context(), "x", time.Time{}); err != nil {
 		t.Fatalf("got %v, want an answer with an unknown field accepted", err)
 	}
 }
@@ -219,7 +227,7 @@ func TestTheTokenGoesOnlyWhereItIsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Get(t.Context(), "x", query.Point{}); err != nil {
+	if _, err := c.Get(t.Context(), "x", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if h := rec.last(t).Header.Get("Authorization"); h != "" {
@@ -236,7 +244,7 @@ func TestTheTokenGoesOnlyWhereItIsSafe(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := len(rec.reqs)
-		if _, err := c.Get(t.Context(), "x", query.Point{}); err == nil {
+		if _, err := c.Get(t.Context(), "x", time.Time{}); err == nil {
 			t.Errorf("%s: got no error, want the request stopped", name)
 		}
 		if len(rec.reqs) != before {
@@ -266,7 +274,7 @@ func TestTheSocketNeverGetsAToken(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := c.Get(t.Context(), "x", query.Point{}); err != nil {
+		if _, err := c.Get(t.Context(), "x", time.Time{}); err != nil {
 			t.Fatal(err)
 		}
 		if h := rec.last(t).Header.Get("Authorization"); h != "" {
@@ -287,7 +295,6 @@ func TestErrorsKeepTheirCodeAndMeanWhatQueryErrorsMean(t *testing.T) {
 	}{
 		"not found": {404, `{"code":"not_found","message":"nothing matches","request_id":"r1"}`, nil, "not_found", query.ErrNotFound, "request r1"},
 		"invalid":   {400, `{"code":"invalid_request","message":"parameter ref is required","request_id":"r2"}`, nil, "invalid_request", query.ErrInvalidRequest, "parameter ref is required"},
-		"bad token": {400, `{"code":"invalid_page_token","message":"start again","request_id":"r3"}`, nil, "invalid_page_token", query.ErrBadPageToken, "start again"},
 		"rate limited": {
 			429, `{"code":"rate_limited","message":"slow down","request_id":"r4"}`,
 			map[string]string{"Retry-After": "7"},
@@ -313,7 +320,7 @@ func TestErrorsKeepTheirCodeAndMeanWhatQueryErrorsMean(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = c.Get(t.Context(), "x", query.Point{})
+			_, err = c.Get(t.Context(), "x", time.Time{})
 			var apiErr *Error
 			if !errors.As(err, &apiErr) || apiErr.Status != tt.status || apiErr.Code != tt.code {
 				t.Fatalf("got %v, want an *Error with status %d and code %q", err, tt.status, tt.code)
@@ -321,7 +328,7 @@ func TestErrorsKeepTheirCodeAndMeanWhatQueryErrorsMean(t *testing.T) {
 			if tt.is != nil && !errors.Is(err, tt.is) {
 				t.Fatalf("got %v, want it to match %v", err, tt.is)
 			}
-			if tt.is == nil && (errors.Is(err, query.ErrNotFound) || errors.Is(err, query.ErrInvalidRequest) || errors.Is(err, query.ErrBadPageToken)) {
+			if tt.is == nil && (errors.Is(err, query.ErrNotFound) || errors.Is(err, query.ErrInvalidRequest)) {
 				t.Fatalf("got %v, want no match with the query errors", err)
 			}
 			if !strings.Contains(err.Error(), tt.text) {
@@ -347,7 +354,7 @@ func TestARedirectIsNotFollowedAndTheTokenIsNotForwarded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.Get(t.Context(), "x", query.Point{})
+	_, err = c.Get(t.Context(), "x", time.Time{})
 	var apiErr *Error
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusFound {
 		t.Fatalf("got %v, want the redirect reported as an error", err)
@@ -377,10 +384,10 @@ func TestAnswersAreBoundedAndMustBeJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Get(t.Context(), "big", query.Point{}); err == nil || !strings.Contains(err.Error(), "over") {
+	if _, err := c.Get(t.Context(), "big", time.Time{}); err == nil || !strings.Contains(err.Error(), "over") {
 		t.Fatalf("got %v, want an answer over the bound refused", err)
 	}
-	if _, err := c.Get(t.Context(), "x", query.Point{}); err == nil || !strings.Contains(err.Error(), "not what the API sends") {
+	if _, err := c.Get(t.Context(), "x", time.Time{}); err == nil || !strings.Contains(err.Error(), "not what the API sends") {
 		t.Fatalf("got %v, want an answer that is not JSON refused", err)
 	}
 }
@@ -421,7 +428,7 @@ func TestACanceledContextStopsTheRequest(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	_, err = c.Get(ctx, "x", query.Point{})
+	_, err = c.Get(ctx, "x", time.Time{})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v, want the deadline", err)
 	}
@@ -473,25 +480,18 @@ func TestANotFoundNamesWhatWasAskedAboutAndKeepsItsMeaning(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	rec := time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)
-	p := query.Point{Valid: at, Recorded: rec}
 	for name, tt := range map[string]struct {
 		call func() error
 		want string
 	}{
-		"get":     {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", p); return err }, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known 2026-10-02T08:00:00Z: "},
-		"get now": {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", query.Point{}); return err }, "no subject matches github:repo/acme/gone at now, as known now: "},
-		"owner":   {func() error { _, err := c.Owners(t.Context(), "github:repo/acme/gone", p); return err }, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, "},
-		"related": {func() error { _, err := c.Related(t.Context(), "01a0", "", p); return err }, "no subject matches 01a0 at "},
-		"changes (valid)": {func() error {
-			_, err := c.Changes(t.Context(), query.ChangesRequest{Ref: "github:repo/acme/gone", Until: at})
+		"get":     {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", at); return err }, "nothing matches github:repo/acme/gone: "},
+		"owner":   {func() error { _, err := c.Owners(t.Context(), "github:repo/acme/gone", at); return err }, "nothing matches github:repo/acme/gone: "},
+		"related": {func() error { _, err := c.Related(t.Context(), "01a0", "", "", 0, at); return err }, "nothing matches 01a0: "},
+		"changes": {func() error {
+			_, err := c.Changes(t.Context(), "github:repo/acme/gone", time.Time{}, at, 0)
 			return err
-		}, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known now: "},
-		"changes (record)": {func() error {
-			_, err := c.Changes(t.Context(), query.ChangesRequest{Ref: "github:repo/acme/gone", Until: at, Axis: query.AxisRecord})
-			return err
-		}, "no subject matches github:repo/acme/gone at 2026-10-01T12:00:00Z, as known 2026-10-01T12:00:00Z: "},
-		"a ref with control characters": {func() error { _, err := c.Get(t.Context(), "x\x1b[2J\u009b\u202ey", p); return err }, "no subject matches x[2Jy at "},
+		}, "nothing matches github:repo/acme/gone: "},
+		"a ref with control characters": {func() error { _, err := c.Get(t.Context(), "x\x1b[2J\u009b\u202ey", at); return err }, "nothing matches x[2Jy: "},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -509,13 +509,13 @@ func TestANotFoundNamesWhatWasAskedAboutAndKeepsItsMeaning(t *testing.T) {
 		})
 	}
 
-	// A page token carries its own question, so there is no ref to name.
-	_, err = c.Changes(t.Context(), query.ChangesRequest{PageToken: "abc"})
-	if !errors.Is(err, query.ErrNotFound) || strings.Contains(err.Error(), "no subject matches") {
+	// A question about no ref names none.
+	_, err = c.Changes(t.Context(), "", time.Time{}, time.Time{}, 0)
+	if !errors.Is(err, query.ErrNotFound) || strings.HasPrefix(err.Error(), "nothing matches") {
 		t.Fatalf("got %v, want the server's own text for a question with no ref", err)
 	}
 	// A long ref is clipped, not repeated whole.
-	_, err = c.Get(t.Context(), strings.Repeat("a", 5000), p)
+	_, err = c.Get(t.Context(), strings.Repeat("a", 5000), at)
 	if err == nil || len(err.Error()) > 600 {
 		t.Fatalf("got %d bytes, want the ref clipped", len(err.Error()))
 	}
@@ -537,7 +537,7 @@ func TestOtherErrorsAreNotRewrittenAndAnUnknownSourceIsNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.Get(t.Context(), "x", query.Point{})
+	_, err = c.Get(t.Context(), "x", time.Time{})
 	if want := "server: the caller may not do this (forbidden, request r2)"; err == nil || err.Error() != want {
 		t.Fatalf("got %v, want %q unchanged", err, want)
 	}
@@ -550,7 +550,7 @@ func TestOtherErrorsAreNotRewrittenAndAnUnknownSourceIsNamed(t *testing.T) {
 
 func TestKeepBodyHandsBackTheAnswerAsTheServerSentIt(t *testing.T) {
 	t.Parallel()
-	const body = `{"subject":{"subject_id":"s-1"},"a_later_field":{"x":[1,2]},"facts":[]}` + "\n"
+	const body = `{"id":"s-1","a_later_field":{"x":[1,2]},"facts":[]}` + "\n"
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
@@ -562,8 +562,8 @@ func TestKeepBodyHandsBackTheAnswerAsTheServerSentIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	var kept []byte
-	e, err := c.Get(KeepBody(t.Context(), &kept), "x", query.Point{})
-	if err != nil || e.Subject.ID != "s-1" {
+	e, err := c.Get(KeepBody(t.Context(), &kept), "x", time.Time{})
+	if err != nil || e.ID != "s-1" {
 		t.Fatalf("got %+v, %v, want the typed answer as well", e, err)
 	}
 	if string(kept) != body {
@@ -571,11 +571,11 @@ func TestKeepBodyHandsBackTheAnswerAsTheServerSentIt(t *testing.T) {
 	}
 	// Without the option nothing is kept, and a refusal keeps nothing.
 	var untouched []byte
-	if _, err := c.Get(t.Context(), "x", query.Point{}); err != nil || untouched != nil {
+	if _, err := c.Get(t.Context(), "x", time.Time{}); err != nil || untouched != nil {
 		t.Fatalf("got %q, %v, want nothing kept", untouched, err)
 	}
 	status = http.StatusBadGateway
-	if _, err := c.Get(KeepBody(t.Context(), &untouched), "x", query.Point{}); err == nil || untouched != nil {
+	if _, err := c.Get(KeepBody(t.Context(), &untouched), "x", time.Time{}); err == nil || untouched != nil {
 		t.Fatalf("got %q, %v, want an error and nothing kept", untouched, err)
 	}
 }

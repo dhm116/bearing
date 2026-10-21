@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,22 +17,12 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
-	"bearing.example/pkg/resolver"
 )
-
-const apiDeclaration = `{
-  "name": "catalog", "issuer_type": "catalog",
-  "kinds": [
-    { "kind": "Repository", "keys": [ { "key_type": "repo", "class": "KEY_CLASS_ID" } ],
-      "fields": [ { "predicate": "name" }, { "predicate": "owned_by", "authority": { "authoritative": true } } ] },
-    { "kind": "Team", "keys": [ { "key_type": "team", "class": "KEY_CLASS_ID" } ], "fields": [ { "predicate": "name" } ] }
-  ]
-}`
 
 // fakeAuthn maps the bearer token a request carries to a caller, so tests can
 // tell callers apart: no token or an unknown one is not authenticated.
@@ -53,36 +42,35 @@ func (f fakeAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
 	return c, nil
 }
 
-// apiGraph wraps the store a Querier reads, to hold or fail a changes page.
+// apiGraph wraps the store a Querier reads, to hold or fail a changes read.
 type apiGraph struct {
-	contracts.GraphStore
+	graph.Store
 	mu    sync.Mutex
 	enter chan struct{}
 	hold  chan struct{}
 	err   error
 }
 
-func (g *apiGraph) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (contracts.ChangesPage, error) {
+func (g *apiGraph) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
 	g.mu.Lock()
 	enter, hold, err := g.enter, g.hold, g.err
 	g.mu.Unlock()
 	if err != nil {
-		return contracts.ChangesPage{}, err
+		return nil, err
 	}
 	if enter != nil {
 		enter <- struct{}{}
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return contracts.ChangesPage{}, ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
-	return g.GraphStore.ChangesPage(ctx, r)
+	return g.Store.Changes(ctx, r)
 }
 
 type apiWorld struct {
 	*harness
-	mem   *memstore.Store
 	clk   *testkit.FakeClock
 	api   *API
 	h     http.Handler
@@ -97,13 +85,12 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	t.Helper()
 	clk := testkit.NewClock(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 	h := newHarness(t, func(c *Config) { c.Clock = clk })
-	mem := memstore.New()
-	mem.Now, mem.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
-	w := &apiWorld{harness: h, mem: mem, clk: clk}
+	h.now = clk.Now
+	w := &apiWorld{harness: h, clk: clk}
 	w.seed(t)
 
 	var err error
-	w.graph = &apiGraph{GraphStore: mem}
+	w.graph = &apiGraph{Store: h.mem}
 	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}}
 	for _, m := range mod {
 		m(&cfg)
@@ -121,28 +108,22 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	return w
 }
 
-// seed puts three repositories through the resolver, an hour apart.
+// seed ingests three repositories, an hour apart; payments is owned by the
+// payments team.
 func (w *apiWorld) seed(t *testing.T) {
 	t.Helper()
-	d := &modelv1alpha1.AdapterDeclaration{}
-	if err := model.DecodeJSON([]byte(apiDeclaration), d); err != nil {
-		t.Fatal(err)
-	}
-	r, err := resolver.New(resolver.Config{
-		Declarations: []*modelv1alpha1.AdapterDeclaration{d},
-		Sources:      map[string]*resolver.Source{"catalog-acme": {Name: "catalog-acme", Adapter: "catalog"}},
-	}, w.mem)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range []string{"payments", "billing", "search"} {
 		w.n++
 		e := &modelv1alpha1.Entity{
 			Kind: "Repository", Key: "catalog:repo/" + name,
 			Attributes: map[string]*structpb.Value{"name": structpb.NewStringValue(name)},
 		}
-		o := model.NewObservation("adapter/catalog-acme", w.clk.Now(), &modelv1alpha1.ObservationData{Entity: e})
-		if _, err := r.Apply(t.Context(), resolver.Event{ID: "catalog-acme/" + strconv.Itoa(w.n), Source: "catalog-acme", Observation: o}); err != nil {
+		d := &modelv1alpha1.ObservationData{Entity: e}
+		if name == "payments" {
+			d.Relations = []*modelv1alpha1.Relation{{Type: "owned_by", End: &modelv1alpha1.Relation_To{To: "catalog:team/payments"}}}
+		}
+		o := model.NewObservation("adapter/catalog-acme", w.clk.Now(), d)
+		if _, err := w.mem.Ingest(t.Context(), "catalog-acme", []*eventv1alpha1.Observation{o}); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(time.Hour)
@@ -197,6 +178,7 @@ func TestAPIRefusesMissingAndWrongTokensOnEveryRoute(t *testing.T) {
 		"GET /v1/owner":                  {http.MethodGet, "/v1/owner?ref=catalog:repo/payments", http.StatusOK},
 		"GET /v1/related":                {http.MethodGet, "/v1/related?ref=catalog:repo/payments", http.StatusOK},
 		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK},
+		"GET /v1/find":                   {http.MethodGet, "/v1/find?q=payments", http.StatusOK},
 		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted},
 	}
 	for _, rt := range routes {
@@ -298,115 +280,36 @@ func TestAPIAnswersQueries(t *testing.T) {
 
 	rec := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/payments")
 	var e query.Entity
-	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != http.StatusOK || e.Subject.Name != "payments" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != http.StatusOK || e.Name != "payments" {
 		t.Fatalf("get: got %d %q (%v), want the entity payments", rec.Code, rec.Body.String(), err)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("got content type %q and cache control %q, want JSON that is not stored", ct, rec.Header().Get("Cache-Control"))
 	}
-	if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments"); got.Code != http.StatusOK {
-		t.Errorf("owner: got %d %s", got.Code, got.Body.String())
+	var o query.Ownership
+	if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &o) != nil || len(o.Owners) != 1 || o.Owners[0].Object.Key != "catalog:team/payments" {
+		t.Errorf("owner: got %d %s, want the payments team", got.Code, got.Body.String())
 	}
-	if got := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&predicate=owned_by"); got.Code != http.StatusOK {
-		t.Errorf("related: got %d %s", got.Code, got.Body.String())
+	var r query.Relations
+	if got := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:team/payments&predicate=owned_by&direction=in&depth=2"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &r) != nil || len(r.Steps) != 1 || r.Steps[0].Fact.Subject.Name != "payments" {
+		t.Errorf("related: got %d %s, want payments owned by the team", got.Code, got.Body.String())
 	}
-	// As of a time before the repository was known there is nothing.
-	before := w.clk.Now().Add(-100 * time.Hour).UTC().Format(time.RFC3339)
-	missing := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/payments&recorded_at="+before)
-	if missing.Code != http.StatusNotFound || decodeError(t, missing).Code != "not_found" {
-		t.Errorf("get in the past: got %d %s, want 404 not_found", missing.Code, missing.Body.String())
-	}
-	if got := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/nothing"); got.Code != http.StatusNotFound {
-		t.Errorf("an unknown subject: got %d, want 404", got.Code)
-	}
-}
-
-func TestAPIPagesThroughChangesWithTokens(t *testing.T) {
-	t.Parallel()
-	w := newAPIWorld(t)
-	seen := map[string]bool{}
-	target := "/v1/changes?limit=1&since=" + w.clk.Now().Add(-48*time.Hour).UTC().Format(time.RFC3339)
-	for pages := 0; target != ""; pages++ {
-		if pages > 10 {
-			t.Fatal("more than 10 pages for 3 repositories")
-		}
-		rec := w.do("reader", http.MethodGet, target)
-		var c query.Changes
-		if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || rec.Code != http.StatusOK {
-			t.Fatalf("page %d: got %d %q", pages, rec.Code, rec.Body.String())
-		}
-		for _, ch := range c.Changes {
-			seen[ch.Subject.Name] = true
-		}
-		target = ""
-		if c.NextPageToken != "" {
-			target = "/v1/changes?limit=1&page_token=" + c.NextPageToken
-		}
-	}
-	for _, name := range []string{"payments", "billing", "search"} {
-		if !seen[name] {
-			t.Errorf("paging never reached %s: saw %v", name, seen)
-		}
-	}
-}
-
-// A page token is only input. It is not signed, so the server authenticates the
-// request that carries it as it would one without, on every page (C-API-6).
-func TestAPIAuthenticatesEveryPageAndTrustsNoToken(t *testing.T) {
-	t.Parallel()
-	w := newAPIWorld(t)
-	since := w.clk.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
-	first := w.do("reader", http.MethodGet, "/v1/changes?limit=1&since="+since)
 	var c query.Changes
-	if err := json.Unmarshal(first.Body.Bytes(), &c); err != nil || c.NextPageToken == "" {
-		t.Fatalf("got %d %q, want a first page with a token", first.Code, first.Body.String())
+	since := w.clk.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	if got := w.do("reader", http.MethodGet, "/v1/changes?limit=2&since="+since); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &c) != nil || len(c.Changes) != 1 || c.Changes[0].Kind != "opened" || c.Changes[0].Fact.Predicate != "owned_by" {
+		t.Errorf("changes: got %d %s, want the ownership opened", got.Code, got.Body.String())
 	}
-	next := "/v1/changes?limit=1&page_token="
-	token := c.NextPageToken
-
-	if got := w.do("reader", http.MethodGet, next+token); got.Code != http.StatusOK {
-		t.Fatalf("the next page: got %d %s", got.Code, got.Body.String())
+	var f findAnswer
+	if got := w.do("reader", http.MethodGet, "/v1/find?q=billing&kind=Repository"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &f) != nil || len(f.Matches) == 0 || f.Matches[0].Name != "billing" {
+		t.Errorf("find: got %d %s, want billing first", got.Code, got.Body.String())
 	}
-	// Whoever holds a page token still needs the API token, even a garbled one.
-	for _, tok := range []string{token, "%21%21not-a-token"} {
-		if got := w.do("", http.MethodGet, next+tok); got.Code != http.StatusUnauthorized {
-			t.Errorf("no credentials with token %q: got %d, want 401", tok, got.Code)
-		}
-	}
-
-	// A tampered token is refused or asks only what the caller could ask.
-	raw, _ := base64.RawURLEncoding.DecodeString(token)
-	for name, bad := range map[string]struct{ token, code string }{
-		"flipped bytes":  {base64.RawURLEncoding.EncodeToString([]byte(strings.Replace(string(raw), `"v":1`, `"v":2`, 1))), "invalid_page_token"},
-		"a longer token": {token + strings.Repeat("A", 600), "invalid_request"},
-		"not base64":     {"%25%25%25", "invalid_page_token"},
-		"truncated":      {token[:len(token)/2], "invalid_page_token"},
-		"a bad escape":   {"%%%", "invalid_request"},
-	} {
-		if got := w.do("reader", http.MethodGet, next+bad.token); got.Code != http.StatusBadRequest || decodeError(t, got).Code != bad.code {
-			t.Errorf("%s: got %d %s, want 400 %s", name, got.Code, got.Body.String(), bad.code)
-		}
-	}
-	// A token carries its question, so it cannot be mixed with another.
-	for _, extra := range []string{"&ref=catalog:repo/payments", "&since=" + since, "&axis=record"} {
-		if got := w.do("reader", http.MethodGet, next+token+extra); got.Code != http.StatusBadRequest {
-			t.Errorf("a token with %s: got %d, want 400", extra, got.Code)
-		}
-	}
-	// A token forged to name another subject asks what a reader may ask, and
-	// no more than the subject's own changes come back.
-	var st map[string]any
-	if err := json.Unmarshal(raw, &st); err != nil {
-		t.Fatal(err)
-	}
-	st["subject"] = "catalog:repo/nothing"
-	forged, _ := json.Marshal(st)
-	got := w.do("reader", http.MethodGet, next+base64.RawURLEncoding.EncodeToString(forged))
-	if got.Code == http.StatusOK {
-		var fc query.Changes
-		if err := json.Unmarshal(got.Body.Bytes(), &fc); err != nil || len(fc.Changes) != 0 {
-			t.Errorf("a forged subject: got %q, want no changes", got.Body.String())
-		}
+	missing := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/nothing")
+	if missing.Code != http.StatusNotFound || decodeError(t, missing).Code != "not_found" {
+		t.Errorf("an unknown entity: got %d %s, want 404 not_found", missing.Code, missing.Body.String())
 	}
 }
 
@@ -421,14 +324,19 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 		"a long subject":         "/v1/get?ref=" + long,
 		"a control character":    "/v1/get?ref=a%00b",
 		"bad utf-8":              "/v1/get?ref=%ff%fe",
-		"a bad time":             "/v1/get?ref=x&valid_at=yesterday",
+		"a bad time":             "/v1/get?ref=x&at=yesterday",
+		"a retired parameter":    "/v1/get?ref=x&recorded_at=2026-10-01T00:00:00Z",
+		"a depth of zero":        "/v1/related?ref=x&depth=0",
+		"a depth over the max":   "/v1/related?ref=x&depth=11",
+		"an unknown direction":   "/v1/related?ref=catalog:repo/payments&direction=up",
+		"a find without q":       "/v1/find?kind=Repository",
+		"a find limit too big":   "/v1/find?q=x&limit=101",
 		"a long predicate":       "/v1/related?ref=x&predicate=" + strings.Repeat("p", maxPredicateBytes+1),
 		"a limit of zero":        "/v1/changes?limit=0",
 		"a limit that is text":   "/v1/changes?limit=many",
-		"a limit over the max":   "/v1/changes?limit=" + strconv.Itoa(contracts.MaxChangesLimit+1),
-		"an unknown axis":        "/v1/changes?axis=sideways",
+		"a limit over the max":   "/v1/changes?limit=" + strconv.Itoa(query.MaxChangesLimit+1),
+		"a page token":           "/v1/changes?page_token=x",
 		"a window that is empty": "/v1/changes?since=2026-10-02T00:00:00Z&until=2026-10-01T00:00:00Z",
-		"a long page token":      "/v1/changes?page_token=" + strings.Repeat("A", maxPageTokenBytes+1),
 	} {
 		rec := w.do("reader", http.MethodGet, target)
 		if rec.Code != http.StatusBadRequest {

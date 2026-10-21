@@ -1,206 +1,132 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	"bearing.example/adapters/github"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/internal/fakes"
-	"bearing.example/internal/memstore"
+	"bearing.example/internal/duckstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
 )
 
 const (
-	githubSource    = "github-acme"
-	directorySource = "authentik-acme"
-	// codeownersSource is what the resolver names the owned_by it derives from
-	// githubSource's CODEOWNERS.
-	codeownersSource = "core/derive/codeowners/" + githubSource
-	testToken        = "test-token"
-	testSecret       = "test-secret"
+	githubSource  = "github-acme"
+	catalogSource = "catalog-acme"
 )
 
-// world is the fictional org read into an in-memory store the way the core
-// will: the GitHub adapter's syncs and webhooks and the recorded directory
-// feed go through the resolver. One fake clock drives the org, the adapter
-// and the store, so record times are the story's times.
+var (
+	// seedAt is when the world's sources first observed it, movedAt when
+	// payments-api's CODEOWNERS moved from the payments team to platform,
+	// and nowAt the clock when the commands run.
+	seedAt  = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	movedAt = seedAt.Add(2 * time.Hour)
+	nowAt   = seedAt.Add(3 * time.Hour)
+)
+
+// world is a small Acme in an in-memory store: two teams, a person and
+// repositories as GitHub observed them, and components that depend on each
+// other as a catalog did.
 type world struct {
-	t         testing.TB
-	clock     *testkit.FakeClock
-	org       *fakes.Org
-	gh        *fakes.GitHub
-	adapter   *github.Adapter
-	cfg       json.RawMessage
-	store     *memstore.Store
-	resolver  *resolver.Resolver
-	delivered int
-	syncs     int
-	next      int  // the next story step
-	directory bool // the directory feed has been applied
+	t       testing.TB
+	clock   *testkit.FakeClock
+	store   *duckstore.Store
+	adapter adapter.Adapter
+	cfg     json.RawMessage
+}
+
+// stubAdapter is a source the server knows but never syncs in these tests.
+type stubAdapter struct{}
+
+func (stubAdapter) Describe(context.Context) (adapter.DescribeResult, error) {
+	return adapter.DescribeResult{}, nil
+}
+
+func (stubAdapter) Sync(context.Context, adapter.SyncParams) (adapter.SyncResult, error) {
+	return adapter.SyncResult{Done: true}, nil
+}
+
+func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.HandleResult, error) {
+	return adapter.HandleResult{}, adapter.ErrNotSupported
 }
 
 func newWorld(t testing.TB) *world {
 	t.Helper()
-	clk := testkit.NewClock(fakes.Start)
-	org := fakes.NewOrg(clk)
-	srv := fakes.NewGitHub(t, org, fakes.GitHubOptions{Token: testToken, WebhookSecret: testSecret})
-	cfg, err := json.Marshal(map[string]any{"org": "acme", "api_url": srv.URL})
+	clk := testkit.NewClock(nowAt)
+	s, err := duckstore.Open(context.Background(), duckstore.Config{Now: clk.Now, NewID: testkit.NewSeqIDs("e").NewID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"GITHUB_TOKEN": testToken, "GITHUB_WEBHOOK_SECRET": testSecret}
-	a := &github.Adapter{HTTP: srv.Client(), Now: clk.Now, Getenv: func(k string) string { return env[k] }}
-	s := memstore.New()
-	s.Now, s.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
-	r, err := resolver.New(resolver.Config{
-		Declarations: []*modelv1alpha1.AdapterDeclaration{declaration(t, "github"), declaration(t, "authentik")},
-		Sources: map[string]*resolver.Source{
-			githubSource: {Name: githubSource, Adapter: "github"},
-			directorySource: {
-				Name: directorySource, Adapter: "authentik",
-				Issues: []resolver.Namespace{{Name: "authentik-saml", IssuerType: "saml"}},
-				Links:  []resolver.Namespace{{Name: "github", IssuerType: "github"}},
-			},
-		},
-	}, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &world{t: t, clock: clk, org: org, gh: srv, adapter: a, cfg: cfg, store: s, resolver: r}
+	t.Cleanup(func() { _ = s.Close() })
+	w := &world{t: t, clock: clk, store: s, adapter: stubAdapter{}, cfg: json.RawMessage(`{"org":"acme"}`)}
+	const (
+		payments = "github:team/acme/payments"
+		platform = "github:team/acme/platform"
+		api      = "github:repo/acme/payments-api"
+	)
+	w.ingest(githubSource, seedAt,
+		entity("Team", payments, "Payments"),
+		entity("Team", platform, "Platform"),
+		entity("Person", "github:user/jdoe", "Jane Doe", rel("member_of", payments)),
+		entity("Repository", api, "payments-api", attr("language", "Go"), rel("approves_changes", payments)),
+	)
+	w.ingest(catalogSource, seedAt.Add(time.Minute),
+		entity("Repository", "github:repo/acme/billing", "billing", rel("owned_by", platform)),
+		entity("Component", "catalog:component/payments", "", rel("depends_on", "catalog:component/ledger")),
+		entity("Component", "catalog:component/ledger", "", rel("depends_on", "catalog:component/db")),
+		entity("Component", "catalog:component/db", ""),
+	)
+	moved := entity("Repository", api, "payments-api", rel("approves_changes", platform))
+	moved.Relations = append(moved.Relations, &modelv1alpha1.Relation{Type: "approves_changes", End: &modelv1alpha1.Relation_To{To: payments}, Absent: true})
+	w.ingest(githubSource, movedAt, moved)
+	return w
 }
 
-func declaration(t testing.TB, name string) *modelv1alpha1.AdapterDeclaration {
-	t.Helper()
-	b, err := os.ReadFile("../../testdata/declarations/" + name + ".json") //nolint:gosec // G304: reference declarations under testdata
-	if err != nil {
-		t.Fatal(err)
+// entity is the data of an observation of one entity, with a name attribute
+// unless name is empty (a Component has none; the store names it from its
+// key).
+func entity(kind, key, name string, opts ...func(*modelv1alpha1.ObservationData)) *modelv1alpha1.ObservationData {
+	d := &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{Kind: kind, Key: key, Attributes: map[string]*structpb.Value{}}}
+	if name != "" {
+		d.Entity.Attributes["name"] = structpb.NewStringValue(name)
 	}
-	d := &modelv1alpha1.AdapterDeclaration{}
-	if err := model.DecodeJSON(b, d); err != nil {
-		t.Fatal(err)
+	for _, o := range opts {
+		o(d)
 	}
 	return d
 }
 
-// apply feeds observations to the resolver as events of source, numbered
-// within their batch (a sync, a webhook delivery or the directory feed).
-func (w *world) apply(source, batch string, obs ...*eventv1alpha1.Observation) {
-	w.t.Helper()
-	for i, o := range obs {
-		ev := resolver.Event{ID: fmt.Sprintf("%s/%s/%d", source, batch, i+1), Source: source, Observation: o}
-		if _, err := w.resolver.Apply(context.Background(), ev); err != nil {
-			w.t.Fatalf("apply %s: %v", ev.ID, err)
-		}
-		w.clock.Advance(time.Millisecond)
+func attr(name, value string) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) { d.Entity.Attributes[name] = structpb.NewStringValue(value) }
+}
+
+func rel(typ, to string) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) {
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: typ, End: &modelv1alpha1.Relation_To{To: to}})
 	}
 }
 
-// syncGitHub runs a full GitHub sync and applies it.
-func (w *world) syncGitHub() {
+// ingest validates and stores observations of source made at.
+func (w *world) ingest(source string, at time.Time, data ...*modelv1alpha1.ObservationData) {
 	w.t.Helper()
-	var all adapter.Observations
-	cur := ""
-	for range 50 {
-		res, err := w.adapter.Sync(context.Background(), adapter.SyncParams{Config: w.cfg, Cursor: cur})
-		if err != nil {
-			w.t.Fatal(err)
+	obs := make([]*eventv1alpha1.Observation, len(data))
+	for i, d := range data {
+		obs[i] = model.NewObservation("adapter/"+source, at, d)
+		if err := model.ValidateObservation(obs[i]); err != nil {
+			w.t.Fatalf("observation %d: %v", i, err)
 		}
-		all = append(all, res.Observations...)
-		if res.Done {
-			break
-		}
-		cur = res.NextCursor
 	}
-	w.syncs++
-	w.apply(githubSource, fmt.Sprintf("sync-%d", w.syncs), all...)
-}
-
-// deliver applies the webhook deliveries made since the last call.
-func (w *world) deliver() {
-	w.t.Helper()
-	ds := w.gh.Deliveries()
-	for _, d := range ds[w.delivered:] {
-		res, err := w.adapter.Handle(context.Background(), adapter.HandleParams{Config: w.cfg, Headers: d.Header(), Body: d.Body})
-		if err != nil {
-			w.t.Fatalf("%s delivery: %v", d.Event, err)
-		}
-		w.apply(githubSource, "delivery-"+d.ID[len(d.ID)-4:], res.Observations...)
-	}
-	w.delivered = len(ds)
-}
-
-// syncDirectory applies the recorded directory feed.
-func (w *world) syncDirectory() {
-	w.t.Helper()
-	f, err := os.Open("../../testdata/acme/directory.ndjson")
-	if err != nil {
+	if _, err := w.store.Ingest(context.Background(), source, obs); err != nil {
 		w.t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	var obs []*eventv1alpha1.Observation
-	sc := bufio.NewScanner(f)
-	sc.Buffer(nil, 1<<20)
-	for sc.Scan() {
-		o, err := model.DecodeObservation(sc.Bytes())
-		if err != nil {
-			w.t.Fatal(err)
-		}
-		obs = append(obs, o)
-	}
-	if err := sc.Err(); err != nil {
-		w.t.Fatal(err)
-	}
-	w.apply(directorySource, "feed-1", obs...)
-}
-
-// play does the first GitHub sync and then advance(until).
-func (w *world) play(until time.Time) {
-	w.t.Helper()
-	w.syncGitHub()
-	w.advance(until)
-}
-
-// advance runs what the story has next at or before until, in time order:
-// the directory feed at fakes.DirectorySyncAt and each change with the
-// webhooks it sends.
-func (w *world) advance(until time.Time) {
-	w.t.Helper()
-	steps := fakes.Story()
-	for ; w.next < len(steps); w.next++ {
-		step := steps[w.next]
-		if !w.directory && step.At.After(fakes.DirectorySyncAt) && !fakes.DirectorySyncAt.After(until) {
-			w.directory = true
-			w.at(fakes.DirectorySyncAt)
-			w.syncDirectory()
-		}
-		if step.At.After(until) {
-			return
-		}
-		w.at(step.At)
-		if step.Apply != nil {
-			if err := step.Apply(w.org); err != nil {
-				w.t.Fatal(err)
-			}
-			w.deliver()
-		}
-	}
-}
-
-func (w *world) at(t time.Time) {
-	if t.After(w.clock.Now()) {
-		w.clock.Set(t)
 	}
 }
 
@@ -208,7 +134,7 @@ func (w *world) at(t time.Time) {
 func (w *world) cli(args ...string) (string, error) {
 	w.t.Helper()
 	env := queryEnv{
-		Open: func(_ context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+		Open: func(_ context.Context, url string) (graph.Store, func(context.Context) error, error) {
 			if url != "mem://" {
 				return nil, nil, fmt.Errorf("test store: unexpected URL %q", url)
 			}

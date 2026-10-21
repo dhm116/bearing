@@ -150,7 +150,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		l.Webhooks = in
 	}
 	api, err := server.NewAPI(server.APIConfig{
-		Server: srv, Query: &query.Querier{},
+		Server: srv, Query: &query.Querier{Graph: st.Graph},
 	})
 	if err != nil {
 		return nil, err

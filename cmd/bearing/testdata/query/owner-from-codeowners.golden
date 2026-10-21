@@ -1,0 +1,7 @@
+$ bearing owner acme/payments-api
+
+owners of payments-api [Repository e5] github:repo/acme/payments-api
+as of now
+
+approves_changes Platform [Team e2] github:team/acme/platform: asserted 100% valid from 2026-10-01T02:00:00Z
+  github-acme: observed 2026-10-01T02:00:00Z, observation github:repo/acme/payments-api@2026-10-01T02:00:00.000000Z
