@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"bearing.example/pkg/apiclient"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/store"
 )
@@ -23,9 +23,8 @@ import (
 // queryEnv is what the query commands take from outside the process, so
 // tests supply a store and a clock.
 type queryEnv struct {
-	// Open connects to the graph store at a URL, reading its password
-	// variable through getenv, and returns it with a close function.
-	Open   func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error)
+	// Open opens the store at a URL and returns it with a close function.
+	Open   func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error)
 	Getenv func(string) string
 	// Now is the time durations such as --since 72h count back from.
 	Now func() time.Time
@@ -34,8 +33,8 @@ type queryEnv struct {
 // defaultQueryEnv reads the real store, environment and clock.
 func defaultQueryEnv() queryEnv {
 	return queryEnv{
-		Open: func(ctx context.Context, url string, _ func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
-			s, err := store.Open(ctx, store.Config{Graph: url})
+		Open: func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error) {
+			s, err := store.Open(ctx, store.Config{URL: url})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -60,10 +59,11 @@ const (
 // *apiclient.Client over a running server's API, which answers the same
 // questions with the same types.
 type answerer interface {
-	Get(ctx context.Context, ref string, p query.Point) (*query.Entity, error)
-	Owners(ctx context.Context, ref string, p query.Point) (*query.Ownership, error)
-	Related(ctx context.Context, ref, predicate string, p query.Point) (*query.Relations, error)
-	Changes(ctx context.Context, req query.ChangesRequest) (*query.Changes, error)
+	Get(ctx context.Context, ref string, at time.Time) (*query.Entity, error)
+	Owners(ctx context.Context, ref string, at time.Time) (*query.Ownership, error)
+	Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error)
+	Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error)
+	Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error)
 }
 
 var (
@@ -75,7 +75,7 @@ var (
 // store.
 func isQueryCommand(name string) bool {
 	switch name {
-	case "get", "owner", "related", "changes":
+	case "get", "owner", "related", "changes", "find":
 		return true
 	}
 	return false
@@ -84,10 +84,9 @@ func isQueryCommand(name string) bool {
 // queryFlags are the flags every query command takes.
 type queryFlags struct {
 	serverFlags
-	store    string
-	asOf     string
-	recorded string
-	json     bool
+	store string
+	asOf  string
+	json  bool
 }
 
 // serverFlags are the flags of a command that can talk to a running server.
@@ -104,15 +103,14 @@ func (s *serverFlags) register(fs *flag.FlagSet) {
 }
 
 func (q *queryFlags) register(fs *flag.FlagSet, name string) {
-	fs.StringVar(&q.store, "store", "", "graph store URL, such as postgres://user@host/bearing with the password in $BEARING_STORE_PASSWORD (default $"+storeEnv+")")
+	fs.StringVar(&q.store, "store", "", "store URL: mem:// or duckdb:///absolute/path.duckdb (default $"+storeEnv+")")
 	q.serverFlags.register(fs)
-	asOf := "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)"
-	if name == "changes" {
-		asOf = "end of the window (same forms; default now)"
-	}
-	fs.StringVar(&q.asOf, "as-of", "", asOf)
-	if name != "changes" {
-		fs.StringVar(&q.recorded, "recorded-at", "", "answer as Bearing knew it at this time (same forms; default now)")
+	switch name {
+	case "changes":
+		fs.StringVar(&q.asOf, "as-of", "", "end of the window: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)")
+	case "find":
+	default:
+		fs.StringVar(&q.asOf, "as-of", "", "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)")
 	}
 	fs.BoolVar(&q.json, "json", false, "write JSON instead of text")
 }
@@ -122,18 +120,21 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var qf queryFlags
 	qf.register(fs, name)
-	var namespace, predicate, since, axis, pageToken string
-	var limit int
+	var namespace, predicate, direction, since, kind string
+	var limit, depth int
 	switch name {
 	case "owner":
 		fs.StringVar(&namespace, "namespace", "github", "namespace of a repository given as <org>/<name>")
 	case "related":
-		fs.StringVar(&predicate, "predicate", "", "only this relation, for example member_of")
+		fs.StringVar(&predicate, "predicate", "", "only this relation, for example member_of (default every relation)")
+		fs.StringVar(&direction, "direction", "out", "out: what the entity points at; in: what points at it")
+		fs.IntVar(&depth, "depth", 1, fmt.Sprintf("hops to follow, 1 to %d", query.MaxDepth))
 	case "changes":
 		fs.StringVar(&since, "since", "", "start of the window: RFC 3339, a date, or a duration back from now (default 24h before the end)")
-		fs.StringVar(&axis, "axis", "", "valid (default): what changed in the world, as known now; record: how Bearing's answers changed")
-		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("changes per page, newest first (default %d, at most %d); each page asks for its own size", contracts.DefaultChangesLimit, contracts.MaxChangesLimit))
-		fs.StringVar(&pageToken, "page-token", "", "the token a page of changes ends with: reads the next page of the same question")
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many changes, newest first, 1 to %d (default the store's)", query.MaxChangesLimit))
+	case "find":
+		fs.StringVar(&kind, "kind", "", "only entities of this kind, for example Repository")
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many matches, 1 to %d (default the store's)", query.MaxFindLimit))
 	}
 	pos, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
@@ -142,38 +143,38 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	if err != nil {
 		return fmt.Errorf("%w: %w", err, errUsage)
 	}
-	wantArgs := map[string]string{"get": "a subject", "owner": "a repository", "related": "a subject"}
+	wantArgs := map[string]string{"get": "a ref", "owner": "a repository", "related": "a ref", "find": "a name"}
 	if want, ok := wantArgs[name]; ok && len(pos) != 1 {
 		return fmt.Errorf("%s takes %s: %w", name, want, errUsage)
 	}
-	if name == "changes" {
-		if len(pos) > 1 {
-			return fmt.Errorf("changes takes at most one subject: %w", errUsage)
-		}
-		set := map[string]bool{}
-		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-		if limit < 0 || limit > contracts.MaxChangesLimit || (set["limit"] && limit == 0) {
-			return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, contracts.MaxChangesLimit, errUsage)
-		}
-		if pageToken != "" && (len(pos) > 0 || set["since"] || set["as-of"] || set["axis"]) {
-			return fmt.Errorf("--page-token carries its question: give no subject, --since, --as-of or --axis with it: %w", errUsage)
-		}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	switch {
+	case name == "changes" && len(pos) > 1:
+		return fmt.Errorf("changes takes at most one ref: %w", errUsage)
+	case name == "changes" && (limit < 0 || limit > query.MaxChangesLimit || set["limit"] && limit == 0):
+		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxChangesLimit, errUsage)
+	case name == "find" && (limit < 0 || limit > query.MaxFindLimit || set["limit"] && limit == 0):
+		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxFindLimit, errUsage)
+	case name == "related" && (depth < 1 || depth > query.MaxDepth):
+		return fmt.Errorf("--depth %d: want 1 to %d: %w", depth, query.MaxDepth, errUsage)
+	case name == "related" && direction != "out" && direction != "in":
+		return fmt.Errorf("--direction %q: want out or in: %w", direction, errUsage)
 	}
 
-	asOf, err := parseTime(qf.asOf, env.Now)
+	at, err := parseTime(qf.asOf, env.Now)
 	if err != nil {
 		return fmt.Errorf("--as-of: %w", err)
 	}
-	recorded, err := parseTime(qf.recorded, env.Now)
+	from, err := parseTime(since, env.Now)
 	if err != nil {
-		return fmt.Errorf("--recorded-at: %w", err)
+		return fmt.Errorf("--since: %w", err)
 	}
 	q, closeSource, err := qf.answerer(ctx, env)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, closeSource(ctx)) }()
-	p := query.Point{Valid: asOf, Recorded: recorded}
 
 	// Through --server, --json passes on the body the server sent, so a field
 	// a newer server adds is not dropped by this client's types.
@@ -186,34 +187,32 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	switch name {
 	case "get":
 		var e *query.Entity
-		if e, err = q.Get(ctx, pos[0], p); err == nil {
-			answer, render = e, func(w io.Writer) error { return renderEntity(w, e) }
+		if e, err = q.Get(ctx, pos[0], at); err == nil {
+			answer, render = e, func(w io.Writer) error { return renderEntity(w, e, at) }
 		}
 	case "owner":
 		var o *query.Ownership
-		if o, err = q.Owners(ctx, repoRef(pos[0], namespace), p); err == nil {
-			answer, render = o, func(w io.Writer) error { return renderOwnership(w, o) }
+		if o, err = q.Owners(ctx, repoRef(pos[0], namespace), at); err == nil {
+			answer, render = o, func(w io.Writer) error { return renderOwnership(w, o, at) }
 		}
 	case "related":
 		var r *query.Relations
-		if r, err = q.Related(ctx, pos[0], predicate, p); err == nil {
-			answer, render = r, func(w io.Writer) error { return renderRelations(w, r) }
+		if r, err = q.Related(ctx, pos[0], predicate, direction, depth, at); err == nil {
+			answer, render = r, func(w io.Writer) error { return renderRelations(w, r, at) }
 		}
 	case "changes":
-		var from time.Time
-		if from, err = parseTime(since, env.Now); err != nil {
-			return fmt.Errorf("--since: %w", err)
-		}
-		req := query.ChangesRequest{Since: from, Until: asOf, Axis: query.Axis(axis), Limit: limit, PageToken: pageToken}
+		ref := ""
 		if len(pos) == 1 {
-			req.Ref = pos[0]
+			ref = pos[0]
 		}
 		var c *query.Changes
-		if c, err = q.Changes(ctx, req); errors.Is(err, query.ErrBadPageToken) {
-			err = fmt.Errorf("%w: %w", err, errUsage)
+		if c, err = q.Changes(ctx, ref, from, at, limit); err == nil {
+			answer, render = c, func(w io.Writer) error { return renderChanges(w, c, ref) }
 		}
-		if err == nil {
-			answer, render = c, func(w io.Writer) error { return renderChanges(w, c, pageToken != "") }
+	case "find":
+		var ms []query.Match
+		if ms, err = q.Find(ctx, pos[0], kind, limit); err == nil {
+			answer, render = findAnswer{Matches: ms}, func(w io.Writer) error { return renderMatches(w, ms) }
 		}
 	}
 	if err != nil {
@@ -226,6 +225,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		return writeJSON(stdout, answer)
 	}
 	return render(stdout)
+}
+
+// findAnswer is find's JSON, the same object the server's /v1/find answers.
+type findAnswer struct {
+	Matches []query.Match `json:"matches"`
 }
 
 // answerer connects to where the answers come from: the server that --server or
@@ -246,11 +250,11 @@ func (q *queryFlags) answerer(ctx context.Context, env queryEnv) (answerer, func
 		c, err := q.client(env, server)
 		return c, func(context.Context) error { return nil }, err
 	case storeURL != "":
-		graph, closeStore, err := env.Open(ctx, storeURL, env.Getenv)
+		g, closeStore, err := env.Open(ctx, storeURL)
 		if err != nil {
 			return nil, nil, err
 		}
-		return &query.Querier{Graph: graph, Now: env.Now}, closeStore, nil
+		return &query.Querier{Graph: g, Now: env.Now}, closeStore, nil
 	}
 	return nil, nil, fmt.Errorf("no store or server: give --store or --server, or set %s or %s", storeEnv, serverEnv)
 }
@@ -296,7 +300,7 @@ func (s *serverFlags) explain(from answerer, err error) error {
 }
 
 // repoRef turns <org>/<name> into the repository's key in namespace, and
-// leaves a key or a subject ID as it is.
+// leaves a key or an entity ID as it is.
 func repoRef(arg, namespace string) string {
 	if strings.Contains(arg, ":") || !strings.Contains(arg, "/") {
 		return arg
@@ -326,8 +330,8 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 // parseTime reads a time: RFC 3339, a UTC date, or a duration back from now
-// ("72h", or "7d" for days). Empty is the zero time, which the store reads
-// as now.
+// ("72h", or "7d" for days). Empty is the zero time, which the query layer
+// reads as now.
 func parseTime(s string, now func() time.Time) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil

@@ -3,7 +3,6 @@ package boot
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +11,7 @@ import (
 // goodSettings is a settings file that validates, as JSON, for tests to break
 // one field of.
 const goodSettings = `{
-  "store": {"graph": "mem://"},
+  "store": {"url": "mem://"},
   "listen": {"socket": "/run/bearing/api.sock"},
   "adapters": [{"name": "github", "command": "/usr/local/bin/bearing-adapter-github", "declaration": "/etc/bearing/github.json", "env": ["HTTPS_PROXY"]}],
   "sources": [{
@@ -42,9 +41,7 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		to      string
 		wantErr string
 	}{
-		{"no store", `"graph": "mem://"`, `"graph": ""`, "store.graph is required"},
-		{"memory events under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "mem://"`, "store.events is in memory"},
-		{"memory events in capitals under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "MEM://x"`, "store.events is in memory"},
+		{"no store", `"url": "mem://"`, `"url": ""`, "store.url is required"},
 		{"no listener", `"socket": "/run/bearing/api.sock"`, `"socket": ""`, "listen needs a socket"},
 		{"a typo in a limit", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns": 0`, "max_conns must be positive"},
 		{"a negative per-peer cap", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns_per_peer": -1`, "max_conns_per_peer must be positive"},
@@ -229,29 +226,5 @@ func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
 	off := listenConfig(&Settings{Listen: ListenSettings{Socket: "/s", InsecureNoPeerRate: true}})
 	if off.PeerRate.PerMinute >= 0 {
 		t.Fatalf("got a per-peer rate of %d, want the switch-off", off.PeerRate.PerMinute)
-	}
-}
-
-func TestNamespacesAreTheOnesASourceIssuesAndLinks(t *testing.T) {
-	t.Parallel()
-	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
-	  "spec": {"adapter": "github", "namespace": "github", "schedule": "PT1H",
-	    "issues": [{"namespace": "acme-saml", "issuer_type": "saml"}],
-	    "links": [{"namespace": "acme-saml", "issuer_type": "saml"}, {"namespace": "acme-oidc", "issuer_type": "oidc"}]}}`
-	s, err := Parse([]byte(strings.Replace(goodSettings[:strings.Index(goodSettings, `"sources"`)]+`"sources": [`+src+`]}`, `"declaration"`, `"declaration"`, 1)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := s.check()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := namespaces(c), []string{"acme-oidc", "acme-saml", "github"}; !slices.Equal(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	cfg := resolverConfig(c, nil)
-	rs := cfg.Sources["github-acme"]
-	if rs == nil || len(rs.Issues) != 1 || rs.Issues[0].Name != "acme-saml" || rs.Issues[0].IssuerType != "saml" {
-		t.Fatalf("got %+v, want the issued namespace carried to the resolver", rs)
 	}
 }

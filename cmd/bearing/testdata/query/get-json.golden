@@ -1,0 +1,38 @@
+$ bearing get github:user/jdoe --json
+
+{
+  "id": "e3",
+  "kind": "Person",
+  "name": "Jane Doe",
+  "key": "github:user/jdoe",
+  "keys": [
+    "github:user/jdoe"
+  ],
+  "facts": [
+    {
+      "subject": {
+        "id": "e3",
+        "kind": "Person",
+        "name": "Jane Doe",
+        "key": "github:user/jdoe"
+      },
+      "predicate": "member_of",
+      "object": {
+        "id": "e1",
+        "kind": "Team",
+        "name": "Payments",
+        "key": "github:team/acme/payments"
+      },
+      "status": "asserted",
+      "confidence": 1,
+      "valid_from": "2026-10-01T00:00:00Z",
+      "sources": [
+        {
+          "source": "github-acme",
+          "observation_id": "github:user/jdoe@2026-10-01T00:00:00.000000Z",
+          "observed_at": "2026-10-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

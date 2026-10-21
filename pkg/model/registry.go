@@ -1,7 +1,6 @@
 package model
 
 import (
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -187,10 +186,6 @@ func LookupPredicate(name string) (Predicate, bool) {
 	p, ok := predicates[name]
 	return p, ok
 }
-
-// RegisteredPredicates returns the names of the registered predicates,
-// sorted.
-func RegisteredPredicates() []string { return slices.Sorted(maps.Keys(predicates)) }
 
 // IsCorePredicate reports whether only the core may claim name.
 func IsCorePredicate(name string) bool {

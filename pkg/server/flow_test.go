@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,10 +21,7 @@ import (
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
 )
-
-var _ Applier = (*resolver.Resolver)(nil)
 
 func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	ctx := t.Context()
@@ -43,22 +38,7 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	h := newHarness(t, func(c *Config) {
 		c.Sources = []Source{{Name: testSource, Adapter: gh, Config: cfg}}
 	})
-	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "declarations", "github.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	decl := &modelv1alpha1.AdapterDeclaration{}
-	if err := model.DecodeJSON(b, decl); err != nil {
-		t.Fatal(err)
-	}
-	res, err := resolver.New(resolver.Config{
-		Declarations: []*modelv1alpha1.AdapterDeclaration{decl},
-		Sources:      map[string]*resolver.Source{testSource: {Name: testSource, Adapter: "github"}},
-	}, h.mem)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.s.cfg.Applier = res
+	h.s.cfg.Applier = StoreApplier{Store: h.mem}
 	h.start()
 
 	sr, err := h.s.RequestSync(ctx, testSource, &eventv1alpha1.Actor{Subject: "system:test"})
@@ -73,12 +53,8 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 		// The request, then its pages: all are in the log and applied.
 		return len(h.entries(testSource)) >= 2
 	})
-	sub, err := h.mem.ResolveKey(ctx, "github:repo/acme/payments-api", time.Time{}, time.Time{})
-	if err != nil {
+	if _, err := h.mem.Entity(ctx, "github:repo/acme/payments-api"); err != nil {
 		t.Fatalf("the repository is not in the graph: %v", err)
-	}
-	if sub == nil {
-		t.Fatal("got no subject")
 	}
 
 	// Every page names the request that caused it, in order, and the last
@@ -306,7 +282,7 @@ func TestRetentionTrimsWhatTheGroupHasApplied(t *testing.T) {
 		c.Retention = 24 * time.Hour
 		c.TrimEvery = time.Hour
 	})
-	h.mem.Now = clk.Now
+	h.now = clk.Now
 	applied := h.emitted(testSource, "old-applied", 1)
 	unapplied := h.emitted(testSource, "old-unapplied", 1)
 	if err := h.mem.Commit(t.Context(), DefaultGroup, testSource, applied.Offset); err != nil {
@@ -349,7 +325,7 @@ func TestHealthHandlerAnswersWithStatusCodes(t *testing.T) {
 	if got := get("/readyz"); got != http.StatusOK {
 		t.Errorf("got %d for /readyz, want 200", got)
 	}
-	h.graph.down.Store(true)
+	h.log.failRead.Store(true)
 	if got := get("/readyz"); got != http.StatusOK {
 		t.Errorf("got %d for /readyz within a second of the last check, want the cached 200", got)
 	}
@@ -397,8 +373,6 @@ func TestCleanErrorText(t *testing.T) {
 		})
 	}
 }
-
-var _ = contracts.ErrStale
 
 // flakyLog is an event log whose Append and Trim fail while a test says so.
 type flakyLog struct {
@@ -494,7 +468,7 @@ func TestRetentionSurvivesATrimThatFails(t *testing.T) {
 func TestServerWaitsForTheLogToTakeADeadLetter(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
 	log := h.log
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
+	h.ap.fail = func(applied, int) error { return errors.New("bad data") }
 	h.emitted(testSource, "a", 1)
 	// The dead-letter record cannot be appended, so the event is neither
 	// given up on nor committed, and the partition is read again later.
@@ -676,7 +650,7 @@ func TestServerGivesBackItsSlotBetweenAttempts(t *testing.T) {
 		c.RetryPause = time.Hour
 		c.Sources = []Source{{Name: "failing", Adapter: &fakeAdapter{}}, {Name: "other", Adapter: &fakeAdapter{}}}
 	})
-	h.ap.fail = func(ev resolver.Event, _ int) error {
+	h.ap.fail = func(ev applied, _ int) error {
 		if ev.Source == "failing" {
 			return errors.New("always")
 		}
@@ -712,8 +686,8 @@ func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 			}
 			flag.Store(false)
 			waitFor(t, "the partition to be applied once the log answers", func() bool { return h.drained(testSource) })
-			// A refused commit repeats the event; the store's processed-event
-			// mark makes the repeat harmless, which the real resolver relies on.
+			// A refused commit repeats the event; the store applies each
+			// observation ID once, so the repeat is harmless.
 			applied := map[string]bool{}
 			for _, id := range h.ap.called() {
 				applied[id] = true
@@ -722,24 +696,6 @@ func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 				t.Errorf("got applies %v, want both events", h.ap.called())
 			}
 		})
-	}
-}
-
-func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheMark(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
-	h.emitted(testSource, "a", 1)
-	h.graph.failApply.Store(true)
-	h.start()
-	waitFor(t, "a dead-letter try", func() bool { return len(h.entries("core/dead_letter")) == 1 })
-	time.Sleep(50 * time.Millisecond)
-	if h.drained(testSource) {
-		t.Fatal("committed past an event whose processed mark the store refused")
-	}
-	h.graph.failApply.Store(false)
-	waitFor(t, "the event to be given up on", func() bool { return h.drained(testSource) })
-	if n := len(h.entries("core/dead_letter")); n != 1 {
-		t.Errorf("%d dead letters after the retry, want the same record once", n)
 	}
 }
 

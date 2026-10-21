@@ -32,7 +32,7 @@ const (
 )
 
 // EventLog wraps l so every call is traced and measured. backend names the
-// implementation (for example "memory" or "postgresql") in telemetry. A
+// implementation (for example "duckdb") in telemetry. A
 // failed Append is the case to alert on: while it fails, ingest cannot
 // acknowledge webhooks.
 func EventLog(l contracts.EventLog, backend string) contracts.EventLog {

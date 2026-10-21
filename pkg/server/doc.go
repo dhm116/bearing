@@ -18,6 +18,6 @@
 // the source's adapter page its output back onto the log as
 // ObservationsEmitted events; a WebhookReceived event goes to the adapter's
 // Handle the same way; each observation of an ObservationsEmitted event is
-// applied through the resolver. A partition is applied in order by one worker,
+// applied by the Applier, one page at a time. A partition is applied in order by one worker,
 // an event that keeps failing becomes a dead letter.
 package server

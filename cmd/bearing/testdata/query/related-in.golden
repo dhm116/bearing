@@ -1,0 +1,8 @@
+$ bearing related github:team/acme/payments --direction in
+
+relations of Payments [Team e1] github:team/acme/payments, direction in
+as of now
+
+depth 1
+  Jane Doe [Person e3] github:user/jdoe member_of Payments [Team e1] github:team/acme/payments: asserted 100% valid from 2026-10-01T00:00:00Z
+    github-acme: observed 2026-10-01T00:00:00Z, observation github:user/jdoe@2026-10-01T00:00:00.000000Z

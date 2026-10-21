@@ -13,6 +13,8 @@ const (
 	MethodRelated Method = "query.related"
 	// MethodChanges is "what changed": bearing changes.
 	MethodChanges Method = "query.changes"
+	// MethodFind is "what matches this name": bearing find.
+	MethodFind Method = "query.find"
 	// MethodSyncRequest asks for a sync of one Source, which appends a
 	// SyncRequested event.
 	MethodSyncRequest Method = "sync.request"

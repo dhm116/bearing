@@ -13,13 +13,11 @@ import (
 	"strings"
 	"time"
 
-	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
-	"bearing.example/pkg/resolver"
 	"bearing.example/pkg/server"
 	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
@@ -85,7 +83,6 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	rcfg := resolverConfig(c, decls)
 
 	var webhooks []server.WebhookSource
 	for _, p := range plans {
@@ -113,10 +110,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	}
 	warnLimits(s)
 
-	st, err := store.Open(ctx, store.Config{
-		Graph: s.Store.Graph, Events: s.Store.Events,
-		Namespaces: namespaces(c),
-	})
+	st, err := store.Open(ctx, store.Config{URL: s.Store.URL})
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
@@ -128,10 +122,6 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 			cancel()
 		}
 	}()
-	res, err := resolver.New(rcfg, st.Graph)
-	if err != nil {
-		return nil, fmt.Errorf("boot: resolver: %w", err)
-	}
 	var sources []server.Source
 	for _, p := range plans {
 		m := newManaged(procCtx, p.name, p.launcher, env.Clock)
@@ -139,7 +129,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
 	}
 	srv, err := server.New(server.Config{
-		Log: st.Events, Graph: st.Graph, Applier: res,
+		Log: st.Events, Applier: server.StoreApplier{Store: st.Graph},
 		Sources: sources, Clock: env.Clock,
 	})
 	if err != nil {
@@ -341,48 +331,6 @@ func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 		}
 	}
 	return nil
-}
-
-// resolverConfig maps the Source resources to the resolver's sources.
-func resolverConfig(c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration) resolver.Config {
-	cfg := resolver.Config{Sources: map[string]*resolver.Source{}}
-	for _, name := range slices.Sorted(maps.Keys(decls)) {
-		cfg.Declarations = append(cfg.Declarations, decls[name])
-	}
-	for _, src := range c.sources {
-		spec := src.GetSpec()
-		rs := &resolver.Source{Name: src.GetMetadata().GetName(), Adapter: spec.GetAdapter(), Namespace: spec.GetNamespace()}
-		for _, u := range spec.GetIssues() {
-			rs.Issues = append(rs.Issues, resolverNamespace(u))
-		}
-		for _, u := range spec.GetLinks() {
-			rs.Links = append(rs.Links, resolverNamespace(u))
-		}
-		cfg.Sources[rs.Name] = rs
-	}
-	return cfg
-}
-
-func resolverNamespace(u *configv1alpha1.NamespaceUse) resolver.Namespace {
-	return resolver.Namespace{Name: u.GetNamespace(), IssuerType: u.GetIssuerType(), KeyClasses: u.GetKeyClasses()}
-}
-
-// namespaces are the source namespaces telemetry may name in a label.
-func namespaces(c *checked) []string {
-	var out []string
-	for _, src := range c.sources {
-		spec := src.GetSpec()
-		out = append(out, spec.GetNamespace())
-		for _, u := range spec.GetIssues() {
-			out = append(out, u.GetNamespace())
-		}
-		for _, u := range spec.GetLinks() {
-			out = append(out, u.GetNamespace())
-		}
-	}
-	out = slices.DeleteFunc(out, func(n string) bool { return n == "" })
-	slices.Sort(out)
-	return slices.Compact(out)
 }
 
 // listenConfig maps the listen settings.

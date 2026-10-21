@@ -16,7 +16,6 @@ import (
 	"bearing.example/pkg/clock"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
 )
 
 // Defaults of Config. The attempts and the pause come from
@@ -63,19 +62,16 @@ type Source struct {
 	SyncOnStart bool
 }
 
-// Applier turns one observation into graph state. *resolver.Resolver is the
-// one the server runs; it retries when another apply lands first.
+// Applier writes one page of a source's observations into the graph, all or
+// nothing. StoreApplier is the one the server runs.
 type Applier interface {
-	Apply(ctx context.Context, ev resolver.Event) (resolver.Applied, error)
+	Apply(ctx context.Context, source string, obs []*eventv1alpha1.Observation) error
 }
 
 // Config configures a Server. Zero fields take the defaults above.
 type Config struct {
 	// Log is the event log every input goes through.
 	Log contracts.EventLog
-	// Graph is the store the apply workers write; it is read for health
-	// and to mark dead letters processed.
-	Graph contracts.GraphStore
 	// Applier applies observations.
 	Applier Applier
 	// Sources are the configured sources.
@@ -150,8 +146,6 @@ func New(cfg Config) (*Server, error) {
 	switch {
 	case cfg.Log == nil:
 		return nil, errors.New("server: an event log is required")
-	case cfg.Graph == nil:
-		return nil, errors.New("server: a graph store is required")
 	case cfg.Applier == nil:
 		return nil, errors.New("server: an applier is required")
 	}

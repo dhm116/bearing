@@ -5,14 +5,15 @@
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
 //
 // runs the server (bearing server --settings FILE),
-// and answers questions about what Bearing knows, with the source, event,
-// confidence and observed time of each fact, from the graph store directly or
-// from a running server:
+// and answers questions about what Bearing knows, with the sources,
+// confidence and validity of each fact, from the store directly or from a
+// running server:
 //
-//	bearing get <subject>
+//	bearing get <ref>
 //	bearing owner <repo>
-//	bearing related <subject>
-//	bearing changes [--since <time>] [<subject>]
+//	bearing related <ref>
+//	bearing changes [--since <time>] [<ref>]
+//	bearing find <name>
 //
 // and asks a running server to sync a source now:
 //
@@ -22,11 +23,10 @@
 // $BEARING_SERVER) to ask a running server, which answers the same questions
 // the same way: its Unix socket, which needs no token, or https://host:port with
 // a bearer token in the variable --token-env names ($BEARING_TOKEN). They also
-// take --as-of. Run one with -h for its flags. A subject is a subject ID or a key such as
-// github:repo/acme/payments. For changes, --since and --as-of are the two
-// ends of the window, and the default end is now. Without --since it looks
-// at the last 24 hours, newest change first, 100 at a time; a page that is
-// not the last ends with the --page-token for the next.
+// take --as-of. Run one with -h for its flags. A ref is an entity ID or a key
+// such as github:repo/acme/payments. For changes, --since and --as-of are the
+// two ends of the window, and the default end is now. Without --since it looks
+// at the last 24 hours, newest change first.
 package main
 
 import (
@@ -50,11 +50,11 @@ import (
 const usage = `usage:
   bearing adapter describe -- <adapter command> [args]
   bearing adapter sync [--config cfg.json] [--max-pages N] -- <adapter command> [args]
-  bearing get <subject> [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
-  bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
-  bearing related <subject> [--predicate P] [--store URL | --server ADDR] [--as-of T] [--recorded-at T] [--json]
-  bearing changes [--since T] [<subject>] [--axis valid|record] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
-  bearing changes --page-token TOKEN [--limit N] [--store URL | --server ADDR] [--json]
+  bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing changes [--since T] [<ref>] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing find <name> [--kind K] [--limit N] [--store URL | --server ADDR] [--json]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)

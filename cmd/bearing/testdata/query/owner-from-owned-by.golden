@@ -1,0 +1,7 @@
+$ bearing owner acme/billing
+
+owners of billing [Repository e8] github:repo/acme/billing
+as of now
+
+owned_by Platform [Team e2] github:team/acme/platform: asserted 100% valid from 2026-10-01T00:01:00Z
+  catalog-acme: observed 2026-10-01T00:01:00Z, observation github:repo/acme/billing@2026-10-01T00:01:00.000000Z

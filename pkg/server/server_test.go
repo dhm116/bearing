@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,12 +17,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/internal/memstore"
+	"bearing.example/internal/duckstore"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
 )
 
 // waitFor polls cond until it holds, and fails the test if it does not within
@@ -93,35 +92,43 @@ func (f *fakeAdapter) syncs() int {
 	return f.syncCalls
 }
 
-// fakeApplier records the observations it is asked to apply.
+// applied is one observation a fakeApplier was asked to apply.
+type applied struct{ ID, Source string }
+
+// fakeApplier records the observations it is asked to apply, one at a time,
+// and stops a page at the first that fails.
 type fakeApplier struct {
 	mu    sync.Mutex
 	calls []string
-	// fail, if set, decides whether the n-th call (from 1) for an ID fails.
-	fail func(ev resolver.Event, n int) error
+	// fail, if set, decides whether the n-th try (from 1) of an observation
+	// fails.
+	fail func(ev applied, n int) error
 	seen map[string]int
 	// during, if set, runs inside each call.
-	during func(ev resolver.Event)
+	during func(ev applied)
 }
 
-func (f *fakeApplier) Apply(_ context.Context, ev resolver.Event) (resolver.Applied, error) {
-	f.mu.Lock()
-	f.calls = append(f.calls, ev.ID)
-	if f.seen == nil {
-		f.seen = map[string]int{}
-	}
-	f.seen[ev.ID]++
-	n, fail, during := f.seen[ev.ID], f.fail, f.during
-	f.mu.Unlock()
-	if during != nil {
-		during(ev)
-	}
-	if fail != nil {
-		if err := fail(ev, n); err != nil {
-			return resolver.Applied{}, err
+func (f *fakeApplier) Apply(_ context.Context, source string, obs []*eventv1alpha1.Observation) error {
+	for i, o := range obs {
+		ev := applied{ID: o.GetId(), Source: source}
+		f.mu.Lock()
+		f.calls = append(f.calls, ev.ID)
+		if f.seen == nil {
+			f.seen = map[string]int{}
+		}
+		f.seen[ev.ID]++
+		n, fail, during := f.seen[ev.ID], f.fail, f.during
+		f.mu.Unlock()
+		if during != nil && i == 0 {
+			during(ev)
+		}
+		if fail != nil {
+			if err := fail(ev, n); err != nil {
+				return err
+			}
 		}
 	}
-	return resolver.Applied{}, nil
+	return nil
 }
 
 func (f *fakeApplier) called() []string {
@@ -130,49 +137,41 @@ func (f *fakeApplier) called() []string {
 	return append([]string(nil), f.calls...)
 }
 
-// downGraph is a graph store whose Head fails while down is set.
-type downGraph struct {
-	contracts.GraphStore
-	down      atomic.Bool
-	failApply atomic.Bool
-}
-
-func (d *downGraph) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contracts.ApplyResult, error) {
-	if d.failApply.Load() {
-		return contracts.ApplyResult{}, errors.New("apply refused")
-	}
-	return d.GraphStore.Apply(ctx, cs)
-}
-
-func (d *downGraph) Head(ctx context.Context) (time.Time, error) {
-	if d.down.Load() {
-		return time.Time{}, errors.New("connection refused")
-	}
-	return d.GraphStore.Head(ctx)
-}
-
 const testSource = "github-acme"
 
 // harness is a server over an in-memory store with a scripted adapter and
-// applier.
+// applier. The store's clock is now, which a test may replace before it
+// starts the server.
 type harness struct {
-	t     *testing.T
-	mem   *memstore.Store
-	graph *downGraph
-	log   *flakyLog
-	ad    *fakeAdapter
-	ap    *fakeApplier
-	cfg   Config
-	s     *Server
+	t   *testing.T
+	mem *duckstore.Store
+	log *flakyLog
+	ad  *fakeAdapter
+	ap  *fakeApplier
+	cfg Config
+	s   *Server
+	now func() time.Time
+}
+
+// newDuck opens an in-memory store on the clock now, closed when the test
+// ends.
+func newDuck(t testing.TB, now func() time.Time) *duckstore.Store {
+	t.Helper()
+	d, err := duckstore.Open(context.Background(), duckstore.Config{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
 }
 
 func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 	t.Helper()
-	h := &harness{t: t, mem: memstore.New(), ad: &fakeAdapter{}, ap: &fakeApplier{}}
-	h.graph = &downGraph{GraphStore: h.mem}
+	h := &harness{t: t, now: time.Now, ad: &fakeAdapter{}, ap: &fakeApplier{}}
+	h.mem = newDuck(t, func() time.Time { return h.now() })
 	h.log = &flakyLog{EventLog: h.mem}
 	h.cfg = Config{
-		Log: h.log, Graph: h.graph, Applier: h.ap,
+		Log: h.log, Applier: h.ap,
 		Sources:      []Source{{Name: testSource, Adapter: h.ad, Config: json.RawMessage(`{"org":"acme"}`)}},
 		PollInterval: 5 * time.Millisecond, RetryPause: time.Millisecond, MaxAttempts: 3,
 		TrimEvery: time.Hour, Retention: -1,
@@ -249,6 +248,7 @@ func (h *harness) emitted(source, id string, n int) contracts.Entry {
 	obs := make([]*eventv1alpha1.Observation, n)
 	for i := range obs {
 		obs[i] = validObservation(h.t)
+		obs[i].Id = fmt.Sprintf("%s/%s/%d", source, id, i+1)
 	}
 	msg := &eventv1alpha1.ObservationsEmitted{Source: source, TriggerEventId: source + "/trigger", Observations: obs, Done: true}
 	return h.append(source, id, msg)
@@ -279,15 +279,14 @@ func (h *harness) append(partition, id string, msg proto.Message) contracts.Entr
 }
 
 func TestNewRefusesWhatItCannotRun(t *testing.T) {
-	mem := memstore.New()
+	mem := newDuck(t, time.Now)
 	ad := &fakeAdapter{}
-	ok := Config{Log: mem, Graph: mem, Applier: &fakeApplier{}, Sources: []Source{{Name: testSource, Adapter: ad}}}
+	ok := Config{Log: mem, Applier: &fakeApplier{}, Sources: []Source{{Name: testSource, Adapter: ad}}}
 	for _, tt := range []struct {
 		name string
 		mod  func(*Config)
 	}{
 		{"no log", func(c *Config) { c.Log = nil }},
-		{"no graph", func(c *Config) { c.Graph = nil }},
 		{"no applier", func(c *Config) { c.Applier = nil }},
 		{"a bad group name", func(c *Config) { c.Group = "a\nb" }},
 		{"a source without an adapter", func(c *Config) { c.Sources = []Source{{Name: testSource}} }},
@@ -341,7 +340,7 @@ func TestServerStartsWhereTheGroupLeftOff(t *testing.T) {
 
 func TestServerRedoesAWholePageAfterAFailureInTheMiddle(t *testing.T) {
 	h := newHarness(t)
-	h.ap.fail = func(ev resolver.Event, n int) error {
+	h.ap.fail = func(ev applied, n int) error {
 		if strings.HasSuffix(ev.ID, "/2") && n == 1 {
 			return errors.New("store busy")
 		}
@@ -367,7 +366,7 @@ func TestServerRedoesAWholePageAfterAFailureInTheMiddle(t *testing.T) {
 
 func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 	h := newHarness(t)
-	h.ap.fail = func(ev resolver.Event, _ int) error {
+	h.ap.fail = func(ev applied, _ int) error {
 		if strings.HasPrefix(ev.ID, testSource+"/poison/") {
 			return errors.New("bad\x00data\xff from the source " + strings.Repeat("x", 3000))
 		}
@@ -405,12 +404,6 @@ func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 	if strings.Contains(string(dl[0].Data), "repository") {
 		t.Error("the record copies the event's data")
 	}
-	// Step 2: the mark that the event is processed.
-	// The event is marked processed: a later apply of it is a duplicate.
-	res, err := h.mem.Apply(t.Context(), &modelv1alpha1.ChangeSet{EventId: poison.ID})
-	if err != nil || !res.Duplicate {
-		t.Errorf("a second apply of the dead event: %+v, %v, want a duplicate", res, err)
-	}
 	// The poison event was tried three times and no more.
 	tries := 0
 	for _, id := range h.ap.called() {
@@ -425,9 +418,13 @@ func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 
 func TestServerDoesNotGiveUpWhileTheStoreIsDown(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
-	h.graph.down.Store(true)
-	h.ap.fail = func(resolver.Event, int) error {
-		if h.graph.down.Load() {
+	// The store goes down once the worker has read the event, as the log
+	// does: they are one database.
+	var down atomic.Bool
+	down.Store(true)
+	h.ap.fail = func(applied, int) error {
+		if down.Load() {
+			h.log.failRead.Store(true)
 			return errors.New("connection refused")
 		}
 		return nil
@@ -438,29 +435,11 @@ func TestServerDoesNotGiveUpWhileTheStoreIsDown(t *testing.T) {
 	if n := len(h.entries("core/dead_letter")); n != 0 {
 		t.Fatalf("%d dead letters while the store was down, want none", n)
 	}
-	h.graph.down.Store(false)
+	down.Store(false)
+	h.log.failRead.Store(false)
 	waitFor(t, "the event to be applied after the store came back", func() bool { return h.drained(testSource) })
 	if n := len(h.entries("core/dead_letter")); n != 0 {
 		t.Fatalf("%d dead letters, want none", n)
-	}
-}
-
-func TestServerKeepsTryingWhenAnotherApplyLandsFirst(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
-	h.ap.fail = func(_ resolver.Event, n int) error {
-		if n <= 3 {
-			return contracts.ErrStale
-		}
-		return nil
-	}
-	h.emitted(testSource, "a", 1)
-	h.start()
-	waitFor(t, "the event to be applied", func() bool { return h.drained(testSource) })
-	if n := len(h.entries("core/dead_letter")); n != 0 {
-		t.Fatalf("%d dead letters for contention, want none", n)
-	}
-	if got := len(h.ap.called()); got != 4 {
-		t.Errorf("got %d tries, want 4", got)
 	}
 }
 
@@ -478,7 +457,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 	arrived := make(chan string, 4)
 	proceed := make(chan struct{})
 	var once sync.Once
-	h.ap.during = func(ev resolver.Event) {
+	h.ap.during = func(ev applied) {
 		mu.Lock()
 		active[ev.Source]++
 		if active[ev.Source] > 1 {

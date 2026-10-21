@@ -28,7 +28,7 @@ import (
 const (
 	// DefaultRequestTimeout is how long a request may run.
 	DefaultRequestTimeout = 30 * time.Second
-	// DefaultChangesTimeout is the deadline of a "what changed" page, which
+	// DefaultChangesTimeout is the deadline of a "what changed" read, which
 	// scans fact rows (C-STORE-9).
 	DefaultChangesTimeout = 15 * time.Second
 	// DefaultMaxInFlight is how many requests are handled at once.
@@ -40,13 +40,10 @@ const (
 	// tenth of it.
 	DefaultCallerRate = 600
 
-	// maxRefBytes bounds a subject reference, a key or an ID.
+	// maxRefBytes bounds a reference (a key or an entity ID) or a find query.
 	maxRefBytes = 1024
 	// maxPredicateBytes bounds a predicate name.
 	maxPredicateBytes = 256
-	// maxPageTokenBytes bounds a page token a caller hands back. It is the
-	// query package's bound.
-	maxPageTokenBytes = 512
 	// maxCallerKeys bounds the per-caller tables.
 	maxCallerKeys = 10_000
 )
@@ -99,7 +96,7 @@ type APIConfig struct {
 	Query *query.Querier
 
 	// RequestTimeout and ChangesTimeout are the deadlines of a request and of
-	// a "what changed" page.
+	// a "what changed" read.
 	RequestTimeout, ChangesTimeout time.Duration
 	// MaxInFlight caps the requests handled at once; more get a 503.
 	MaxInFlight int
@@ -141,7 +138,8 @@ var routes = []route{
 	{pattern: "GET /v1/get", method: contracts.MethodGet, handle: (*API).get},
 	{pattern: "GET /v1/owner", method: contracts.MethodOwner, handle: (*API).owner},
 	{pattern: "GET /v1/related", method: contracts.MethodRelated, handle: (*API).related},
-	{pattern: "GET /v1/changes", method: contracts.MethodChanges, handle: (*API).changesPage},
+	{pattern: "GET /v1/changes", method: contracts.MethodChanges, handle: (*API).changes},
+	{pattern: "GET /v1/find", method: contracts.MethodFind, handle: (*API).find},
 	{pattern: "POST /v1/sources/{source}/sync", method: contracts.MethodSyncRequest, write: true, handle: (*API).sync},
 }
 
@@ -429,8 +427,6 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 		apiFail(w, http.StatusNotFound, "not_found", "nothing matches", reqID)
 	case errors.Is(err, query.ErrInvalidRequest):
 		apiFail(w, http.StatusBadRequest, "invalid_request", clipN(strings.Replace(err.Error(), query.ErrInvalidRequest.Error()+": ", "", 1), 200), reqID)
-	case errors.Is(err, query.ErrBadPageToken):
-		apiFail(w, http.StatusBadRequest, "invalid_page_token", "the page token is not one this server issued; start again without it", reqID)
 	case errors.Is(err, context.DeadlineExceeded):
 		apiFail(w, http.StatusGatewayTimeout, "timeout", "the question took too long; narrow it", reqID)
 	case errors.Is(err, context.Canceled):
@@ -510,12 +506,21 @@ func (p *params) when(name string) time.Time {
 	return t.UTC()
 }
 
-// point reads the pair of times a question is asked at.
-func (p *params) point() query.Point {
-	return query.Point{Valid: p.when("valid_at"), Recorded: p.when("recorded_at")}
+// number reads an optional whole-number parameter from 1 to most; zero means
+// it was not given.
+func (p *params) number(name string, most int) int {
+	v := p.text(name, 8)
+	if v == "" || p.err != "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > most {
+		p.err = fmt.Sprintf("parameter %s must be a number from 1 to %d", name, most)
+	}
+	return n
 }
 
-// subject reads the required subject reference.
+// subject reads the required reference.
 func (p *params) subject() string {
 	v := p.text("ref", maxRefBytes)
 	if v == "" && p.err == "" {
@@ -524,77 +529,78 @@ func (p *params) subject() string {
 	return v
 }
 
+// answer writes a query's answer, or fails with its error.
+func (a *API) answer(w http.ResponseWriter, r *http.Request, v any, err error) {
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
 func (a *API) get(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "valid_at", "recorded_at")
-	ref, at := p.subject(), p.point()
+	p := parseParams(r, "ref", "at")
+	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
 	e, err := a.cfg.Query.Get(r.Context(), ref, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, e)
+	a.answer(w, r, e, err)
 }
 
 func (a *API) owner(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "valid_at", "recorded_at")
-	ref, at := p.subject(), p.point()
+	p := parseParams(r, "ref", "at")
+	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
 	o, err := a.cfg.Query.Owners(r.Context(), ref, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, o)
+	a.answer(w, r, o, err)
 }
 
 func (a *API) related(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "predicate", "valid_at", "recorded_at")
-	ref, predicate, at := p.subject(), p.text("predicate", maxPredicateBytes), p.point()
+	p := parseParams(r, "ref", "predicate", "direction", "depth", "at")
+	ref, predicate, at := p.subject(), p.text("predicate", maxPredicateBytes), p.when("at")
+	direction, depth := p.text("direction", 8), p.number("depth", query.MaxDepth)
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	rel, err := a.cfg.Query.Related(r.Context(), ref, predicate, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, rel)
+	rel, err := a.cfg.Query.Related(r.Context(), ref, predicate, direction, depth, at)
+	a.answer(w, r, rel, err)
 }
 
-// changes answers one page of "what changed". The authentication it follows
-// ran on this request, so a page token never stands in for it, and the token
-// is only input, bounded and decoded by the query layer (C-API-6).
-func (a *API) changesPage(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "since", "until", "axis", "limit", "page_token")
-	req := query.ChangesRequest{
-		Ref: p.text("ref", maxRefBytes), Since: p.when("since"), Until: p.when("until"),
-		Axis: query.Axis(p.text("axis", 16)), PageToken: p.text("page_token", maxPageTokenBytes),
+func (a *API) changes(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+	p := parseParams(r, "ref", "since", "until", "limit")
+	ref, since, until := p.text("ref", maxRefBytes), p.when("since"), p.when("until")
+	limit := p.number("limit", query.MaxChangesLimit)
+	if p.err != "" {
+		badRequest(w, r, "invalid_request", p.err)
+		return
 	}
-	if v := p.text("limit", 8); v != "" && p.err == "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > contracts.MaxChangesLimit {
-			p.err = fmt.Sprintf("parameter limit must be a number from 1 to %d", contracts.MaxChangesLimit)
-		}
-		req.Limit = n
+	c, err := a.cfg.Query.Changes(r.Context(), ref, since, until, limit)
+	a.answer(w, r, c, err)
+}
+
+// findAnswer is the answer to /v1/find: an object, so fields can be added.
+type findAnswer struct {
+	Matches []query.Match `json:"matches"`
+}
+
+func (a *API) find(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+	p := parseParams(r, "q", "kind", "limit")
+	text, kind, limit := p.text("q", maxRefBytes), p.text("kind", maxPredicateBytes), p.number("limit", query.MaxFindLimit)
+	if text == "" && p.err == "" {
+		p.err = "parameter q is required"
 	}
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	c, err := a.cfg.Query.Changes(r.Context(), req)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, c)
+	ms, err := a.cfg.Query.Find(r.Context(), text, kind, limit)
+	a.answer(w, r, findAnswer{Matches: ms}, err)
 }
 
 // syncAccepted is the answer to a sync request.
