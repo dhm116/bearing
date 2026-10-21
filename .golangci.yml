@@ -55,11 +55,10 @@ linters:
           allow:
             - bearing.example/internal/duckstore
             - bearing.example/internal/fakes
-            - bearing.example/internal/memstore
             - bearing.example/internal/testkit
           deny:
             - pkg: bearing.example/internal
-              desc: test against duckstore, memstore, internal/testkit or a contracts fake
+              desc: test against duckstore, internal/testkit or a fake
         # Production code never imports testkit (AGENTS.md, Style guide).
         testkit:
           files:

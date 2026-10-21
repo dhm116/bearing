@@ -56,14 +56,3 @@ func TestUUIDv7SeedMovesPastAnIDIssuedElsewhere(t *testing.T) {
 		t.Fatal("got no error, want one for a seed that isn't a UUIDv7")
 	}
 }
-
-func TestUUIDv7Time(t *testing.T) {
-	at := time.Date(2026, 9, 28, 1, 30, 2, 345_000_000, time.UTC)
-	id := NewUUIDv7Source(func() time.Time { return at }, bytes.NewReader(make([]byte, 64))).NewID()
-	if got, err := UUIDv7Time(id); err != nil || !got.Equal(at) {
-		t.Fatalf("got %s, %v, want %s", got, err, at)
-	}
-	if _, err := UUIDv7Time("00000000-0000-4000-8000-000000000001"); err == nil {
-		t.Fatal("got no error, want one for a version 4 UUID")
-	}
-}

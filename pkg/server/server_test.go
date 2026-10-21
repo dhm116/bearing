@@ -443,25 +443,6 @@ func TestServerDoesNotGiveUpWhileTheStoreIsDown(t *testing.T) {
 	}
 }
 
-func TestServerKeepsTryingWhenAnotherApplyLandsFirst(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
-	h.ap.fail = func(_ applied, n int) error {
-		if n <= 3 {
-			return contracts.ErrStale
-		}
-		return nil
-	}
-	h.emitted(testSource, "a", 1)
-	h.start()
-	waitFor(t, "the event to be applied", func() bool { return h.drained(testSource) })
-	if n := len(h.entries("core/dead_letter")); n != 0 {
-		t.Fatalf("%d dead letters for contention, want none", n)
-	}
-	if got := len(h.ap.called()); got != 4 {
-		t.Errorf("got %d tries, want 4", got)
-	}
-}
-
 func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 	sources := []string{"src-a", "src-b"}
 	h := newHarness(t, func(c *Config) {

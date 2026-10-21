@@ -134,8 +134,8 @@ type PartitionInfo struct {
 // Events are ordered within a partition only. A consumer reads a partition
 // after the offset its group last committed, processes the entries, and
 // commits the last offset it finished. Delivery is therefore at least once,
-// and the consumer's own idempotency (GraphStore.Apply's processed-event
-// mark) makes a repeat harmless. The log does not hand partitions to
+// and the consumer's own idempotency (graph.Store.Ingest skips an
+// observation ID it already holds) makes a repeat harmless. The log does not hand partitions to
 // consumers or lock them: two consumers of one group on one partition would
 // process out of order, so the caller runs one. A new group starts at
 // the oldest retained entry; a group that has committed and sits below a
@@ -155,8 +155,8 @@ type EventLog interface {
 	// position with Duplicate set, whatever else differs; an ID repeated in
 	// one call is a duplicate of its first use. Duplicates are found for as
 	// long as the original is retained: after Trim removes it, the same ID
-	// appends again, and GraphStore.Apply's processed-event mark is what
-	// stops a second apply. The result has one entry per event, in order. It
+	// appends again, and the graph store's observation IDs are what stop a
+	// second apply. The result has one entry per event, in order. It
 	// fails with ErrInvalidEvent if the batch or any event breaks
 	// CheckEvents.
 	Append(ctx context.Context, events []Event) ([]Appended, error)

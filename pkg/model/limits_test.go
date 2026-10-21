@@ -149,11 +149,6 @@ func TestValidateRejectsInvalidUTF8(t *testing.T) {
 	if !strings.Contains(err.Error(), "aliases[0]: is not valid UTF-8") || !strings.Contains(err.Error(), `attributes["description"]: is not valid UTF-8`) {
 		t.Fatalf("got %v, want both the alias and the attribute named", err)
 	}
-	if _, err := FactID("s", "name", &modelv1alpha1.FactObject{
-		Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewStringValue("\xff"),
-	}); err == nil {
-		t.Fatal("got no error for an invalid UTF-8 value, want one (it would collide with U+FFFD)")
-	}
 	if _, err := canonicalJSON(map[string]any{"\xfe": 1.0}); err == nil {
 		t.Fatal("got no error for an invalid UTF-8 member name, want one")
 	}

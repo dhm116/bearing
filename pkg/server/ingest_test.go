@@ -24,8 +24,8 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/duckstore"
 	"bearing.example/internal/fakes"
-	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/contracts"
@@ -53,7 +53,7 @@ var epoch = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 // rig is an Ingest over an in-memory event log with a fake clock.
 type rig struct {
 	t     *testing.T
-	log   *memstore.Store
+	log   *duckstore.Store
 	clock *testkit.FakeClock
 	in    *Ingest
 	srv   *httptest.Server
@@ -65,7 +65,7 @@ func newRig(t *testing.T, mod ...func(*IngestConfig)) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, log: memstore.New(), clock: testkit.NewClock(epoch)}
+	r := &rig{t: t, log: newDuck(t, time.Now), clock: testkit.NewClock(epoch)}
 	var n atomic.Int64
 	cfg := IngestConfig{
 		Log:          r.log,
@@ -284,7 +284,7 @@ func (s slowLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.
 }
 
 func TestIngestSendsNoAnswerUntilTheEventIsInTheLog(t *testing.T) {
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	slow := slowLog{EventLog: log, entered: make(chan struct{}), release: make(chan struct{})}
 	r := newRig(t, func(c *IngestConfig) { c.Log = slow })
 	body := []byte(`{}`)
@@ -515,7 +515,7 @@ func TestNewIngestRefusesWhatCannotBeRouted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	ok := WebhookSource{Name: source, Signature: decl, Secret: []byte(secret)}
 	for _, tt := range []struct {
 		name string
@@ -796,7 +796,7 @@ func (g gateLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.
 // More deliveries at once than the cap are turned away before their body is
 // read, whatever the path, and a freed slot is used again (C-INGEST-4).
 func TestIngestTurnsAwayDeliveriesPastTheInFlightCap(t *testing.T) {
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	gate := gateLog{EventLog: log, entered: make(chan struct{}, 2), release: make(chan struct{})}
 	r := newRig(t, func(c *IngestConfig) { c.Log = gate; c.MaxInFlight = 2 })
 	first, second := []byte(`{"n":1}`), []byte(`{"n":2}`)

@@ -23,15 +23,13 @@ COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpk
 # cover, covergate-base and covergate-report run every test in one go, as
 # `make check` does.
 #
-#   resolver  pkg/resolver, the longest package
-#   packages  every other package (go list, so a new package lands here)
+#   packages  every package; add a shard here when one package grows slow
 #
 # Each shard writes its own profile; the gate merges them (a block is covered
 # if any shard covers it) and compares with the same shards at the merge base.
-SHARDS := resolver packages
+SHARDS := packages
 COVER_ARGS_ := ./...
-COVER_ARGS_resolver := ./pkg/resolver/
-COVER_ARGS_packages := $$(go list ./... | grep -vxF "$$(go list -m)/pkg/resolver")
+COVER_ARGS_packages := ./...
 SHARD ?=
 COVER_ARGS = $(COVER_ARGS_$(SHARD))
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
@@ -100,10 +98,8 @@ cover: shard-check
 shard-check:
 	@[ -z '$(SHARD)' ] || case ' $(SHARDS) ' in *' $(SHARD) '*) ;; *) echo 'SHARD=$(SHARD) is not one of: $(SHARDS)'; exit 1;; esac
 
-# The packages that take locks or run goroutines. pkg/resolver takes about 450
-# seconds under -race, far more than the rest together, so it stays out of the
-# CI run (about five minutes).
-RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
+# The packages that take locks or run goroutines.
+RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/duckstore/ ./internal/fakes/ ./internal/testkit/
 
 # race runs RACE_PKGS under the race detector, which needs cgo and a C
 # compiler.

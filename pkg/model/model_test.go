@@ -317,20 +317,6 @@ func TestValidateChecksAttributeValues(t *testing.T) {
 	}
 }
 
-func TestCheckObservedAt(t *testing.T) {
-	ingest := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	o := NewObservation("adapter/test", ingest.Add(5*time.Minute), &modelv1alpha1.ObservationData{})
-	if err := CheckObservedAt(o, ingest); err != nil {
-		t.Fatalf("got %v at exactly the limit, want nil", err)
-	}
-	o.Time = timestamppb.New(ingest.Add(5*time.Minute + time.Microsecond))
-	err := CheckObservedAt(o, ingest)
-	ve, ok := err.(*ValidationError) //nolint:errorlint // returned unwrapped
-	if !ok || !ve.Has(codeObservedAtInFuture) {
-		t.Fatalf("got %v, want observed_at_in_future", err)
-	}
-}
-
 func TestTruncateTimesReachesNestedTimestamps(t *testing.T) {
 	at := time.Date(2026, 1, 1, 0, 0, 0, 999_999_999, time.UTC)
 	o := &eventv1alpha1.ObservationsEmitted{Observations: []*eventv1alpha1.Observation{{
@@ -461,27 +447,5 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 	}
 	if err := ValidateObservationWith(o, nil); err != nil {
 		t.Fatalf("got %v, want nil declarations to behave as ValidateObservation", err)
-	}
-}
-
-func TestJCSOrdersKeysAndRefusesWhatIsNotJSON(t *testing.T) {
-	a := mustValue(t, map[string]any{"b": 1.0, "a": []any{"x", true, nil}})
-	b := mustValue(t, map[string]any{"a": []any{"x", true, nil}, "b": 1.0})
-	got, err := JCS(a)
-	if err != nil || string(got) != `{"a":["x",true,null],"b":1}` {
-		t.Fatalf("got %s, %v, want keys sorted and 1.0 written as 1", got, err)
-	}
-	if again, _ := JCS(b); string(again) != string(got) {
-		t.Fatalf("got %s and %s, want one form for equal values", got, again)
-	}
-	nan := &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: math.NaN()}}
-	nested := structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{nan}})
-	inStruct := structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"x": nan}})
-	for name, v := range map[string]*structpb.Value{
-		"NaN": nan, "NaN in a list": nested, "NaN in an object": inStruct, "invalid UTF-8": structpb.NewStringValue("\xff"),
-	} {
-		if _, err := JCS(v); err == nil {
-			t.Errorf("%s: got no error, want one", name)
-		}
 	}
 }

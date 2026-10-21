@@ -83,17 +83,3 @@ func (g *UUIDv7Source) Seed(last string) error {
 	}
 	return nil
 }
-
-// UUIDv7Time returns the timestamp of a canonical UUIDv7, to the
-// millisecond.
-func UUIDv7Time(id string) (time.Time, error) {
-	if !ValidSubjectID(id) {
-		return time.Time{}, fmt.Errorf("model: %q is not a canonical UUIDv7", id)
-	}
-	b, _ := hex.DecodeString(strings.ReplaceAll(id[:13], "-", ""))
-	var ms int64 // 48 bits, so it can't overflow
-	for _, c := range b[:6] {
-		ms = ms<<8 | int64(c)
-	}
-	return time.UnixMilli(ms).UTC(), nil
-}

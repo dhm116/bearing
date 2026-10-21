@@ -37,10 +37,6 @@ func mustType(m proto.Message) string {
 	return typ
 }
 
-// staleWait is how long a worker waits before it resolves again after another
-// apply landed first.
-const staleWait = 100 * time.Millisecond
-
 // runWorkers reads the log until ctx ends. Each pass it finds the partitions
 // with events the group has not applied and gives each to a worker; a
 // partition is never read by two workers at once, since its events are
@@ -187,14 +183,6 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 			return ctx.Err()
 		}
 		workerEvents.Add(ctx, 1, workerAttrs(e.Type, workerRetried))
-		if errors.Is(err, contracts.ErrStale) {
-			// Another apply landed first: contention, not a fault in the event,
-			// so it does not count toward giving up.
-			if err := s.sleep(ctx, staleWait); err != nil {
-				return err
-			}
-			continue
-		}
 		attempts++
 		log.WarnContext(ctx, "handling an event failed", "event", e.ID, "partition", string(e.Partition),
 			"type", e.Type, "attempt", attempts, "error", cleanErrorText(err.Error()))
@@ -256,7 +244,7 @@ func (s *Server) storeDown(ctx context.Context) error {
 // handler for yet are skipped, and counted, so a type added ahead of its
 // handler cannot hold a partition.
 func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, err error) {
-	// An in-process adapter, the resolver or a decoder that panics on one
+	// An in-process adapter, the store or a decoder that panics on one
 	// event must not take the server down: a restart would read the same
 	// event and panic again, and no event would ever reach its dead letter.
 	// The panic becomes an error that the retries and the dead letter handle.
