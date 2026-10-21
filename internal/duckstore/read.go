@@ -20,6 +20,9 @@ const (
 	factCols = `f.id, se.cluster_id, f.predicate, oe.cluster_id, CAST(f.value AS VARCHAR),
 	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
 	factFrom = `fact f JOIN entity se ON se.id = f.subject_id LEFT JOIN entity oe ON oe.id = f.object_id`
+	// notSelfLoop hides a relation whose ends are in one cluster: an artifact
+	// of two records joining, not something a source said.
+	notSelfLoop = `(oe.cluster_id IS NULL OR oe.cluster_id <> se.cluster_id)`
 )
 
 // Entity implements graph.Graph.
@@ -334,7 +337,7 @@ func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Ch
 			w += ` AND (se.cluster_id = ? OR oe.cluster_id = ?)`
 			a = append(a, string(subject), string(subject))
 		}
-		return w + ` AND f.status = 'asserted'`, a
+		return w + ` AND f.status = 'asserted' AND ` + notSelfLoop, a
 	}
 	ow, oa := window("valid_from")
 	cw, ca := window("valid_to")
@@ -366,7 +369,7 @@ SELECT c.change_kind, c.changed_at, `+factCols+` FROM (
 }
 
 // holdsAt builds the condition for facts about alias a that held at at (zero
-// means now), asserted only when assertedOnly.
+// means now), asserted only when assertedOnly, with self-loops left out.
 func holdsAt(a string, at time.Time, assertedOnly bool) (string, []any) {
 	var w string
 	var args []any
@@ -379,7 +382,7 @@ func holdsAt(a string, at time.Time, assertedOnly bool) (string, []any) {
 	if assertedOnly {
 		w += ` AND ` + a + `.status = 'asserted'`
 	}
-	return w, args
+	return w + ` AND ` + notSelfLoop, args
 }
 
 // attachSources fills Sources for all facts with one query.

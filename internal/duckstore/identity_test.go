@@ -100,7 +100,7 @@ func TestIngestSharedKeyLinksRecordsAndReadsAnswerForTheCluster(t *testing.T) {
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
 	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", attrs("language", "Go")))            // id-4, fact id-5
 	r := ingestOK(t, s, "bs", obs("o3", 3, "Component", "bs:comp/api", aliases("gh:repo/api")))
-	if r.Entities != 0 || r.Merges != 0 {
+	if r.Entities != 0 {
 		t.Fatalf("got %+v, want no new record and no merge", r)
 	}
 	ls := links(t, s, graph.LinkFilter{Entity: "bs:comp/api"})
@@ -391,5 +391,35 @@ func TestOpenMovesAFileWithMergedIntoToClusters(t *testing.T) {
 	}
 	if _, err := s.db.ExecContext(ctx, `SELECT merged_into FROM entity`); err == nil {
 		t.Error("got merged_into still there, want it dropped")
+	}
+}
+
+func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
+	ctx := t.Context()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
+	ingestOK(t, s, "k", obs("o2", 1, "Component", "k:a/db"))
+	counts := func() (facts, walked, changes int) {
+		t.Helper()
+		fs, err := s.Facts(ctx, graph.FactFilter{Predicate: "depends_on"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ws, err := s.Walk(ctx, graph.WalkRequest{From: "id-1", Predicates: []string{"depends_on"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := s.Changes(ctx, graph.ChangesRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(fs), len(ws), len(cs)
+	}
+	if f, w, c := counts(); f != 1 || w != 1 || c != 1 {
+		t.Fatalf("before the join: got %d facts, %d steps, %d changes, want 1 of each", f, w, c)
+	}
+	link(t, s, sameAs("id-1", "id-2", graph.Asserted, "rule/same"))
+	if f, w, c := counts(); f != 0 || w != 0 || c != 0 {
+		t.Errorf("after the join: got %d facts, %d steps, %d changes, want none: the fact now points at its own cluster", f, w, c)
 	}
 }

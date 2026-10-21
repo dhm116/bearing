@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -58,10 +61,14 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 			return nil
 		}
 		complete := p.CompleteSync
+		var started time.Time
+		if p.Done {
+			started = e.Time
+		}
 		if rerun {
 			complete = nil
 		}
-		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete)
+		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete, started)
 		rerun = rerun || dup
 		return err
 	})
@@ -100,18 +107,21 @@ func (s *Server) handleWebhook(ctx context.Context, e store.Entry) (string, erro
 	if len(res.Observations) == 0 {
 		return workerApplied, nil
 	}
-	_, err = s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil)
+	_, err = s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil, time.Time{})
 	return workerApplied, err
 }
 
 // appendObservations puts one page of adapter output on the log and reports
 // whether the log already held a page with that ID. The core sets the
 // observations' configured source; adapters never do.
-func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync) (duplicate bool, err error) {
+func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync, syncStarted time.Time) (duplicate bool, err error) {
 	for _, o := range obs {
 		o.Bearingsource = source
 	}
 	msg := &eventv1alpha1.ObservationsEmitted{Source: source, TriggerEventId: trigger, Observations: obs, Done: done, CompleteSync: complete}
+	if !syncStarted.IsZero() {
+		msg.SyncStarted = timestamppb.New(syncStarted)
+	}
 	typ, _ := model.EventType(msg)
 	data, err := model.EncodeJSON(msg)
 	if err != nil {
@@ -141,8 +151,18 @@ func (s *Server) handleObservations(ctx context.Context, e store.Entry) error {
 	if msg.GetSource() != string(e.Partition) {
 		return fmt.Errorf("event %s is in partition %q but names source %q", e.ID, e.Partition, model.Clip(msg.GetSource()))
 	}
-	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations()); err != nil {
+	var done Completion
+	if msg.GetSyncStarted() != nil {
+		done.Started = msg.GetSyncStarted().AsTime()
+		for _, k := range msg.GetCompleteSync().GetKinds() {
+			done.Kinds = append(done.Kinds, model.Kind(k))
+		}
+	}
+	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations(), done); err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)
+	}
+	if msg.GetDone() && msg.GetSyncStarted() != nil {
+		s.runMatching(ctx, msg.GetSource())
 	}
 	return nil
 }

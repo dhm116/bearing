@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bearing.example/pkg/model"
 )
 
 // goodSettings is a settings file that validates, as JSON, for tests to break
@@ -262,5 +264,59 @@ func TestSettingsAcceptAnAdapterAtAnAddress(t *testing.T) {
 	}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAuthorityOverridesWinOverTheDeclaration(t *testing.T) {
+	t.Parallel()
+	declared := func(k model.Key) bool { return k == "github:user_node/1" }
+	got := authority(declared, map[string]bool{"github:user_login": true, "github:user_node": false})
+	for key, want := range map[model.Key]bool{
+		"github:user_login/jane": true,  // the override vouches
+		"github:user_node/1":     false, // the override withdraws what the declaration vouches for
+		"github:user_node/2":     false,
+		"gitlab:user_login/jane": false,
+	} {
+		if v := got(key); v != want {
+			t.Errorf("%s: got %v, want %v", key, v, want)
+		}
+	}
+	if !authority(declared, nil)("github:user_node/1") {
+		t.Error("without overrides the declaration decides")
+	}
+}
+
+func TestMatchingSettingsBecomeAMatchConfig(t *testing.T) {
+	t.Parallel()
+	cfg, err := MatchingSettings{
+		Rules:     []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}},
+		ProposeAt: 0.7, HalfLife: map[string]string{"Team": "P90D"},
+	}.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Name != "team" || cfg.ProposeAt != 0.7 || cfg.HalfLife["Team"] != 90*24*time.Hour {
+		t.Errorf("got %+v", cfg)
+	}
+	for name, m := range map[string]MatchingSettings{
+		"a rule without a pattern": {Rules: []MatchRule{{Name: "x", A: "a:{name}", B: "b"}}},
+		"a score over 1":           {Floor: 1.5},
+		"an unknown kind":          {HalfLife: map[string]string{"Widget": "P1D"}},
+		"a bad duration":           {HalfLife: map[string]string{"Team": "90 days"}},
+	} {
+		if _, err := m.config(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestSettingsRefuseAnAuthorityForAnUnknownSource(t *testing.T) {
+	t.Parallel()
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"sources"`, `"authority": {"nope": {"github:user_login": true}}, "sources"`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "not a source") {
+		t.Errorf("got %v, want a refusal naming the unknown source", err)
 	}
 }

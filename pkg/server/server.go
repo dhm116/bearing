@@ -14,6 +14,7 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/store"
 )
@@ -65,7 +66,22 @@ type Source struct {
 // Applier writes one page of a source's observations into the graph, all or
 // nothing. StoreApplier is the one the server runs.
 type Applier interface {
-	Apply(ctx context.Context, source string, obs []*eventv1alpha1.Observation) error
+	Apply(ctx context.Context, source string, obs []*eventv1alpha1.Observation, done Completion) error
+}
+
+// Completion is what a sync's last page says about the sync: the kinds it
+// listed in full, and when it started. The zero value means the page ends no
+// sync.
+type Completion struct {
+	Kinds   []model.Kind
+	Started time.Time
+}
+
+// Matching is how the server joins records after a sync (pkg/match): it runs
+// match.Run on Graph with Config. A nil *Matching turns matching off.
+type Matching struct {
+	Graph  match.IdentityGraph
+	Config match.Config
 }
 
 // Config configures a Server. Zero fields take the defaults above.
@@ -74,6 +90,9 @@ type Config struct {
 	Log store.EventLog
 	// Applier applies observations.
 	Applier Applier
+	// Matching runs after the last page of each sync is applied; nil means
+	// never.
+	Matching *Matching
 	// Sources are the configured sources.
 	Sources []Source
 
@@ -127,6 +146,8 @@ type Server struct {
 	syncs  map[string]*syncSlot
 	warned map[string]bool
 	wake   chan struct{}
+	// matchMu keeps two sources' syncs from matching at once.
+	matchMu sync.Mutex
 
 	oldestUnapplied atomic.Int64 // seconds
 	deadLetters     atomic.Int64

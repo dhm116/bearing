@@ -118,18 +118,7 @@ func authoritative(t *testing.T, adapter string) func(model.Key) bool {
 	if err := model.DecodeJSON(b, d); err != nil {
 		t.Fatal(err)
 	}
-	vouched := map[string]bool{}
-	for _, k := range d.GetKinds() {
-		for _, l := range k.GetLinks() {
-			if l.GetAuthority().GetAuthoritative() {
-				vouched[l.GetIssuerType()+":"+l.GetKeyType()] = true
-			}
-		}
-	}
-	return func(k model.Key) bool {
-		issuer, keyType, _, err := k.Parse()
-		return err == nil && vouched[issuer+":"+keyType]
-	}
+	return model.LinkAuthority(d)
 }
 
 // id resolves a key or entity ID to the entity's ID.
@@ -298,7 +287,7 @@ func TestAcmeSecondSyncOpensNothing(t *testing.T) {
 	// Later: new observations that only confirm what holds.
 	w.clock.Advance(time.Hour)
 	later := w.syncGitHub()
-	if later.Opened != 0 || later.Closed != 0 || later.Refreshed == 0 || later.Merges != 0 || later.Entities != 0 {
+	if later.Opened != 0 || later.Closed != 0 || later.Refreshed == 0 || later.Entities != 0 {
 		t.Errorf("repeat an hour later: %+v, want only refreshes", later)
 	}
 }

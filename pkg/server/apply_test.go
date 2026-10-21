@@ -18,14 +18,14 @@ func TestStoreApplierIngestsAValidPageAndRefusesAnInvalidOne(t *testing.T) {
 	bad := validObservation(t)
 	bad.Id = "bad"
 	bad.GetData().GetEntity().Key = ""
-	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{good, bad}); err == nil {
+	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{good, bad}, Completion{}); err == nil {
 		t.Fatal("applied a page with an invalid observation")
 	}
 	key := good.GetData().GetEntity().GetKey()
 	if _, err := d.Entity(t.Context(), key); err == nil {
 		t.Fatal("a refused page wrote its valid observation")
 	}
-	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{good}); err != nil {
+	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{good}, Completion{}); err != nil {
 		t.Fatal(err)
 	}
 	e, err := d.Entity(t.Context(), key)
@@ -44,13 +44,13 @@ func TestStoreApplierChecksAttributesAgainstTheSourcesDeclaration(t *testing.T) 
 	declared := map[string]map[string]model.Predicate{testSource: {"cluster_zone": {
 		Name: "cluster_zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_BOOL, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_ONE,
 	}}}
-	if err := (StoreApplier{Store: newDuck(t, time.Now), Declared: declared}).Apply(t.Context(), testSource, page); err == nil {
+	if err := (StoreApplier{Store: newDuck(t, time.Now), Declared: declared}).Apply(t.Context(), testSource, page, Completion{}); err == nil {
 		t.Fatal("applied a string where the source declares a bool")
 	}
 	declared[testSource]["cluster_zone"] = model.Predicate{
 		Name: "cluster_zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_ONE,
 	}
-	if err := (StoreApplier{Store: newDuck(t, time.Now), Declared: declared}).Apply(t.Context(), testSource, page); err != nil {
+	if err := (StoreApplier{Store: newDuck(t, time.Now), Declared: declared}).Apply(t.Context(), testSource, page, Completion{}); err != nil {
 		t.Fatalf("got %v, want the declared string accepted", err)
 	}
 }

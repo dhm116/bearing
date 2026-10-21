@@ -85,6 +85,9 @@ message ObservationsEmitted {
   bool done = 4;
   // On the last page, the kinds the sync visited completely.
   bearing.model.v1alpha1.CompleteSync complete_sync = 5;
+  // On the last page of a sync, when the sync started: the time of its
+  // SyncRequested event. A webhook's page leaves it unset.
+  google.protobuf.Timestamp sync_started = 6;
 }
 
 // Actor is who asked for an event: a person, an agent acting for one, or a

@@ -182,3 +182,24 @@ func TestDeclaredAttributesKeepsOnlyUnregisteredFields(t *testing.T) {
 		t.Fatalf("got %d attributes from no declaration, want 0", n)
 	}
 }
+
+func TestLinkAuthorityVouchesOnlyForDeclaredAuthoritativeLinks(t *testing.T) {
+	d := &modelv1alpha1.AdapterDeclaration{}
+	if err := DecodeJSON(readFixture(t, "../../testdata/declarations/authentik.json"), d); err != nil {
+		t.Fatal(err)
+	}
+	vouches := LinkAuthority(d)
+	for key, want := range map[Key]bool{
+		"github:user_node/U_1": true,  // declared authoritative
+		"github:user/jane":     false, // declared, not authoritative
+		"gitlab:user_node/1":   false, // another issuer
+		"not a key":            false,
+	} {
+		if got := vouches(key); got != want {
+			t.Errorf("%s: got %v, want %v", key, got, want)
+		}
+	}
+	if LinkAuthority(nil)("github:user_node/U_1") {
+		t.Error("a nil declaration vouched for a key")
+	}
+}

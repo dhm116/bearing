@@ -124,8 +124,10 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	}()
 	var sources []server.Source
 	declared := map[string]map[string]model.Predicate{}
+	authorities := map[string]func(model.Key) bool{}
 	for _, p := range plans {
 		declared[p.name] = model.DeclaredAttributes(p.decl)
+		authorities[p.name] = authority(model.LinkAuthority(p.decl), s.Authority[p.name])
 		var a adapter.Adapter = p.remote
 		if p.remote == nil {
 			if sockets == "" {
@@ -143,9 +145,14 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
+	matchCfg, err := s.Matching.config()
+	if err != nil {
+		return nil, err
+	}
 	srv, err := server.New(server.Config{
-		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared},
-		Sources: sources, Clock: env.Clock,
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
+		Matching: &server.Matching{Graph: st.Graph(), Config: matchCfg},
+		Sources:  sources, Clock: env.Clock,
 	})
 	if err != nil {
 		return nil, err

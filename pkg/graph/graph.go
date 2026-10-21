@@ -80,9 +80,8 @@ type IngestResult struct {
 	// Observations is how many were new; Duplicates how many were already
 	// stored and skipped.
 	Observations, Duplicates int
-	// Entities is how many entities were created, Merges how many were merged
-	// into another.
-	Entities, Merges int
+	// Entities is how many entities were created.
+	Entities int
 	// Opened, Refreshed and Closed count facts.
 	Opened, Refreshed, Closed int
 }

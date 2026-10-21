@@ -396,7 +396,10 @@ type ObservationsEmitted struct {
 	// The last page of a sync: done.
 	Done bool `protobuf:"varint,4,opt,name=done,proto3" json:"done,omitempty"`
 	// On the last page, the kinds the sync visited completely.
-	CompleteSync  *v1alpha1.CompleteSync `protobuf:"bytes,5,opt,name=complete_sync,json=completeSync,proto3" json:"complete_sync,omitempty"`
+	CompleteSync *v1alpha1.CompleteSync `protobuf:"bytes,5,opt,name=complete_sync,json=completeSync,proto3" json:"complete_sync,omitempty"`
+	// On the last page of a sync, when the sync started: the time of its
+	// SyncRequested event. A webhook's page leaves it unset.
+	SyncStarted   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=sync_started,json=syncStarted,proto3" json:"sync_started,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -462,6 +465,13 @@ func (x *ObservationsEmitted) GetDone() bool {
 func (x *ObservationsEmitted) GetCompleteSync() *v1alpha1.CompleteSync {
 	if x != nil {
 		return x.CompleteSync
+	}
+	return nil
+}
+
+func (x *ObservationsEmitted) GetSyncStarted() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SyncStarted
 	}
 	return nil
 }
@@ -1812,13 +1822,14 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"receivedAt\"2\n" +
 	"\x06Header\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\xff\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xbe\x02\n" +
 	"\x13ObservationsEmitted\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12(\n" +
 	"\x10trigger_event_id\x18\x02 \x01(\tR\x0etriggerEventId\x12G\n" +
 	"\fobservations\x18\x03 \x03(\v2#.bearing.event.v1alpha1.ObservationR\fobservations\x12\x12\n" +
 	"\x04done\x18\x04 \x01(\bR\x04done\x12I\n" +
-	"\rcomplete_sync\x18\x05 \x01(\v2$.bearing.model.v1alpha1.CompleteSyncR\fcompleteSync\"7\n" +
+	"\rcomplete_sync\x18\x05 \x01(\v2$.bearing.model.v1alpha1.CompleteSyncR\fcompleteSync\x12=\n" +
+	"\fsync_started\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vsyncStarted\"7\n" +
 	"\x05Actor\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\bR\x05agent\"\xae\x01\n" +
@@ -1979,34 +1990,35 @@ var file_bearing_event_v1alpha1_event_proto_depIdxs = []int32{
 	24, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
 	1,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
 	26, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
-	6,  // 7: bearing.event.v1alpha1.MergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	6,  // 8: bearing.event.v1alpha1.UnmergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	6,  // 9: bearing.event.v1alpha1.DistinctFromSet.actor:type_name -> bearing.event.v1alpha1.Actor
-	6,  // 10: bearing.event.v1alpha1.DistinctFromCleared.actor:type_name -> bearing.event.v1alpha1.Actor
-	6,  // 11: bearing.event.v1alpha1.ClaimWithdrawn.actor:type_name -> bearing.event.v1alpha1.Actor
-	27, // 12: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
-	6,  // 13: bearing.event.v1alpha1.OverrideSet.actor:type_name -> bearing.event.v1alpha1.Actor
-	27, // 14: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
-	24, // 15: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
-	24, // 16: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
-	6,  // 17: bearing.event.v1alpha1.OverrideCleared.actor:type_name -> bearing.event.v1alpha1.Actor
-	24, // 18: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
-	24, // 19: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
-	28, // 20: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	28, // 21: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
-	24, // 22: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
-	6,  // 23: bearing.event.v1alpha1.CompactionRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	29, // 24: bearing.event.v1alpha1.DeclarationChanged.declaration:type_name -> bearing.model.v1alpha1.AdapterDeclaration
-	6,  // 25: bearing.event.v1alpha1.ConfigApplied.actor:type_name -> bearing.event.v1alpha1.Actor
-	23, // 26: bearing.event.v1alpha1.ConfigApplied.changes:type_name -> bearing.event.v1alpha1.ConfigChange
-	24, // 27: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
-	0,  // 28: bearing.event.v1alpha1.ConfigChange.type:type_name -> bearing.event.v1alpha1.ConfigChangeType
-	30, // 29: bearing.event.v1alpha1.ConfigChange.resource:type_name -> bearing.config.v1alpha1.Resource
-	30, // [30:30] is the sub-list for method output_type
-	30, // [30:30] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	24, // 7: bearing.event.v1alpha1.ObservationsEmitted.sync_started:type_name -> google.protobuf.Timestamp
+	6,  // 8: bearing.event.v1alpha1.MergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 9: bearing.event.v1alpha1.UnmergeRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 10: bearing.event.v1alpha1.DistinctFromSet.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 11: bearing.event.v1alpha1.DistinctFromCleared.actor:type_name -> bearing.event.v1alpha1.Actor
+	6,  // 12: bearing.event.v1alpha1.ClaimWithdrawn.actor:type_name -> bearing.event.v1alpha1.Actor
+	27, // 13: bearing.event.v1alpha1.ClaimWithdrawn.object:type_name -> bearing.model.v1alpha1.FactObject
+	6,  // 14: bearing.event.v1alpha1.OverrideSet.actor:type_name -> bearing.event.v1alpha1.Actor
+	27, // 15: bearing.event.v1alpha1.OverrideSet.objects:type_name -> bearing.model.v1alpha1.FactObject
+	24, // 16: bearing.event.v1alpha1.OverrideSet.valid_from:type_name -> google.protobuf.Timestamp
+	24, // 17: bearing.event.v1alpha1.OverrideSet.valid_to:type_name -> google.protobuf.Timestamp
+	6,  // 18: bearing.event.v1alpha1.OverrideCleared.actor:type_name -> bearing.event.v1alpha1.Actor
+	24, // 19: bearing.event.v1alpha1.ValidTimeBoundaryReached.at:type_name -> google.protobuf.Timestamp
+	24, // 20: bearing.event.v1alpha1.SubjectDeletionDerived.at:type_name -> google.protobuf.Timestamp
+	28, // 21: bearing.event.v1alpha1.ConflictOpened.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	28, // 22: bearing.event.v1alpha1.ConflictResolved.conflict:type_name -> bearing.model.v1alpha1.Conflict
+	24, // 23: bearing.event.v1alpha1.OverrideStale.override_recorded_at:type_name -> google.protobuf.Timestamp
+	6,  // 24: bearing.event.v1alpha1.CompactionRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	29, // 25: bearing.event.v1alpha1.DeclarationChanged.declaration:type_name -> bearing.model.v1alpha1.AdapterDeclaration
+	6,  // 26: bearing.event.v1alpha1.ConfigApplied.actor:type_name -> bearing.event.v1alpha1.Actor
+	23, // 27: bearing.event.v1alpha1.ConfigApplied.changes:type_name -> bearing.event.v1alpha1.ConfigChange
+	24, // 28: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
+	0,  // 29: bearing.event.v1alpha1.ConfigChange.type:type_name -> bearing.event.v1alpha1.ConfigChangeType
+	30, // 30: bearing.event.v1alpha1.ConfigChange.resource:type_name -> bearing.config.v1alpha1.Resource
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_bearing_event_v1alpha1_event_proto_init() }
