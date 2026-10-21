@@ -10,7 +10,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
@@ -70,10 +69,10 @@ func count[T any](ctx context.Context, out []T) {
 }
 
 // Ingest implements graph.Graph.
-func (g *graphStore) Ingest(ctx context.Context, source string, obs []*eventv1alpha1.Observation) (res graph.IngestResult, err error) {
+func (g *graphStore) Ingest(ctx context.Context, r graph.IngestRequest) (res graph.IngestResult, err error) {
 	err = g.observe(ctx, "ingest", func(ctx context.Context) error {
-		res, err = g.next.Ingest(ctx, source, obs)
-		count(ctx, obs)
+		res, err = g.next.Ingest(ctx, r)
+		count(ctx, r.Observations)
 		return err
 	})
 	return res, err
@@ -126,4 +125,39 @@ func (g *graphStore) Changes(ctx context.Context, r graph.ChangesRequest) (out [
 		return err
 	})
 	return out, err
+}
+
+// Records implements graph.Graph.
+func (g *graphStore) Records(ctx context.Context, kind model.Kind) (out []graph.Record, err error) {
+	err = g.observe(ctx, "records", func(ctx context.Context) error {
+		out, err = g.next.Records(ctx, kind)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Links implements graph.Graph.
+func (g *graphStore) Links(ctx context.Context, f graph.LinkFilter) (out []graph.Link, err error) {
+	err = g.observe(ctx, "links", func(ctx context.Context) error {
+		out, err = g.next.Links(ctx, f)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
+// Link implements graph.Graph.
+func (g *graphStore) Link(ctx context.Context, ps []graph.Proposal) (res graph.LinkResult, err error) {
+	err = g.observe(ctx, "link", func(ctx context.Context) error {
+		res, err = g.next.Link(ctx, ps)
+		count(ctx, ps)
+		return err
+	})
+	return res, err
+}
+
+// CloseLink implements graph.Graph.
+func (g *graphStore) CloseLink(ctx context.Context, id string, at time.Time) error {
+	return g.observe(ctx, "close_link", func(ctx context.Context) error { return g.next.CloseLink(ctx, id, at) })
 }

@@ -91,7 +91,7 @@ func (w *world) ingest(source string, obs []*eventv1alpha1.Observation) graph.In
 			w.t.Fatalf("%s: %v", o.GetId(), err)
 		}
 	}
-	res, err := w.store.Ingest(w.t.Context(), source, obs)
+	res, err := w.store.Ingest(w.t.Context(), graph.IngestRequest{Source: source, Observations: obs})
 	if err != nil {
 		w.t.Fatal(err)
 	}

@@ -73,7 +73,7 @@ func newQuerier(t *testing.T) *query.Querier {
 	t.Cleanup(func() { _ = s.Close() })
 	ingest := func(source string, obs ...*eventv1alpha1.Observation) {
 		t.Helper()
-		if _, err := s.Ingest(context.Background(), source, obs); err != nil {
+		if _, err := s.Ingest(context.Background(), graph.IngestRequest{Source: source, Observations: obs}); err != nil {
 			t.Fatal(err)
 		}
 	}

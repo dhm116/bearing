@@ -37,13 +37,15 @@ const (
 // facts, walk and changes. Implementations are safe for concurrent use.
 type Graph interface {
 	// Ingest validates nothing (callers validate with pkg/model first) and
-	// writes obs from one source in one transaction: each observation once
-	// by ID, the entities and keys it names, and the facts it opens, refreshes
-	// or closes. A failed Ingest writes nothing.
-	Ingest(ctx context.Context, source string, obs []*eventv1alpha1.Observation) (IngestResult, error)
+	// writes one source's observations in one transaction: each observation
+	// once by ID, the records and keys it names, the identity links its
+	// linked keys make (ADR 7), and the facts it opens, refreshes or closes.
+	// A failed Ingest writes nothing.
+	Ingest(ctx context.Context, r IngestRequest) (IngestResult, error)
 
-	// Entity returns the entity an entity ID or a key names, following
-	// merges. It fails with ErrNotFound when nothing matches.
+	// Entity returns the entity (a cluster of records, ADR 7) that an entity
+	// ID, a record ID or a key names. It fails with ErrNotFound when nothing
+	// matches.
 	Entity(ctx context.Context, ref string) (Entity, error)
 	// Find returns entities whose name or keys resemble query, best first.
 	// An empty kind matches every kind.
@@ -58,6 +60,19 @@ type Graph interface {
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
 	Changes(ctx context.Context, r ChangesRequest) ([]Change, error)
+
+	// Records returns the records of one kind (every kind when empty), for
+	// matchers to find candidate pairs in.
+	Records(ctx context.Context, kind model.Kind) ([]Record, error)
+	// Links returns the identity links matching f.
+	Links(ctx context.Context, f LinkFilter) ([]Link, error)
+	// Link records proposals, and assertions from rules the settings name: a
+	// new pair opens a link, a known one gains a deposit. Clusters are
+	// recomputed for the records an asserted link touches.
+	Link(ctx context.Context, ps []Proposal) (LinkResult, error)
+	// CloseLink ends a link at a time; a closed asserted same_as splits its
+	// cluster.
+	CloseLink(ctx context.Context, id string, at time.Time) error
 }
 
 // IngestResult counts what one Ingest wrote.
@@ -74,12 +89,28 @@ type IngestResult struct {
 
 // Entity is one thing: a service, a repository, a person, a team.
 type Entity struct {
+	// ID is the cluster's ID.
 	ID   EntityID
 	Kind model.Kind
 	// Name is for people to read; it is not unique.
 	Name string
-	// Keys are every key that names the entity, sorted.
+	// Keys are every key of every record in the cluster, sorted.
 	Keys []model.Key
+	// Records are the cluster's records, one per thing a source described.
+	Records []Record
+}
+
+// Record is one thing as one source described it: a key and its aliases,
+// under one entity ID. Records joined by asserted same_as links form an
+// Entity.
+type Record struct {
+	ID      EntityID
+	Cluster EntityID
+	Kind    model.Kind
+	Name    string
+	Keys    []model.Key
+	// Sources are the configured sources that observed the record.
+	Sources []string
 }
 
 // Match is one Find result.
@@ -187,4 +218,84 @@ type Change struct {
 	Kind ChangeKind
 	At   time.Time
 	Fact Fact
+}
+
+// IngestRequest is one Ingest call.
+type IngestRequest struct {
+	// Source is the configured source that delivered the observations.
+	Source       string
+	Observations []*eventv1alpha1.Observation
+	// Authoritative says whether the source vouches for a linked key, from
+	// its adapter declaration (model.LinkDeclaration.authority). A linked key
+	// it vouches for makes an asserted same_as link; any other, a proposed
+	// one. Nil vouches for none.
+	Authoritative func(linked model.Key) bool
+	// Complete lists the kinds this sync listed in full, set on a sync's last
+	// page. Records of those kinds that the source observed before
+	// SyncStarted and not since are gone from it: their facts from this
+	// source close.
+	Complete    []model.Kind
+	SyncStarted time.Time
+}
+
+// LinkKind is what an identity link says about two records.
+type LinkKind string
+
+const (
+	// SameAs says two records describe one thing.
+	SameAs LinkKind = "same_as"
+	// DistinctFrom says they don't, and keeps a matcher from proposing it.
+	DistinctFrom LinkKind = "distinct_from"
+)
+
+// Link is an identity link between two records (ADR 7).
+type Link struct {
+	ID   string
+	A, B EntityID
+	Kind LinkKind
+	// Status is Asserted (it joins clusters) or Proposed (it waits for
+	// review and joins nothing).
+	Status Status
+	// Rule names what made the link: "linked_ids", "shared_key", a rule from
+	// the settings, a matcher, or "person".
+	Rule string
+	// Deposits are the evidence over time, oldest first; matchers score
+	// them (pkg/match).
+	Deposits           []Deposit
+	ValidFrom, ValidTo time.Time
+}
+
+// Deposit is one piece of evidence for (or, when Against, against) a link.
+type Deposit struct {
+	At      time.Time
+	Weight  float64
+	Against bool
+	// ObservationID is the observation behind it, when there is one.
+	ObservationID string
+	// Features are a matcher's inputs and their contributions, as evidence.
+	Features map[string]float64
+}
+
+// LinkFilter selects links. Empty fields match anything.
+type LinkFilter struct {
+	// Entity matches links touching any record of this entity or record.
+	Entity     EntityID
+	Kind       LinkKind
+	Status     Status
+	WithClosed bool
+}
+
+// Proposal is one link a matcher or rule writes.
+type Proposal struct {
+	A, B   EntityID
+	Kind   LinkKind
+	Status Status
+	Rule   string
+	// Deposit is the evidence it adds.
+	Deposit Deposit
+}
+
+// LinkResult counts what one Link call wrote.
+type LinkResult struct {
+	Opened, Reinforced int
 }

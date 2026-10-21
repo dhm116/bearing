@@ -136,7 +136,7 @@ func (w *world) ingest(source string, at time.Time, data ...*modelv1alpha1.Obser
 			w.t.Fatalf("observation %d: %v", i, err)
 		}
 	}
-	if _, err := w.store.Ingest(context.Background(), source, obs); err != nil {
+	if _, err := w.store.Ingest(context.Background(), graph.IngestRequest{Source: source, Observations: obs}); err != nil {
 		w.t.Fatal(err)
 	}
 }

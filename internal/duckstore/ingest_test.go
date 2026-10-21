@@ -75,7 +75,7 @@ func snapshot(preds ...string) func(*modelv1alpha1.ObservationData) {
 
 func ingestOK(t *testing.T, s *Store, source string, o ...*eventv1alpha1.Observation) graph.IngestResult {
 	t.Helper()
-	r, err := s.Ingest(context.Background(), source, o)
+	r, err := s.Ingest(context.Background(), graph.IngestRequest{Source: source, Observations: o})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,9 +266,9 @@ func TestIngestDeletedEntityClosesOnlyItsSourcesFacts(t *testing.T) {
 func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
 	s := ingestStore(t)
 	bad := &eventv1alpha1.Observation{Id: "bad", Time: timestamppb.New(at(1))}
-	_, err := s.Ingest(context.Background(), "gh", []*eventv1alpha1.Observation{
+	_, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "gh", Observations: []*eventv1alpha1.Observation{
 		obs("o1", 0, "Component", "k:a/api", attrs("language", "Go")), bad,
-	})
+	}})
 	if err == nil {
 		t.Fatal("got nil error, want one")
 	}

@@ -28,6 +28,6 @@ func (a StoreApplier) Apply(ctx context.Context, source string, obs []*eventv1al
 			return fmt.Errorf("observation %d: %w", i+1, err)
 		}
 	}
-	_, err := a.Store.Ingest(ctx, source, obs)
+	_, err := a.Store.Ingest(ctx, graph.IngestRequest{Source: source, Observations: obs})
 	return err
 }

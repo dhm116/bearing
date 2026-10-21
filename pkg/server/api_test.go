@@ -123,7 +123,7 @@ func (w *apiWorld) seed(t *testing.T) {
 			d.Relations = []*modelv1alpha1.Relation{{Type: "owned_by", End: &modelv1alpha1.Relation_To{To: "catalog:team/payments"}}}
 		}
 		o := model.NewObservation("adapter/catalog-acme", w.clk.Now(), d)
-		if _, err := w.mem.Ingest(t.Context(), "catalog-acme", []*eventv1alpha1.Observation{o}); err != nil {
+		if _, err := w.mem.Ingest(t.Context(), graph.IngestRequest{Source: "catalog-acme", Observations: []*eventv1alpha1.Observation{o}}); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(time.Hour)

@@ -21,7 +21,8 @@ import (
 
 // Ingest implements graph.Graph. Callers validate observations first; this
 // trusts their shape and only rejects ones with no entity.
-func (s *Store) Ingest(ctx context.Context, source string, obs []*eventv1alpha1.Observation) (graph.IngestResult, error) {
+func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.IngestResult, error) {
+	source, obs := r.Source, r.Observations
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return graph.IngestResult{}, fmt.Errorf("begin: %w", err)

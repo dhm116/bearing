@@ -1,6 +1,6 @@
 # 7. Records, identity links and matchers
 
-Date: 2026-10-21 · Status: proposed
+Date: 2026-10-21 · Status: accepted
 
 ## Context
 
