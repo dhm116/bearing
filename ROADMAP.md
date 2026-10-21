@@ -28,7 +28,9 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
      adapter (env var and URL references to Services).
    - The directory (IdP) adapter; until then the recorded
      `testdata/acme/directory.ndjson` stands in.
-4. **Resolution.** Deterministic rules first: CODEOWNERS, team membership,
+4. **Resolution.** Design in [ADR 7](docs/adr/0007-records-identity-links-matchers.md)
+   (proposed): records, identity links and matchers, proven on the Acme set.
+   Deterministic rules first: CODEOWNERS, team membership,
    Kubernetes labels and owner references, package manifests. Inferred
    links are stored as proposals.
    Found by the Acme end-to-end test (`internal/e2e`), each with a skipped
