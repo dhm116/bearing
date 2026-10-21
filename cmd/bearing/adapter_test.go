@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -15,9 +16,9 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// childEnv makes the test binary serve fakeAdapter on stdio instead of
-// running tests, so the CLI has a real adapter process to start. "serve"
-// exits 0 when stdin closes; "fail" serves the same way, then exits 1;
+// childEnv makes the test binary serve fakeAdapter instead of running tests,
+// so the CLI has a real adapter process to start. "serve" exits 0 when it is
+// stopped; "fail" serves the same way, then exits 1;
 // "reject" and "reject-claim" serve rejectingAdapter.
 const childEnv = "BEARING_CLI_TEST_ADAPTER"
 
@@ -27,10 +28,11 @@ func TestMain(m *testing.M) {
 		if mode == "reject" || mode == "reject-claim" {
 			a = rejectingAdapter{claimOnly: mode == "reject-claim"}
 		}
-		if err := adapter.ServeStdio(context.Background(), a); err != nil || mode == "fail" {
-			os.Exit(1)
+		code := adapter.Main("fake", "test", a)
+		if mode == "fail" {
+			code = 1
 		}
-		os.Exit(0)
+		os.Exit(code)
 	}
 	os.Exit(m.Run())
 }
@@ -181,5 +183,66 @@ func TestSyncFailsWhenOnlyClaimsAreRejected(t *testing.T) {
 	}
 	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 2 {
 		t.Fatalf("got %d observations written, want both (the second without its claim)", len(lines))
+	}
+}
+
+// serveRemote serves fakeAdapter on a loopback listener that wants token and
+// returns its address.
+func serveRemote(t *testing.T, token string) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- adapter.Serve(ctx, fakeAdapter{}, lis, adapter.ServeConfig{Token: token}) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return "http://" + lis.Addr().String()
+}
+
+func TestRunAdapterCommandsReachARunningAdapterWithItsToken(t *testing.T) {
+	t.Parallel()
+	addr := serveRemote(t, "s3cret")
+	env := queryEnv{Getenv: func(k string) string { return map[string]string{"ADAPTER_TOKEN": "s3cret"}[k] }}
+	var out bytes.Buffer
+	if err := runWith(t.Context(), env, []string{"adapter", "describe", "--address", addr, "--token-env", "ADAPTER_TOKEN"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"name": "fake"`) {
+		t.Fatalf("got %s, want the fake adapter described", out.String())
+	}
+	out.Reset()
+	if err := runWith(t.Context(), env, []string{"adapter", "sync", "--address", addr, "--token-env", "ADAPTER_TOKEN"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "test:team/payments") {
+		t.Fatalf("got %q, want the fake adapter's observation", out.String())
+	}
+	// The default variable is unset here, so no token is sent.
+	if err := runWith(t.Context(), env, []string{"adapter", "describe", "--address", addr}, &bytes.Buffer{}); err == nil {
+		t.Fatal("a call without the token succeeded")
+	}
+}
+
+func TestRunAdapterCommandsRefuseAnAddressAndACommandOrNeither(t *testing.T) {
+	t.Parallel()
+	env := queryEnv{Getenv: func(string) string { return "" }}
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"adapter", "describe", "--address", "http://127.0.0.1:1", "--", os.Args[0]}, "not both"},
+		{[]string{"adapter", "sync"}, "or give --address"},
+		{[]string{"adapter", "describe", "--address", "https://adapter.example:8443"}, "no token: set $BEARING_ADAPTER_TOKEN"},
+	} {
+		if err := runWith(t.Context(), env, tt.args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("run %q: got %v, want an error containing %q", tt.args, err, tt.want)
+		}
 	}
 }

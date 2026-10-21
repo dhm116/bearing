@@ -50,8 +50,8 @@ var ErrUnknownSource = errors.New("server: unknown source")
 type Source struct {
 	// Name is the configured source's name, and its partition on the log.
 	Name string
-	// Adapter is the source's adapter. Until WASM adapters land (M4) it is
-	// an in-process adapter or a client of a local process.
+	// Adapter is the source's adapter: in process, or reached over the
+	// adapter service (a local process or a remote adapter).
 	Adapter adapter.Adapter
 	// Config is the adapter's configuration, passed to every call.
 	Config json.RawMessage

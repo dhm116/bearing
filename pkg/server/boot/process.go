@@ -31,13 +31,14 @@ func must[T any](v T, err error) T {
 // Process is one running adapter, as a source needs it.
 type Process interface {
 	adapter.Adapter
-	// Close ends the session and reaps the process.
+	// Close asks the process to exit, kills it after a grace period, and
+	// reaps it.
 	Close() error
 	// Kill ends the process so a blocked call returns.
 	Kill() error
 }
 
-var _ Process = (*adapter.Client)(nil)
+var _ Process = (*adapter.Process)(nil)
 
 // Launcher starts an adapter process. ctx outlives any one call: it is the
 // server's.
@@ -55,8 +56,7 @@ const (
 // call, drops it when a call fails in transit or runs past its context, and
 // starts a new one after a growing pause, so a crashing adapter costs a log
 // line and a counter instead of a busy loop. It satisfies adapter.Adapter for
-// the server, which neither knows nor cares how the adapter runs: the stdio
-// process is replaced when the adapter service lands (M4).
+// the server, which neither knows nor cares how the adapter runs.
 type managed struct {
 	source string
 	launch Launcher
@@ -143,8 +143,8 @@ type outcome[T any] struct {
 	err error
 }
 
-// do runs f against the process. A call that fails in transit (the pipe, the
-// framing, a dead process) or outlasts ctx costs the process; an error the
+// do runs f against the process. A call that fails in transit (the socket,
+// a dead process) or outlasts ctx costs the process; an error the
 // adapter itself answered with does not.
 func do[T any](ctx context.Context, m *managed, f func(Process) (T, error)) (T, error) {
 	var zero T
@@ -200,7 +200,7 @@ func (m *managed) Close() error {
 	if p == nil {
 		return nil
 	}
-	// Closing stdin asks the adapter to exit; one that does not is killed.
+	// Close asks the adapter to exit; one that does not is killed.
 	done := make(chan error, 1)
 	go func() { done <- p.Close() }()
 	select {

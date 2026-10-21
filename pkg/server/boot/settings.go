@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -94,15 +95,20 @@ type SecretSettings struct {
 	EnvAllowlist []string `json:"env_allowlist,omitempty"`
 }
 
-// AdapterSettings is an adapter the operator has installed. M5 replaces the
-// list with Adapter resources; the command stays for adapters that run as
-// local processes.
+// AdapterSettings is an adapter the operator has installed: a Command the
+// server starts, or the Address of one that runs elsewhere.
 type AdapterSettings struct {
 	// Name is what a Source's spec.adapter says. It is also the name inside
 	// the declaration.
 	Name string `json:"name"`
 	// Command is the executable, an absolute path checked once at start.
-	Command string `json:"command"`
+	Command string `json:"command,omitempty"`
+	// Address reaches an adapter that runs elsewhere, https://host:port
+	// (http:// for a loopback address only), instead of starting Command.
+	Address string `json:"address,omitempty"`
+	// TokenEnv names the variable that holds the bearer token for Address.
+	// It must be in the secret allowlist.
+	TokenEnv string `json:"token_env,omitempty"`
 	// Args are its arguments.
 	Args []string `json:"args,omitempty"`
 	// Declaration is the AdapterDeclaration (ProtoJSON) the
@@ -309,9 +315,16 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 	switch {
 	case !resourceName.MatchString(a.Name):
 		return fmt.Errorf("name %q must be lowercase letters, digits, - and _", model.Clip(a.Name))
+	case (a.Command == "") == (a.Address == ""):
+		return errors.New("set one of command, for an adapter the server starts, and address, for one that runs elsewhere")
+	case a.Address != "":
+		if err := s.checkRemote(a); err != nil {
+			return err
+		}
 	case !filepath.IsAbs(a.Command):
 		return fmt.Errorf("command %q must be an absolute path: the settings name only adapters the operator installed", model.Clip(a.Command))
-	case a.Declaration == "":
+	}
+	if a.Declaration == "" {
 		return errors.New("declaration is required")
 	}
 	for _, n := range a.Env {
@@ -324,6 +337,26 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 		if strings.HasPrefix(n, "BEARING_") && !s.allowed(n) {
 			return fmt.Errorf("env %q is one of Bearing's own variables", n)
 		}
+	}
+	return nil
+}
+
+// checkRemote checks an adapter reached at an address. Neither the address
+// nor token_env is echoed: either may hold a pasted credential.
+func (s *Settings) checkRemote(a *AdapterSettings) error {
+	u, err := url.Parse(a.Address)
+	switch {
+	case err != nil, u.Scheme != "https" && u.Scheme != "http", u.Host == "", u.User != nil,
+		u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "":
+		return errors.New("address must be https://host:port")
+	case u.Scheme == "http" && !loopbackAddr(u.Host):
+		return errors.New("address: plain http is for a loopback address only; use https")
+	case a.TokenEnv == "":
+		return errors.New("address needs token_env: a remote adapter takes a bearer token")
+	case !envName.MatchString(a.TokenEnv), !s.allowed(a.TokenEnv):
+		return fmt.Errorf("token_env must name a variable in the secret allowlist (default %s)", strings.Join(DefaultSecretAllowlist, ", "))
+	case len(a.Args) > 0, len(a.Env) > 0:
+		return errors.New("args and env are for a command; an adapter at an address runs with its own")
 	}
 	return nil
 }
@@ -358,6 +391,8 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		return nil, 0, fmt.Errorf("metadata.name %q must be lowercase letters, digits, - and _", model.Clip(name))
 	case adapters[spec.GetAdapter()] == nil:
 		return nil, 0, fmt.Errorf("spec.adapter %q is not in adapters", model.Clip(spec.GetAdapter()))
+	case adapters[spec.GetAdapter()].Address != "" && len(spec.GetSecrets()) > 0:
+		return nil, 0, errors.New("spec.secrets go to an adapter the server starts; one at an address holds its own")
 	case len(spec.GetAuthority()) > 0:
 		return nil, 0, errors.New("spec.authority is not supported until M5")
 	case len(spec.GetCapabilities()) > 0:

@@ -1,8 +1,11 @@
 // Command bearing is the Bearing developer CLI. It helps adapter authors run
-// and check adapters:
+// and check adapters, started from a command on a private socket or reached
+// at the address of a running one (with a bearer token from the variable
+// --token-env names, $BEARING_ADAPTER_TOKEN by default):
 //
 //	bearing adapter describe -- <adapter command> [args]
 //	bearing adapter sync --config cfg.json -- <adapter command> [args]
+//	bearing adapter sync --address https://host:port [--token-env VAR]
 //
 // runs the server (bearing server --settings FILE),
 // and answers questions about what Bearing knows, with the sources,
@@ -39,6 +42,9 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
@@ -48,8 +54,8 @@ import (
 )
 
 const usage = `usage:
-  bearing adapter describe -- <adapter command> [args]
-  bearing adapter sync [--config cfg.json] [--max-pages N] -- <adapter command> [args]
+  bearing adapter describe [--address URL [--token-env VAR] | -- <adapter command> [args]]
+  bearing adapter sync [--config cfg.json] [--max-pages N] [--address URL [--token-env VAR] | -- <adapter command> [args]]
   bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
@@ -134,54 +140,87 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		}
 		switch args[1] {
 		case "describe":
-			return describe(ctx, args[2:], stdout)
+			return describe(ctx, env, args[2:], stdout)
 		case "sync":
-			return syncCmd(ctx, args[2:], stdout)
+			return syncCmd(ctx, env, args[2:], stdout)
 		}
 	}
 	return errUsage
 }
 
-func splitCommand(args []string) ([]string, []string, error) {
-	for i, a := range args {
-		if a == "--" {
-			if i == len(args)-1 {
-				return nil, nil, errors.New("missing adapter command after --")
-			}
-			return args[:i], args[i+1:], nil
+// openAdapter reaches the adapter args name: a command after --, started on a
+// socket in a temporary directory, or the running adapter at --address. fs
+// holds the caller's own flags; done stops whatever was started.
+func openAdapter(ctx context.Context, env queryEnv, fs *flag.FlagSet, args []string) (a adapter.Adapter, done func() error, err error) {
+	flagArgs, cmd := args, []string(nil)
+	if i := slices.Index(args, "--"); i >= 0 {
+		flagArgs, cmd = args[:i], args[i+1:]
+		if len(cmd) == 0 {
+			return nil, nil, errors.New("missing adapter command after --")
 		}
 	}
-	return nil, nil, errors.New("put the adapter command after --")
+	address := fs.String("address", "", "reach the running adapter at https://host:port instead of starting a command")
+	tokenEnv := fs.String("token-env", adapter.EnvToken, "the variable that holds the adapter's bearer token, for --address")
+	if err := fs.Parse(flagArgs); err != nil {
+		return nil, nil, err
+	}
+	switch {
+	case fs.NArg() > 0:
+		return nil, nil, errors.New("put the adapter command after --")
+	case *address != "" && cmd != nil:
+		return nil, nil, errors.New("give --address or an adapter command after --, not both")
+	case *address != "":
+		token := env.Getenv(*tokenEnv)
+		if token == "" && strings.HasPrefix(*address, "https:") {
+			return nil, nil, fmt.Errorf("no token: set $%s to the adapter's bearer token, or name another variable with --token-env", *tokenEnv)
+		}
+		r, err := adapter.Dial("remote", adapter.DialConfig{Address: *address, Token: token})
+		if err != nil {
+			return nil, nil, err
+		}
+		return r, func() error { return nil }, nil
+	case cmd == nil:
+		return nil, nil, errors.New("put the adapter command after --, or give --address")
+	}
+	dir, err := os.MkdirTemp("", "bearing-")
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := adapter.Start(ctx, adapter.StartConfig{
+		Name: filepath.Base(cmd[0]), Command: cmd[0], Args: cmd[1:], InheritEnv: true, SocketDir: dir,
+	})
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, nil, err
+	}
+	return p, func() error {
+		err := p.Close()
+		return errors.Join(err, os.RemoveAll(dir))
+	}, nil
 }
 
-func describe(ctx context.Context, args []string, stdout io.Writer) (err error) {
-	_, cmd, err := splitCommand(args)
+func describe(ctx context.Context, env queryEnv, args []string, stdout io.Writer) (err error) {
+	a, done, err := openAdapter(ctx, env, flag.NewFlagSet("describe", flag.ContinueOnError), args)
 	if err != nil {
 		return err
 	}
-	c, err := adapter.Start(ctx, cmd[0], cmd[1:]...)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, c.Close()) }()
-	d, err := c.Describe(ctx)
+	defer func() { err = errors.Join(err, done()) }()
+	d, err := a.Describe(ctx)
 	if err != nil {
 		return err
 	}
 	return writeJSON(stdout, d)
 }
 
-func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
-	flagArgs, cmd, err := splitCommand(args)
-	if err != nil {
-		return err
-	}
+func syncCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer) (err error) {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	configPath := fs.String("config", "", "adapter config JSON file")
 	maxPages := fs.Int("max-pages", 10000, "stop if the adapter has not finished after this many pages")
-	if err := fs.Parse(flagArgs); err != nil {
+	a, done, err := openAdapter(ctx, env, fs, args)
+	if err != nil {
 		return err
 	}
+	defer func() { err = errors.Join(err, done()) }()
 	config := json.RawMessage(`{}`)
 	if *configPath != "" {
 		b, err := os.ReadFile(*configPath)
@@ -190,15 +229,10 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 		}
 		config = b
 	}
-	c, err := adapter.Start(ctx, cmd[0], cmd[1:]...)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, c.Close()) }()
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
 	n := 0
-	sum, err := adapter.SyncAll(ctx, c, config, *maxPages, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(ctx, a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
 		b, err := model.EncodeJSON(o)
 		if err != nil {

@@ -46,10 +46,7 @@ func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 
 func TestMain(m *testing.M) {
 	if os.Getenv(stubEnv) != "" {
-		if err := adapter.ServeStdio(context.Background(), stubAdapter{}); err != nil {
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(adapter.Main("stub", "test", stubAdapter{}))
 	}
 	os.Exit(m.Run())
 }
@@ -241,6 +238,8 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 		"HTTPS_PROXY=http://proxy.example:3128",
 		"PATH=" + childPath,
 	}
+	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"), adapter.EnvToken+"=")
+	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
 	}

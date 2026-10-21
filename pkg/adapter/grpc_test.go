@@ -105,3 +105,42 @@ func TestDialRefusesUnsafeAddresses(t *testing.T) {
 		}
 	}
 }
+
+// failing fails every sync with its error.
+type failing struct {
+	pager
+	err error
+}
+
+func (f failing) Sync(context.Context, SyncParams) (SyncResult, error) { return SyncResult{}, f.err }
+
+// An error the adapter answers with reaches the core as an *Error with its
+// code, so the core can tell it from a call that broke in transit.
+func TestGRPCCarriesTheAdaptersErrorCode(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"an adapter error", &Error{Code: CodeUpstream, Message: "GitHub said no"}, CodeUpstream},
+		{"a plain error", errors.New("boom"), CodeInternal},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := dialed(t, failing{err: tt.err}).Sync(t.Context(), SyncParams{})
+			var e *Error
+			if !errors.As(err, &e) || e.Code != tt.want || e.Message != tt.err.Error() {
+				t.Fatalf("got %v (%+v), want an *Error with code %d and the adapter's message", err, e, tt.want)
+			}
+		})
+	}
+	// A call that never reaches an adapter is not one.
+	r, err := Dial("gone", DialConfig{Address: "unix:///nonexistent/a.sock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e *Error
+	if _, err := r.Describe(t.Context()); err == nil || errors.As(err, &e) {
+		t.Fatalf("got %v, want a transport error that is not an *Error", err)
+	}
+}
