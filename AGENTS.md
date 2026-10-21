@@ -28,8 +28,7 @@ tagged [`pre-pivot`](https://github.com/dhm116/bearing/tree/pre-pivot).
   pre-pivot ADRs are history: read them at the tag for ideas, never cite
   them as requirements.
 - Some pre-pivot code is still in the tree until the roadmap replaces it:
-  the stdio adapter transport in `pkg/adapter` (step 3), and proto messages
-  only the old resolver used. Comments that cite removed docs (such as
+  the stdio adapter transport in `pkg/adapter` (step 3). Comments that cite removed docs (such as
   `docs/spec/data-model.md`) describe that code, not the target. Don't extend them, and don't flag
   new code for disagreeing with them.
 - Reuse what serves the MVP (`pkg/model`, `pkg/telemetry`, `pkg/clock`,

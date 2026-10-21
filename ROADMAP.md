@@ -15,8 +15,7 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
 2. **DuckDB store.** Done: `internal/duckstore` holds observations,
    entities, facts with provenance and the event log ([ADR 6](docs/adr/0006-small-data-model.md));
    the server, queries, API and CLI use it, and the old resolver, `memstore`
-   and graph contract are gone. Left: delete `proto/bearing/resolver` and
-   the model messages nothing uses.
+   and graph contract are gone, with their protos.
 3. **Adapters over gRPC.** Port the GitHub adapter (including manifest
    parsing for languages and versions) and add the directory (IdP) and
    Kubernetes adapters against the existing fakes.
