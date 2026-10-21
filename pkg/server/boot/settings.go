@@ -78,23 +78,10 @@ type ListenSettings struct {
 	InsecureNoPeerRate bool `json:"insecure_no_peer_rate,omitempty"`
 }
 
-// AuthSettings is the OIDC provider and the roles its groups and clients
-// map to (ADR 12). It is needed with listen.addr.
+// AuthSettings names the environment variable that holds the API token of the
+// TCP listener. It is needed with listen.addr.
 type AuthSettings struct {
-	Issuer         string          `json:"issuer,omitempty"`
-	Audience       string          `json:"audience,omitempty"`
-	GroupsClaim    string          `json:"groups_claim,omitempty"`
-	AccessTokenJWT bool            `json:"access_token_jwt,omitempty"`
-	AllowedClients []string        `json:"allowed_clients,omitempty"`
-	Grants         []GrantSettings `json:"grants,omitempty"`
-}
-
-// GrantSettings gives a group or a client ID a role.
-type GrantSettings struct {
-	Group   string   `json:"group,omitempty"`
-	Client  string   `json:"client,omitempty"`
-	Role    string   `json:"role"`
-	Sources []string `json:"sources,omitempty"`
+	TokenEnv string `json:"token_env,omitempty"`
 }
 
 // WebhookSettings bounds the webhook route (C-INGEST-4). Worst-case memory
@@ -279,8 +266,8 @@ func (s *Settings) checkListen() error {
 	if l.InsecureNoPeerRate && l.PeerRatePerMinute != nil {
 		return errors.New("boot: settings: listen.insecure_no_peer_rate and listen.peer_rate_per_minute contradict each other")
 	}
-	if l.Addr != "" && (s.Auth.Issuer == "" || s.Auth.Audience == "") {
-		return errors.New("boot: settings: listen.addr needs auth.issuer and auth.audience: there is no setting for open access")
+	if l.Addr != "" && s.Auth.TokenEnv == "" {
+		return errors.New("boot: settings: listen.addr needs auth.token_env: there is no setting for open access")
 	}
 	return nil
 }

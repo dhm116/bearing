@@ -128,7 +128,7 @@ func (s *Server) observeGauges() (stop func()) {
 // apiRequests counts API requests by method and result. The method is one of
 // the API's fixed names, never a caller's value, and no label names a caller.
 var apiRequests = must(meter.Int64Counter("bearing.api.requests",
-	metric.WithDescription("API requests by method and result: ok, unauthenticated, unavailable (credentials or authorization could not be checked), denied, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated or denied is a client with the wrong credentials or role, or probing; error is a fault to read the logs for."),
+	metric.WithDescription("API requests by method and result: ok, unauthenticated, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated is a client with the wrong token, or probing; error is a fault to read the logs for."),
 	metric.WithUnit("{request}")))
 
 func apiAttrs(method contracts.Method, result string) metric.AddOption {

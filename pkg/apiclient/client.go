@@ -46,7 +46,7 @@ type Config struct {
 	// loopback address only. The socket authenticates by the caller's UID and
 	// needs no token.
 	Server string
-	// Token returns the OIDC bearer token for a TCP server, read at each
+	// Token returns the API bearer token for a TCP server, read at each
 	// request. The token is sent only over TLS or to a loopback address, and
 	// never in a URL.
 	Token func() (string, error)

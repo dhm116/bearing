@@ -53,7 +53,7 @@ type ListenConfig struct {
 	// UID is the service user's UID; zero means this process's.
 	UID int
 
-	// Addr is the TCP address, for callers with an OIDC token (C-API-2).
+	// Addr is the TCP address, for callers with the API token (C-API-2).
 	// Empty means no TCP listener.
 	Addr string
 	// Authenticator authenticates the TCP listener's requests. It is required

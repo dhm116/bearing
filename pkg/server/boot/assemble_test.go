@@ -97,7 +97,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 	w.settings = &Settings{
 		Store:    StoreSettings{Graph: "mem://"},
 		Listen:   ListenSettings{Socket: w.socket, Addr: w.addr, InsecureAPIPlaintext: true},
-		Auth:     AuthSettings{Issuer: "https://idp.example", Audience: "bearing", AccessTokenJWT: true},
+		Auth:     AuthSettings{TokenEnv: "BEARING_API_TOKEN"}, //nolint:gosec // G101: the name of a variable, not a credential
 		Adapters: []AdapterSettings{{Name: "github", Command: exe, Declaration: declFile, Env: []string{stubEnv, stubMarkEnv, "HTTPS_PROXY"}}},
 		Sources:  []json.RawMessage{json.RawMessage(src)},
 	}
@@ -109,6 +109,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 		"BEARING_SECRET_GITHUB_TOKEN":   "canary-token",
 		"BEARING_SECRET_GITHUB_WEBHOOK": "canary-webhook-secret",
 		"BEARING_STORE_PASSWORD":        "canary-store-password",
+		"BEARING_API_TOKEN":             "canary-api-token",
 		"BEARING_AUDIT_KEY":             "canary-audit-key",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://collector.example",
 		"HOME":                          "/home/canary",
@@ -302,9 +303,9 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		{"a secret outside the allowlist", func(s *Settings, _ *world) {
 			s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:HOME", 1))
 		}, "allowlist"},
-		{"a grant that names a role nobody has", func(s *Settings, _ *world) {
-			s.Auth.Grants = []GrantSettings{{Group: "admins", Role: "emperor"}}
-		}, "boot: settings: auth.grants"},
+		{"a TCP listener with no token setting", func(s *Settings, _ *world) { s.Auth = AuthSettings{} }, "listen.addr needs auth.token_env"},
+		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "BEARING_API_TOKEN is empty or unset"},
+		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "BEARING_API_TOKEN is empty or unset"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -316,7 +317,7 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
-			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password"} {
+			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token"} {
 				if err != nil && strings.Contains(err.Error(), secret) {
 					t.Errorf("the error names a secret value: %v", err)
 				}
@@ -391,7 +392,6 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 	w := newWorld(t, func(s *Settings) {
 		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",`, "", 1))
 		s.Listen = ListenSettings{Addr: "127.0.0.1:0", InsecureAPIPlaintext: true}
-		s.Auth = AuthSettings{Issuer: "https://idp.example", Audience: "bearing", AccessTokenJWT: true}
 	})
 	r := w.assemble(t)
 	if r.listen.Webhooks != nil {
@@ -442,16 +442,6 @@ func TestAssembleRefusesToStartWhenAnotherServerHoldsTheStore(t *testing.T) {
 	_, err := Assemble(t.Context(), w.settings, env)
 	if !errors.Is(err, store.ErrInstanceLocked) || !strings.Contains(err.Error(), "another server holds the store") {
 		t.Fatalf("got %v, want a refusal naming the held lock", err)
-	}
-}
-
-func TestAssembleStopsOnAnIssuerThatIsNotHTTPS(t *testing.T) {
-	w := newWorld(t, func(s *Settings) {
-		s.Listen = ListenSettings{Addr: "127.0.0.1:0"}
-		s.Auth = AuthSettings{Issuer: "http://not-https.example", Audience: "bearing", AccessTokenJWT: true}
-	})
-	if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "https") {
-		t.Fatalf("got %v, want the issuer refused", err)
 	}
 }
 

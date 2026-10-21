@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	"bearing.example/pkg/auth"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/telemetry"
@@ -55,51 +55,40 @@ const (
 // token on the TCP listener, the peer's UID on the Unix socket.
 type Authenticator interface {
 	// Authenticate returns the caller the request proves. An error wraps
-	// ErrUnauthenticated when the credentials are missing or wrong, or
-	// ErrAuthUnavailable when they could not be checked.
+	// ErrUnauthenticated when the credentials are missing or wrong.
 	Authenticate(r *http.Request) (contracts.Caller, error)
 }
 
-var (
-	// ErrUnauthenticated means the request carried no acceptable credentials
-	// (a 401).
-	ErrUnauthenticated = errors.New("server: not authenticated")
-	// ErrAuthUnavailable means the credentials could not be checked, for
-	// example because the identity provider's keys are not available (a 503):
-	// the caller may have done nothing wrong.
-	ErrAuthUnavailable = errors.New("server: authentication is not available")
-)
+// ErrUnauthenticated means the request carried no acceptable credentials
+// (a 401).
+var ErrUnauthenticated = errors.New("server: not authenticated")
 
-// TokenVerifier checks a bearer token and returns the caller it proves;
-// *auth.Verifier is the one the server uses.
-type TokenVerifier interface {
-	Verify(ctx context.Context, token string) (contracts.Caller, error)
+// TokenAuthenticator accepts requests whose bearer token equals Token.
+type TokenAuthenticator struct{ Token string }
+
+// Authenticate implements Authenticator. The token is read from the
+// Authorization header and nowhere else, and compared in constant time. An
+// empty Token rejects every request.
+func (a TokenAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
+	token, ok := bearerToken(r.Header)
+	if !ok || a.Token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(a.Token)) != 1 {
+		return contracts.Caller{}, ErrUnauthenticated
+	}
+	return contracts.Caller{Subject: "token"}, nil
 }
 
-// OIDCAuthenticator authenticates a bearer token against the identity
-// provider (threat model C-IDP-1). The token is read from the Authorization
-// header and nowhere else.
-type OIDCAuthenticator struct{ Verifier TokenVerifier }
-
-var _ TokenVerifier = (*auth.Verifier)(nil)
-
-// Authenticate implements Authenticator.
-func (a OIDCAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
-	token, err := auth.BearerToken(r.Header)
-	if err != nil {
-		return contracts.Caller{}, ErrUnauthenticated
+// bearerToken returns the token of an Authorization header that is exactly
+// one "Bearer <token>" value.
+func bearerToken(h http.Header) (string, bool) {
+	values := h.Values("Authorization")
+	if len(values) != 1 {
+		return "", false
 	}
-	c, err := a.Verifier.Verify(r.Context(), token)
-	switch {
-	case err == nil:
-		return c, nil
-	case errors.Is(err, auth.ErrKeysUnavailable):
-		return contracts.Caller{}, ErrAuthUnavailable
-	case errors.Is(err, auth.ErrInvalidToken):
-		return contracts.Caller{}, ErrUnauthenticated
-	default:
-		return contracts.Caller{}, ErrAuthUnavailable
+	scheme, token, ok := strings.Cut(values[0], " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" || strings.ContainsAny(token, " \t\r\n") {
+		return "", false
 	}
+	return token, true
 }
 
 // APIConfig configures an API. Zero fields take the defaults above.
@@ -108,9 +97,6 @@ type APIConfig struct {
 	Server *Server
 	// Query answers the read methods.
 	Query *query.Querier
-	// Authorizer decides, for each request, whether the caller may make it
-	// (C-API-4). Wrap it with instrument.Authorizer to count decisions.
-	Authorizer contracts.Authorizer
 
 	// RequestTimeout and ChangesTimeout are the deadlines of a request and of
 	// a "what changed" page.
@@ -127,7 +113,7 @@ type APIConfig struct {
 }
 
 // API is the HTTP surface for callers: the read methods and sync requests,
-// each checked by the Authorizer (threat model C-API-4, C-API-5). It serves
+// each authenticated. It serves
 // the routes below on any number of listeners, each with its own
 // Authenticator.
 type API struct {
@@ -140,9 +126,7 @@ type API struct {
 }
 
 // route is one method of the API. Handlers are only reached through serve,
-// which authenticates, rate-limits and authorizes first, so a route cannot
-// skip a check, and a route without a Method the Authorizer knows is denied
-// (C-API-5).
+// which authenticates and rate-limits first, so a route cannot skip a check.
 type route struct {
 	pattern string
 	method  contracts.Method
@@ -168,8 +152,6 @@ func NewAPI(cfg APIConfig) (*API, error) {
 		return nil, errors.New("server: the API needs a Server")
 	case cfg.Query == nil:
 		return nil, errors.New("server: the API needs a Querier")
-	case cfg.Authorizer == nil:
-		return nil, errors.New("server: the API needs an Authorizer")
 	}
 	cfg.RequestTimeout = orDefault(cfg.RequestTimeout, DefaultRequestTimeout)
 	cfg.ChangesTimeout = orDefault(cfg.ChangesTimeout, DefaultChangesTimeout)
@@ -245,8 +227,6 @@ func (c *statusCapture) WriteHeader(code int) {
 const (
 	apiOK              = "ok"
 	apiUnauthenticated = "unauthenticated"
-	apiUnavailable     = "unavailable"
-	apiDenied          = "denied"
 	apiLimited         = "rate_limited"
 	apiInvalid         = "invalid"
 	apiNotFound        = "not_found"
@@ -255,8 +235,8 @@ const (
 )
 
 // serve wraps a route: request ID, in-flight cap, authentication, rate limit,
-// authorization, then the handler, in that order. Nothing a caller sent is
-// looked at before authorization, other than the credentials and the source
+// then the handler, in that order. Nothing a caller sent is
+// looked at before authentication, other than the credentials and the source
 // the path names.
 func (a *API) serve(authn Authenticator, rt route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -291,8 +271,8 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiLimited
 	}
 
-	// The deadline starts here, before the token is checked: a slow identity
-	// provider or authorizer cannot hold a request, and its slot, past it.
+	// The deadline starts here, before the token is checked: a slow
+	// authenticator cannot hold a request, and its slot, past it.
 	timeout := a.cfg.RequestTimeout
 	if rt.method == contracts.MethodChanges {
 		timeout = a.cfg.ChangesTimeout
@@ -302,15 +282,10 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 	r = r.WithContext(ctx)
 
 	caller, err := authn.Authenticate(r)
-	switch {
-	case errors.Is(err, ErrUnauthenticated):
+	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Bearer`)
 		apiFail(w, http.StatusUnauthorized, "unauthenticated", "a valid bearer token is required", reqID)
 		return apiUnauthenticated
-	case err != nil:
-		w.Header().Set("Retry-After", "5")
-		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "credentials cannot be checked right now; try again", reqID)
-		return apiUnavailable
 	}
 	who := callerKey(caller)
 	if !a.rate.allow(who) {
@@ -319,26 +294,9 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiLimited
 	}
 
-	req := contracts.Request{Caller: caller, Method: rt.method}
-	if rt.method == contracts.MethodSyncRequest {
-		// Only a configured source is ever put to the Authorizer, and the
-		// path's value is not used again after this check.
-		req.Source = r.PathValue("source")
-		if !a.cfg.Server.HasSource(req.Source) {
-			apiFail(w, http.StatusNotFound, "unknown_source", "no such source", reqID)
-			return apiNotFound
-		}
-	}
-	d, err := a.cfg.Authorizer.Authorize(ctx, req)
-	switch {
-	case err != nil:
-		telemetry.Logger(pkgName).WarnContext(ctx, "authorization could not be decided", "request_id", reqID, "method", string(rt.method), "error", cleanErrorText(err.Error()))
-		w.Header().Set("Retry-After", "5")
-		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "the request cannot be authorized right now; try again", reqID)
-		return apiUnavailable
-	case !d.Allowed:
-		apiFail(w, http.StatusForbidden, "forbidden", "the caller may not do this", reqID)
-		return apiDenied
+	if rt.method == contracts.MethodSyncRequest && !a.cfg.Server.HasSource(r.PathValue("source")) {
+		apiFail(w, http.StatusNotFound, "unknown_source", "no such source", reqID)
+		return apiNotFound
 	}
 
 	if rt.method == contracts.MethodChanges {
@@ -390,28 +348,17 @@ func (a *API) leave(who string) {
 // callerKey names a caller for the per-caller tables. It never reaches a
 // metric label or a log.
 func callerKey(c contracts.Caller) string {
-	switch {
-	case c.Local:
+	if c.Local {
 		return "local\x00" + c.Subject
-	case c.ClientID != "":
-		return "client\x00" + c.Issuer + "\x00" + c.ClientID
-	default:
-		return "sub\x00" + c.Issuer + "\x00" + c.Subject
 	}
+	return "sub\x00" + c.Subject
 }
 
 // actorOf is who a sync request is recorded as asked by: the subject the
-// authenticator gave, a client's client ID, or local:<uid> (C-AUDIT-6). It
+// authenticator gave, or local:<uid> (C-AUDIT-6). It
 // comes from the Caller, never from anything the request said.
 func actorOf(c contracts.Caller) *eventv1alpha1.Actor {
-	switch {
-	case c.Local:
-		return &eventv1alpha1.Actor{Subject: c.Subject}
-	case c.ClientID != "":
-		return &eventv1alpha1.Actor{Subject: c.ClientID, Agent: true}
-	default:
-		return &eventv1alpha1.Actor{Subject: c.Subject}
-	}
+	return &eventv1alpha1.Actor{Subject: c.Subject}
 }
 
 // statusRecorder notes what a handler answered, for the result label.
@@ -622,9 +569,8 @@ func (a *API) related(w http.ResponseWriter, r *http.Request, _ contracts.Caller
 	writeJSON(w, http.StatusOK, rel)
 }
 
-// changes answers one page of "what changed". The authorization it follows
-// ran on this request, so a page token never stands in for it: a caller whose
-// role was withdrawn between pages is refused on the next one, and the token
+// changes answers one page of "what changed". The authentication it follows
+// ran on this request, so a page token never stands in for it, and the token
 // is only input, bounded and decoded by the query layer (C-API-6).
 func (a *API) changesPage(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
 	p := parseParams(r, "ref", "since", "until", "axis", "limit", "page_token")

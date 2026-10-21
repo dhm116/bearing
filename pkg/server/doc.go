@@ -10,8 +10,8 @@
 //
 // API is the surface for callers (C-API-1 to C-API-7, docs/spec/api.md): the
 // query routes and sync requests, on a Unix socket for local callers and a
-// TLS listener for callers with an OIDC token. Every route goes through one
-// wrapper that authenticates, rate-limits and authorizes before it reads a
+// TLS listener for callers with the API token. Every route goes through one
+// wrapper that authenticates and rate-limits before it reads a
 // parameter.
 //
 // Server is everything behind it (C-INGEST-12). A SyncRequested event makes
