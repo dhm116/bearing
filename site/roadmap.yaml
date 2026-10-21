@@ -78,7 +78,7 @@ features:
     summary: Every answer says which tool it came from, when that tool last confirmed it and how sure Bearing is.
     milestone: 3
     links:
-      - { label: How facts are recorded, href: spec/data-model/ }
+      - { label: How facts are recorded, href: spec/concepts/ }
   - name: Disagreements shown, not hidden
     area: Answers you can check
     summary: When two tools disagree, Bearing shows both answers instead of quietly picking one.

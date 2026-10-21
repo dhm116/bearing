@@ -34,22 +34,23 @@ keeps the adapters that fetch it small.
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
-| [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`, `bearing.resolver.v1alpha1`): the only source of truth for the data model, events and configuration |
+| [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`): the only source of truth for the data model, events and configuration |
 | [`gen/`](gen/) | Code generated from `proto/` by `make generate`: Go types in `gen/go`, JSON Schema in `gen/jsonschema` |
 | [`pkg/model`](pkg/model) | Helpers around the generated types: kind and predicate registry, keys, validation, `fact_id` |
 | [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
-| [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, event log) |
-| [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, claims, supports and status |
+| [`pkg/graph`](pkg/graph) | The store interface (ingest, entity, find, facts, walk, changes) and its types: the part another store can replace |
+| [`pkg/contracts`](pkg/contracts) | The event log interface the server uses |
 | [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, the health checks and the API for callers |
 | [`pkg/server/boot`](pkg/server/boot) | Builds and runs `bearing server` from its settings file |
-| [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers over a store, and requests a sync |
-| [`pkg/query`](pkg/query) | Answers questions from a graph store: get, owner, related and changes, each with its sources, events, confidence and observed times |
+| [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers, and requests a sync |
+| [`pkg/query`](pkg/query) | Answers questions from the store: get, owner, related, changes and find, each fact with its sources |
 | [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
-| [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
-| [`pkg/store`](pkg/store) | Opens the graph store and event log from a URL (`mem://`) |
+| [`pkg/contracts/conformance`](pkg/contracts/conformance) | The test suite any event log must pass |
+| [`pkg/store`](pkg/store) | Opens the store from a URL: `mem://` or `duckdb:///path` |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
-| [`internal/memstore`](internal/memstore) | In-memory graph store and event log, until the DuckDB store replaces it |
+| [`internal/duckstore`](internal/duckstore) | The DuckDB store: observations, entities, facts and the event log |
+| [`internal/e2e`](internal/e2e) | End-to-end tests on the fictional Acme org |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter |
@@ -87,8 +88,12 @@ one entity, scores each relation's confidence, and stores the result as
 
 ## Storage
 
-The store is moving to DuckDB ([ADR 5](docs/adr/0005-duckdb-store.md)). Until
-that lands, `mem://` (in memory, for tests and demos) is the only store.
+Bearing keeps its data in DuckDB, inside the server process
+([ADR 5](docs/adr/0005-duckdb-store.md), [concepts](docs/spec/concepts.md)).
+`store.url` is `duckdb:///var/lib/bearing/bearing.duckdb` for a file or `mem://`
+for a throwaway store. Only one process can write a DuckDB file, so while
+the server runs, ask it with `--server` rather than opening the file with
+`--store`.
 
 ## Telemetry
 

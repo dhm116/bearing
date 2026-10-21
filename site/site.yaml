@@ -46,7 +46,7 @@ collections:
   - id: spec
     title: Specification
     short: Spec
-    description: The data model and the server API.
+    description: How facts are recorded, and the server API.
     dir: docs/spec
     path: spec
-    order: [data-model.md, api.md]
+    order: [concepts.md, api.md]

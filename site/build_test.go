@@ -41,7 +41,7 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	}
 	for _, page := range []string{
 		"index.html", "how-it-works/index.html", "roadmap/index.html", "404.html",
-		"spec/index.html", "spec/data-model/index.html", "search.json", ".nojekyll",
+		"spec/index.html", "spec/concepts/index.html", "search.json", ".nojekyll",
 	} {
 		if _, err := os.Stat(filepath.Join(out, page)); err != nil {
 			t.Errorf("got no %s: %v", page, err)
@@ -51,7 +51,7 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(home), `href="/bearing/spec/data-model/"`) {
+	if !strings.Contains(string(home), `href="/bearing/spec/concepts/"`) {
 		t.Error("got home links without the /bearing/ base")
 	}
 }
@@ -113,7 +113,7 @@ func TestRepoSiteSearchIndexCoversSpecAndRoadmap(t *testing.T) {
 	}
 	var spec, roadmap bool
 	for _, e := range entries {
-		spec = spec || strings.HasPrefix(e.URL, "/spec/data-model/#")
+		spec = spec || strings.HasPrefix(e.URL, "/spec/concepts/#")
 		roadmap = roadmap || strings.HasPrefix(e.Section, "Roadmap")
 	}
 	if !spec || !roadmap {

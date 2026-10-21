@@ -4,10 +4,8 @@ What callers and adapter authors can rely on. Bearing is being rebuilt from
 a smaller scope (see the [roadmap](../../ROADMAP.md)), so this section is
 being rewritten as each part lands.
 
-1. [Data model](data-model.md): subjects, facts over time and observations.
-   It still describes the code from before the restart; a short concepts
-   page replaces it with the DuckDB store.
-2. [Server API](api.md): the routes a running server offers and their
+1. [Concepts](concepts.md): observations, keys, entities, facts and their
+   provenance.2. [Server API](api.md): the routes a running server offers and their
    limits.
 
 The adapter service is defined in `proto/` and gets a guide when the gRPC

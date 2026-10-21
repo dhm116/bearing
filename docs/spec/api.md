@@ -47,22 +47,22 @@ is a 400. Times are RFC 3339.
 
 | Route | Method | Parameters | Answer |
 | --- | --- | --- | --- |
-| `GET /v1/get` | `query.get` | `ref` (required), `valid_at`, `recorded_at` | What is known about a subject: its keys, facts, conflicts and merges |
-| `GET /v1/owner` | `query.owner` | `ref` (required), `valid_at`, `recorded_at` | Who owns it, from asserted facts only |
-| `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `valid_at`, `recorded_at` | What it relates to, in both directions |
-| `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `axis` (`valid` or `record`), `limit` (1 to 1,000), `page_token` | One page of the facts that changed in a window, newest first, with `next_page_token` while more follow |
+| `GET /v1/get` | `query.get` | `ref` (required), `at` | The entity: its kind, name, keys and the facts about it |
+| `GET /v1/owner` | `query.owner` | `ref` (required), `at` | Who owns it: asserted `owned_by` facts, or, when there are none, asserted `approves_changes` facts (CODEOWNERS). Each fact keeps its predicate |
+| `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
+| `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
+| `GET /v1/find` | `query.find` | `q` (required), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
 | `POST /v1/sources/{source}/sync` | `sync.request` | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log. The pending request may already be running, in which case a change made after it started is seen by the next sync, not by this one |
 
-`ref` is a subject ID or a key such as `github:repo/acme/payments`, at most
+`ref` is an entity ID or a key such as `github:repo/acme/payments`, at most
 1,024 bytes. The answers are the JSON of the `pkg/query` types, the same ones
 the command line prints; their field names are the wire format, and within
-`/v1` fields are only added. With no `since` or `until`, `changes`
-asks about the last 24 hours.
-
-**Page tokens.** A token carries the whole question and is not signed. It is
-input, like any other: the request that carries it is authenticated and
-checked as a request without one, on every page, and a token cannot be
-combined with `ref`, `since`, `until` or `axis`.
+`/v1` fields are only added. `at` is an RFC 3339 time and asks what held
+then; without it the answer is what holds now. With no `since`, `changes`
+asks about the last 24 hours. Every fact carries its sources: the
+observations behind it, each with its source, observed time and link. When
+several sources say the same thing, the answer is one fact with all of
+them.
 
 **Who asked.** A sync request is recorded with the caller the authenticator
 proved: `token` for the API token, or `local:<uid>` on the socket. Nothing in the request chooses it.
@@ -92,7 +92,7 @@ carries `Retry-After`, in seconds.
 
 | Status | `code` |
 | --- | --- |
-| 400 | `invalid_request`, `invalid_page_token` |
+| 400 | `invalid_request` |
 | 401 | `unauthenticated` |
 | 404 | `not_found`, `unknown_source` |
 | 405 | `method_not_allowed` |
@@ -103,14 +103,14 @@ carries `Retry-After`, in seconds.
 
 ## The command line
 
-`bearing get`, `owner`, `related` and `changes` take `--server` (or
+`bearing get`, `owner`, `related`, `changes` and `find` take `--server` (or
 `$BEARING_SERVER`) instead of `--store`, and print what they print from a
-store: the same answers, and errors of the same kinds: not found, invalid
-request and bad page token match `query`'s with `errors.Is`, and the exit codes
+store: the same answers, and errors of the same kinds: not found and invalid
+request match `query`'s with `errors.Is`, and the exit codes
 are the same. The server's messages are generic and carry a request
 ID, so their text differs from a store's; the command line adds what it knows.
-A not-found names the subject and the time that were asked about
-(`no subject matches github:repo/acme/x at now, as known now`), and an unknown
+A not-found names what was asked about (`nothing matches
+github:repo/acme/x`), and an unknown
 source names the source. A 401 from the API adds a hint that names the variable
 the token came from (never its contents): the server did not accept the token
 in `$BEARING_TOKEN` (or the `--token-env` name). On the socket, which uses no token, the hint says that instead.
