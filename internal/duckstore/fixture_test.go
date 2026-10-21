@@ -39,7 +39,7 @@ INSERT INTO observation VALUES
  ('o1', 'gh', 'Service', 'svc:api', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:01+00', 'https://example.test/o1', '{}'),
  ('o2', 'dir', 'Person', 'person:bob', TIMESTAMPTZ '2026-02-01 00:00:00+00', TIMESTAMPTZ '2026-02-01 00:00:01+00', NULL, '{}'),
  ('o3', 'gh', 'Service', 'svc:api', TIMESTAMPTZ '2026-06-01 00:00:00+00', TIMESTAMPTZ '2026-06-01 00:00:01+00', NULL, '{}');
-INSERT INTO fact VALUES
+INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source) VALUES
  ('f01', 's-api', 'depends_on', 's-ledger', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'gh'),
  ('f02', 's-ledger', 'depends_on', 's-db', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'gh'),
  ('f03', 's-db', 'depends_on', 's-ledger', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'gh'),

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -120,5 +121,15 @@ func TestEveryFactCarriesItsSources(t *testing.T) {
 		if len(ch.Fact.Sources) == 0 {
 			t.Errorf("change %s %s has no sources", ch.Kind, ch.Fact.Predicate)
 		}
+	}
+}
+
+func TestRelatedJSONCarriesQualifiers(t *testing.T) {
+	w := newWorld(t)
+	var got query.Relations
+	ask(t, w, &got, "related", "catalog:component/payments", "--predicate", "depends_on", "--depth", "1")
+	want := map[string]any{"protocol": "http", "port": 8080.0, "via": "env:LEDGER_URL"}
+	if len(got.Steps) != 1 || !reflect.DeepEqual(got.Steps[0].Fact.Qualifiers, want) {
+		t.Fatalf("got %+v, want qualifiers %v", got.Steps, want)
 	}
 }

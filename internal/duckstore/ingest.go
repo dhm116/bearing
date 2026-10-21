@@ -59,6 +59,7 @@ type ingest struct {
 // an attribute has val, a JSON text.
 type claim struct {
 	subject, pred, obj, val string
+	quals                   string // a relation's attributes as a JSON object; empty for none
 	from, to                *time.Time
 	conf                    float64
 	absent                  bool
@@ -347,6 +348,13 @@ func (g *ingest) relation(r *modelv1alpha1.Relation) error {
 		return err
 	}
 	c := claim{subject: g.entity, obj: oid, pred: r.GetType(), conf: ppm(r.ConfidencePpm), absent: r.GetAbsent()}
+	if len(r.GetAttributes()) > 0 {
+		b, err := json.Marshal(structpb.NewStructValue(&structpb.Struct{Fields: r.GetAttributes()}).AsInterface())
+		if err != nil {
+			return fmt.Errorf("qualifiers: %w", err)
+		}
+		c.quals = string(b)
+	}
 	if !outward {
 		c.subject, c.obj = oid, g.entity
 	}
@@ -463,7 +471,7 @@ func (g *ingest) assert(c claim) error {
 		return nil
 	}
 	if len(open) > 0 {
-		return g.refresh(open[0].id, c.conf)
+		return g.refresh(open[0].id, c.conf, c.quals)
 	}
 	// An older observation must not reopen what a later one ended.
 	vf := g.observed
@@ -508,8 +516,8 @@ func (g *ingest) count(q string, args ...any) (n int, err error) {
 	return n, err
 }
 
-func (g *ingest) refresh(id string, conf float64) error {
-	if _, err := g.exec(`UPDATE fact SET confidence = ? WHERE id = ?`, conf, id); err != nil {
+func (g *ingest) refresh(id string, conf float64, quals string) error {
+	if _, err := g.exec(`UPDATE fact SET confidence = ?, qualifiers = ? WHERE id = ?`, conf, nullIfEmpty(quals), id); err != nil {
 		return err
 	}
 	g.res.Refreshed++
@@ -522,8 +530,9 @@ func (g *ingest) open(c claim, vf time.Time) error {
 	if c.obj == "" {
 		val = c.val
 	}
-	if _, err := g.exec(`INSERT INTO fact VALUES (?, ?, ?, ?, ?, 'asserted', ?, ?, ?, ?)`,
-		id, c.subject, c.pred, nullIfEmpty(c.obj), val, c.conf, vf, c.to, g.source); err != nil {
+	if _, err := g.exec(`INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source, qualifiers)
+		VALUES (?, ?, ?, ?, ?, 'asserted', ?, ?, ?, ?, ?)`,
+		id, c.subject, c.pred, nullIfEmpty(c.obj), val, c.conf, vf, c.to, g.source, nullIfEmpty(c.quals)); err != nil {
 		return err
 	}
 	g.res.Opened++

@@ -81,7 +81,7 @@ func newWorld(t testing.TB) *world {
 	)
 	w.ingest(catalogSource, seedAt.Add(time.Minute),
 		entity("Repository", "github:repo/acme/billing", "billing", rel("owned_by", platform)),
-		entity("Component", "catalog:component/payments", "", rel("depends_on", "catalog:component/ledger")),
+		entity("Component", "catalog:component/payments", "", relQ("depends_on", "catalog:component/ledger", map[string]any{"protocol": "http", "port": 8080, "via": "env:LEDGER_URL"})),
 		entity("Component", "catalog:component/ledger", "", rel("depends_on", "catalog:component/db")),
 		entity("Component", "catalog:component/db", ""),
 	)
@@ -112,6 +112,17 @@ func attr(name, value string) func(*modelv1alpha1.ObservationData) {
 func rel(typ, to string) func(*modelv1alpha1.ObservationData) {
 	return func(d *modelv1alpha1.ObservationData) {
 		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: typ, End: &modelv1alpha1.Relation_To{To: to}})
+	}
+}
+
+// relQ is rel with qualifiers.
+func relQ(typ, to string, q map[string]any) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) {
+		s, err := structpb.NewStruct(q)
+		if err != nil {
+			panic(err)
+		}
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: typ, End: &modelv1alpha1.Relation_To{To: to}, Attributes: s.Fields})
 	}
 }
 

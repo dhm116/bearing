@@ -82,7 +82,10 @@ type Fact struct {
 	Predicate string `json:"predicate"`
 	Object    *Ref   `json:"object,omitempty"`
 	Value     any    `json:"value,omitempty"`
-	Status    string `json:"status"`
+	// Qualifiers are a relation's details; of several sources, the most
+	// recently observed one's.
+	Qualifiers map[string]any `json:"qualifiers,omitempty"`
+	Status     string         `json:"status"`
 	// Confidence is between 0 and 1.
 	Confidence float64    `json:"confidence"`
 	ValidFrom  time.Time  `json:"valid_from"`
@@ -355,7 +358,7 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 		return Fact{}, err
 	}
 	out := Fact{
-		Subject: sub, Predicate: f.Predicate, Value: f.Value, Status: string(f.Status),
+		Subject: sub, Predicate: f.Predicate, Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status),
 		Confidence: f.Confidence, ValidFrom: f.ValidFrom, Sources: make([]Source, len(f.Sources)),
 	}
 	if f.Object != "" {
@@ -389,7 +392,8 @@ func (l *labeler) facts(ctx context.Context, fs []graph.Fact) ([]Fact, error) {
 // merge answers one fact per statement: facts with the same subject,
 // predicate, object or value and status whose validity overlaps become one,
 // with the earliest ValidFrom, the latest ValidTo (open if any is), the
-// highest confidence and every source, oldest first. Statements keep the
+// highest confidence, the qualifiers of the most recently observed source
+// and every source, oldest first. Statements keep the
 // order of their first fact.
 func merge(facts []graph.Fact) []graph.Fact {
 	var out []graph.Fact
@@ -409,12 +413,26 @@ func merge(facts []graph.Fact) []graph.Fact {
 			} else if f.ValidTo.After(cur.ValidTo) {
 				cur.ValidTo = f.ValidTo
 			}
+			if lastObserved(f).After(lastObserved(cur)) {
+				cur.Qualifiers = f.Qualifiers
+			}
 			cur.Confidence = max(cur.Confidence, f.Confidence)
 			cur.Sources = append(cur.Sources, f.Sources...)
 		}
 		out = append(out, finish(cur))
 	}
 	return out
+}
+
+// lastObserved is when the newest of the fact's sources was observed.
+func lastObserved(f graph.Fact) time.Time {
+	var t time.Time
+	for _, s := range f.Sources {
+		if s.ObservedAt.After(t) {
+			t = s.ObservedAt
+		}
+	}
+	return t
 }
 
 // finish sorts a merged fact's sources oldest first, each observation once.

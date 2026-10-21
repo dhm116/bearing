@@ -98,8 +98,11 @@ type Fact struct {
 	// Object is set for a relation and empty for an attribute.
 	Object EntityID
 	// Value is the attribute's JSON value; nil for a relation.
-	Value  any
-	Status Status
+	Value any
+	// Qualifiers are a relation's details, such as protocol and port; nil
+	// when it has none. They are not part of what the fact says.
+	Qualifiers map[string]any
+	Status     Status
 	// Confidence is between 0 and 1.
 	Confidence float64
 	// ValidFrom is when a source first observed the fact; ValidTo when it was

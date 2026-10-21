@@ -15,7 +15,7 @@ import (
 
 // factCols are the fact columns every read selects, in scanFact's order.
 const factCols = `f.id, f.subject_id, f.predicate, f.object_id, CAST(f.value AS VARCHAR),
-	f.status, f.confidence, f.valid_from, f.valid_to`
+	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
 
 // maxMergeHops bounds the merged_into chain so a corrupt loop cannot hang a read.
 const maxMergeHops = 100
@@ -426,11 +426,11 @@ func closeRows(rows *sql.Rows) error {
 
 func scanFact(sc scanner, lead ...any) (graph.Fact, error) {
 	var f graph.Fact
-	var object, value sql.NullString
+	var object, value, quals sql.NullString
 	var status string
 	var from time.Time
 	var to sql.NullTime
-	dest := append(lead, &f.ID, &f.Subject, &f.Predicate, &object, &value, &status, &f.Confidence, &from, &to)
+	dest := append(lead, &f.ID, &f.Subject, &f.Predicate, &object, &value, &status, &f.Confidence, &from, &to, &quals)
 	if err := sc.Scan(dest...); err != nil {
 		return graph.Fact{}, err
 	}
@@ -443,6 +443,11 @@ func scanFact(sc scanner, lead ...any) (graph.Fact, error) {
 	if value.Valid {
 		if err := json.Unmarshal([]byte(value.String), &f.Value); err != nil {
 			return graph.Fact{}, fmt.Errorf("fact %s: decode value: %w", f.ID, err)
+		}
+	}
+	if quals.Valid {
+		if err := json.Unmarshal([]byte(quals.String), &f.Qualifiers); err != nil {
+			return graph.Fact{}, fmt.Errorf("fact %s: decode qualifiers: %w", f.ID, err)
 		}
 	}
 	return f, nil
