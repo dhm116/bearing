@@ -26,9 +26,11 @@
 //
 //   - ops-scripts [internal]: archived; .github/CODEOWNERS
 //     "* @acme/legacy-ops" and a stale root CODEOWNERS that GitHub ignores.
-//   - payments-api [private]: .github/CODEOWNERS "* @acme/payments".
+//   - payments-api [private]: .github/CODEOWNERS "* @acme/payments"; a go.mod
+//     with "go 1.21".
 //   - web [private]: root CODEOWNERS with a "*" rule and a path rule for a
-//     person; a stale docs/CODEOWNERS that GitHub ignores.
+//     person; a stale docs/CODEOWNERS that GitHub ignores; a package.json
+//     with engines.node ">=18" and an .nvmrc of "20".
 //   - handbook [public]: docs/CODEOWNERS, only path rules, one naming
 //     @acme/sre.
 //   - sandbox [public]: no CODEOWNERS, default branch "trunk".
