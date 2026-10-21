@@ -66,9 +66,18 @@ GitHub `user_node` but not for a login) and how a field can be matched
 1. Records, links, clusters and declaration-driven authority in
    `internal/duckstore`, with the two skipped Acme tests un-skipped.
 2. The transparent matcher, scored on the Acme set.
-3. A spike branch (`spike/identity-models`) tries embeddings for blocking
-   and a small model's same-or-not judgement as one more feature, measured
-   on the same set. It merges only through a later ADR.
+3. A spike branch (`spike/identity-models`) tries a System One decision
+   model's same-or-not judgement as one more matcher feature, measured on
+   the same set. It calls the System One API (`POST /v1/systemone`), which
+   both TypeSafe's hosted [Jev](https://docs.typesafe.ai/introduction) and
+   the open [Kev](https://github.com/jaredpalmer/kev) models (Apache-2.0,
+   run locally) serve, so one client covers both; Kev is the default, so
+   identity data stays in the deployment. The question text and option
+   order are fixed and versioned, the probabilities are calibrated on the
+   labelled set, and the set is grown from the Acme fakes (renamed teams,
+   other naming conventions, near-miss names) until it is large enough to
+   calibrate on. Embeddings for blocking are a separate, later experiment.
+   The spike merges only through a later ADR.
 
 ## Consequences
 
