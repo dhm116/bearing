@@ -176,7 +176,7 @@ Milestones close only with Doug's review and approval.
 
 Shared files are owned by the lead: `proto/`, `gen/go`, `go.mod`/`go.sum`,
 `Makefile`, `AGENTS.md`, `ROADMAP.md`, `docs/adr/`,
-`docs/review-process.md`, `docs/telemetry.md`, and the store interface.
+`docs/review-process.md`, `docs/telemetry.md`, `pkg/store` and `pkg/graph`.
 Other contributors propose changes to them through the lead. Changes to
 `proto/` and the store interface land first, in their own PR, before code
 that depends on them.

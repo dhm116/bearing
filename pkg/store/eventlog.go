@@ -13,17 +13,17 @@ import (
 )
 
 // ErrNotFound is returned when a lookup matches nothing.
-var ErrNotFound = errors.New("contracts: not found")
+var ErrNotFound = errors.New("store: not found")
 
 // ErrInvalidEvent is returned by Append and Release for an event or ID that
 // breaks CheckEvent. Nothing is written.
-var ErrInvalidEvent = errors.New("contracts: invalid event")
+var ErrInvalidEvent = errors.New("store: invalid event")
 
 // ErrInvalidRequest is returned by Read, Commit, Committed and Trim for an
 // argument outside the contract: a malformed partition or group name, a
 // negative offset, a limit out of range, a commit beyond the partition's
 // head or a zero cutoff.
-var ErrInvalidRequest = errors.New("contracts: invalid event log request")
+var ErrInvalidRequest = errors.New("store: invalid event log request")
 
 // The bounds on what the event log takes and returns. Raising one is
 // compatible; lowering one makes an event that was accepted before refuse

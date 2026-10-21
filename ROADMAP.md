@@ -59,6 +59,9 @@ Each idea keeps a line on why it waits. Pre-pivot designs for several of
 these are at the [`pre-pivot`](https://github.com/dhm116/bearing/tree/pre-pivot/docs/adr)
 tag.
 
+- **A conformance suite for `graph.Graph`** in `pkg/store/storetest`, moved
+  from `internal/duckstore`'s behaviour tests once ADR 7 settles identity,
+  so a second store can prove it answers the same.
 - **Kubernetes and remote deployment** (kind, k3d, managed clusters;
   Bearing on a host talking to remote adapters). Same images as Compose.
 - **Scale beyond one writer.** DuckDB's Quack client/server extension (beta)

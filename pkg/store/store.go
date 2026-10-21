@@ -27,7 +27,7 @@ import (
 type Store interface {
 	// Graph returns the graph capabilities of the store.
 	Graph() graph.Graph
-	// Events returns the durable event log (ADR 7).
+	// Events returns the durable event log the server ingests through.
 	Events() EventLog
 	// Ping reports whether the database answers.
 	Ping(ctx context.Context) error

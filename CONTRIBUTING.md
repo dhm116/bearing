@@ -7,8 +7,7 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
 
 - Changes to the data model or protocols start with the spec in `docs/spec/`
   and, for significant decisions, an ADR in `docs/adr/`.
-- Every backend for a `pkg/contracts` interface must pass its conformance
-  suite.
+- Every store implementation must pass `pkg/store/storetest`.
 - Adapters need read-only access to their source and must verify webhook
   signatures when the source signs them.
 - Log with `telemetry.Logger`, report failures with `telemetry.Fail`, and

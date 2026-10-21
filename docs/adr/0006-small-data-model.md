@@ -43,7 +43,7 @@ Four tables, written in one transaction per batch:
 - **Time.** One axis: when the source observed it. "What changed between
   X and Y" is the facts opened or closed in that window. Late-arriving
   data that rewrites history is an edge case, not a design input.
-- **Interface.** `Store` has `Ingest(ctx, source, observations)` and the
+- **Interface.** `graph.Graph` (named `graph.Store` when this was written) has `Ingest(ctx, source, observations)` and the
   reads the questions need: `Entity`, `Find`, `Facts` (by subject,
   predicate, value), `Walk` (recursive over a predicate, both directions,
   with the facts on each step) and `Changes`. Resolution happens inside

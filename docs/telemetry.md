@@ -54,8 +54,8 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `HTTP GET`, `HTTP POST` | client | `bearing` command line, per request to a server (otelhttp, `pkg/apiclient`) | `http.response.status_code`, `url.full`. The question is in the URL's query; the bearer token never is |
-| `graph.<operation>` | client | any `graph.Store` wrapped by `instrument.Graph`: `graph.ingest`, `graph.entity`, `graph.find`, `graph.facts`, `graph.walk`, `graph.changes` | `db.operation.name`; `bearing.results.count` on `graph.ingest` (observations given) and the list reads |
-| `eventlog.<operation>` | client | any `EventLog` wrapped by `instrument.EventLog`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release |
+| `graph.<operation>` | client | any graph opened through `store.Open`: `graph.ingest`, `graph.entity`, `graph.find`, `graph.facts`, `graph.walk`, `graph.changes` | `db.operation.name`; `bearing.results.count` on `graph.ingest` (observations given) and the list reads |
+| `eventlog.<operation>` | client | any event log opened through `store.Open`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release |
 
 `db.system.name` on the event log is `duckdb`. A failed graph call is recorded on its span with `error.type`; `graph.ErrNotFound` is an answer, not a failure.
 
@@ -120,7 +120,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
   `telemetry.Logger(pkg)`. They are safe to create at package init.
 - Report failures with `telemetry.Fail`. Errors can implement
   `ErrorType() string` to control the `error.type` value.
-- New backends for a `contracts` interface get telemetry by being wrapped
-  (see [`pkg/contracts/instrument`](../pkg/contracts/instrument)), not by
-  instrumenting themselves.
+- A store implementation gets telemetry from `store.Open`, which wraps its
+  graph and event log ([`pkg/store`](../pkg/store)); it doesn't instrument
+  itself.
 - Add every new metric to the table above.

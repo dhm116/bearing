@@ -16,7 +16,7 @@ import (
 	"bearing.example/pkg/telemetry"
 )
 
-const pkgName = "pkg/contracts/instrument"
+const pkgName = "pkg/store"
 
 var (
 	tracer = telemetry.Tracer(pkgName)

@@ -23,9 +23,14 @@ Y", "which services use language X below version Y") and short graph walks
 - DuckDB, embedded in `bearing server` through `github.com/duckdb/duckdb-go`,
   holds the observation log, entities and facts. `:memory:` in tests, a file
   in production.
-- One store implementation behind a narrow Go interface. Anything Bearing
-  needs from a store is a method on that interface, so another engine can
-  replace DuckDB; no second implementation is built now.
+- One store implementation behind the interfaces in `pkg/store`:
+  `store.Store` (the graph, the event log, ping and close), with the graph
+  capabilities defined in `pkg/graph` (`graph.Graph`) and the event log in
+  `pkg/store` (`store.EventLog`). Anything Bearing needs from a store is a
+  method there. An implementation registers a driver for a URL scheme and
+  `store.Open` picks it, so another engine can replace DuckDB without code
+  outside `pkg/store` changing; it proves itself with `pkg/store/storetest`.
+  No second implementation is built now.
 - Where the data lives is a deployment choice. DuckDB can keep it in a
   database that is attached through an extension (PostgreSQL, MySQL,
   SQLite) or in a DuckLake, while Bearing's queries stay the same.
