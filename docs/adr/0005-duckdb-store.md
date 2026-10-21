@@ -23,9 +23,12 @@ Y", "which services use language X below version Y") and short graph walks
 - DuckDB, embedded in `bearing server` through `github.com/duckdb/duckdb-go`,
   holds the observation log, entities and facts. `:memory:` in tests, a file
   in production.
-- One store implementation. A narrow Go interface sits at the boundary so
-  another engine can be added later, but no second implementation is
-  built now.
+- One store implementation behind a narrow Go interface. Anything Bearing
+  needs from a store is a method on that interface, so another engine can
+  replace DuckDB; no second implementation is built now.
+- Where the data lives is a deployment choice. DuckDB can keep it in a
+  database that is attached through an extension (PostgreSQL, MySQL,
+  SQLite) or in a DuckLake, while Bearing's queries stay the same.
 - Writes are batched per sync page or webhook burst, never one transaction
   per observation.
 - Graph walks use recursive CTEs.
