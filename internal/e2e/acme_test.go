@@ -18,6 +18,7 @@ import (
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 )
 
@@ -213,23 +214,58 @@ func TestAcmeKeepsTomBeckerApart(t *testing.T) {
 	}
 }
 
-// TestAcmeTeamsAreOneAcrossSources fails today: the directory's groups carry
-// no link to GitHub's teams, only a name alias, and the store joins on keys.
+// teamRules join a team's records across the three systems by the name in
+// their keys.
+var teamRules = []match.KeyRule{
+	{Name: "directory-group-is-github-team", A: "authentik:group_name/{name}", B: "github:team/acme/{name}"},
+	{Name: "kubernetes-team-is-github-team", A: "kubernetes:team/{name}", B: "github:team/acme/{name}"},
+}
+
+// TestAcmeTeamsAreOneAcrossSources: the three systems share no key for a
+// team, so key rules run by match.Run join them.
 func TestAcmeTeamsAreOneAcrossSources(t *testing.T) {
-	t.Skip("pending roadmap step 4: directory groups and GitHub teams share no keys (ROADMAP.md)")
 	t.Parallel()
 	w := newWorld(t)
 	w.syncGitHub()
 	w.syncDirectory()
+	c := newCluster(t)
+	c.store = w.store
+	c.sync()
+	if _, err := match.Run(t.Context(), w.store, match.Config{Now: w.clock.Now, Rules: teamRules}); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"payments", "platform"} {
-		if a, b := w.id("github:team/acme/"+name), w.id("authentik:group_name/"+name); a != b {
-			t.Errorf("team %s: GitHub %s and directory %s are two entities, want one", name, a, b)
+		gh := w.id("github:team/acme/" + name)
+		others := []string{"authentik:group_name/" + name}
+		if name == "payments" { // no workload names the platform team
+			others = append(others, "kubernetes:team/"+name)
+		}
+		for _, other := range others {
+			if got := w.id(other); got != gh {
+				t.Errorf("team %s: %s is %s, want the GitHub team %s", name, other, got, gh)
+			}
+		}
+		e, err := w.store.Entity(t.Context(), string(gh))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range append(others, "github:team/acme/"+name) {
+			if !slices.Contains(e.Keys, model.Key(k)) {
+				t.Errorf("team %s has keys %v, want %s among them", name, e.Keys, k)
+			}
 		}
 	}
 	teams := w.targets("github:user/jdoe", "member_of")
 	slices.Sort(teams)
-	if n := len(slices.Compact(teams)); n != 1 {
-		t.Errorf("Jane Doe is a member of %d teams %v, want the one payments team", n, teams)
+	if want := []string{string(w.id(payments))}; !slices.Equal(slices.Compact(teams), want) {
+		t.Errorf("Jane Doe is a member of %v, want only the payments team %v", teams, want)
+	}
+	// The team CODEOWNERS names for payments-api is the one its workload's
+	// team label names.
+	owner := w.targets(paymentsAPI, "approves_changes")
+	labelled := w.targets(workload("deployment", "payments", "payments-api"), "owned_by")
+	if want := []string{string(w.id(payments))}; !slices.Equal(owner, want) || !slices.Equal(labelled, want) {
+		t.Errorf("payments-api: CODEOWNERS team %v, workload team label %v, want both %v", owner, labelled, want)
 	}
 }
 
