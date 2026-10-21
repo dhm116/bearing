@@ -14,14 +14,14 @@ interface's conformance suite can replace it. The Go definitions are in
 | `Extractor` | Proposes candidate entities and relations from unstructured text | A self-hosted model behind a chat-completions style API (never a hosted LLM API by default) | Hosted models, only with a per-provider `insecure_hosted_model_<provider>` setting | Planned |
 | `Judge` | Calibrated typed judgments: choice, yes/no, score | Kev 4B, self-hosted | Jev hosted API | Planned |
 | `PolicyDecider` | Allow or deny an action, with the reason and how to fix it | Open Policy Agent | Cedar | Planned |
-| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](../adr/0012-authentication-through-oidc.md), [below](#authorizer)) | OIDC group and client-ID to role mapping (`auth.RoleAuthorizer`) | OpenFGA, SpiceDB | Yes (`conformance.Authorizer`) |
+| `Authorizer` | Allow or deny a caller's request to Bearing by role, with the reason ([ADR 12](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0012-authentication-through-oidc.md), [below](#authorizer)) | OIDC group and client-ID to role mapping (`auth.RoleAuthorizer`) | OpenFGA, SpiceDB | Yes (`conformance.Authorizer`) |
 | `Executor` | Plan, apply, verify and roll back actions durably | Temporal | Postgres-backed job runner | Planned |
 
 ## One database to start
 
 A backend can serve more than one interface. By default PostgreSQL backs
 `GraphStore`, `VectorIndex` (the vectors use the pgvector extension),
-`EventLog` and the `AuditLog` that `GraphStore` writes, so a small install runs one database ([ADR 14](../adr/0014-postgres-is-the-default-store.md)).
+`EventLog` and the `AuditLog` that `GraphStore` writes, so a small install runs one database ([ADR 14](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0014-postgres-is-the-default-store.md)).
 [`pkg/store`](../../pkg/store) opens backends from URLs:
 
 | URL | Backend | Needs |
@@ -139,7 +139,7 @@ still re-point vectors.
 
 The store keeps every applied `ChangeSet`, with the IDs it minted and what
 it decided, in its change journal (not the audit log,
-[ADR 8](../adr/0008-audit-log.md)).
+[ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md)).
 
 Subject IDs are UUIDv7s with timestamps no later than the record time of
 the apply that minted them. After a restore the store seeds its ID source
@@ -207,7 +207,7 @@ periods that compaction has rolled up can be deleted
 #### Audit entries
 
 `ChangeSet.audit` holds what the resolver decided to audit in one event
-([Audit](data-model.md#audit), [ADR 8](../adr/0008-audit-log.md)): a mint, a
+([Audit](data-model.md#audit), [ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md)): a mint, a
 binding written or released, a merge or un-merge, a status change an apply
 caused, a conflict opened or closed, a rejection and the rest of that list.
 Each entry is an `AuditEntry`
@@ -365,7 +365,7 @@ References are to sections of the [data model](data-model.md).
 | Resolution rules 1–3, rejections such as `kind_mismatch` | Resolver |
 | Case folding of `insensitive` keys: `ResolveKey`, `Bindings` and the filters match aliases exactly as written | Resolver, which writes and looks up the folded form |
 | Once any alias of a key type is bound, its kind, class (`id` or `name`) and case sensitivity are fixed | Configuration apply, which reads the bindings and rejects the change. The store doesn't know key types. |
-| Audit entries: their shape and subjects, carried with the `ChangeSet` ([Audit entries](#audit-entries)) | Store. The audit log writes the records ([ADR 8](../adr/0008-audit-log.md)). |
+| Audit entries: their shape and subjects, carried with the `ChangeSet` ([Audit entries](#audit-entries)) | Store. The audit log writes the records ([ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md)). |
 | Count limits on a `ChangeSet` ([GraphStore](#graphstore)) | Store, through `contracts.CheckChangeSetLimits`. The resolver keeps every series under the row limit (merging adjacent equal spans, compacting) and splits a larger write across events where it can; a write it can't split, such as a snapshot scope too big for one `ChangeSet`, it rejects with an audit entry rather than retrying (`too_large`). Compacting and splitting are not implemented yet: the resolver merges adjacent equal spans and rejects anything still over a limit. |
 | Merge: survivor is the lower ID, `status`/`merged_into`, reads canonicalize from `r`, earlier reads show two subjects, alias sets on the record. An alias set holds every alias with a row mapping it to the subject as recorded at the merge, released rows that redirect and tentative rows included. | Store |
 | Merge review: re-evaluating a merge's evidence, the per-side score and the status, and opening the conflict for review | Resolver. The store appends the review to the merge record ([Merge reviews](#merge-reviews)). |
@@ -457,7 +457,7 @@ every time and in every backend:
 
 ## EventLog
 
-`EventLog` is the log of [ADR 7](../adr/0007-durable-event-log.md): webhook
+`EventLog` is the log of [ADR 7](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0007-durable-event-log.md): webhook
 deliveries, sync requests, adapter output, people's operations and the
 core's own events all become events on it, and the workers that run adapters
 and apply their output read from it. It replaces the `EventBus` of earlier
@@ -570,7 +570,7 @@ behind the window loses events, which `Partitions` shows as `Trimmed` above
 its offset.
 
 Manual events are exempt for as long as their effects are live
-([ADR 11](../adr/0011-identity-store-is-primary-state.md)). The log refuses
+([ADR 11](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0011-identity-store-is-primary-state.md)). The log refuses
 one in the `manual` partition without `Retain`, since a missing flag would
 silently lose primary state at the window. The core calls `Release` when
 an event's effects end, for example when an override is cleared or
@@ -668,7 +668,7 @@ A dead letter is not retried by the server. An operator reads the
 `AuditLog` is the record of who or what changed a fact and why, which the
 change journal is not: the journal keeps every write of a `ChangeSet`, the
 audit log keeps the decisions people rely on, and it can show that none was
-edited, removed or cut off ([ADR 8](../adr/0008-audit-log.md), threat model
+edited, removed or cut off ([ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md), threat model
 C-AUDIT-1 to C-AUDIT-6). The Go definition is
 [`pkg/contracts/audit.go`](../../pkg/contracts/audit.go); the bytes that are
 hashed and the verifier are in [`pkg/audit`](../../pkg/audit).
@@ -924,7 +924,7 @@ over `MaxEventIDBytes` or not text (invalid UTF-8 or a NUL), an actor or target 
 unknown target kind, a target ID without its kind, or `From` not before `To`
 when both are set. `Head` returns the newest record's `seq`, hash and
 `recorded_at`, or the zero value for an empty log. Records name people, so the API that exposes `Query` is for the admin
-role only ([ADR 12](../adr/0012-authentication-through-oidc.md)).
+role only ([ADR 12](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0012-authentication-through-oidc.md)).
 
 `bearing audit reanchor [--out FILE] --expect-seq N --key-id ID --key-env VAR` writes the
 cut checkpoint for the log's current start, for a log that was cut and lost
@@ -1030,7 +1030,7 @@ person's name from the system.
 ## Authorizer
 
 `Authorizer` decides whether a verified caller may call one method of
-Bearing's API ([ADR 12](../adr/0012-authentication-through-oidc.md), threat
+Bearing's API ([ADR 12](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0012-authentication-through-oidc.md), threat
 model C-API-4 and C-API-5). It answers who may call Bearing. `PolicyDecider`
 answers whether an action on the outside world may run, and the two stay
 separate. The Go definition is

@@ -3,7 +3,7 @@
 `bearing server --settings FILE` runs the always-on part of Bearing: the
 workers that apply the event log, the scheduler, the API on a Unix socket and
 a TCP listener, and the webhook route. This page is for the person who runs it.
-The design is in [ADR 7](adr/0007-durable-event-log.md), the routes in
+The design is in [ADR 7](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0007-durable-event-log.md), the routes in
 [spec/api.md](spec/api.md) and the controls in
 [security/threat-model.md](security/threat-model.md).
 

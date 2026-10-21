@@ -11,3 +11,6 @@ cover-*.out
 # gate counts untracked files as changes, so these must not show.
 /cover/
 /baseline/
+
+# Local worktrees (see AGENTS.md).
+.worktrees/

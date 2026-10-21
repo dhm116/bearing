@@ -1,6 +1,6 @@
 # Store benchmarks
 
-`cmd/bearing-bench` measures the PostgreSQL store ([ADR 14](../adr/0014-postgres-is-the-default-store.md))
+`cmd/bearing-bench` measures the PostgreSQL store ([ADR 14](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0014-postgres-is-the-default-store.md))
 at its design target: thousands of repositories and people and about ten
 million facts. Results are in [`store-10m.md`](store-10m.md) and, for `Apply` with the audit log
 on and off, [`ingest-throughput.md`](ingest-throughput.md), with the raw lines

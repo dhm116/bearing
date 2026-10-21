@@ -19,7 +19,7 @@ compatible with it.
 | 0.2 | **Bitemporal**: claims write states onto valid time; supports have record time. "As of" and "what changed" queries. | Time-bounded facts are core, not special cases. |
 | 0.2 | Per-source supports, latest `observed_at` wins per valid time, snapshot scopes, sync completeness. | A stale sync can't undo a newer event; endings are explicit. |
 | 0.2 | Confidence in parts per million: max within a source system, noisy-OR across. Statuses and conflicts. | Corroboration counts once per independent system; disputed owners are never asserted. |
-| 0.3 | The identity store, old history and the effects of manual events are primary state, backed up with the graph ([ADR 11](../adr/0011-identity-store-is-primary-state.md)). | Subject IDs must survive events ageing out of the log. |
+| 0.3 | The identity store, old history and the effects of manual events are primary state, backed up with the graph ([ADR 11](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0011-identity-store-is-primary-state.md)). | Subject IDs must survive events ageing out of the log. |
 | 0.3 | Adapters **declare** which registered kinds and predicates they emit, their key types, matching fields, links and default **authority** in `Describe`; operators override authority per source. Replaces the spec's key type registry. Kinds and relations still come only from this spec. | A new source needs no spec change for its keys or matching. |
 | 0.3 | One generic **matcher** scores same-kind pairs; the score is the confidence of `same_as`. **Merge policy** per kind: people need authoritative evidence or confirmation, teams merge on score. Replaces the fixed identity rule table. | Matching rules belong in configuration, not the spec. |
 | 0.3 | CODEOWNERS is reported literally as `approves_changes`; the core **derives** `owned_by` from the file's shape. | CODEOWNERS names reviewers; only some files say who owns the repository. |
@@ -40,7 +40,7 @@ compatible with it.
 | Issuer type | A kind of identifier issuer, such as `github`, `authentik` or `saml`. Adapters declare its key types. |
 | Namespace | One issuer instance, for example `github` (github.com) or `ghes-acme`. Each has an issuer type. |
 | Alias | `(namespace, key_type, external_id)`, written as a key `<namespace>:<key_type>/<external_id>`. |
-| Source | A configured adapter instance ([ADR 10](../adr/0010-configuration-as-resources.md)), for example `github-acme`. The unit of provenance. |
+| Source | A configured adapter instance ([ADR 10](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0010-configuration-as-resources.md)), for example `github-acme`. The unit of provenance. |
 | Source system | The namespace a source reads. Sources of one system are not independent. |
 | Declaration | What an adapter's `Describe` says it emits: kinds, key types, fields and links ([Declarations](#declarations)). |
 | Authority | Whether a source is the source of record for a field of a kind. Declared by the adapter, overridable per source. |
@@ -62,14 +62,14 @@ Bearing's state has two parts:
 - The **identity store**: subjects, alias bindings, and merge and un-merge
   records. It is **primary state**, backed up with the graph and never
   rebuilt from events, because identity decisions depend on apply order and
-  the event log keeps only a window ([ADR 7](../adr/0007-durable-event-log.md)).
+  the event log keeps only a window ([ADR 7](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0007-durable-event-log.md)).
   It is never compacted.
 - The **claim store**: claims, watermarks, support versions and audit
   links. It is rebuilt by replay only for valid and record times inside the
   event log's retention window. History older than that, compaction
   summaries and the effects of manual events are primary state, backed up
   with the graph. Manual events MUST be retained as long as their effects
-  are live ([ADR 11](../adr/0011-identity-store-is-primary-state.md)).
+  are live ([ADR 11](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0011-identity-store-is-primary-state.md)).
 - The **configuration** and **declaration versions** in force at every
   record time `r` the store can answer for ([Configuration](#configuration),
   [Declarations](#declarations)). They are primary state, backed up with the
@@ -282,7 +282,7 @@ HMAC-SHA256 over the raw body, hex), the `signature_header` that carries it
 and the `signature_prefix` before the digest (`sha256=` for GitHub, `v1=` for
 PagerDuty). The declaration never holds a secret: the source supplies that by
 reference (`webhook_secret`), and the host verifies each delivery before it is
-logged ([ADR 7](../adr/0007-durable-event-log.md)). The rules the verifier
+logged ([ADR 7](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0007-durable-event-log.md)). The rules the verifier
 follows:
 
 - The values of every line of the signature header are split on commas into
@@ -1047,7 +1047,7 @@ A fact's status at `(v, r)`, with a `status_reason`, is the first match:
 | 7 | Otherwise | `asserted` | `none` |
 
 Answers that act (ownership, policy) read only `asserted` facts
-([ADR 2](../adr/0002-graph-is-source-of-truth.md)). A placeholder never
+([ADR 2](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0002-graph-is-source-of-truth.md)). A placeholder never
 passes step 5, so a typo in CODEOWNERS never makes an owner; it is reported
 as a [data-quality issue](#data-quality) instead.
 
@@ -1308,7 +1308,7 @@ subject or agent token ID, and whether it is an agent) and a non-empty
 ## Retention and compaction
 
 Operators configure **tiers** per predicate or per kind in a `Retention`
-resource ([ADR 10](../adr/0010-configuration-as-resources.md)); a
+resource ([ADR 10](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0010-configuration-as-resources.md)); a
 predicate's tiers override those of the subject's kind. Each tier keeps a
 level of detail for a span of valid time, counted back from the
 compaction event's `observed_at`:
@@ -1340,7 +1340,7 @@ compaction event's `observed_at`:
   carries `precision: { "detail", "period_start", "period_end" }`, so "who
   owned X in 2024?" answers "Z at year end, after 3 changes".
 - The identity store and the audit log are never compacted. Deleting audit
-  records is governed by [ADR 8](../adr/0008-audit-log.md)'s retention, not
+  records is governed by [ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md)'s retention, not
   by these tiers.
 
 The MVP implements only the `full` tier: nothing is compacted and
@@ -1449,7 +1449,7 @@ conflict `none` (`member_of`, `on_call_for`) to a placeholder are still
 
 ## Audit
 
-The core writes an audit record ([ADR 8](../adr/0008-audit-log.md)) in the
+The core writes an audit record ([ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md)) in the
 apply transaction, with the event ID and rule, for: a mint; a binding
 written or released; merge, un-merge, `distinct_from`; a fact's status
 change caused by an apply; a conflict opened or closed; an override set,
@@ -1462,7 +1462,7 @@ A record is an `AuditRecord` (`model/v1alpha1/audit.proto`): the log's `seq`,
 the apply's `recorded_at`, the `event_id` and the entry's `ordinal` within
 it (from 1, in the order the apply produces them; `event_id` and `ordinal`
 are unique together), the `trace_id` when there was one (`ChangeSet.trace_id`),
-the hash-chain fields of [ADR 8](../adr/0008-audit-log.md) (how they are
+the hash-chain fields of [ADR 8](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0008-audit-log.md) (how they are
 computed, and what a checkpoint is, is in
 [`AuditLog`](contracts.md#auditlog)), and an `AuditEntry` that the writer
 produces:
@@ -1552,7 +1552,7 @@ boundary, with "…" at the cut.
 ## Configuration
 
 Operators configure Bearing with typed resources in the `api_version` /
-`kind` / `metadata` / `spec` shape of [ADR 10](../adr/0010-configuration-as-resources.md).
+`kind` / `metadata` / `spec` shape of [ADR 10](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0010-configuration-as-resources.md).
 Each is a message in `proto/bearing/config/v1alpha1`; `api_version` is
 `bearing/v1alpha1` and `kind` is the message's name. The rules in this
 document read the configuration in force at record time `r`.
@@ -1667,7 +1667,7 @@ proto field names, so JSON field names match the examples here.
 
 Every message in `proto/bearing/event/v1alpha1` that is an event, by who
 appends it. Each travels as the data of a CloudEvent
-([ADR 7](../adr/0007-durable-event-log.md)). The CloudEvents `type` of
+([ADR 7](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0007-durable-event-log.md)). The CloudEvents `type` of
 each event and the partition it is appended to are in
 [`EventLog`](contracts.md#event-types). Audit records and checkpoints are
 not events; they are written to the `AuditLog`.

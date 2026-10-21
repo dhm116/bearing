@@ -1,331 +1,198 @@
 # AGENTS.md
 
 Guidance for AI coding agents (and humans) working in this repository. Read
-this first, then the [README](README.md) for the pitch and
-[CONTRIBUTING](CONTRIBUTING.md) for the ground rules.
+this first, then the [roadmap](ROADMAP.md) for what is being built now.
 
 ## What Bearing is
 
-An open-source foundation for a developer platform. Small **adapters** read
-tools an organization already uses (GitHub first, then AWS and PagerDuty) and
-emit **observations**. The core resolves them into **entities** and **facts**
-in a graph that is the source of truth, with a semantic (vector) index beside
-it. Every component talks through an interface in `pkg/contracts`, and any
-backend that passes that interface's conformance suite can replace the
-default.
+Bearing answers questions about an engineering organization from the tools
+it already uses. Small **adapters** read a source (GitHub, an identity
+provider, Kubernetes) and emit **observations**. The core resolves them
+into **entities** and **facts** with their provenance, stores them in
+DuckDB, and answers queries over a CLI, a REST API and an MCP endpoint.
 
-The project is an early scaffold. The spec, protocol and contracts are drafts
-at version 0.1 and are expected to change, but change them deliberately (see
-[Changing the design](#changing-the-design)).
+The MVP is done when it answers these, with the evidence behind each answer:
+
+1. Which team owns service X?
+2. Which services use language X below version Y?
+3. What changed between times X and Y?
+4. What does service X depend on, and how?
+5. What depends on service X, and how?
+
+## The pivot
+
+On 2026-10-20 Bearing restarted from a smaller scope. Everything before is
+tagged [`pre-pivot`](https://github.com/dhm116/bearing/tree/pre-pivot).
+
+- The ADRs in [`docs/adr/`](docs/adr/) are the only design rules. The
+  pre-pivot ADRs are history: read them at the tag for ideas, never cite
+  them as requirements.
+- Pre-pivot code is still in the tree until the roadmap's deletion steps
+  remove it. `docs/spec/`, `docs/security/threat-model.md`,
+  `docs/operations.md` and `docs/benchmarks/` describe that code, not the
+  target. Don't extend them, and don't flag new code for disagreeing with
+  them; they are deleted or rewritten with the code they describe.
+- Reuse what serves the MVP (`pkg/model`, `pkg/telemetry`, `pkg/clock`,
+  `internal/testkit`, `internal/fakes` and the Acme fixtures,
+  `adapters/github`, `pkg/query`). Delete the rest rather than keeping it
+  beside the new code.
 
 ## Commands
 
-Go 1.27.2 or later; the `go` command downloads the toolchain if needed.
+Go 1.27.2 or later; the `go` command downloads the toolchain if needed. A C
+compiler is required (DuckDB needs CGO).
 
 | Command | What it does |
 | --- | --- |
-| `make check` | Everything CI runs, in order: `generate-check`, `lint`, `vet`, the `tools/` module's tests, `cover`, `covergate`, `race`, `build`, `vuln`. CI runs the same steps as parallel jobs (see below), so it finishes sooner than this does |
-| `make generate` | After editing `proto/`: `buf format`, `buf lint`, then `buf generate` into `gen/go` and `gen/jsonschema` (buf and plugins pinned in `tools/go.mod`). Commit the output |
-| `make generate-check` | Fails if `proto/` isn't formatted or doesn't lint, or if `gen/` differs from what `buf generate` writes. `buf breaking` turns on when the MVP closes |
-| `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`): gofumpt, goimports, revive, errcheck, errorlint, staticcheck, gosec, forbidigo, depguard, nolintlint |
-| `make test` | `go vet ./...` and `go test ./...` (no external services needed) |
-| `make cover` | `go test -coverpkg=./... -coverprofile=cover.out ./...`. `SHARD=<name>` runs one slice of the tests, as CI does on separate runners (`SHARDS` in the `Makefile`) |
-| `make race` | `go test -race` on the packages that take locks or run goroutines (`RACE_PKGS`: `pkg/server`, `pkg/server/boot`, `pkg/auth`, `pkg/audit`, `pkg/store`, `pkg/adapter`, `pkg/model`, `internal/memstore`, `internal/fakes`, `internal/testkit`); needs cgo and a C compiler. `internal/pgstore` (PostgreSQL) and `pkg/resolver` (about 450 s under `-race`) are left out |
-| `make covergate` | Fails if under 80% of Go lines changed since the merge base with `origin/main` are covered, or if total coverage is below the merge base's (`cmd/`, `gen/` and generated files excluded). The total check runs for any change outside docs, Markdown, `LICENSE`, `NOTICE` and `.github/` (workflows excepted); a change touching only those skips the baseline run |
-| `make vuln` | `govulncheck ./...` (pinned in `tools/go.mod`) |
-| `make build` | Builds `bin/bearing`, `bin/bearing-adapter-github` and `bin/bearing-bench` |
-| `make fmt` | gofumpt and goimports via `golangci-lint fmt` |
-| `make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=<password>` | PostgreSQL suites against a running server (`docker run -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=<password> pgvector/pgvector:pg16`); the role must be able to create roles and schemas; add `POSTGRES_SCOPED=1` to run the stores as a role without administrator rights, as CI does |
+| `make check` | Everything CI runs |
+| `make test` | `go vet ./...` and `go test ./...`, no external services |
+| `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`) |
+| `make fmt` | gofumpt and goimports |
+| `make generate` | After editing `proto/`: buf format, lint and generate into `gen/`. Commit the output |
+| `make build` | Builds the binaries into `bin/` |
 
-Run `make check` before every commit. A single package:
+Run `make check` before every commit. One package:
 `go test ./pkg/model/ -run TestInvalidObservations`.
 
-PostgreSQL tests skip unless `BEARING_TEST_POSTGRES` is set, so a green
-`make test` does not prove the PostgreSQL backend works. If you touch
-`internal/pgstore`, run `make test-postgres` or say plainly that you could
-not.
-
-Add dependencies with `go get <module>@<version>` and keep `go.mod` edits
-minimal.
-
-## Layout
-
-| Path | Role |
-| --- | --- |
-| `docs/spec/` | The specification: data model, adapter protocol, component contracts. The spec is the product; code implements it. |
-| `docs/adr/` | Architecture decision records, numbered. [`template.md`](docs/adr/template.md) for new ones. |
-| `docs/telemetry.md` | Catalog of spans, metrics and telemetry config. Keep it current. |
-| `docs/review-process.md` | How PRs are reviewed and merged: reviewers, findings, rounds, the review-round comment, merge, shared files. |
-| `docs/security/threat-model.md` | Trust boundaries, threats and controls (`C-<AREA>-<n>` IDs). Update it when adding an input, a boundary or an `insecure_*` setting. |
-| `proto/bearing/{model,event,config}/v1alpha1` | Protobuf: the only source of truth for the data model, declarations, events, audit records and configuration resources ([ADR 6](docs/adr/0006-protobuf-contracts.md)). Linted and formatted by buf (`buf.yaml`). `v1alpha1` until the MVP closes. |
-| `proto/bearing/resolver/v1alpha1` | The resolver's private state, stored by `GraphStore` as opaque `Any` values (not part of the data model; add-only until the MVP closes, see `docs/spec/contracts.md`). |
-| `gen/go`, `gen/jsonschema` | Generated from `proto/` by `make generate` (`buf.gen.yaml`) and committed; never edit by hand. CI checks they are current. |
-| `testdata/observations/` | Example observations in ProtoJSON: `valid/` must validate, each file in `invalid/` must fail for the one reason `pkg/model`'s test table names. |
-| `testdata/declarations/` | The spec's reference adapter declarations; tests validate them. |
-| `testdata/events/`, `testdata/audit/`, `testdata/config/` | Example events, audit records and configuration resources in ProtoJSON, named `<package>.<Message>.json`; a test checks each decodes strictly and re-encodes unchanged. |
-| `pkg/model` | Helpers around the generated types: the kind and predicate registry, keys, ProtoJSON encoding, validation at the edges (`ValidateObservation`, `ValidateDeclaration`, `ValidateManualEvent`), `FactID` and `ContentHash`. |
-| `pkg/adapter` | Adapter protocol: `Adapter` interface, `ServeStdio` for adapter authors, client for the core. |
-| `pkg/contracts` | Interfaces between components (`GraphStore`, `VectorIndex`, `EventLog`, `Judge`, …). |
-| `pkg/contracts/conformance` | Test suites every backend must pass. |
-| `pkg/audit` | What makes the audit log tamper evident: the bytes of a record that are hashed, `Seal` for the chain, checkpoints (and the signed cut checkpoints that retention leaves) and their Ed25519 signatures, and `Verify` (behind `bearing audit verify`). The `AuditLog` interface is in `pkg/contracts`. |
-| `pkg/server` | The `bearing server` parts ([ADR 7](docs/adr/0007-durable-event-log.md)): `Ingest`, the webhook route (host-side HMAC check, per-source and per-peer rate limits, 2xx only after the event is in the log), which the API's TCP listener serves ahead of the token check (`ListenConfig.Webhooks`). The `Server` runs the apply workers (one per partition, retries, dead letters), the scheduler, event-log retention, audit-log retention (`auditretention.go`, off by default, signs a marker before every cut), the interval audit checkpoint writer (`auditcheckpoints.go`), the instance-lock check and health (`Live`, `Ready`, `HealthHandler`). The `API` (`api.go`, `apilisten.go`) serves the query routes and sync requests on a Unix socket (peer UID) and a TLS TCP listener (OIDC), each request authenticated, rate-limited and authorized in one wrapper, behind per-peer connection and request limits on the TCP listener (`connlimit.go`) and one pending sync request per source (`RequestSync`); routes are in [docs/spec/api.md](docs/spec/api.md). |
-| `pkg/server/boot` | `bearing server --settings FILE`: `Load` and `Validate` the process settings file (Source resources inside it, `env:` secrets only, start refusals), `Assemble` the server (store, instance lock, resolver, adapters started with a minimal environment and restarted with backoff, the audit checkpoint writer and retention job on one signed checkpoint file, ingest, API) and `Run` it. [docs/operations.md](docs/operations.md). |
-| `pkg/auth` | Who may call Bearing ([ADR 12](docs/adr/0012-authentication-through-oidc.md)): `Verifier` checks OIDC bearer tokens against the issuer's keys and builds the `Caller`; the default `Authorizer` maps IdP groups and client IDs to roles. |
-| `pkg/apiclient` | The client of the server's API ([docs/spec/api.md](docs/spec/api.md)): `Get`, `Owners`, `Related` and `Changes` with the types of `pkg/query` (it matches `pkg/query`'s errors with `errors.Is`), and `RequestSync`. A socket path needs no token; a network address takes an OIDC bearer token from the caller's function, sent only over TLS or to loopback, and no redirect is followed. Not a stable API yet. |
-| `pkg/query` | The CLI's query layer: `get`, `owner`, `related` and `changes` over a `GraphStore`, each answer with its sources, events, confidence and observed times. `cmd/bearing` reads the graph only through it. Not a stable API yet, though the server's answers (`docs/spec/api.md`) are its types as JSON. |
-| `pkg/contracts/instrument` | OpenTelemetry wrappers so every backend gets the same spans and metrics. |
-| `pkg/store` | Opens graph store, audit log, vector index and event log from URLs (`mem://`, `postgres://`); the audit log is the graph backend's. |
-| `pkg/telemetry` | OpenTelemetry setup, `Logger`, `Tracer`, `Meter`, `Fail`. |
-| `pkg/clock` | `Clock` interface (now, timers, tickers) that components take instead of package `time`; `Real` wraps `time`. |
-| `internal/memstore` | In-memory reference backend for all three contracts (`GraphStore` with its `AuditLog()`, `VectorIndex`, `EventLog`), and the rule engine other backends run their operations on (`pgstore` loads rows into a scratch `memstore.Store`). Production code. |
-| `internal/pgstore` | PostgreSQL backend for `GraphStore` ([ADR 14](docs/adr/0014-postgres-is-the-default-store.md)) `EventLog` (`eventlog.go`: tables `event_partition`, `event` and `event_offset`, an append locks its partitions' head rows in name order, `Backup`/`Restore` never touch them) and the `AuditLog` (`audit.go`: table `audit_record`, written in the apply's transaction, rebuilt by `Restore`): rows in `bearing`-schema tables, every operation run on a scratch `memstore.Store`, one transaction per apply under the head row's lock. Server only, pure Go (pgx). With `vector_dimensions` it also serves `VectorIndex` on pgvector (`vectors.go`: one HNSW cosine index, dimensions fixed per schema). |
-| `internal/testkit` | Test fakes: `FakeClock` (a `clock.Clock`), `SeqIDs`, script/fixture HTTP servers, fake `Secrets` and `AssertNoLeaks`. Tests only. |
-| `internal/fakes` | httptest fakes of source systems for tests and demos: a GitHub API (REST, GraphQL, signed webhook deliveries) and an Authentik-like directory, both serving one fictional org (`acme`) with a scripted timeline (`Story`) and an injected clock, and a Kubernetes API (`NewKubernetes`) serving Acme's cluster with its own timeline (`KubernetesStory`). Its recorded feeds are `testdata/acme/directory.ndjson` and `testdata/acme/kubernetes.ndjson`. Tests only. |
-| `adapters/github` | GitHub adapter, the worked example for new adapters. |
-| `cmd/bearing` | Developer CLI: `adapter describe`, `adapter sync` (validates every observation and prints them as ProtoJSON NDJSON), `get`, `owner`, `related` and `changes`, which read a store given by `--store` or `$BEARING_STORE` through `pkg/query`, or ask a running server given by `--server` or `$BEARING_SERVER` through `pkg/apiclient` (`query.go`; the answers are the same; a token for a network server comes from the variable `--token-env` names, default `$BEARING_TOKEN`), optionally `--as-of` and `--recorded-at`, `source sync` (`source.go`, asks a server to sync a source now), and `audit verify`, `audit checkpoint` and `audit reanchor` (`audit.go`), which read the store's audit log and the checkpoint file, and `server --settings` (`server.go`), which runs the server through `pkg/server/boot`. |
-| `cmd/bearing-bench` | Store benchmark (`make bench`): loads a generated org into a store up to ~10M facts and measures sizes, reads, applies and plans. Takes hours at full size, so never part of `make check` or CI. Results and method in `docs/benchmarks/`. |
-| `cmd/bearing-adapter-github` | Binary that serves the GitHub adapter on stdio. |
-| `tools/` | Separate Go module: pinned golangci-lint, govulncheck, buf, protoc-gen-go and protoc-gen-jsonschema, the coverage gate (`tools/covergate`) and the review-round comment poster (`tools/reviewcard`). Never imported by Bearing code. |
-
-The Go module path is the placeholder `bearing.example`. Import packages as
-`bearing.example/pkg/...`; don't rename the module unless asked.
+Add dependencies with `go get <module>@<version>`, with the reason in the
+commit message.
 
 ## Architecture rules
 
-These come from the ADRs and project decisions. Don't break them without a
-new ADR.
+From the ADRs. Don't break them without a new ADR.
 
-1. **The graph is the source of truth** ([ADR 2](docs/adr/0002-graph-is-source-of-truth.md)).
-   Every vector points at a graph entity and the index can be rebuilt from
-   the graph. Ownership and policy answers read only asserted facts; results
-   from semantic search are verified in the graph.
-2. **Adapters are isolated from the core** and implement one Protobuf
-   adapter service: `Describe`, `Sync` (cursor paged) and optional `Handle`
-   for webhooks ([ADR 9](docs/adr/0009-wasm-adapters.md)). Once
-   [M4](https://github.com/dhm116/bearing/milestone/5) lands, sandboxed
-   WASM modules reaching the world only through granted host capabilities
-   are the default runtime. Adapters that can't run as WASM run as local
-   processes the core starts, serving the same service over Connect/gRPC
-   on a Unix socket in a private directory; the core owns their
-   lifecycle, environment, secrets and telemetry (ADR 9 A13). The stdio JSON-RPC
-   transport ([ADR 3](docs/adr/0003-adapter-protocol.md)) is retired; the
-   scaffold's stdio code runs the GitHub adapter until M4 replaces it, and
-   nothing new is built on it. Adapters are stateless and read-only
-   against their source. WASM adapters never hold credentials; the host
-   injects them. The host verifies webhook signatures before a delivery is
-   logged, with one verifier per signature scheme that the adapter's
-   declaration declares (`AdapterDeclaration.webhook`, issue
-   [#58](https://github.com/dhm116/bearing/issues/58)), and WASM adapters
-   never see webhook secrets. Ingest stays off until that verifier exists;
-   until then the adapter's own verification is the check (ADR 9 A15).
-   Adapters never resolve identities across systems. That is the core's
-   job.
-3. **Replace nothing; integrate.** Bearing adapts existing tools (Backstage
-   included) rather than competing with them. Keep adapters small and
-   focused on useful data types.
-4. **Pluggable backends behind contracts.** Code outside a backend depends on
-   `pkg/contracts` interfaces only. Backends are wired up in `pkg/store`,
-   wrapped with `pkg/contracts/instrument`, and must pass
-   `pkg/contracts/conformance`.
-5. **One store to start** ([ADR 14](docs/adr/0014-postgres-is-the-default-store.md),
-   which supersedes ADR 5 in part). PostgreSQL with pgvector serves both
-   `GraphStore` and `VectorIndex` by default; `mem://` for tests and trials.
-   The default binary stays CGO-free and free of copyleft or BSL-licensed
-   code: pgx is pure Go, and the database is a server Bearing connects to.
-6. **Few dependencies** ([ADR 1](docs/adr/0001-license-and-language.md)).
-   Prefer the standard library. A new third-party dependency needs a reason
-   in the commit message, and a significant one needs an ADR. Everything
-   compiled into or shipped with Bearing's artifacts must be Apache-2.0
-   compatible. Developer tools pinned in `tools/` (a separate module that
-   Bearing code never imports, links or distributes) need an OSI-approved
-   licence and a note in [`tools/README.md`](tools/README.md); golangci-lint
-   is GPL-3.0 on those terms.
+1. **Go, Apache-2.0, few dependencies; CGO allowed**
+   ([ADR 1](docs/adr/0001-go-apache-few-dependencies.md)).
+2. **Facts carry their provenance**
+   ([ADR 2](docs/adr/0002-facts-carry-provenance.md)). Every fact names the
+   observations behind it. Deciding answers read only asserted facts;
+   inferred links are stored as proposals with evidence. No audit log.
+3. **OpenTelemetry everywhere** ([ADR 3](docs/adr/0003-opentelemetry.md)).
+4. **Protobuf data model; adapters speak gRPC**
+   ([ADR 4](docs/adr/0004-protobuf-and-grpc-adapters.md)). The same service
+   locally and remotely. Adapters are stateless, read-only against their
+   source, and never resolve identities across systems.
+5. **DuckDB is the store** ([ADR 5](docs/adr/0005-duckdb-store.md)). One
+   implementation, `:memory:` in tests. Batch writes. No full-text or vector
+   search yet.
+6. **Replace nothing; integrate.** Adapt existing tools (Backstage included)
+   rather than competing with them.
 
 ## Code conventions
 
-- **Telemetry** ([ADR 4](docs/adr/0004-opentelemetry.md), [docs/telemetry.md](docs/telemetry.md)):
-  - Log only through `telemetry.Logger("<pkg path>")` (slog). No `fmt.Print`,
-    `log.Print` or other logging libraries, except the stderr fallback when
-    telemetry setup itself fails.
-  - Report errors with `telemetry.Fail(ctx, span, log, msg, err, attrs...)`,
-    which records on the span and logs with the same attributes.
-  - Console telemetry never writes to **stdout**. The CLI uses it for
-    NDJSON output, and the stdio scaffold adapters use it for the protocol
-    until M4. Local-process adapters (ADR 9 A13) log through telemetry
-    that the core captures and forwards; they get no exporter settings of
-    their own.
-  - New spans or metrics go into the catalog in `docs/telemetry.md` in the
-    same change.
-  - Outbound HTTP uses `otelhttp` so upstream calls appear in the trace.
-- **Secrets** come from environment variables named in config (for example
-  `TokenEnv`, `BEARING_STORE_PASSWORD`), never from config values, URLs or
-  logs.
-- Spec conventions: RFC 2119 keywords, `snake_case` JSON (CloudEvents
-  envelope fields excepted), RFC 3339 UTC times.
+- **Telemetry:** log only through `telemetry.Logger("<pkg path>")`; report
+  errors with `telemetry.Fail`; never write telemetry to stdout; outbound
+  HTTP uses `otelhttp`; list new spans and metrics in `docs/telemetry.md`.
+- **Secrets** come from environment variables named in config, never from
+  config values, URLs, logs or error text.
+- JSON is `snake_case` (CloudEvents envelope fields excepted); times are RFC
+  3339 UTC.
 
 ## Style guide
 
-Codifies what the existing code does and sets rules for patterns it doesn't
-have yet (`NewID`, `internal/testkit`, golden files). Code that predates a
-rule is not a finding unless the PR changes it. golangci-lint (`make lint`)
-enforces formatting and mechanical naming and error rules (initialisms,
-stutter, lower-case error strings, `errors.Is`, `ctx` first); this list is
-what it doesn't catch.
-`go-reviewer` checks it.
+golangci-lint enforces formatting and mechanical rules; this is what it
+doesn't catch. `go-reviewer` checks it. Code that predates a rule is not a
+finding unless the PR changes it.
 
-**Naming**
+**Naming.** Packages are named for what they provide, never `util` or
+`common`. Domain values are typed strings (`model.Kind`, `model.Key`).
+Assert interface satisfaction at compile time:
+`var _ Store = (*DuckStore)(nil)`.
 
-- Name packages for what they provide (`memstore`, `telemetry`), never
-  `util` or `common`.
-- Typed strings for domain values: `model.Kind`, `model.Key`,
-  `contracts.SubjectID`, with `Kind…`/`Rel…` constants.
-- Assert interface satisfaction at compile time:
-  `var _ contracts.GraphStore = (*Store)(nil)`.
+**Errors.**
 
-**Errors**
+- Errors from a package's entry points (`Open`, `New`) start with the
+  package name: `fmt.Errorf("store: open: %w", err)`. Inner helpers add only
+  the action and subject: `"entity %s: %w"`.
+- Sentinels are package-level `ErrX` values; wrap them with the subject.
+- Don't log and return the same error; the caller with the span reports it.
 
-- Errors returned from a package's entry points (`Open`, `New`, `Setup`)
-  start with the package name: `fmt.Errorf("store: parse URL: %w", err)`.
-  Methods behind a contract and inner helpers add only the action and
-  subject (`"decode facts: %w"`, `"entity %s: %w"`), because the caller's
-  span names the component.
-- Sentinels are package-level `ErrX` values built with `errors.New`
-  (`contracts.ErrNotFound`, `adapter.ErrTooManyPages`).
-  `contracts.ErrNotFound` means "no match".
-- Wrap sentinels with the subject so the message says what was missing:
-  `fmt.Errorf("entity %s: %w", id, contracts.ErrNotFound)`.
-- Don't log and return the same error; return it, and let the caller with
-  the span report it via `telemetry.Fail`.
-- Error text never contains secrets (see `redact` in `pkg/store`).
+**Doc comments.** Every package has a `// Package x …` comment and every
+exported identifier a doc comment. Short: say why or a constraint, not what
+the code says.
 
-**Doc comments**
+**Functions and interfaces.** Never store a `context.Context` in a struct.
+Keep interfaces small and define them where they are used. Configuration is
+a struct with defaults applied in one place, not functional options.
 
-- Every package has a `// Package x …` comment (`// Command x …` for
-  `main`) that says its role and where it fits.
-- Every exported identifier has a doc comment, including methods that
-  implement an interface (revive enforces it). For those one line is
-  enough: `// Apply implements contracts.GraphStore.`
-- Short. Say why, a constraint, or a non-obvious default, not what the code
-  already says: `// Getenv reads BEARING_STORE_PASSWORD; nil means os.Getenv.`
-  Match the surrounding comment density.
+**Dependency injection.** Inject time, environment, HTTP and IDs as fields
+(`Now func() time.Time`, `Getenv`, `HTTP *http.Client`, `NewID`), or a
+`clock.Clock` for timers. Code under test never calls `time.Now`,
+`os.Getenv`, `rand` or the network directly.
 
-**Functions and interfaces**
+## Tests
 
-- Never store a `context.Context` in a struct.
-- Keep interfaces small and define them where they are used, as
-  `pgstore`'s `querier` is. `pkg/contracts` is the deliberate exception:
-  component boundaries live there.
-- Configuration is a struct with defaults applied in one place
-  (`parseConfig`, `store.Config`), not functional options.
+Velocity is bounded by how long tests take, so they are **fast**, focused
+and consistent.
 
-**Dependency injection**
-
-- Inject time, environment, HTTP and ID generation as fields: `Now func()
-  time.Time`, `Getenv func(string) string`, `HTTP *http.Client` (see
-  `adapters/github`), `NewID func() string`. Constructors fill real
-  defaults (`time.Now`, `os.Getenv`, an `otelhttp` client); tests set fakes.
-  Code that needs timers takes a `clock.Clock` from `pkg/clock` (`Now`,
-  `After`, `NewTimer`, `NewTicker`); `testkit.FakeClock` implements it.
-- Code under test never calls `time.Now`, `os.Getenv`, `rand` or the
-  network directly. Measuring a duration for a metric is the exception.
-
-**Tests**
-
-- Name tests `Test<Subject><Behavior>` as a sentence:
-  `TestSyncAllStopsRunawayAdapters`, `TestHandleRejectsBadSignature`.
-- Table-driven when cases share a shape (`TestKeyParse`), with `t.Run` named
-  by the case.
-- Failure messages say got and want: `t.Fatalf("got %v, want %v", got, want)`.
-- Tests use `httptest` servers, never the real network.
-- Fakes over mocks: use `internal/testkit` fakes first; production code
-  never imports testkit. Fakes only one package needs (`httptest` handlers,
-  small structs like `pager`) stay in its test files. No mock frameworks.
-- Assert on behavior the code under test produced. A test that only checks
-  what a fake was told to return proves nothing.
+- Target: `make test` under a minute. A test that takes more than a second or
+  two on its own is split up, made parallel (`t.Parallel`) or justified in
+  the PR.
+- External systems are faked, never called: `httptest` servers,
+  `internal/fakes` (GitHub, directory, Kubernetes for the Acme org),
+  `internal/testkit` (fake clock, IDs, secrets). The store is real: DuckDB
+  `:memory:`.
+- Name tests `Test<Subject><Behavior>` as a sentence. Table-driven when
+  cases share a shape, with `t.Run` named by the case. Failures say got and
+  want.
+- Assert on behavior the code produced. A test that only checks what a fake
+  was told to return proves nothing.
 - Golden files live under the package's `testdata/` and are rewritten with
-  `go test ./pkg/x -update` (a package-level `var update = flag.Bool("update",
-  false, …)`); review golden diffs like code.
-- Backends prove themselves with `pkg/contracts/conformance`, not their own
-  ad hoc copies of it.
-- Tests needing an external service skip unless an env var
-  (`BEARING_TEST_<NAME>`) is set; `make test` stays hermetic.
+  `go test ./pkg/x -update`.
+- Each MVP question has an end-to-end test on the Acme scenario with a
+  golden answer.
+
+## How work is done
+
+- **Plan, then fan out.** An Opus lead writes a detailed plan for each work
+  stream: files, interfaces, tests and acceptance checks. Up to three
+  streams run at once, each in its own worktree under `.worktrees/`
+  (git-ignored): `git worktree add .worktrees/<name> -b <branch>`. Shared
+  foundations (the data model, the store interface) land first, alone,
+  before streams that depend on them start.
+- **Pick the model by the work**, when a persona doesn't say:
+  - **Opus:** rulings, security or auth reviews, design forks with real
+    trade-offs, subtle concurrency or data-correctness bugs, long
+    multi-step work where a wrong early call is costly to unwind.
+  - **Sonnet:** implementation against an approved plan, code review,
+    routine refactors and tests, careful bulk reading or summarizing.
+  - **Haiku:** quick lookups, small edits, mechanical batch work, fan-out
+    where many cheap calls beat one careful one.
+- **80–90% first.** Build the common case. When an edge case would cost
+  more than it's worth now, record it in
+  [`docs/edge-cases.md`](docs/edge-cases.md) (context, a concrete example,
+  a proposed fix) and move on.
+- **Docs last.** Write and update docs as one of the final steps before
+  the PR, once behavior has settled. Audience: a junior engineer. Short,
+  plain, with a diagram where it helps (Mermaid in Markdown, or SVG).
 
 ## Changing the design
 
-- **Data model** (kinds, relations, observation fields): update
-  `docs/spec/data-model.md`, `proto/bearing/model` (then `make generate`),
-  the registry and validation in `pkg/model` and, if useful,
-  `testdata/observations/` together. Never hand-write a schema or codec;
-  everything is generated from `proto/`. Adding is compatible; removing or
-  changing meaning needs a new package version (see `docs/spec/README.md`).
-- **Adapter protocol:** update `docs/spec/adapter-protocol.md` and
-  `pkg/adapter` together; bump `adapter.ProtocolVersion` (reported in
-  `bearing.describe`) for breaking changes.
-- **Contracts:** update `docs/spec/contracts.md`, `pkg/contracts`, the
-  conformance suite, the instrument wrapper, and every backend
-  (`memstore`, `pgstore`) together. Contract changes land first, in their
-  own PR, before code that depends on them
-  ([`docs/review-process.md`](docs/review-process.md), "Shared files").
-- **ADR diagrams** are SVGs generated from `docs/adr/diagrams/src/`; edit
-  the Python there and re-export (see `docs/adr/diagrams/README.md`), never
-  the SVGs by hand.
-- **Significant decisions** get an ADR: copy `docs/adr/template.md` to the
-  next number, and mark older ADRs "Superseded in part by" when relevant.
-- Keep `README.md`'s "What's here" table current when adding top-level
-  packages or docs.
-
-## Recipes
-
-- **New adapter:** see [`.claude/skills/new-adapter/SKILL.md`](.claude/skills/new-adapter/SKILL.md).
-- **New contract backend:** see [`.claude/skills/new-backend/SKILL.md`](.claude/skills/new-backend/SKILL.md).
-
-Both are plain Markdown checklists; any agent can follow them.
+- **Data model or adapter service:** edit `proto/`, run `make generate`,
+  update `pkg/model` validation and `testdata/` in the same change.
+- **Significant decisions** get an ADR: copy
+  [`docs/adr/template.md`](docs/adr/template.md) to the next number. Keep it
+  to about a page.
+- **Deferred ideas** go in the [roadmap](ROADMAP.md), not in code. No
+  placeholder packages or interfaces for work that isn't scheduled.
 
 ## Commits and PRs
 
-- Commit messages: imperative subject line under about 72 characters
-  ("Add PagerDuty adapter"), then a body saying why and anything reviewers
-  should know (untested paths, new dependencies, spec changes).
-- Keep changes focused. Spec, code and tests for one change land together.
-- **`main` holds only what Bearing ships or needs to build, test and
-  document itself.** Experiments, one-off benchmarks and dropped approaches stay
-  off it:
-  - A spike lives on its own `spike/<name>` branch, with its code and its
-    report together, and is never merged. An ADR that rests on a spike
-    links to the report on that branch for the record
-    (`https://github.com/dhm116/bearing/blob/spike/<name>/...`).
-  - When a decision replaces an approach, remove the old code in the
-    change that makes the switch, rather than keeping it beside the new one.
-- **Go, plus POSIX shell for short glue in `Makefile` and scripts.** Don't
-  add another language (Python, JavaScript, …) for tooling, scripts or
-  generators; write it in Go, in `tools/` or next to its use. The one
-  exception is the ADR diagram generator in `docs/adr/diagrams/src/`,
-  which predates this rule.
-- PR descriptions follow [`.github/pull_request_template.md`](.github/pull_request_template.md).
-- CI (`.github/workflows/ci.yml`) runs everything `make check` does, as jobs
-  that run side by side so a push gets its answer in minutes: `static`
-  (`make static`: everything but the tests), `test` (`make cover`, with
-  PostgreSQL), `baseline` (the same tests at the merge base, `make
-  covergate-base`), `race` (`make race`) and `check` (`make covergate-report`,
-  which compares the two profiles and fails unless the other jobs passed).
-  `test` and `baseline` each run in shards on a runner apiece (`SHARDS` in
-  the `Makefile`; the PostgreSQL suites alone are about 490 CPU-seconds on a
-  runner). The `pgstore` shard is `-skip` of the `random` one, so a
-  new test lands in a shard by default; a new shard goes into the `Makefile`
-  and the matrix of both jobs, and `check` fails on a missing profile. Keep
-  the whole run to about five minutes: a test that takes longer than a
-  minute or two on its own gets split up or made parallel (`t.Parallel` with
-  a store per test), and nothing slow should be added to `static`.
+- Commit messages: imperative subject under about 72 characters, then a
+  body saying why and anything reviewers should know.
+- Keep changes focused. Code, tests and docs for one change land together.
+- `main` holds only what Bearing ships or needs to build, test and document
+  itself. Spikes live on `spike/<name>` branches and are never merged.
+- Go, plus POSIX shell for short glue. No other language for tooling.
+- PR descriptions follow
+  [`.github/pull_request_template.md`](.github/pull_request_template.md).
 
 ## Review and merge process
 
-The full process is in [`docs/review-process.md`](docs/review-process.md):
-how reviewers are picked, what a finding states and which findings block,
-rounds, the review-round comment (posted with `tools/reviewcard`), when to
-merge, milestone sign-off, and which shared files the lead owns. Read it
-before reviewing or merging, and before changing a shared file.
+See [`docs/review-process.md`](docs/review-process.md): up to three expert
+reviewers in parallel, the ponytail reviewer weighing in on each, one
+summary, and the review-round card posted with `tools/reviewcard`.
 
 ## Brand
 
-Logos, colors and type live in [`docs/brand/`](docs/brand/). Use the SVGs
-there rather than redrawing the mark.
+Logos, colors and type live in [`docs/brand/`](docs/brand/).

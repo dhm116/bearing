@@ -2,7 +2,7 @@
 
 Protocol version 0.2 (draft).
 
-> **Transport retired.** [ADR 9](../adr/0009-wasm-adapters.md) A13 retires
+> **Transport retired.** [ADR 9](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0009-wasm-adapters.md) A13 retires
 > the JSON-RPC stdio transport described below. The adapter protocol moves
 > to the Protobuf adapter service: WASM modules by default, and local
 > processes serving the service over Connect/gRPC on a Unix socket for
@@ -112,7 +112,7 @@ declare match weights or merge rules; those are core configuration. The
 GitHub and Authentik declarations.
 
 These declarations are specified for the Protobuf adapter service that
-replaces this transport ([ADR 9](../adr/0009-wasm-adapters.md)): they
+replaces this transport ([ADR 9](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0009-wasm-adapters.md)): they
 become fields of its `DescribeResponse`. The JSON above writes enum values
 in short form (`id`); on the wire they are ProtoJSON enum names.
 Until the adapter service lands, the scaffold's stdio adapters do not send
@@ -185,7 +185,7 @@ Result:
 ```
 
 - The host verifies the delivery's signature from the adapter's
-  `webhook_signature` declaration before it is logged ([ADR 9](../adr/0009-wasm-adapters.md)
+  `webhook_signature` declaration before it is logged ([ADR 9](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0009-wasm-adapters.md)
   A6 and A15), so `bearing.handle` receives only deliveries that passed.
   An adapter running as a local process MAY verify again as defense in
   depth. Until the server's ingest listener ships (issue #139), no delivery
@@ -215,7 +215,7 @@ What an adapter reads and reports is part of its contract with the core, so
 the adapters the MVP plans are specified here before they exist. Each section
 fixes the declaration (a file under `testdata/declarations/`), the claims and
 their confidences, and what the adapter must never send. The transport they
-run on is the one that replaces this document's ([ADR 9](../adr/0009-wasm-adapters.md)).
+run on is the one that replaces this document's ([ADR 9](https://github.com/dhm116/bearing/blob/pre-pivot/docs/adr/0009-wasm-adapters.md)).
 
 ### Kubernetes
 

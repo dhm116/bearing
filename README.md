@@ -17,14 +17,17 @@ it to engineers and AI agents wherever they work.
 Bearing doesn't replace existing tools. It defines the data worth having and
 keeps the adapters that fetch it small.
 
-> Status: early scaffold. The schema, adapter protocol and component
-> contracts are drafts at version 0.1 and will change.
+> Status: restarting from a smaller scope (Go, DuckDB, gRPC adapters). See
+> the [roadmap](ROADMAP.md). Parts of this README still describe the code
+> from before the restart (tag `pre-pivot`) and are rewritten as that code
+> is replaced.
 
 ## What's here
 
 | Path | What it is |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | Guide for AI coding agents and new contributors: commands, layout, rules |
+| [`ROADMAP.md`](ROADMAP.md) | What the MVP builds now, and what waits |
 | [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
@@ -104,7 +107,7 @@ there is one thing to run, or nothing.
 | `postgres://bearing@localhost/bearing` | A PostgreSQL 16 server (add `?vector_dimensions=384` for the pgvector index, which an administrator installs with `CREATE EXTENSION vector`; set the password in `BEARING_STORE_PASSWORD`) |
 
 Larger installs can move vectors to a dedicated engine later by giving the
-vector index its own URL. See [ADR 14](docs/adr/0014-postgres-is-the-default-store.md).
+vector index its own URL. See [ADR 5](docs/adr/0005-duckdb-store.md) for the replacement.
 
 ## Telemetry
 
