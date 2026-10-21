@@ -1,4 +1,4 @@
-package conformance
+package storetest
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/store"
 )
 
 // EventLog runs the EventLog conformance suite. newLog must return an empty
@@ -18,40 +18,40 @@ import (
 // entries it appends (Entry.AppendedAt, which Trim goes by); the suite
 // drives it. A backend that keeps events past the process is checked for
 // that by its own tests, since a suite can't restart it.
-func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock)) {
+func EventLog(t *testing.T, newLog func(t *testing.T) (store.EventLog, Clock)) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	// A time with nanoseconds, which the log truncates to microseconds.
 	eventTime := time.Date(2026, 10, 10, 11, 59, 58, 123456789, time.UTC)
 
-	fresh := func(t *testing.T) (contracts.EventLog, Clock) {
+	fresh := func(t *testing.T) (store.EventLog, Clock) {
 		t.Helper()
 		l, clk := newLog(t)
 		clk.Set(t0)
 		return l, clk
 	}
-	event := func(partition, id string) contracts.Event {
-		return contracts.Event{
-			ID: partition + "/" + id, Partition: contracts.Partition(partition),
+	event := func(partition, id string) store.Event {
+		return store.Event{
+			ID: partition + "/" + id, Partition: store.Partition(partition),
 			Type: "dev.bearing.webhook_received.v1", Time: eventTime, Data: []byte(`{"id":"` + id + `"}`),
 			Retain: partition == "manual", // required there
 		}
 	}
-	appendOne := func(t *testing.T, l contracts.EventLog, e contracts.Event) contracts.Appended {
+	appendOne := func(t *testing.T, l store.EventLog, e store.Event) store.Appended {
 		t.Helper()
-		got, err := l.Append(ctx, []contracts.Event{e})
+		got, err := l.Append(ctx, []store.Event{e})
 		ensure(t, err == nil && len(got) == 1, "Append %s: %v, %v", e.ID, got, err)
 		return got[0]
 	}
-	read := func(t *testing.T, l contracts.EventLog, p string, after contracts.Offset, limit int) []contracts.Entry {
+	read := func(t *testing.T, l store.EventLog, p string, after store.Offset, limit int) []store.Entry {
 		t.Helper()
-		got, err := l.Read(ctx, contracts.Partition(p), after, limit)
+		got, err := l.Read(ctx, store.Partition(p), after, limit)
 		ensure(t, err == nil, "Read %s after %d: %v", p, after, err)
 		return got
 	}
 	// trim has the "applier" group process every partition, then trims by
 	// age with it as the required group.
-	trim := func(t *testing.T, l contracts.EventLog, before time.Time) (int, error) {
+	trim := func(t *testing.T, l store.EventLog, before time.Time) (int, error) {
 		t.Helper()
 		ps, err := l.Partitions(ctx)
 		noErr(t, err)
@@ -60,15 +60,15 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		}
 		return l.Trim(ctx, before, []string{"applier"})
 	}
-	ids := func(es []contracts.Entry) []string {
+	ids := func(es []store.Entry) []string {
 		var out []string
 		for _, e := range es {
 			out = append(out, e.ID)
 		}
 		return out
 	}
-	offsets := func(es []contracts.Entry) []contracts.Offset {
-		var out []contracts.Offset
+	offsets := func(es []store.Entry) []store.Offset {
+		var out []store.Offset
 		for _, e := range es {
 			out = append(out, e.Offset)
 		}
@@ -78,11 +78,11 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 	t.Run("Append gives consecutive offsets from 1 and Read returns the events as stored", func(t *testing.T) {
 		l, clk := fresh(t)
 		clk.Set(t0.Add(1500 * time.Nanosecond))
-		in := []contracts.Event{event("github-acme", "d1"), event("github-acme", "d2"), event("github-acme", "d3")}
+		in := []store.Event{event("github-acme", "d1"), event("github-acme", "d2"), event("github-acme", "d3")}
 		in[1].Retain = true
 		got, err := l.Append(ctx, in)
 		noErr(t, err)
-		var prev contracts.Offset
+		var prev store.Offset
 		for i, a := range got {
 			ensure(t, a.Partition == "github-acme" && a.Offset > prev && !a.Duplicate, "Append result %d = %+v, want github-acme, an offset above %d, not a duplicate", i, a, prev)
 			prev = a.Offset
@@ -106,7 +106,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 
 	t.Run("Offsets are per partition, in the order given within a call", func(t *testing.T) {
 		l, _ := fresh(t)
-		got, err := l.Append(ctx, []contracts.Event{
+		got, err := l.Append(ctx, []store.Event{
 			event("github-acme", "a"), event("manual", "m"), event("github-acme", "b"), event("core/scheduler", "tick"),
 		})
 		noErr(t, err)
@@ -137,7 +137,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 
 	t.Run("An ID repeated within one call is a duplicate of its first use", func(t *testing.T) {
 		l, _ := fresh(t)
-		got, err := l.Append(ctx, []contracts.Event{event("github-acme", "x"), event("github-acme", "y"), event("github-acme", "x")})
+		got, err := l.Append(ctx, []store.Event{event("github-acme", "x"), event("github-acme", "y"), event("github-acme", "x")})
 		noErr(t, err)
 		ensure(t, !got[0].Duplicate && !got[1].Duplicate && got[2].Duplicate && got[2].Offset == got[0].Offset && got[1].Offset > got[0].Offset, "got %+v", got)
 		n := len(read(t, l, "github-acme", 0, 10))
@@ -153,16 +153,16 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		slashed := event("github-acme", "a/b")
 		unretained := event("manual", "m")
 		unretained.Retain = false
-		for name, batch := range map[string][]contracts.Event{
+		for name, batch := range map[string][]store.Event{
 			"no data":                    {event("github-acme", "good"), bad},
 			"ID of another partition":    {event("github-acme", "good"), other},
 			"slash in the local ID":      {event("github-acme", "good"), slashed},
 			"manual event not retained":  {event("github-acme", "good"), unretained},
 			"no events":                  nil,
-			"too many events":            make([]contracts.Event, contracts.MaxAppendEvents+1),
+			"too many events":            make([]store.Event, store.MaxAppendEvents+1),
 			"data past the append limit": oversized(),
 		} {
-			wantErr(t, last(l.Append(ctx, batch)), contracts.ErrInvalidEvent, name)
+			wantErr(t, last(l.Append(ctx, batch)), store.ErrInvalidEvent, name)
 		}
 		ps, err := l.Partitions(ctx)
 		ensure(t, err == nil && len(ps) == 0, "Partitions = %v, %v, want none: a refused batch must write nothing", ps, err)
@@ -170,7 +170,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 
 	t.Run("Read honours after and limit, and an unknown partition is empty", func(t *testing.T) {
 		l, _ := fresh(t)
-		var at []contracts.Offset
+		var at []store.Offset
 		for _, id := range []string{"a", "b", "c", "d"} {
 			at = append(at, appendOne(t, l, event("github-acme", id)).Offset)
 		}
@@ -182,42 +182,42 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		ensure(t, len(none) == 0, "unknown partition = %v, want none", none)
 		for _, c := range []struct {
 			name  string
-			p     contracts.Partition
-			after contracts.Offset
+			p     store.Partition
+			after store.Offset
 			limit int
 		}{
 			{"zero limit", "github-acme", 0, 0},
-			{"limit over the maximum", "github-acme", 0, contracts.MaxReadEntries + 1},
+			{"limit over the maximum", "github-acme", 0, store.MaxReadEntries + 1},
 			{"negative offset", "github-acme", -1, 10},
 			{"empty partition name", "", 0, 10},
 		} {
-			wantErr(t, last(l.Read(ctx, c.p, c.after, c.limit)), contracts.ErrInvalidRequest, c.name)
+			wantErr(t, last(l.Read(ctx, c.p, c.after, c.limit)), store.ErrInvalidRequest, c.name)
 		}
 	})
 
 	t.Run("Read stops before the data limit but returns at least one entry", func(t *testing.T) {
 		l, _ := fresh(t)
 		const n = 5
-		var last contracts.Offset
+		var last store.Offset
 		for i := range n {
 			e := event("github-acme", fmt.Sprintf("big%d", i))
-			e.Data = bytes.Repeat([]byte("x"), contracts.MaxEventBytes)
+			e.Data = bytes.Repeat([]byte("x"), store.MaxEventBytes)
 			last = appendOne(t, l, e).Offset
 		}
 		es := read(t, l, "github-acme", 0, 10)
-		want := contracts.MaxReadBytes / contracts.MaxEventBytes
-		ensure(t, len(es) == want, "Read returned %d entries of %d bytes, want %d (the %d byte limit)", len(es), contracts.MaxEventBytes, want, contracts.MaxReadBytes)
+		want := store.MaxReadBytes / store.MaxEventBytes
+		ensure(t, len(es) == want, "Read returned %d entries of %d bytes, want %d (the %d byte limit)", len(es), store.MaxEventBytes, want, store.MaxReadBytes)
 		es = read(t, l, "github-acme", es[len(es)-1].Offset, 10)
 		ensure(t, len(es) == 1 && es[0].Offset == last, "the rest = %v, want offset %d alone", offsets(es), last)
 	})
 
 	t.Run("Commit keeps each group's offset and never moves it back", func(t *testing.T) {
 		l, _ := fresh(t)
-		var at []contracts.Offset
+		var at []store.Offset
 		for _, id := range []string{"a", "b", "c"} {
 			at = append(at, appendOne(t, l, event("github-acme", id)).Offset)
 		}
-		committed := func(group string) contracts.Offset {
+		committed := func(group string) store.Offset {
 			t.Helper()
 			o, err := l.Committed(ctx, group, "github-acme")
 			noErr(t, err)
@@ -240,11 +240,11 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 	t.Run("Commit refuses an unknown partition, an offset past the head and bad names", func(t *testing.T) {
 		l, _ := fresh(t)
 		head := appendOne(t, l, event("github-acme", "a")).Offset
-		wantErr(t, l.Commit(ctx, "workers", "nobody", 1), contracts.ErrNotFound, "unknown partition")
-		wantErr(t, l.Commit(ctx, "workers", "github-acme", head+1), contracts.ErrInvalidRequest, "past the head")
-		wantErr(t, l.Commit(ctx, "workers", "github-acme", -1), contracts.ErrInvalidRequest, "negative offset")
-		wantErr(t, l.Commit(ctx, "", "github-acme", head), contracts.ErrInvalidRequest, "empty group")
-		wantErr(t, last(l.Committed(ctx, "", "github-acme")), contracts.ErrInvalidRequest, "Committed with an empty group")
+		wantErr(t, l.Commit(ctx, "workers", "nobody", 1), store.ErrNotFound, "unknown partition")
+		wantErr(t, l.Commit(ctx, "workers", "github-acme", head+1), store.ErrInvalidRequest, "past the head")
+		wantErr(t, l.Commit(ctx, "workers", "github-acme", -1), store.ErrInvalidRequest, "negative offset")
+		wantErr(t, l.Commit(ctx, "", "github-acme", head), store.ErrInvalidRequest, "empty group")
+		wantErr(t, last(l.Committed(ctx, "", "github-acme")), store.ErrInvalidRequest, "Committed with an empty group")
 		o, _ := l.Committed(ctx, "workers", "github-acme")
 		ensure(t, o == 0, "refused commits moved the group to %d", o)
 	})
@@ -257,7 +257,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		c := appendOne(t, l, event("core/scheduler", "t"))
 		ps, err := l.Partitions(ctx)
 		noErr(t, err)
-		want := []contracts.PartitionInfo{{Partition: "core/scheduler", Head: c.Offset}, {Partition: "github-acme", Head: b.Offset}, {Partition: "manual", Head: m.Offset}}
+		want := []store.PartitionInfo{{Partition: "core/scheduler", Head: c.Offset}, {Partition: "github-acme", Head: b.Offset}, {Partition: "manual", Head: m.Offset}}
 		ensure(t, slices.Equal(ps, want), "Partitions = %+v, want %+v", ps, want)
 	})
 
@@ -272,7 +272,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		clk.Set(t0.Add(48 * time.Hour))
 		new1 := appendOne(t, l, event("github-acme", "new1"))
 		_, err := l.Trim(ctx, time.Time{}, []string{"applier"})
-		ensure(t, errors.Is(err, contracts.ErrInvalidRequest), "zero cutoff: got %v, want ErrInvalidRequest", err)
+		ensure(t, errors.Is(err, store.ErrInvalidRequest), "zero cutoff: got %v, want ErrInvalidRequest", err)
 		n, err := trim(t, l, t0.Add(24*time.Hour))
 		ensure(t, err == nil && n == 2, "Trim = %d, %v, want 2 (old1 and old3; the retained events stay)", n, err)
 		g := ids(read(t, l, "github-acme", 0, 10))
@@ -309,8 +309,8 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		ensure(t, len(es) == 1 && !es[0].Retain, "after Release = %+v, want the event kept with Retain cleared", es)
 		n, err := trim(t, l, cutoff)
 		ensure(t, err == nil && n == 1, "Trim after Release = %d, %v, want 1", n, err)
-		for name, ids := range map[string][]string{"empty ID": {""}, "no IDs over the limit": make([]string, contracts.MaxAppendEvents+1)} {
-			wantErr(t, l.Release(ctx, ids), contracts.ErrInvalidEvent, name)
+		for name, ids := range map[string][]string{"empty ID": {""}, "no IDs over the limit": make([]string, store.MaxAppendEvents+1)} {
+			wantErr(t, l.Release(ctx, ids), store.ErrInvalidEvent, name)
 		}
 	})
 
@@ -345,7 +345,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		appendOne(t, l, event("github-other", "b1"))
 		clk.Set(t0.Add(48 * time.Hour))
 		cutoff := t0.Add(24 * time.Hour)
-		for group, offset := range map[string]contracts.Offset{"fast": a2.Offset, "slow": a1.Offset} {
+		for group, offset := range map[string]store.Offset{"fast": a2.Offset, "slow": a1.Offset} {
 			noErr(t, l.Commit(ctx, group, "github-acme", offset))
 		}
 		// Both groups are required; neither has committed in github-other,
@@ -358,12 +358,12 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 
 	t.Run("Trim refuses no groups, a bad group and too many groups", func(t *testing.T) {
 		l, _ := fresh(t)
-		many := make([]string, contracts.MaxTrimGroups+1)
+		many := make([]string, store.MaxTrimGroups+1)
 		for i := range many {
 			many[i] = "g"
 		}
 		for name, groups := range map[string][]string{"none": nil, "empty list": {}, "empty name": {"applier", ""}, "too many": many} {
-			wantErr(t, last(l.Trim(ctx, t0, groups)), contracts.ErrInvalidRequest, name)
+			wantErr(t, last(l.Trim(ctx, t0, groups)), store.ErrInvalidRequest, name)
 		}
 	})
 
@@ -396,15 +396,15 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 			defer readerDone.Done()
 			// Each pass reads the whole log. An offset below the highest
 			// one an earlier pass saw must have been in that pass too.
-			prev := map[contracts.Offset]bool{}
-			var prevMax contracts.Offset
+			prev := map[store.Offset]bool{}
+			var prevMax store.Offset
 			for {
-				es, err := l.Read(ctx, "github-acme", 0, contracts.MaxReadEntries)
+				es, err := l.Read(ctx, "github-acme", 0, store.MaxReadEntries)
 				if err != nil {
 					readerErr = err
 					return
 				}
-				cur := make(map[contracts.Offset]bool, len(es))
+				cur := make(map[store.Offset]bool, len(es))
 				for _, e := range es {
 					if e.Offset <= prevMax && !prev[e.Offset] {
 						readerErr = fmt.Errorf("offset %d appeared after offset %d had been read", e.Offset, prevMax)
@@ -424,14 +424,14 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 			}
 		}()
 		var wg sync.WaitGroup
-		results := make([][]contracts.Appended, writers)
+		results := make([][]store.Appended, writers)
 		errs := make([]error, writers)
 		for w := range writers {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for i := range each {
-					got, err := l.Append(ctx, []contracts.Event{event("github-acme", fmt.Sprintf("w%d-%d", w, i))})
+					got, err := l.Append(ctx, []store.Event{event("github-acme", fmt.Sprintf("w%d-%d", w, i))})
 					if err != nil {
 						errs[w] = err
 						return
@@ -446,10 +446,10 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		if readerErr != nil {
 			t.Fatal(readerErr)
 		}
-		handed := map[contracts.Offset]bool{}
+		handed := map[store.Offset]bool{}
 		for w := range writers {
 			ensure(t, errs[w] == nil, "writer %d: %v", w, errs[w])
-			var last contracts.Offset
+			var last store.Offset
 			for _, a := range results[w] {
 				ensure(t, !handed[a.Offset] && !a.Duplicate, "offset %d handed out twice, or a duplicate: %+v", a.Offset, a)
 				ensure(t, a.Offset > last, "writer %d got offset %d after %d", w, a.Offset, last)
@@ -457,7 +457,7 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 				last = a.Offset
 			}
 		}
-		es := read(t, l, "github-acme", 0, contracts.MaxReadEntries)
+		es := read(t, l, "github-acme", 0, store.MaxReadEntries)
 		ensure(t, len(es) == writers*each, "Read returned %d entries, want %d", len(es), writers*each)
 		for _, e := range es {
 			ensure(t, handed[e.Offset], "offset %d was read but never handed out", e.Offset)
@@ -468,13 +468,13 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 		l, _ := fresh(t)
 		const callers = 8
 		var wg sync.WaitGroup
-		results := make([]contracts.Appended, callers)
+		results := make([]store.Appended, callers)
 		errs := make([]error, callers)
 		for c := range callers {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				got, err := l.Append(ctx, []contracts.Event{event("github-acme", "same")})
+				got, err := l.Append(ctx, []store.Event{event("github-acme", "same")})
 				if err == nil {
 					results[c] = got[0]
 				}
@@ -498,13 +498,13 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (contracts.EventLog, Clock
 
 // oversized returns a batch whose data passes MaxAppendBytes with each event
 // inside MaxEventBytes.
-func oversized() []contracts.Event {
-	n := contracts.MaxAppendBytes/contracts.MaxEventBytes + 1
-	var out []contracts.Event
+func oversized() []store.Event {
+	n := store.MaxAppendBytes/store.MaxEventBytes + 1
+	var out []store.Event
 	for i := range n {
-		out = append(out, contracts.Event{
+		out = append(out, store.Event{
 			ID: fmt.Sprintf("github-acme/big%d", i), Partition: "github-acme", Type: "t",
-			Time: time.Unix(1, 0), Data: bytes.Repeat([]byte("x"), contracts.MaxEventBytes),
+			Time: time.Unix(1, 0), Data: bytes.Repeat([]byte("x"), store.MaxEventBytes),
 		})
 	}
 	return out

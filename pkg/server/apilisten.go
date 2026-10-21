@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -362,10 +361,10 @@ func localConnContext(ctx context.Context, c net.Conn) context.Context {
 type localAuthenticator struct{}
 
 // Authenticate implements Authenticator.
-func (localAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
+func (localAuthenticator) Authenticate(r *http.Request) (Caller, error) {
 	uid, ok := r.Context().Value(peerKey{}).(int)
 	if !ok {
-		return contracts.Caller{}, ErrUnauthenticated
+		return Caller{}, ErrUnauthenticated
 	}
-	return contracts.Caller{Subject: "local:" + strconv.Itoa(uid), Local: true}, nil
+	return Caller{Subject: "local:" + strconv.Itoa(uid), Local: true}, nil
 }

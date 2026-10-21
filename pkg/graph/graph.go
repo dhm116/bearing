@@ -1,7 +1,8 @@
-// Package graph defines the store Bearing keeps entities and facts in
-// (ADR 6): the one interface a store implements, and the types its reads
-// return. internal/duckstore is the implementation; anything Bearing needs
-// from a store is a method here, so another engine can replace it.
+// Package graph defines the graph Bearing keeps entities and facts in
+// (ADR 6): the one interface a store serves it through, and the types its
+// reads return. Anything Bearing needs from the graph is a method here, so
+// another engine can replace the default (pkg/store opens a store; see
+// internal/duckstore).
 package graph
 
 import (
@@ -32,9 +33,9 @@ const (
 	Proposed Status = "proposed"
 )
 
-// Store keeps observations, entities and facts. Implementations are safe for
-// concurrent use.
-type Store interface {
+// Graph is the graph capabilities a store provides: ingest, entity, find,
+// facts, walk and changes. Implementations are safe for concurrent use.
+type Graph interface {
 	// Ingest validates nothing (callers validate with pkg/model first) and
 	// writes obs from one source in one transaction: each observation once
 	// by ID, the entities and keys it names, and the facts it opens, refreshes
@@ -57,9 +58,6 @@ type Store interface {
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
 	Changes(ctx context.Context, r ChangesRequest) ([]Change, error)
-
-	// Close releases the store.
-	Close() error
 }
 
 // IngestResult counts what one Ingest wrote.

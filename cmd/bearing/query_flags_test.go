@@ -95,7 +95,7 @@ func TestSpanNameNeverHoldsArguments(t *testing.T) {
 // emptyEnv has a store but no environment variables.
 func emptyEnv(w *world) queryEnv {
 	return queryEnv{
-		Open: func(context.Context, string) (graph.Store, func(context.Context) error, error) {
+		Open: func(context.Context, string) (graph.Graph, func(context.Context) error, error) {
 			return w.store, func(context.Context) error { return nil }, nil
 		},
 		Getenv: func(string) string { return "" },
@@ -153,7 +153,7 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	}
 	var opened string
 	open := env.Open
-	env.Open = func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error) {
+	env.Open = func(ctx context.Context, url string) (graph.Graph, func(context.Context) error, error) {
 		opened = url
 		return open(ctx, url)
 	}
@@ -170,7 +170,7 @@ func TestStoreComesFromTheEnvironment(t *testing.T) {
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "mem://"}, &out); err != nil || opened != "mem://" {
 		t.Fatalf("got %v, opened %q, want the flag to win", err, opened)
 	}
-	env.Open = func(context.Context, string) (graph.Store, func(context.Context) error, error) {
+	env.Open = func(context.Context, string) (graph.Graph, func(context.Context) error, error) {
 		return nil, nil, errors.New("down")
 	}
 	if err := runWith(context.Background(), env, []string{"get", "github:user/jdoe"}, &out); err == nil || !strings.Contains(err.Error(), "down") {
@@ -194,7 +194,7 @@ func TestFlagsMayComeBeforeOrAfterTheSubject(t *testing.T) {
 }
 
 // failingStore fails the way a broken backend would.
-type failingStore struct{ graph.Store }
+type failingStore struct{ graph.Graph }
 
 func (failingStore) Entity(context.Context, string) (graph.Entity, error) {
 	return graph.Entity{}, errors.New("backend down")
@@ -203,7 +203,7 @@ func (failingStore) Entity(context.Context, string) (graph.Entity, error) {
 func TestStoreErrorsReachTheCaller(t *testing.T) {
 	w := newWorld(t)
 	env := emptyEnv(w)
-	env.Open = func(context.Context, string) (graph.Store, func(context.Context) error, error) {
+	env.Open = func(context.Context, string) (graph.Graph, func(context.Context) error, error) {
 		return failingStore{w.store}, func(context.Context) error { return errors.New("close failed") }, nil
 	}
 	err := runWith(context.Background(), env, []string{"get", "github:user/jdoe", "--store", "x"}, &bytes.Buffer{})

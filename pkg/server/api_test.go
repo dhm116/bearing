@@ -18,33 +18,33 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
+	"bearing.example/pkg/store"
 )
 
 // fakeAuthn maps the bearer token a request carries to a caller, so tests can
 // tell callers apart: no token or an unknown one is not authenticated.
 type fakeAuthn struct {
-	callers map[string]contracts.Caller
+	callers map[string]Caller
 }
 
-func (f fakeAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
+func (f fakeAuthn) Authenticate(r *http.Request) (Caller, error) {
 	token, ok := bearerToken(r.Header)
 	if !ok {
-		return contracts.Caller{}, ErrUnauthenticated
+		return Caller{}, ErrUnauthenticated
 	}
 	c, ok := f.callers[token]
 	if !ok {
-		return contracts.Caller{}, ErrUnauthenticated
+		return Caller{}, ErrUnauthenticated
 	}
 	return c, nil
 }
 
 // apiGraph wraps the store a Querier reads, to hold or fail a changes read.
 type apiGraph struct {
-	graph.Store
+	graph.Graph
 	mu    sync.Mutex
 	enter chan struct{}
 	hold  chan struct{}
@@ -66,7 +66,7 @@ func (g *apiGraph) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph
 			return nil, ctx.Err()
 		}
 	}
-	return g.Store.Changes(ctx, r)
+	return g.Graph.Changes(ctx, r)
 }
 
 type apiWorld struct {
@@ -90,7 +90,7 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	w.seed(t)
 
 	var err error
-	w.graph = &apiGraph{Store: h.mem}
+	w.graph = &apiGraph{Graph: h.mem}
 	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}}
 	for _, m := range mod {
 		m(&cfg)
@@ -98,7 +98,7 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	if w.api, err = NewAPI(cfg); err != nil {
 		t.Fatal(err)
 	}
-	w.authn = fakeAuthn{callers: map[string]contracts.Caller{
+	w.authn = fakeAuthn{callers: map[string]Caller{
 		"reader":  {Subject: "alice"},
 		"reader2": {Subject: "bob"},
 		"admin":   {Subject: "carol"},
@@ -392,7 +392,7 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 		t.Fatalf("got %d requests on the log, want only the first", n)
 	}
 	// Once it is applied, a new one is logged, by the person who asked.
-	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)); err != nil {
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, store.Offset(got.Offset)); err != nil {
 		t.Fatal(err)
 	}
 	if rec := w.do("admin", http.MethodPost, "/v1/sources/"+testSource+"/sync"); rec.Code != http.StatusAccepted {
@@ -401,7 +401,7 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 	if reqs := syncRequests(t, w); len(reqs) != 2 || reqs[1].GetActor().GetSubject() != "carol" {
 		t.Fatalf("got %v, want the second request by carol", reqs)
 	}
-	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)+1); err != nil {
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, store.Offset(got.Offset)+1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -420,7 +420,7 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 func TestAPILocalCallerIsRecordedByUID(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
-	w.h = w.api.Handler(fakeAuthn{callers: map[string]contracts.Caller{"local": {Subject: "local:1000", Local: true}}})
+	w.h = w.api.Handler(fakeAuthn{callers: map[string]Caller{"local": {Subject: "local:1000", Local: true}}})
 	if rec := w.do("local", http.MethodPost, "/v1/sources/"+testSource+"/sync"); rec.Code != http.StatusAccepted {
 		t.Fatalf("got %d, want 202", rec.Code)
 	}
@@ -565,9 +565,9 @@ func TestNewAPIRefusesWhatItNeeds(t *testing.T) {
 // slowAuthn waits for its request's context, as an authenticator that hangs.
 type slowAuthn struct{}
 
-func (slowAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
+func (slowAuthn) Authenticate(r *http.Request) (Caller, error) {
 	<-r.Context().Done()
-	return contracts.Caller{}, r.Context().Err()
+	return Caller{}, r.Context().Err()
 }
 
 // The deadline starts before the token is checked, so a check that hangs

@@ -1,5 +1,5 @@
 // Package query answers the CLI's and the API's questions from a
-// [graph.Store]: what an entity is, who owns it, what it relates to, what
+// [graph.Graph]: what an entity is, who owns it, what it relates to, what
 // changed and what matches a name. Every fact in an answer carries its
 // sources (the observations behind it) and its confidence.
 //
@@ -50,7 +50,7 @@ const (
 
 // Querier reads one graph store.
 type Querier struct {
-	Graph graph.Store
+	Graph graph.Graph
 	// Now is the time Changes counts its default window back from; nil means
 	// time.Now.
 	Now func() time.Time

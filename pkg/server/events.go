@@ -10,8 +10,8 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -22,7 +22,7 @@ func hexSHA256(s string) string {
 
 // source returns the configured source an event of partition is about, for an
 // event whose own source field must agree with its partition.
-func (s *Server) source(name string, e contracts.Entry) (*Source, error) {
+func (s *Server) source(name string, e store.Entry) (*Source, error) {
 	if name != string(e.Partition) {
 		return nil, fmt.Errorf("event %s is in partition %q but names source %q", e.ID, e.Partition, model.Clip(name))
 	}
@@ -37,7 +37,7 @@ func (s *Server) source(name string, e contracts.Entry) (*Source, error) {
 // each page of its output on the log as an ObservationsEmitted event. The
 // pages follow the request in the partition, so they are applied after it and
 // in order.
-func (s *Server) handleSync(ctx context.Context, e contracts.Entry) error {
+func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	msg := &eventv1alpha1.SyncRequested{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)
@@ -77,7 +77,7 @@ func (s *Server) handleSync(ctx context.Context, e contracts.Entry) error {
 // handleWebhook gives a verified delivery to the source's adapter and puts
 // the observations it derives on the log. A delivery that means nothing, such
 // as a ping, leaves nothing.
-func (s *Server) handleWebhook(ctx context.Context, e contracts.Entry) (string, error) {
+func (s *Server) handleWebhook(ctx context.Context, e store.Entry) (string, error) {
 	msg := &eventv1alpha1.WebhookReceived{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
 		return "", fmt.Errorf("event %s: %w", e.ID, err)
@@ -117,11 +117,11 @@ func (s *Server) appendObservations(ctx context.Context, source, trigger string,
 	if err != nil {
 		return false, fmt.Errorf("encode page %d: %w", page, err)
 	}
-	if len(data) > contracts.MaxEventBytes {
-		return false, fmt.Errorf("page %d of %s is %d bytes, over the event limit of %d", page, source, len(data), contracts.MaxEventBytes)
+	if len(data) > store.MaxEventBytes {
+		return false, fmt.Errorf("page %d of %s is %d bytes, over the event limit of %d", page, source, len(data), store.MaxEventBytes)
 	}
-	got, err := s.cfg.Log.Append(ctx, []contracts.Event{{
-		ID: pageEventID(source, trigger, page), Partition: contracts.Partition(source),
+	got, err := s.cfg.Log.Append(ctx, []store.Event{{
+		ID: pageEventID(source, trigger, page), Partition: store.Partition(source),
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
 	}})
 	if err != nil {
@@ -133,7 +133,7 @@ func (s *Server) appendObservations(ctx context.Context, source, trigger string,
 // handleObservations applies the observations of a page in one call, so the
 // page is written in one transaction. A repeated page repeats the
 // observations' IDs, and the store applies each ID once.
-func (s *Server) handleObservations(ctx context.Context, e contracts.Entry) error {
+func (s *Server) handleObservations(ctx context.Context, e store.Entry) error {
 	msg := &eventv1alpha1.ObservationsEmitted{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)

@@ -19,8 +19,8 @@ import (
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
@@ -171,7 +171,7 @@ func TestServerPagesAreNumberedAndStampedWithTheirSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the page to be applied", func() bool { return h.drained(testSource) && len(h.ap.called()) == 1 })
-	var pages []contracts.Entry
+	var pages []store.Entry
 	for _, e := range h.entries(testSource) {
 		if e.Type == typeObservationsEmitted {
 			pages = append(pages, e)
@@ -376,41 +376,41 @@ func TestCleanErrorText(t *testing.T) {
 
 // flakyLog is an event log whose Append and Trim fail while a test says so.
 type flakyLog struct {
-	contracts.EventLog
+	store.EventLog
 	failAppend, failTrim, failRead atomic.Bool
 	failCommit, failCommitted      atomic.Bool
 	failReadEntries                atomic.Bool
 }
 
-func (f *flakyLog) Commit(ctx context.Context, group string, p contracts.Partition, o contracts.Offset) error {
+func (f *flakyLog) Commit(ctx context.Context, group string, p store.Partition, o store.Offset) error {
 	if f.failCommit.Load() {
 		return errors.New("commit refused")
 	}
 	return f.EventLog.Commit(ctx, group, p, o)
 }
 
-func (f *flakyLog) Committed(ctx context.Context, group string, p contracts.Partition) (contracts.Offset, error) {
+func (f *flakyLog) Committed(ctx context.Context, group string, p store.Partition) (store.Offset, error) {
 	if f.failCommitted.Load() {
 		return 0, errors.New("committed refused")
 	}
 	return f.EventLog.Committed(ctx, group, p)
 }
 
-func (f *flakyLog) Read(ctx context.Context, p contracts.Partition, after contracts.Offset, limit int) ([]contracts.Entry, error) {
+func (f *flakyLog) Read(ctx context.Context, p store.Partition, after store.Offset, limit int) ([]store.Entry, error) {
 	if f.failReadEntries.Load() {
 		return nil, errors.New("read refused")
 	}
 	return f.EventLog.Read(ctx, p, after, limit)
 }
 
-func (f *flakyLog) Partitions(ctx context.Context) ([]contracts.PartitionInfo, error) {
+func (f *flakyLog) Partitions(ctx context.Context) ([]store.PartitionInfo, error) {
 	if f.failRead.Load() {
 		return nil, errors.New("log unavailable")
 	}
 	return f.EventLog.Partitions(ctx)
 }
 
-func (f *flakyLog) Append(ctx context.Context, evs []contracts.Event) ([]contracts.Appended, error) {
+func (f *flakyLog) Append(ctx context.Context, evs []store.Event) ([]store.Appended, error) {
 	if f.failAppend.Load() {
 		return nil, errors.New("log unavailable")
 	}
@@ -427,7 +427,7 @@ func (f *flakyLog) Trim(ctx context.Context, before time.Time, groups []string) 
 func TestServerRefusesAPageTooBigForTheLog(t *testing.T) {
 	h := newHarness(t)
 	o := validObservation(t)
-	obs := make(adapter.Observations, contracts.MaxEventBytes/700+1000)
+	obs := make(adapter.Observations, store.MaxEventBytes/700+1000)
 	for i := range obs {
 		obs[i] = o
 	}
@@ -497,15 +497,15 @@ func TestServerDeadLettersEventsItCannotDecodeOrPlace(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-			if _, err := h.mem.Append(t.Context(), []contracts.Event{{
-				ID: tt.source + "/bad", Partition: contracts.Partition(tt.source), Type: tt.typ,
+			if _, err := h.mem.Append(t.Context(), []store.Event{{
+				ID: tt.source + "/bad", Partition: store.Partition(tt.source), Type: tt.typ,
 				Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: []byte(tt.data),
 			}}); err != nil {
 				t.Fatal(err)
 			}
 			h.append(tt.source, "after", &eventv1alpha1.OverrideSet{}) // a type the server skips
 			h.start()
-			waitFor(t, "the partition to be committed", func() bool { return h.drained(contracts.Partition(tt.source)) })
+			waitFor(t, "the partition to be committed", func() bool { return h.drained(store.Partition(tt.source)) })
 			if n := len(h.entries("core/dead_letter")); n != 1 {
 				t.Fatalf("%d dead letters, want 1", n)
 			}

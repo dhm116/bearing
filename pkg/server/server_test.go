@@ -19,8 +19,8 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/duckstore"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 // waitFor polls cond until it holds, and fails the test if it does not within
@@ -205,9 +205,9 @@ func (h *harness) start() {
 	})
 }
 
-func (h *harness) entries(p contracts.Partition) []contracts.Entry {
+func (h *harness) entries(p store.Partition) []store.Entry {
 	h.t.Helper()
-	es, err := h.mem.Read(h.t.Context(), p, 0, contracts.MaxReadEntries)
+	es, err := h.mem.Read(h.t.Context(), p, 0, store.MaxReadEntries)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func (h *harness) entries(p contracts.Partition) []contracts.Entry {
 }
 
 // drained reports whether the apply group has committed every event of p.
-func (h *harness) drained(p contracts.Partition) bool {
+func (h *harness) drained(p store.Partition) bool {
 	h.t.Helper()
 	parts, err := h.mem.Partitions(h.t.Context())
 	if err != nil {
@@ -243,7 +243,7 @@ func (c Config) Group0() string {
 
 // emitted appends an ObservationsEmitted event with n observations to the
 // partition of source, as the sync worker would.
-func (h *harness) emitted(source, id string, n int) contracts.Entry {
+func (h *harness) emitted(source, id string, n int) store.Entry {
 	h.t.Helper()
 	obs := make([]*eventv1alpha1.Observation, n)
 	for i := range obs {
@@ -254,7 +254,7 @@ func (h *harness) emitted(source, id string, n int) contracts.Entry {
 	return h.append(source, id, msg)
 }
 
-func (h *harness) append(partition, id string, msg proto.Message) contracts.Entry {
+func (h *harness) append(partition, id string, msg proto.Message) store.Entry {
 	h.t.Helper()
 	typ, ok := model.EventType(msg)
 	if !ok {
@@ -264,14 +264,14 @@ func (h *harness) append(partition, id string, msg proto.Message) contracts.Entr
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	got, err := h.mem.Append(h.t.Context(), []contracts.Event{{
-		ID: partition + "/" + id, Partition: contracts.Partition(partition), Type: typ, Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: data,
+	got, err := h.mem.Append(h.t.Context(), []store.Event{{
+		ID: partition + "/" + id, Partition: store.Partition(partition), Type: typ, Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: data,
 		Retain: partition == "manual" || strings.HasPrefix(partition, "core/dead_letter"),
 	}})
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	es, err := h.mem.Read(h.t.Context(), contracts.Partition(partition), got[0].Offset-1, 1)
+	es, err := h.mem.Read(h.t.Context(), store.Partition(partition), got[0].Offset-1, 1)
 	if err != nil || len(es) != 1 {
 		h.t.Fatalf("read back: %v, %d entries", err, len(es))
 	}
@@ -486,7 +486,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 	}
 	once.Do(func() { close(proceed) })
 	for _, s := range sources {
-		waitFor(t, s+" to be applied", func() bool { return h.drained(contracts.Partition(s)) })
+		waitFor(t, s+" to be applied", func() bool { return h.drained(store.Partition(s)) })
 	}
 	mu.Lock()
 	defer mu.Unlock()

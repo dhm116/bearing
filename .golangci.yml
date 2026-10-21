@@ -26,22 +26,35 @@ linters:
       # When a package matches both an allow and a deny entry, the longer
       # (more specific) match wins.
       rules:
-        # Code depends on pkg/contracts, not on backends or other internal
-        # packages (AGENTS.md, architecture rule 4). Only the backends
-        # themselves (internal/<name>store) and testkit are exempt, and
-        # pkg/store, where backends are wired up. Denying the whole
-        # internal/ tree means a new backend is covered without editing
-        # this file, and so is a new non-backend internal package.
+        # Code depends on pkg/store and pkg/graph, not on backends or other
+        # internal packages (AGENTS.md, architecture rule 4). Only the
+        # backends themselves (internal/<name>store) and testkit are exempt,
+        # and cmd/, whose main imports the default backend for its side
+        # effect: that registers the store's URL schemes with pkg/store.
+        # Denying the whole internal/ tree means a new backend is covered
+        # without editing this file, and so is a new non-backend internal
+        # package.
         internal-packages:
           files:
             - $all
             - "!$test"
             - "!**/internal/*store/**"
             - "!**/internal/testkit/**"
-            - "!**/pkg/store/**"
+            - "!**/cmd/**"
           deny:
             - pkg: bearing.example/internal
-              desc: depend on pkg/contracts; open backends through pkg/store
+              desc: depend on pkg/store and pkg/graph; open backends through store.Open
+        # cmd/ may import the default backend, and nothing else from internal/.
+        internal-packages-in-cmd:
+          list-mode: lax
+          files:
+            - "**/cmd/**"
+            - "!$test"
+          allow:
+            - bearing.example/internal/duckstore
+          deny:
+            - pkg: bearing.example/internal
+              desc: cmd/ may import internal/duckstore only, to register the default store
         # Other tests may use the real store in memory (internal/duckstore),
         # the testkit fakes and the fake source systems in internal/fakes,
         # nothing else from internal/.
@@ -51,7 +64,6 @@ linters:
             - $test
             - "!**/internal/*store/**"
             - "!**/internal/testkit/**"
-            - "!**/pkg/store/**"
           allow:
             - bearing.example/internal/duckstore
             - bearing.example/internal/fakes

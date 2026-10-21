@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/store"
 )
 
 // inTx runs fn in a transaction, committing if it returns nil.
@@ -25,25 +25,25 @@ func (s *Store) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// Append implements contracts.EventLog.
-func (s *Store) Append(ctx context.Context, events []contracts.Event) ([]contracts.Appended, error) {
+// Append implements store.EventLog.
+func (s *Store) Append(ctx context.Context, events []store.Event) ([]store.Appended, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := contracts.CheckEvents(events); err != nil {
+	if err := store.CheckEvents(events); err != nil {
 		return nil, err
 	}
 	at := s.now().UTC().Truncate(time.Microsecond)
 	s.logWrite.Lock()
 	defer s.logWrite.Unlock()
-	out := make([]contracts.Appended, len(events))
+	out := make([]store.Appended, len(events))
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		heads := map[contracts.Partition]contracts.Offset{}
+		heads := map[store.Partition]store.Offset{}
 		for i, e := range events {
-			var off contracts.Offset
+			var off store.Offset
 			err := tx.QueryRowContext(ctx, `SELECT off FROM event_log WHERE id = ?`, e.ID).Scan(&off)
 			if err == nil {
-				out[i] = contracts.Appended{Partition: e.Partition, Offset: off, Duplicate: true}
+				out[i] = store.Appended{Partition: e.Partition, Offset: off, Duplicate: true}
 				continue
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
@@ -63,7 +63,7 @@ func (s *Store) Append(ctx context.Context, events []contracts.Event) ([]contrac
 				string(e.Partition), int64(head), e.ID, e.Type, e.Time.UTC().Truncate(time.Microsecond), e.Data, e.Retain, at); err != nil {
 				return fmt.Errorf("insert event %s: %w", e.ID, err)
 			}
-			out[i] = contracts.Appended{Partition: e.Partition, Offset: head}
+			out[i] = store.Appended{Partition: e.Partition, Offset: head}
 		}
 		for p, head := range heads {
 			if _, err := tx.ExecContext(ctx,
@@ -80,12 +80,12 @@ func (s *Store) Append(ctx context.Context, events []contracts.Event) ([]contrac
 	return out, nil
 }
 
-// Read implements contracts.EventLog.
-func (s *Store) Read(ctx context.Context, partition contracts.Partition, after contracts.Offset, limit int) ([]contracts.Entry, error) {
+// Read implements store.EventLog.
+func (s *Store) Read(ctx context.Context, partition store.Partition, after store.Offset, limit int) ([]store.Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := contracts.CheckRead(partition, after, limit); err != nil {
+	if err := store.CheckRead(partition, after, limit); err != nil {
 		return nil, err
 	}
 	// The window keeps entries while the running total of Data stays within
@@ -95,31 +95,31 @@ func (s *Store) Read(ctx context.Context, partition contracts.Partition, after c
 			SELECT *, sum(octet_length(data)) OVER (ORDER BY off) AS cum, row_number() OVER (ORDER BY off) AS rn
 			FROM (SELECT * FROM event_log WHERE partition = ? AND off > ? ORDER BY off LIMIT ?)
 		) WHERE rn = 1 OR cum <= ? ORDER BY off`,
-		string(partition), int64(after), limit, contracts.MaxReadBytes)
+		string(partition), int64(after), limit, store.MaxReadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read partition %s: %w", partition, err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out []contracts.Entry
+	var out []store.Entry
 	for rows.Next() {
-		e := contracts.Entry{Event: contracts.Event{Partition: partition}}
+		e := store.Entry{Event: store.Event{Partition: partition}}
 		var off int64
 		if err := rows.Scan(&e.ID, &e.Type, &e.Time, &e.Data, &e.Retain, &off, &e.AppendedAt); err != nil {
 			return nil, fmt.Errorf("read partition %s: %w", partition, err)
 		}
-		e.Offset = contracts.Offset(off)
+		e.Offset = store.Offset(off)
 		e.Time, e.AppendedAt = e.Time.UTC(), e.AppendedAt.UTC()
 		out = append(out, e)
 	}
 	return out, rows.Err()
 }
 
-// Commit implements contracts.EventLog.
-func (s *Store) Commit(ctx context.Context, group string, partition contracts.Partition, offset contracts.Offset) error {
+// Commit implements store.EventLog.
+func (s *Store) Commit(ctx context.Context, group string, partition store.Partition, offset store.Offset) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := contracts.CheckCommit(group, partition, offset); err != nil {
+	if err := store.CheckCommit(group, partition, offset); err != nil {
 		return err
 	}
 	s.logWrite.Lock()
@@ -128,13 +128,13 @@ func (s *Store) Commit(ctx context.Context, group string, partition contracts.Pa
 		var head int64
 		err := tx.QueryRowContext(ctx, `SELECT head FROM event_head WHERE partition = ?`, string(partition)).Scan(&head)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("partition %s: %w", partition, contracts.ErrNotFound)
+			return fmt.Errorf("partition %s: %w", partition, store.ErrNotFound)
 		}
 		if err != nil {
 			return fmt.Errorf("partition %s: %w", partition, err)
 		}
 		if int64(offset) > head {
-			return fmt.Errorf("%w: offset %d is beyond the head, %d", contracts.ErrInvalidRequest, offset, head)
+			return fmt.Errorf("%w: offset %d is beyond the head, %d", store.ErrInvalidRequest, offset, head)
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO event_commit VALUES (?, ?, ?) ON CONFLICT (grp, partition) DO UPDATE SET off = greatest(off, excluded.off)`,
@@ -143,12 +143,12 @@ func (s *Store) Commit(ctx context.Context, group string, partition contracts.Pa
 	})
 }
 
-// Committed implements contracts.EventLog.
-func (s *Store) Committed(ctx context.Context, group string, partition contracts.Partition) (contracts.Offset, error) {
+// Committed implements store.EventLog.
+func (s *Store) Committed(ctx context.Context, group string, partition store.Partition) (store.Offset, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if err := contracts.CheckCommit(group, partition, 0); err != nil {
+	if err := store.CheckCommit(group, partition, 0); err != nil {
 		return 0, err
 	}
 	var off int64
@@ -156,11 +156,11 @@ func (s *Store) Committed(ctx context.Context, group string, partition contracts
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("group %s, partition %s: %w", group, partition, err)
 	}
-	return contracts.Offset(off), nil
+	return store.Offset(off), nil
 }
 
-// Partitions implements contracts.EventLog.
-func (s *Store) Partitions(ctx context.Context) ([]contracts.PartitionInfo, error) {
+// Partitions implements store.EventLog.
+func (s *Store) Partitions(ctx context.Context) ([]store.PartitionInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -169,25 +169,25 @@ func (s *Store) Partitions(ctx context.Context) ([]contracts.PartitionInfo, erro
 		return nil, fmt.Errorf("list partitions: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := []contracts.PartitionInfo{}
+	out := []store.PartitionInfo{}
 	for rows.Next() {
-		var p contracts.PartitionInfo
+		var p store.PartitionInfo
 		var head, trimmed int64
 		if err := rows.Scan(&p.Partition, &head, &trimmed); err != nil {
 			return nil, fmt.Errorf("list partitions: %w", err)
 		}
-		p.Head, p.Trimmed = contracts.Offset(head), contracts.Offset(trimmed)
+		p.Head, p.Trimmed = store.Offset(head), store.Offset(trimmed)
 		out = append(out, p)
 	}
 	return out, rows.Err()
 }
 
-// Trim implements contracts.EventLog.
+// Trim implements store.EventLog.
 func (s *Store) Trim(ctx context.Context, before time.Time, groups []string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if err := contracts.CheckTrim(before, groups); err != nil {
+	if err := store.CheckTrim(before, groups); err != nil {
 		return 0, err
 	}
 	groups = slices.Compact(slices.Sorted(slices.Values(groups)))
@@ -264,12 +264,12 @@ func (s *Store) Trim(ctx context.Context, before time.Time, groups []string) (in
 	return removed, nil
 }
 
-// Release implements contracts.EventLog.
+// Release implements store.EventLog.
 func (s *Store) Release(ctx context.Context, ids []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := contracts.CheckRelease(ids); err != nil {
+	if err := store.CheckRelease(ids); err != nil {
 		return err
 	}
 	if len(ids) == 0 {

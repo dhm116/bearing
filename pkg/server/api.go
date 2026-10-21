@@ -19,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/telemetry"
 )
@@ -53,7 +52,7 @@ const (
 type Authenticator interface {
 	// Authenticate returns the caller the request proves. An error wraps
 	// ErrUnauthenticated when the credentials are missing or wrong.
-	Authenticate(r *http.Request) (contracts.Caller, error)
+	Authenticate(r *http.Request) (Caller, error)
 }
 
 // ErrUnauthenticated means the request carried no acceptable credentials
@@ -66,12 +65,12 @@ type TokenAuthenticator struct{ Token string }
 // Authenticate implements Authenticator. The token is read from the
 // Authorization header and nowhere else, and compared in constant time. An
 // empty Token rejects every request.
-func (a TokenAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
+func (a TokenAuthenticator) Authenticate(r *http.Request) (Caller, error) {
 	token, ok := bearerToken(r.Header)
 	if !ok || a.Token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(a.Token)) != 1 {
-		return contracts.Caller{}, ErrUnauthenticated
+		return Caller{}, ErrUnauthenticated
 	}
-	return contracts.Caller{Subject: "token"}, nil
+	return Caller{Subject: "token"}, nil
 }
 
 // bearerToken returns the token of an Authorization header that is exactly
@@ -126,21 +125,21 @@ type API struct {
 // which authenticates and rate-limits first, so a route cannot skip a check.
 type route struct {
 	pattern string
-	method  contracts.Method
+	method  Method
 	// write marks a route that changes state, which the 401 table test
 	// covers.
 	write  bool
-	handle func(a *API, w http.ResponseWriter, r *http.Request, c contracts.Caller)
+	handle func(a *API, w http.ResponseWriter, r *http.Request, c Caller)
 }
 
 // routes is the API's one table of methods.
 var routes = []route{
-	{pattern: "GET /v1/get", method: contracts.MethodGet, handle: (*API).get},
-	{pattern: "GET /v1/owner", method: contracts.MethodOwner, handle: (*API).owner},
-	{pattern: "GET /v1/related", method: contracts.MethodRelated, handle: (*API).related},
-	{pattern: "GET /v1/changes", method: contracts.MethodChanges, handle: (*API).changes},
-	{pattern: "GET /v1/find", method: contracts.MethodFind, handle: (*API).find},
-	{pattern: "POST /v1/sources/{source}/sync", method: contracts.MethodSyncRequest, write: true, handle: (*API).sync},
+	{pattern: "GET /v1/get", method: MethodGet, handle: (*API).get},
+	{pattern: "GET /v1/owner", method: MethodOwner, handle: (*API).owner},
+	{pattern: "GET /v1/related", method: MethodRelated, handle: (*API).related},
+	{pattern: "GET /v1/changes", method: MethodChanges, handle: (*API).changes},
+	{pattern: "GET /v1/find", method: MethodFind, handle: (*API).find},
+	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
 }
 
 // NewAPI returns an API for cfg.
@@ -272,7 +271,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 	// The deadline starts here, before the token is checked: a slow
 	// authenticator cannot hold a request, and its slot, past it.
 	timeout := a.cfg.RequestTimeout
-	if rt.method == contracts.MethodChanges {
+	if rt.method == MethodChanges {
 		timeout = a.cfg.ChangesTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -292,12 +291,12 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiLimited
 	}
 
-	if rt.method == contracts.MethodSyncRequest && !a.cfg.Server.HasSource(r.PathValue("source")) {
+	if rt.method == MethodSyncRequest && !a.cfg.Server.HasSource(r.PathValue("source")) {
 		apiFail(w, http.StatusNotFound, "unknown_source", "no such source", reqID)
 		return apiNotFound
 	}
 
-	if rt.method == contracts.MethodChanges {
+	if rt.method == MethodChanges {
 		if !a.enter(who) {
 			w.Header().Set("Retry-After", "1")
 			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many changes reads in flight for this caller", reqID)
@@ -345,7 +344,7 @@ func (a *API) leave(who string) {
 
 // callerKey names a caller for the per-caller tables. It never reaches a
 // metric label or a log.
-func callerKey(c contracts.Caller) string {
+func callerKey(c Caller) string {
 	if c.Local {
 		return "local\x00" + c.Subject
 	}
@@ -355,7 +354,7 @@ func callerKey(c contracts.Caller) string {
 // actorOf is who a sync request is recorded as asked by: the subject the
 // authenticator gave, or local:<uid> (C-AUDIT-6). It
 // comes from the Caller, never from anything the request said.
-func actorOf(c contracts.Caller) *eventv1alpha1.Actor {
+func actorOf(c Caller) *eventv1alpha1.Actor {
 	return &eventv1alpha1.Actor{Subject: c.Subject}
 }
 
@@ -538,7 +537,7 @@ func (a *API) answer(w http.ResponseWriter, r *http.Request, v any, err error) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-func (a *API) get(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+func (a *API) get(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "ref", "at")
 	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
@@ -549,7 +548,7 @@ func (a *API) get(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
 	a.answer(w, r, e, err)
 }
 
-func (a *API) owner(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+func (a *API) owner(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "ref", "at")
 	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
@@ -560,7 +559,7 @@ func (a *API) owner(w http.ResponseWriter, r *http.Request, _ contracts.Caller) 
 	a.answer(w, r, o, err)
 }
 
-func (a *API) related(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+func (a *API) related(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "ref", "predicate", "direction", "depth", "at")
 	ref, predicate, at := p.subject(), p.text("predicate", maxPredicateBytes), p.when("at")
 	direction, depth := p.text("direction", 8), p.number("depth", query.MaxDepth)
@@ -572,7 +571,7 @@ func (a *API) related(w http.ResponseWriter, r *http.Request, _ contracts.Caller
 	a.answer(w, r, rel, err)
 }
 
-func (a *API) changes(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+func (a *API) changes(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "ref", "since", "until", "limit")
 	ref, since, until := p.text("ref", maxRefBytes), p.when("since"), p.when("until")
 	limit := p.number("limit", query.MaxChangesLimit)
@@ -589,7 +588,7 @@ type findAnswer struct {
 	Matches []query.Match `json:"matches"`
 }
 
-func (a *API) find(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
+func (a *API) find(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "q", "kind", "limit")
 	text, kind, limit := p.text("q", maxRefBytes), p.text("kind", maxPredicateBytes), p.number("limit", query.MaxFindLimit)
 	if text == "" && p.err == "" {
@@ -611,7 +610,7 @@ type syncAccepted struct {
 
 // sync puts a sync request on the log. It answers 202 only after the event is
 // there, and 503 when the log refuses, as a webhook does (C-INGEST-1).
-func (a *API) sync(w http.ResponseWriter, r *http.Request, c contracts.Caller) {
+func (a *API) sync(w http.ResponseWriter, r *http.Request, c Caller) {
 	if p := parseParams(r); p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return

@@ -1,4 +1,4 @@
-package contracts
+package server
 
 // Method names an operation the API offers.
 type Method string

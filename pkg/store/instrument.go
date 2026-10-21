@@ -1,7 +1,4 @@
-// Package instrument wraps the stores Bearing runs on with OpenTelemetry
-// spans, metrics and error logs, so every backend gets the same telemetry
-// without instrumenting itself.
-package instrument
+package store
 
 import (
 	"context"
@@ -44,10 +41,11 @@ func must[T any](v T, err error) T {
 	return v
 }
 
-// Graph wraps s so every call is traced and measured.
-func Graph(s graph.Store) graph.Store { return &graphStore{next: s} }
+// instrumentGraph wraps g so every call is traced and measured, whatever the
+// backend.
+func instrumentGraph(g graph.Graph) graph.Graph { return &graphStore{next: g} }
 
-type graphStore struct{ next graph.Store }
+type graphStore struct{ next graph.Graph }
 
 // observe runs fn in a span and records its duration. ErrNotFound is an
 // expected outcome, so it doesn't mark the span.
@@ -71,7 +69,7 @@ func count[T any](ctx context.Context, out []T) {
 	trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(out)))
 }
 
-// Ingest implements graph.Store.
+// Ingest implements graph.Graph.
 func (g *graphStore) Ingest(ctx context.Context, source string, obs []*eventv1alpha1.Observation) (res graph.IngestResult, err error) {
 	err = g.observe(ctx, "ingest", func(ctx context.Context) error {
 		res, err = g.next.Ingest(ctx, source, obs)
@@ -81,7 +79,7 @@ func (g *graphStore) Ingest(ctx context.Context, source string, obs []*eventv1al
 	return res, err
 }
 
-// Entity implements graph.Store.
+// Entity implements graph.Graph.
 func (g *graphStore) Entity(ctx context.Context, ref string) (e graph.Entity, err error) {
 	err = g.observe(ctx, "entity", func(ctx context.Context) error {
 		e, err = g.next.Entity(ctx, ref)
@@ -90,7 +88,7 @@ func (g *graphStore) Entity(ctx context.Context, ref string) (e graph.Entity, er
 	return e, err
 }
 
-// Find implements graph.Store.
+// Find implements graph.Graph.
 func (g *graphStore) Find(ctx context.Context, query string, kind model.Kind, limit int) (out []graph.Match, err error) {
 	err = g.observe(ctx, "find", func(ctx context.Context) error {
 		out, err = g.next.Find(ctx, query, kind, limit)
@@ -100,7 +98,7 @@ func (g *graphStore) Find(ctx context.Context, query string, kind model.Kind, li
 	return out, err
 }
 
-// Facts implements graph.Store.
+// Facts implements graph.Graph.
 func (g *graphStore) Facts(ctx context.Context, f graph.FactFilter) (out []graph.Fact, err error) {
 	err = g.observe(ctx, "facts", func(ctx context.Context) error {
 		out, err = g.next.Facts(ctx, f)
@@ -110,7 +108,7 @@ func (g *graphStore) Facts(ctx context.Context, f graph.FactFilter) (out []graph
 	return out, err
 }
 
-// Walk implements graph.Store.
+// Walk implements graph.Graph.
 func (g *graphStore) Walk(ctx context.Context, r graph.WalkRequest) (out []graph.Step, err error) {
 	err = g.observe(ctx, "walk", func(ctx context.Context) error {
 		out, err = g.next.Walk(ctx, r)
@@ -120,7 +118,7 @@ func (g *graphStore) Walk(ctx context.Context, r graph.WalkRequest) (out []graph
 	return out, err
 }
 
-// Changes implements graph.Store.
+// Changes implements graph.Graph.
 func (g *graphStore) Changes(ctx context.Context, r graph.ChangesRequest) (out []graph.Change, err error) {
 	err = g.observe(ctx, "changes", func(ctx context.Context) error {
 		out, err = g.next.Changes(ctx, r)
@@ -129,6 +127,3 @@ func (g *graphStore) Changes(ctx context.Context, r graph.ChangesRequest) (out [
 	})
 	return out, err
 }
-
-// Close implements graph.Store.
-func (g *graphStore) Close() error { return g.next.Close() }

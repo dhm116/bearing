@@ -24,7 +24,7 @@ import (
 // tests supply a store and a clock.
 type queryEnv struct {
 	// Open opens the store at a URL and returns it with a close function.
-	Open   func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error)
+	Open   func(ctx context.Context, url string) (graph.Graph, func(context.Context) error, error)
 	Getenv func(string) string
 	// Now is the time durations such as --since 72h count back from.
 	Now func() time.Time
@@ -33,12 +33,12 @@ type queryEnv struct {
 // defaultQueryEnv reads the real store, environment and clock.
 func defaultQueryEnv() queryEnv {
 	return queryEnv{
-		Open: func(ctx context.Context, url string) (graph.Store, func(context.Context) error, error) {
+		Open: func(ctx context.Context, url string) (graph.Graph, func(context.Context) error, error) {
 			s, err := store.Open(ctx, store.Config{URL: url})
 			if err != nil {
 				return nil, nil, err
 			}
-			return s.Graph, s.Close, nil
+			return s.Graph(), func(context.Context) error { return s.Close() }, nil
 		},
 		Getenv: os.Getenv,
 		Now:    time.Now,

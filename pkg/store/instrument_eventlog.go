@@ -1,4 +1,4 @@
-package instrument
+package store
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -31,16 +30,16 @@ const (
 	attrGroup     = attribute.Key("bearing.eventlog.group")
 )
 
-// EventLog wraps l so every call is traced and measured. backend names the
-// implementation (for example "duckdb") in telemetry. A
-// failed Append is the case to alert on: while it fails, ingest cannot
-// acknowledge webhooks.
-func EventLog(l contracts.EventLog, backend string) contracts.EventLog {
+// instrumentEventLog wraps l so every call is traced and measured. backend
+// names the implementation (for example "duckdb") in telemetry. A failed
+// Append is the case to alert on: while it fails, ingest cannot acknowledge
+// webhooks.
+func instrumentEventLog(l EventLog, backend string) EventLog {
 	return &eventLog{next: l, backend: backend}
 }
 
 type eventLog struct {
-	next    contracts.EventLog
+	next    EventLog
 	backend string
 }
 
@@ -54,7 +53,7 @@ func (e *eventLog) observe(ctx context.Context, op string, attrs []attribute.Key
 	defer span.End()
 	start := time.Now()
 	err := fn(ctx)
-	if err != nil && !errors.Is(err, contracts.ErrNotFound) {
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		base = append(base, semconv.ErrorTypeKey.String(telemetry.ErrorType(err)))
 		telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "event log operation failed", err, append(base, attrs...)...)
 	}
@@ -62,8 +61,8 @@ func (e *eventLog) observe(ctx context.Context, op string, attrs []attribute.Key
 	return err
 }
 
-// Append implements contracts.EventLog.
-func (e *eventLog) Append(ctx context.Context, events []contracts.Event) (out []contracts.Appended, err error) {
+// Append implements EventLog.
+func (e *eventLog) Append(ctx context.Context, events []Event) (out []Appended, err error) {
 	err = e.observe(ctx, "append", []attribute.KeyValue{attribute.Int("bearing.eventlog.events", len(events))}, func(ctx context.Context) error {
 		out, err = e.next.Append(ctx, events)
 		if err != nil {
@@ -85,8 +84,8 @@ func (e *eventLog) Append(ctx context.Context, events []contracts.Event) (out []
 	return out, err
 }
 
-// Read implements contracts.EventLog.
-func (e *eventLog) Read(ctx context.Context, partition contracts.Partition, after contracts.Offset, limit int) (out []contracts.Entry, err error) {
+// Read implements EventLog.
+func (e *eventLog) Read(ctx context.Context, partition Partition, after Offset, limit int) (out []Entry, err error) {
 	err = e.observe(ctx, "read", []attribute.KeyValue{attrPartition.String(string(partition))}, func(ctx context.Context) error {
 		out, err = e.next.Read(ctx, partition, after, limit)
 		trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(out)))
@@ -95,15 +94,15 @@ func (e *eventLog) Read(ctx context.Context, partition contracts.Partition, afte
 	return out, err
 }
 
-// Commit implements contracts.EventLog.
-func (e *eventLog) Commit(ctx context.Context, group string, partition contracts.Partition, offset contracts.Offset) error {
+// Commit implements EventLog.
+func (e *eventLog) Commit(ctx context.Context, group string, partition Partition, offset Offset) error {
 	return e.observe(ctx, "commit", []attribute.KeyValue{attrGroup.String(group), attrPartition.String(string(partition))}, func(ctx context.Context) error {
 		return e.next.Commit(ctx, group, partition, offset)
 	})
 }
 
-// Committed implements contracts.EventLog.
-func (e *eventLog) Committed(ctx context.Context, group string, partition contracts.Partition) (o contracts.Offset, err error) {
+// Committed implements EventLog.
+func (e *eventLog) Committed(ctx context.Context, group string, partition Partition) (o Offset, err error) {
 	err = e.observe(ctx, "committed", []attribute.KeyValue{attrGroup.String(group), attrPartition.String(string(partition))}, func(ctx context.Context) error {
 		o, err = e.next.Committed(ctx, group, partition)
 		return err
@@ -111,8 +110,8 @@ func (e *eventLog) Committed(ctx context.Context, group string, partition contra
 	return o, err
 }
 
-// Partitions implements contracts.EventLog.
-func (e *eventLog) Partitions(ctx context.Context) (out []contracts.PartitionInfo, err error) {
+// Partitions implements EventLog.
+func (e *eventLog) Partitions(ctx context.Context) (out []PartitionInfo, err error) {
 	err = e.observe(ctx, "partitions", nil, func(ctx context.Context) error {
 		out, err = e.next.Partitions(ctx)
 		trace.SpanFromContext(ctx).SetAttributes(attrCount.Int(len(out)))
@@ -121,7 +120,7 @@ func (e *eventLog) Partitions(ctx context.Context) (out []contracts.PartitionInf
 	return out, err
 }
 
-// Trim implements contracts.EventLog.
+// Trim implements EventLog.
 func (e *eventLog) Trim(ctx context.Context, before time.Time, groups []string) (n int, err error) {
 	err = e.observe(ctx, "trim", []attribute.KeyValue{attribute.Int("bearing.eventlog.groups", len(groups))}, func(ctx context.Context) error {
 		n, err = e.next.Trim(ctx, before, groups)
@@ -133,7 +132,7 @@ func (e *eventLog) Trim(ctx context.Context, before time.Time, groups []string) 
 	return n, err
 }
 
-// Release implements contracts.EventLog.
+// Release implements EventLog.
 func (e *eventLog) Release(ctx context.Context, ids []string) error {
 	return e.observe(ctx, "release", []attribute.KeyValue{attrCount.Int(len(ids))}, func(ctx context.Context) error {
 		return e.next.Release(ctx, ids)

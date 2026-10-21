@@ -28,8 +28,8 @@ import (
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 var (
@@ -110,15 +110,15 @@ func signed(body []byte) http.Header {
 }
 
 // logged returns the entries on the source's partition.
-func (r *rig) logged() []contracts.Entry {
+func (r *rig) logged() []store.Entry {
 	r.t.Helper()
 	parts, err := r.log.Partitions(r.t.Context())
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	var all []contracts.Entry
+	var all []store.Entry
 	for _, p := range parts {
-		es, err := r.log.Read(r.t.Context(), p.Partition, 0, contracts.MaxReadEntries)
+		es, err := r.log.Read(r.t.Context(), p.Partition, 0, store.MaxReadEntries)
 		if err != nil {
 			r.t.Fatal(err)
 		}
@@ -248,11 +248,11 @@ func TestIngestRepeatedDeliveryIsAcknowledgedButNotStoredTwice(t *testing.T) {
 
 // failingLog fails Append.
 type failingLog struct {
-	contracts.EventLog
+	store.EventLog
 	err error
 }
 
-func (f failingLog) Append(context.Context, []contracts.Event) ([]contracts.Appended, error) {
+func (f failingLog) Append(context.Context, []store.Event) ([]store.Appended, error) {
 	return nil, f.err
 }
 
@@ -272,12 +272,12 @@ func TestIngestAnswers503WhenTheLogFailsAndStoresNothing(t *testing.T) {
 
 // slowLog holds Append until released and says when it has been called.
 type slowLog struct {
-	contracts.EventLog
+	store.EventLog
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (s slowLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.Appended, error) {
+func (s slowLog) Append(ctx context.Context, ev []store.Event) ([]store.Appended, error) {
 	close(s.entered)
 	<-s.release
 	return s.EventLog.Append(ctx, ev)
@@ -740,9 +740,9 @@ func TestIngestSaysWhichMethodItTakes(t *testing.T) {
 }
 
 // emptyAppendLog answers an append with no positions.
-type emptyAppendLog struct{ contracts.EventLog }
+type emptyAppendLog struct{ store.EventLog }
 
-func (emptyAppendLog) Append(context.Context, []contracts.Event) ([]contracts.Appended, error) {
+func (emptyAppendLog) Append(context.Context, []store.Event) ([]store.Appended, error) {
 	return nil, nil
 }
 
@@ -782,12 +782,12 @@ func TestStoredHeadersDropCredentialHeadersWhateverTheirCase(t *testing.T) {
 
 // gateLog holds every Append until released and says each time one arrives.
 type gateLog struct {
-	contracts.EventLog
+	store.EventLog
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (g gateLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.Appended, error) {
+func (g gateLog) Append(ctx context.Context, ev []store.Event) ([]store.Appended, error) {
 	g.entered <- struct{}{}
 	<-g.release
 	return g.EventLog.Append(ctx, ev)

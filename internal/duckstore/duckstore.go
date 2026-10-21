@@ -1,6 +1,7 @@
-// Package duckstore is the DuckDB implementation of graph.Store (ADR 5,
-// ADR 6). The tables are in the .sql files; ingest.go writes them and read.go
-// answers from them.
+// Package duckstore is the DuckDB implementation of store.Store (ADR 5,
+// ADR 6): graph.Graph and store.EventLog on one database. The tables are in
+// the .sql files; ingest.go writes them and read.go answers from them.
+// Importing the package registers the mem and duckdb URL schemes with pkg/store.
 package duckstore
 
 import (
@@ -15,9 +16,9 @@ import (
 
 	_ "github.com/duckdb/duckdb-go/v2" // registers the "duckdb" driver
 
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 // schema holds the tables. Open applies every file in name order, so a
@@ -37,11 +38,13 @@ type Config struct {
 }
 
 var (
-	_ graph.Store        = (*Store)(nil)
-	_ contracts.EventLog = (*Store)(nil)
+	_ store.Store    = (*Store)(nil)
+	_ graph.Graph    = (*Store)(nil)
+	_ store.EventLog = (*Store)(nil)
 )
 
-// Store is a graph.Store on one DuckDB database.
+// Store is a store.Store on one DuckDB database. It is its own graph and
+// event log.
 type Store struct {
 	db    *sql.DB
 	now   func() time.Time
@@ -70,7 +73,16 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	return &Store{db: db, now: c.Now, newID: c.NewID}, nil
 }
 
-// Close implements graph.Store.
+// Graph implements store.Store.
+func (s *Store) Graph() graph.Graph { return s }
+
+// Events implements store.Store.
+func (s *Store) Events() store.EventLog { return s }
+
+// Ping implements store.Store.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+// Close implements store.Store.
 func (s *Store) Close() error { return s.db.Close() }
 
 func applySchema(ctx context.Context, db *sql.DB) error {

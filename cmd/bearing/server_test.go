@@ -17,10 +17,10 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/apiclient"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/server"
+	"bearing.example/pkg/store"
 )
 
 // apiToken is the static API token the test server accepts.
@@ -67,7 +67,7 @@ func (w *world) serve() string {
 func (w *world) cliWith(vars map[string]string, args ...string) (string, error) {
 	w.t.Helper()
 	env := queryEnv{
-		Open: func(context.Context, string) (graph.Store, func(context.Context) error, error) {
+		Open: func(context.Context, string) (graph.Graph, func(context.Context) error, error) {
 			return nil, nil, errors.New("test: this command must not open the store")
 		},
 		Getenv: func(k string) string { return vars[k] },
@@ -190,7 +190,7 @@ func TestSourceSyncQueuesARequestOnTheServer(t *testing.T) {
 		t.Fatalf("got %q, %v, want the request's event ID", out, err)
 	}
 	// The request is on the log, in the source's partition, from the token caller.
-	ents, err := w.store.Read(t.Context(), contracts.Partition(githubSource), 0, 10)
+	ents, err := w.store.Read(t.Context(), store.Partition(githubSource), 0, 10)
 	if err != nil || len(ents) != 1 || ents[0].ID != acc.EventID || !strings.Contains(string(ents[0].Data), `"subject":"token"`) {
 		t.Fatalf("got %v, %v, want one sync request from the token caller on the log", ents, err)
 	}

@@ -48,6 +48,7 @@ import (
 	"time"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	_ "bearing.example/internal/duckstore" // registers the mem and duckdb store schemes
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
