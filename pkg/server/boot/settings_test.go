@@ -64,6 +64,15 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"an adapter name that is not a name", `"name": "github", "command"`, `"name": "Git Hub", "command"`, "must be lowercase"},
 		{"an env name that is not a variable name", `"HTTPS_PROXY"`, `"not a name"`, "is not a variable name"},
 		{"a misspelled setting", `"store": {`, `"stroe": {}, "store": {`, "unknown field"},
+		{"both a command and an address", `"command": "/usr/local/bin/bearing-adapter-github",`, `"command": "/usr/local/bin/bearing-adapter-github", "address": "https://adapter.example:8443",`, "set one of command"},
+		{"neither a command nor an address", `"command": "/usr/local/bin/bearing-adapter-github",`, ``, "set one of command"},
+		{"an address without a token", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, ``), "needs token_env"},
+		{"a token outside the allowlist", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"HOME"`), "token_env must name"},
+		{"an address that is not https", localAdapter, remoteAdapter(`"ftp://adapter.example"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "must be https"},
+		{"credentials in an address", localAdapter, remoteAdapter(`"https://u:p@adapter.example"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "must be https"},
+		{"plain http off loopback", localAdapter, remoteAdapter(`"http://10.0.0.1:9000"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "loopback"},
+		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
+		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "spec.secrets go to"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -226,5 +235,32 @@ func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
 	off := listenConfig(&Settings{Listen: ListenSettings{Socket: "/s", InsecureNoPeerRate: true}})
 	if off.PeerRate.PerMinute >= 0 {
 		t.Fatalf("got a per-peer rate of %d, want the switch-off", off.PeerRate.PerMinute)
+	}
+}
+
+// localAdapter is goodSettings' adapter after its name, for tests that turn it
+// into one at an address.
+const localAdapter = `"command": "/usr/local/bin/bearing-adapter-github", "declaration": "/etc/bearing/github.json", "env": ["HTTPS_PROXY"]`
+
+// remoteAdapter is the adapter at address with the token variable tokenEnv
+// (a JSON string, or empty for none).
+func remoteAdapter(address, tokenEnv string) string {
+	s := `"address": ` + address + `, "declaration": "/etc/bearing/github.json"`
+	if tokenEnv != "" {
+		s += `, "token_env": ` + tokenEnv
+	}
+	return s
+}
+
+func TestSettingsAcceptAnAdapterAtAnAddress(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), 1)
+	text = strings.Replace(text, `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1)
+	s, err := Parse([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

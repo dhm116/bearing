@@ -1,7 +1,11 @@
 package boot
 
 import (
+	"context"
+	"encoding/json"
+	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"bearing.example/internal/testkit"
@@ -67,5 +71,103 @@ func TestLocalAdapterSyncsSurvivesARestartAndStopsWithTheServer(t *testing.T) {
 	}
 	if _, err := os.Stat(r.sockets); !os.IsNotExist(err) {
 		t.Fatalf("got %v, want the socket directory removed", err)
+	}
+}
+
+// remoteWorld is newWorld with its adapter served in this process on a
+// loopback listener that wants token, and the source's process secrets gone.
+func remoteWorld(t *testing.T, token string) *world {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- adapter.Serve(ctx, stubAdapter{}, lis, adapter.ServeConfig{Token: token}) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	w := newWorld(t, func(s *Settings) {
+		s.Adapters[0] = AdapterSettings{
+			Name: "github", Address: "http://" + lis.Addr().String(),
+			TokenEnv: "BEARING_SECRET_ADAPTER_TOKEN", Declaration: s.Adapters[0].Declaration,
+		}
+		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1))
+	})
+	w.env["BEARING_SECRET_ADAPTER_TOKEN"] = token
+	return w
+}
+
+// A remote adapter is reached at its address with its token; nothing is
+// started, and the token is in no log line or span.
+func TestRemoteAdapterIsReachedWithItsTokenAndNeverLogged(t *testing.T) {
+	installCapture()
+	const token = "canary-adapter-token" //nolint:gosec // G101: a canary, not a credential
+	w := remoteWorld(t, token)
+	t.Setenv(stubMarkEnv, w.mark) // the stub runs in this process
+	r := w.assemble(t)
+	stop := run(t, r)
+	if len(r.procs) != 0 || r.sockets != "" {
+		t.Fatalf("got %d processes and socket directory %q for a remote adapter, want none", len(r.procs), r.sockets)
+	}
+	requestSync(t, r, "github-acme", w.mark)
+	if err := stop(); err != nil {
+		t.Fatalf("Run returned %v after a stop", err)
+	}
+	if strings.Contains(logs.all(), token) {
+		t.Error("a log line holds the adapter token")
+	}
+	for _, s := range spanLog.Ended() {
+		text := s.Name()
+		for _, a := range s.Attributes() {
+			text += " " + a.Value.String()
+		}
+		for _, e := range s.Events() {
+			text += " " + e.Name
+			for _, a := range e.Attributes {
+				text += " " + a.Value.String()
+			}
+		}
+		if strings.Contains(text, token) {
+			t.Fatalf("span %q holds the adapter token", s.Name())
+		}
+	}
+}
+
+func TestRemoteAdapterWithTheWrongTokenIsRefused(t *testing.T) {
+	w := remoteWorld(t, "the-adapter-token")
+	w.env["BEARING_SECRET_ADAPTER_TOKEN"] = "canary-wrong-token"
+	if _, err := mustPlans(t, w)[0].remote.Describe(t.Context()); err == nil || strings.Contains(err.Error(), "canary-wrong-token") {
+		t.Fatalf("got %v, want a refusal that does not name the token", err)
+	}
+}
+
+func mustPlans(t *testing.T, w *world) []sourcePlan {
+	t.Helper()
+	c, err := w.settings.check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decls, err := loadDeclarations(w.settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := planSources(w.settings, c, decls, w.getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plans
+}
+
+func TestAssembleRefusesARemoteAdapterWithoutItsToken(t *testing.T) {
+	w := remoteWorld(t, "x")
+	delete(w.env, "BEARING_SECRET_ADAPTER_TOKEN")
+	_, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+	if err == nil || !strings.Contains(err.Error(), "BEARING_SECRET_ADAPTER_TOKEN is not set") {
+		t.Fatalf("got %v, want the unset token refused", err)
 	}
 }

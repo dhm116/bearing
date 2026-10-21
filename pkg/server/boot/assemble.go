@@ -129,18 +129,22 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	declared := map[string]map[string]model.Predicate{}
 	for _, p := range plans {
 		declared[p.name] = model.DeclaredAttributes(p.decl)
-		if sockets == "" {
-			// Private (0700) and new for each run, so no other user can
-			// reach an adapter and no stale socket is in the way.
-			if sockets, err = os.MkdirTemp("", "bearing-"); err != nil {
-				return nil, fmt.Errorf("boot: adapter socket directory: %w", err)
+		var a adapter.Adapter = p.remote
+		if p.remote == nil {
+			if sockets == "" {
+				// Private (0700) and new for each run, so no other user can
+				// reach an adapter and no stale socket is in the way.
+				if sockets, err = os.MkdirTemp("", "bearing-"); err != nil {
+					return nil, fmt.Errorf("boot: adapter socket directory: %w", err)
+				}
 			}
+			cfg := p.start
+			cfg.SocketDir = sockets
+			m := newManaged(procCtx, p.name, func(ctx context.Context) (Process, error) { return adapter.Start(ctx, cfg) }, env.Clock)
+			procs = append(procs, m)
+			a = m
 		}
-		cfg := p.start
-		cfg.SocketDir = sockets
-		m := newManaged(procCtx, p.name, func(ctx context.Context) (Process, error) { return adapter.Start(ctx, cfg) }, env.Clock)
-		procs = append(procs, m)
-		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
+		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
 	srv, err := server.New(server.Config{
 		Log: st.Events, Applier: server.StoreApplier{Store: st.Graph, Declared: declared},
@@ -235,11 +239,13 @@ type sourcePlan struct {
 	config        json.RawMessage
 	every         time.Duration
 	webhookSecret []byte
-	// start runs the adapter; Assemble sets SocketDir.
-	start adapter.StartConfig
+	// start runs a local adapter (Assemble sets SocketDir); remote, if set,
+	// is an adapter at an address instead.
+	start  adapter.StartConfig
+	remote *adapter.Remote
 }
 
-// planSources resolves every source's secrets and how to start its adapter. A
+// planSources resolves every source's secrets and how to reach its adapter. A
 // reference that does not resolve to a value stops the start, naming the
 // field and the variable, never a value (C-SECRET-2).
 func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration, getenv func(string) string) ([]sourcePlan, error) {
@@ -273,7 +279,19 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			}
 			p.config = b
 		}
-		p.start = adapter.StartConfig{Name: name, Command: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
+		if ad.Address != "" {
+			token := getenv(ad.TokenEnv)
+			if token == "" {
+				return nil, fmt.Errorf("boot: settings: adapter %s: token_env: the variable %s is not set or is empty", ad.Name, ad.TokenEnv)
+			}
+			r, err := adapter.Dial(name, adapter.DialConfig{Address: ad.Address, Token: token})
+			if err != nil {
+				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
+			}
+			p.remote = r
+		} else {
+			p.start = adapter.StartConfig{Name: name, Command: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
+		}
 		plans = append(plans, p)
 	}
 	return plans, nil
@@ -336,6 +354,9 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
+		if a.Address != "" {
+			continue
+		}
 		fi, err := stat(a.Command)
 		switch {
 		case err != nil:
