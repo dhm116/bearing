@@ -60,7 +60,9 @@ the command line prints; their field names are the wire format, and within
 `/v1` fields are only added. `at` is an RFC 3339 time and asks what held
 then; without it the answer is what holds now. With no `since`, `changes`
 asks about the last 24 hours. Every fact carries its sources: the
-observations behind it, each with its source, observed time and link. When
+observations behind it, each with its source, observed time and link. A
+relation carries `qualifiers`, how it holds (for a dependency: protocol,
+port, service and where it was found). When
 several sources say the same thing, the answer is one fact with all of
 them.
 

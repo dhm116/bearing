@@ -52,7 +52,7 @@ keeps the adapters that fetch it small.
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
 | [`adapters/github`](adapters/github) | The GitHub adapter: repositories, teams, members, CODEOWNERS and language versions from manifests |
-| [`adapters/kubernetes`](adapters/kubernetes) | The Kubernetes adapter: workloads, namespaces, team labels and source repositories |
+| [`adapters/kubernetes`](adapters/kubernetes) | The Kubernetes adapter: workloads, namespaces, team labels, source repositories and dependencies between workloads |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related` and `changes` from the store or from a running server, asks a server to sync a source, and runs the server (`bearing server --settings`) |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |

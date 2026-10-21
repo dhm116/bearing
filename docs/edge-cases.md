@@ -32,14 +32,6 @@ Each entry:
 - **Impact:** a wrong display name until the next observation. Answers are unaffected.
 - **Proposed fix:** keep the name's observed time and skip older names.
 
-## Relation qualifiers are dropped
-
-- **Found in:** step 2 ingest
-- **Area:** facts
-- **Example:** a `depends_on` relation carries `attributes` such as the port or protocol.
-- **Impact:** "how does X depend on Y" can't show them.
-- **Proposed fix:** a JSON `qualifiers` column on `fact`, written from `Relation.attributes`.
-
 ## linked_ids treated as keys
 
 - **Found in:** step 2 ingest
@@ -135,3 +127,35 @@ Each entry:
 - **Example:** team labels in mixed case; a repository annotation like `TODO`; several `ghcr.io` images; objects created or deleted mid-sync; other registries.
 - **Impact:** label values are used as written; a bad annotation silently falls back to the image; the first image wins; a sync can see a half-changed list; only `ghcr.io` images hint at a repository.
 - **Proposed fix:** normalize label values; report bad annotations; consistent reads with `resourceVersion`; a configurable registry-to-repository mapping.
+
+## Kubernetes dependencies the adapter can't see
+
+- **Found in:** step 3 dependencies (`adapters/kubernetes`)
+- **Area:** dependencies
+- **Example:** `DATABASE_URL` in a ConfigMap (`envFrom`) or a Secret (`valueFrom`); an `ExternalName` Service pointing at RDS; `postgres-0.postgres.billing` (a StatefulSet pod's DNS name); a non-default cluster domain; references into an excluded namespace; init containers and command-line arguments.
+- **Impact:** those dependencies are missing; external databases and managed services never appear.
+- **Proposed fix:** read ConfigMap values the same way (never Secrets); emit `ExternalName` targets as `CloudResource`s; match pod DNS names and a configured cluster domain.
+
+## Broad Service selectors
+
+- **Found in:** step 3 dependencies
+- **Area:** dependencies
+- **Example:** a Service selecting `app: billing` also matches a second workload carrying that label.
+- **Impact:** a false `depends_on` to every workload the selector matches.
+- **Proposed fix:** prefer the workload whose labels match the selector most exactly, or propose rather than assert when several match.
+
+## The Kubernetes sync lists workloads twice
+
+- **Found in:** step 3 dependencies
+- **Area:** Kubernetes
+- **Example:** a cluster with thousands of workloads and Services.
+- **Impact:** an index pass and an emit pass double workload list requests, and the index travels in the sync cursor, which grows with the cluster.
+- **Proposed fix:** keep the index in the adapter process between pages, or read Services and workloads into one pass per namespace.
+
+## Qualifiers after a merge
+
+- **Found in:** step 3 qualifiers (`internal/duckstore`)
+- **Area:** facts
+- **Example:** two merged entities both held `depends_on ledger`, with different ports.
+- **Impact:** the surviving fact keeps the oldest copy's qualifiers, not the newest. Numbers read back as floats.
+- **Proposed fix:** take the newest source's qualifiers when collapsing, as the query layer does when folding.

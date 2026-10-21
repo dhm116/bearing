@@ -51,6 +51,7 @@ A **fact** is one statement about an entity over a span of time:
 | Subject | the `payments-api` repository |
 | Predicate | `approves_changes` |
 | Object or value | the `payments` team (a relation), or `"Go"` (an attribute) |
+| Qualifiers | how a relation holds, for example `protocol: http`, `port: 8080`, `via: env:LEDGER_URL` |
 | Valid from, valid to | when a source first saw it, and when it saw it end (empty while it holds) |
 | Status | `asserted` (from a source's own records) or `proposed` (inferred, never used to answer ownership or dependency questions) |
 | Confidence | 0 to 1 |
