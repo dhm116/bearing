@@ -2,6 +2,7 @@ package duckstore
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -60,5 +61,28 @@ func TestInMemoryStoreIsSharedAcrossConnections(t *testing.T) {
 	var n int
 	if err := c2.QueryRowContext(ctx, `SELECT count(*) FROM entity`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("got %d, %v from a second connection, want 1", n, err)
+	}
+}
+
+func TestOpenAddsQualifiersToAnOldFile(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "old.duckdb")
+	db, err := sql.Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := schema.ReadFile("10_graph.sql") // a file made before 30_qualifiers.sql
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, string(old)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := newStore(t, Config{Path: path})
+	if _, err := s.db.ExecContext(ctx, `SELECT qualifiers FROM fact`); err != nil {
+		t.Fatalf("got %v, want the qualifiers column", err)
 	}
 }

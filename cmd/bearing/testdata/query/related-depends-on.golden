@@ -4,7 +4,7 @@ relations of payments [Component e10] catalog:component/payments, direction out
 as of now
 
 depth 1
-  payments [Component e10] catalog:component/payments depends_on ledger [Component e11] catalog:component/ledger: asserted 100% valid from 2026-10-01T00:01:00Z
+  payments [Component e10] catalog:component/payments depends_on ledger [Component e11] catalog:component/ledger (http, port 8080, via env:LEDGER_URL): asserted 100% valid from 2026-10-01T00:01:00Z
     catalog-acme: observed 2026-10-01T00:01:00Z, observation catalog:component/payments@2026-10-01T00:01:00.000000Z
 depth 2
   ledger [Component e11] catalog:component/ledger depends_on db [Component e13] catalog:component/db: asserted 100% valid from 2026-10-01T00:01:00Z

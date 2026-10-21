@@ -3,6 +3,7 @@ package duckstore
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -300,4 +301,50 @@ func TestIngestMergeCollapsesDuplicateFactsAndClosesSelfLoops(t *testing.T) {
 		"api depends_on api [1,3) x1",
 		"api depends_on db [0,open) x2",
 	)
+}
+
+// relWith is rel with qualifiers.
+func relWith(typ, to string, kv ...any) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) {
+		r := &modelv1alpha1.Relation{Type: typ, End: &modelv1alpha1.Relation_To{To: to}, Attributes: map[string]*structpb.Value{}}
+		for i := 0; i < len(kv); i += 2 {
+			v, err := structpb.NewValue(kv[i+1])
+			if err != nil {
+				panic(err)
+			}
+			r.Attributes[fmt.Sprint(kv[i])] = v
+		}
+		d.Relations = append(d.Relations, r)
+	}
+}
+
+func TestIngestStoresAndRefreshesQualifiersWithoutANewFact(t *testing.T) {
+	ctx := t.Context()
+	s := ingestStore(t)
+	ingestOK(t, s, "k8s", obs("o1", 0, "Component", "k:a/api", relWith("depends_on", "k:a/db", "protocol", "http", "port", 8080)))
+	r := ingestOK(t, s, "k8s", obs("o2", 5, "Component", "k:a/api", relWith("depends_on", "k:a/db", "protocol", "grpc", "port", 9090)))
+	if r.Refreshed != 1 || r.Opened != 0 {
+		t.Fatalf("got %+v, want one refresh and no new fact", r)
+	}
+	facts, err := s.Facts(ctx, graph.FactFilter{Predicate: "depends_on"})
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("got %v, %v, want one fact", facts, err)
+	}
+	want := map[string]any{"protocol": "grpc", "port": 9090.0}
+	if !reflect.DeepEqual(facts[0].Qualifiers, want) {
+		t.Errorf("Facts: got %v, want %v", facts[0].Qualifiers, want)
+	}
+	steps, err := s.Walk(ctx, graph.WalkRequest{From: facts[0].Subject, Predicates: []string{"depends_on"}})
+	if err != nil || len(steps) != 1 || !reflect.DeepEqual(steps[0].Fact.Qualifiers, want) {
+		t.Errorf("Walk: got %+v, %v, want %v", steps, err, want)
+	}
+	changes, err := s.Changes(ctx, graph.ChangesRequest{})
+	if err != nil || len(changes) == 0 || !reflect.DeepEqual(changes[0].Fact.Qualifiers, want) {
+		t.Errorf("Changes: got %+v, %v, want %v", changes, err, want)
+	}
+	ingestOK(t, s, "k8s", obs("o3", 6, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
+	facts, _ = s.Facts(ctx, graph.FactFilter{Predicate: "depends_on"})
+	if facts[0].Qualifiers != nil {
+		t.Errorf("got %v, want none after a refresh without qualifiers", facts[0].Qualifiers)
+	}
 }

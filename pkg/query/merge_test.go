@@ -33,3 +33,18 @@ func TestMergeJoinsOverlappingFactsOnly(t *testing.T) {
 		t.Errorf("got %+v, want the later span and the other object apart", got[1:])
 	}
 }
+
+func TestMergeTakesQualifiersOfTheNewestSource(t *testing.T) {
+	h := func(n int) time.Time { return time.Date(2026, 1, 1, n, 0, 0, 0, time.UTC) }
+	f := func(id string, observed int, q string) graph.Fact {
+		return graph.Fact{
+			ID: id, Subject: "a", Predicate: "depends_on", Object: "b", Status: graph.Asserted, ValidFrom: h(1),
+			Qualifiers: map[string]any{"protocol": q},
+			Sources:    []graph.Source{{ObservationID: id, ObservedAt: h(observed)}},
+		}
+	}
+	got := merge([]graph.Fact{f("new", 5, "grpc"), f("old", 2, "http")})
+	if len(got) != 1 || got[0].Qualifiers["protocol"] != "grpc" {
+		t.Errorf("got %+v, want one fact with the newer source's qualifiers", got)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -86,6 +88,24 @@ func what(f query.Fact) string {
 	return string(b)
 }
 
+// qualifiers renders a relation's details as " (http, port 8080)": the
+// protocol bare and first, then the rest as "name value" in name order.
+func qualifiers(q map[string]any) string {
+	if len(q) == 0 {
+		return ""
+	}
+	var parts []string
+	if p, ok := q["protocol"]; ok {
+		parts = append(parts, fmt.Sprint(p))
+	}
+	for _, k := range slices.Sorted(maps.Keys(q)) {
+		if k != "protocol" {
+			parts = append(parts, fmt.Sprintf("%s %v", k, q[k]))
+		}
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
+}
+
 // fact prints a fact and its sources. The subject is named only if
 // showSubject, for lists that mix subjects.
 func (o *out) fact(indent int, f query.Fact, showSubject bool) {
@@ -97,7 +117,7 @@ func (o *out) fact(indent int, f query.Fact, showSubject bool) {
 	if f.ValidTo != nil {
 		valid += " until " + stamp(*f.ValidTo)
 	}
-	o.line(indent, "%s%s %s: %s %s%s", subject, f.Predicate, what(f), f.Status, percent(f.Confidence), valid)
+	o.line(indent, "%s%s %s%s: %s %s%s", subject, f.Predicate, what(f), qualifiers(f.Qualifiers), f.Status, percent(f.Confidence), valid)
 	o.sources(indent+1, f.Sources)
 }
 
