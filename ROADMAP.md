@@ -19,6 +19,15 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
 3. **Adapters over gRPC.** Port the GitHub adapter (including manifest
    parsing for languages and versions) and add the directory (IdP) and
    Kubernetes adapters against the existing fakes.
+   Done so far: the gRPC service and transport, GitHub `runtime` facts from
+   manifests, and the Kubernetes adapter (workloads, namespaces, `owned_by`
+   from a label, `defined_in` from an annotation or image). Still needed:
+   - **A source of dependencies** for questions 4 and 5. Kubernetes doesn't
+     emit `depends_on` yet: its declaration lacks it and the fake refuses
+     Services. Add Service reads to the fake, the declaration and the
+     adapter (env var and URL references to Services).
+   - The directory (IdP) adapter; until then the recorded
+     `testdata/acme/directory.ndjson` stands in.
 4. **Resolution.** Deterministic rules first: CODEOWNERS, team membership,
    Kubernetes labels and owner references, package manifests. Inferred
    links are stored as proposals.
@@ -27,6 +36,9 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    - Only authoritative `linked_ids` may merge entities. Authority is in
      the adapter declaration, which `Ingest` doesn't see yet (Tom Becker
      is merged today).
+   - Kubernetes `owned_by` points at `kubernetes:team/<label>`, a key no
+     other source uses: linking it to the GitHub team is the same matching
+     problem.
    - Teams from the directory and GitHub share no keys, so they stay
      apart. Needs a matching rule (for example same kind and normalized
      name, proposed rather than merged) or links from the directory.
