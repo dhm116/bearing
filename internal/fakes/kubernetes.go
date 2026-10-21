@@ -44,6 +44,13 @@ const (
 	// annotation on billing-core that the adapter doesn't report.
 	CanaryLabel      = "canary-label-6f0e2b8a"
 	CanaryAnnotation = "canary-annotation-1d7c5e93"
+	// CanaryURLPassword is the password in the URL of billing-api's
+	// LEDGER_URL, a real reference to the ledger Service: the adapter keeps
+	// the reference and never the credentials.
+	CanaryURLPassword = "canary-url-3e7a5c1b-pw" //nolint:gosec // G101: a fake password, the point of the canary
+	// CanaryAPIKey is the value of billing-api's PAYMENTS_API_KEY, which
+	// names nothing.
+	CanaryAPIKey = "canary-key-8c4d2f0a" //nolint:gosec // G101: a fake key, the point of the canary
 	// SpecExampleToken and SpecExamplePassword are the fake values in the
 	// spec's example input, which payments-api reproduces.
 	SpecExampleToken    = "not-a-real-token"
@@ -54,7 +61,7 @@ const (
 func Canaries() []string {
 	return []string{
 		CanaryEnvPassword, CanaryArgPassword, CanarySecretName, CanaryVolumeSecret, CanaryServiceAccount,
-		CanaryLabel, CanaryAnnotation, SpecExampleToken, SpecExamplePassword,
+		CanaryLabel, CanaryAnnotation, CanaryURLPassword, CanaryAPIKey, SpecExampleToken, SpecExamplePassword,
 	}
 }
 
@@ -95,6 +102,29 @@ type Workload struct {
 	ResourceVersion int64
 }
 
+// Service is a Service of the cluster: a selector over pod template labels
+// and the ports it exposes. Type "" is ClusterIP.
+type Service struct {
+	Namespace string
+	Name      string
+	// Type is "" (ClusterIP) or "ExternalName".
+	Type     string
+	Selector map[string]string
+	Ports    []ServicePort
+
+	// Set by the cluster.
+	UID             string
+	CreatedAt       time.Time
+	ResourceVersion int64
+}
+
+// ServicePort is one port of a [Service].
+type ServicePort struct {
+	Name        string
+	Port        int
+	AppProtocol string
+}
+
 // Ref names a workload.
 type Ref struct {
 	Kind      string
@@ -124,6 +154,7 @@ type Cluster struct {
 	nextUID    int
 	namespaces []*Namespace
 	workloads  []*Workload
+	services   []*Service
 }
 
 // NewCluster returns the fictional cluster in its initial state, reading
@@ -197,6 +228,64 @@ func (k *Cluster) Workload(ref Ref) (Workload, bool) {
 		return Workload{}, false
 	}
 	return copyWorkload(w), true
+}
+
+// Services returns copies of the services in namespace ("" for every
+// namespace), by namespace and name.
+func (k *Cluster) Services(namespace string) []Service {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	var out []Service
+	for _, sv := range k.services {
+		if namespace == "" || sv.Namespace == namespace {
+			cp := *sv
+			cp.Selector = maps.Clone(sv.Selector)
+			cp.Ports = slices.Clone(sv.Ports)
+			out = append(out, cp)
+		}
+	}
+	slices.SortFunc(out, func(a, b Service) int {
+		return strings.Compare(a.Namespace+"/"+a.Name, b.Namespace+"/"+b.Name)
+	})
+	return out
+}
+
+// AddService creates sv in its namespace, which must exist.
+func (k *Cluster) AddService(sv Service) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.addService(sv)
+}
+
+func (k *Cluster) addService(sv Service) error {
+	if k.namespace(sv.Namespace) == nil {
+		return fmt.Errorf("namespace %s: %w", sv.Namespace, ErrNotFound)
+	}
+	if slices.ContainsFunc(k.services, func(o *Service) bool { return o.Namespace == sv.Namespace && o.Name == sv.Name }) {
+		return fmt.Errorf("service %s/%s already exists", sv.Namespace, sv.Name)
+	}
+	sv.Selector, sv.Ports = maps.Clone(sv.Selector), slices.Clone(sv.Ports)
+	sv.UID, sv.CreatedAt, sv.ResourceVersion = k.uid(), k.now(), k.bump()
+	k.services = append(k.services, &sv)
+	return nil
+}
+
+// RemoveEnv deletes the named variable from the workload's containers, as
+// an edit of the pod template does.
+func (k *Cluster) RemoveEnv(ref Ref, name string) error {
+	return k.mutate(ref, true, func(w *Workload) error {
+		found := false
+		for i := range w.Containers {
+			if _, ok := w.Containers[i].Env[name]; ok {
+				delete(w.Containers[i].Env, name)
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s %s/%s has no variable %s: %w", ref.Kind, ref.Namespace, ref.Name, name, ErrNotFound)
+		}
+		return nil
+	})
 }
 
 // AddNamespace creates a namespace.

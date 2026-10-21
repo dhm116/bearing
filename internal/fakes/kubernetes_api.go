@@ -139,14 +139,16 @@ func verbOf(r *http.Request, named bool) string {
 }
 
 // allowed reports whether the adapter's token may make the request: list
-// namespaces, and list Deployments, StatefulSets and DaemonSets, in one
-// namespace or all. Nothing else, not even a get of one of them.
+// namespaces, list Services in one namespace, and list Deployments,
+// StatefulSets and DaemonSets, in one namespace or all. Nothing else, not even a get of one of them.
 func (rr resourceRequest) allowed() bool {
 	if !rr.isResource || rr.verb != "list" {
 		return false
 	}
 	switch {
 	case rr.group == "" && rr.resource == "namespaces" && rr.namespace == "":
+		return true
+	case rr.group == "" && rr.resource == "services" && rr.namespace != "":
 		return true
 	case rr.group == "apps":
 		_, ok := workloadResources[rr.resource]
@@ -195,6 +197,10 @@ func (kb *Kubernetes) serve(w http.ResponseWriter, r *http.Request) {
 		kb.listNamespaces(w, r)
 		return
 	}
+	if rr.resource == "services" {
+		kb.listServices(w, r, rr)
+		return
+	}
 	kb.listWorkloads(w, r, rr)
 }
 
@@ -204,6 +210,14 @@ func (kb *Kubernetes) listNamespaces(w http.ResponseWriter, r *http.Request) {
 		items = append(items, listItem{key: n.Name, obj: namespaceJSON(n)})
 	}
 	kb.writeList(w, r, "v1", "NamespaceList", items)
+}
+
+func (kb *Kubernetes) listServices(w http.ResponseWriter, r *http.Request, rr resourceRequest) {
+	var items []listItem
+	for _, sv := range kb.cluster.Services(rr.namespace) {
+		items = append(items, listItem{key: sv.Namespace + "/" + sv.Name, obj: serviceJSON(sv)})
+	}
+	kb.writeList(w, r, "v1", "ServiceList", items)
 }
 
 func (kb *Kubernetes) listWorkloads(w http.ResponseWriter, r *http.Request, rr resourceRequest) {
@@ -341,6 +355,40 @@ func namespaceJSON(n Namespace) map[string]any {
 		},
 		"spec":   map[string]any{"finalizers": []string{"kubernetes"}},
 		"status": map[string]any{"phase": "Active"},
+	}
+}
+
+// serviceJSON renders a Service as a list item. A ClusterIP Service has a
+// cluster IP, which an adapter must not mistake for a name.
+func serviceJSON(sv Service) map[string]any {
+	spec := map[string]any{}
+	if sv.Type == "ExternalName" {
+		spec["type"], spec["externalName"] = sv.Type, "db.acme.example"
+	} else {
+		spec["type"], spec["clusterIP"] = "ClusterIP", "10.43.0."+strconv.FormatInt(sv.ResourceVersion%250+1, 10)
+		if len(sv.Selector) > 0 {
+			spec["selector"] = sv.Selector
+		}
+	}
+	ports := make([]map[string]any, len(sv.Ports))
+	for i, p := range sv.Ports {
+		ports[i] = map[string]any{"port": p.Port, "protocol": "TCP", "targetPort": p.Port}
+		if p.Name != "" {
+			ports[i]["name"] = p.Name
+		}
+		if p.AppProtocol != "" {
+			ports[i]["appProtocol"] = p.AppProtocol
+		}
+	}
+	spec["ports"] = ports
+	return map[string]any{
+		"metadata": map[string]any{
+			"name": sv.Name, "namespace": sv.Namespace, "uid": sv.UID,
+			"resourceVersion":   strconv.FormatInt(sv.ResourceVersion, 10),
+			"creationTimestamp": kubeTime(sv.CreatedAt),
+		},
+		"spec":   spec,
+		"status": map[string]any{"loadBalancer": map[string]any{}},
 	}
 }
 

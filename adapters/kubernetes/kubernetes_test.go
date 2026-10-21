@@ -131,7 +131,7 @@ func TestSyncMatchesTheSpecSamples(t *testing.T) {
 	for _, o := range obs {
 		got[o.GetId()] = o.GetData()
 	}
-	for _, f := range []string{"9-kubernetes-workload-annotation", "10-kubernetes-workload-image-hint", "11-kubernetes-workload-no-repository", "12-kubernetes-namespace", "13-kubernetes-team-label"} {
+	for _, f := range []string{"9-kubernetes-workload-annotation", "10-kubernetes-workload-image-hint", "11-kubernetes-workload-no-repository", "12-kubernetes-namespace", "13-kubernetes-team-label", "14-kubernetes-workload-dependencies"} {
 		raw, err := os.ReadFile(filepath.Join("../../testdata/observations/valid", f+".json")) //nolint:gosec // a test fixture
 		if err != nil {
 			t.Fatal(err)
