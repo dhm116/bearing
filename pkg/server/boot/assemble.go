@@ -123,13 +123,15 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 	}()
 	var sources []server.Source
+	declared := map[string]map[string]model.Predicate{}
 	for _, p := range plans {
+		declared[p.name] = model.DeclaredAttributes(p.decl)
 		m := newManaged(procCtx, p.name, p.launcher, env.Clock)
 		procs = append(procs, m)
 		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
 	}
 	srv, err := server.New(server.Config{
-		Log: st.Events, Applier: server.StoreApplier{Store: st.Graph},
+		Log: st.Events, Applier: server.StoreApplier{Store: st.Graph, Declared: declared},
 		Sources: sources, Clock: env.Clock,
 	})
 	if err != nil {

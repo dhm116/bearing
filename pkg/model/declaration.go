@@ -182,3 +182,18 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 		c.add(codeMalformed, path+".match", "members applies only to member_of with direction in")
 	}
 }
+
+// DeclaredAttributes returns the attributes d declares that the registry
+// doesn't have, in the form ValidateObservationWith takes. A nil d declares
+// none.
+func DeclaredAttributes(d *modelv1alpha1.AdapterDeclaration) map[string]Predicate {
+	out := map[string]Predicate{}
+	for _, k := range d.GetKinds() {
+		for _, f := range k.GetFields() {
+			if _, registered := LookupPredicate(f.GetPredicate()); !registered {
+				out[f.GetPredicate()] = Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality()}
+			}
+		}
+	}
+	return out
+}

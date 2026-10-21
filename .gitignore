@@ -14,3 +14,4 @@ cover-*.out
 
 # Local worktrees (see AGENTS.md).
 .worktrees/
+/bearing

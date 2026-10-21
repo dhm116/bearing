@@ -166,3 +166,19 @@ func TestValidateDeclarationAcceptsAWebhook(t *testing.T) {
 		})
 	}
 }
+
+func TestDeclaredAttributesKeepsOnlyUnregisteredFields(t *testing.T) {
+	d := &modelv1alpha1.AdapterDeclaration{Kinds: []*modelv1alpha1.KindDeclaration{{
+		Fields: []*modelv1alpha1.FieldDeclaration{
+			{Predicate: "name"},
+			{Predicate: "cluster_zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING},
+		},
+	}}}
+	got := DeclaredAttributes(d)
+	if len(got) != 1 || got["cluster_zone"].Type != modelv1alpha1.ValueType_VALUE_TYPE_STRING {
+		t.Fatalf("got %v, want only cluster_zone, a string", got)
+	}
+	if n := len(DeclaredAttributes(nil)); n != 0 {
+		t.Fatalf("got %d attributes from no declaration, want 0", n)
+	}
+}

@@ -40,7 +40,6 @@ reviewers:
     # The data model, resolution, the store and queries over facts.
     - "proto/"
     - "pkg/model/"
-    - "**/resolver/"
     - "**/*resolve*.go"
     - "**/store/"
     - "**/duck*/"
