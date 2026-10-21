@@ -64,9 +64,14 @@ tag.
   or DuckLake.
 - **Search.** DuckDB full-text and vector search, once a question needs
   more than name lookup.
-- **Inference.** Models that classify events and propose links with
-  evidence (for example Rig, or small extraction models). Proposals stay
-  separate from asserted facts.
+- **Inference.** Proposed facts from text, with the quoted span as
+  evidence: an extraction model (for example Cloudflare's
+  [Clairic](https://blog.cloudflare.com/clairic-extraction-model), in preview
+  on Workers AI, open weights announced) reads READMEs, runbooks and config
+  for dependencies and how they are called, and a System One decision
+  model (Kev locally, Jev hosted) checks each candidate. This is the source
+  for dependencies that exist only in prose. Proposals stay separate from
+  asserted facts; sending private text to a hosted model is opt-in.
 - **Attestation.** Signed or tamper-evident provenance, built on the
   provenance facts already carry. Replaces the dropped audit log if needed.
 - **Automation.** Actions triggered by data type, value or confidence.
