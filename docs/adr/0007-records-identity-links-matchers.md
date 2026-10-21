@@ -55,17 +55,39 @@ GitHub `user_node` but not for a login) and how a field can be matched
 - **Promotion.** A proposed link becomes asserted only by a person (a
   `same_as` manual event) or a deterministic rule the settings name. No
   matcher promotes its own proposals in the MVP.
+- **Evidence over time.** A proposed link's or proposed fact's strength is
+  reinforced by each supporting observation and decays with time, as an
+  ant trail does: each observation deposits a weight set by its source and
+  rule, and the total halves every half-life, set per predicate (days for
+  on-call, weeks for a dependency seen at run time). Observations that say
+  the link is absent count against it, so the score is Beta-style, with a
+  count of support and of contrary evidence, both decayed, giving a
+  strength and how sure it is. The score is computed when read, from
+  `fact_source` times and the current time, so nothing runs in the
+  background and tests drive it with a fake clock. A proposal below a
+  floor is closed; one above a threshold is put first for review, never
+  promoted. Only independent source observations deposit: nothing Bearing
+  inferred or answered can reinforce itself. Asserted facts from
+  authoritative listings don't decay; they close when the source says so.
+  Decay also lets facts from sources with no complete listing (webhook-only
+  or text) fade.
 - **Evaluation.** `internal/e2e` gains a labelled identity set from the Acme
   org (Jane and Mei the same, Tom apart, the payments teams joined, the
   Kubernetes `payments` label joined to the GitHub team) and reports
   precision and recall of proposals and recall of blocking. A matcher is
   adopted when it beats the one it replaces there.
+  For decay, the set also replays the Acme timeline (the team rename, the
+  deleted team, a membership that ends) and reports how long a stale
+  proposal outlives its evidence, how often a proposal crosses the floor
+  back and forth, and precision over time against the same matcher with
+  no decay. Half-lives and weights change only with those numbers.
 
 ## Proving it out
 
 1. Records, links, clusters and declaration-driven authority in
    `internal/duckstore`, with the two skipped Acme tests un-skipped.
-2. The transparent matcher, scored on the Acme set.
+2. The transparent matcher, its score decayed as above, measured on the
+   Acme set with and without decay.
 3. A spike branch (`spike/identity-models`) tries a System One decision
    model's same-or-not judgement as one more matcher feature, measured on
    the same set. It calls the System One API (`POST /v1/systemone`), which
@@ -83,6 +105,9 @@ GitHub `user_node` but not for a login) and how a field can be matched
 
 - A wrong link is a closed link, not a corrupted entity.
 - Answers can say why two records are one thing.
+- Proposal scores change with time alone; every answer shows its working
+  (supporting and contrary observations, the last one's age, the
+  half-life).
 - Reads join through `cluster_id`; writes recompute clusters for the
   records a link touches.
 - Supersedes the merge rule of ADR 6 (`entity.merged_into`) when accepted.
