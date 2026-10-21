@@ -232,16 +232,6 @@ func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
 	}
 }
 
-func TestRoleAuthorizerRefusesAGrantItCannotUse(t *testing.T) {
-	t.Parallel()
-	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "read"}}}}); err != nil {
-		t.Fatalf("a read grant: %v", err)
-	}
-	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "emperor"}}}}); err == nil || !strings.Contains(err.Error(), "auth.grants") {
-		t.Fatalf("got %v, want an unknown role refused", err)
-	}
-}
-
 func TestNamespacesAreTheOnesASourceIssuesAndLinks(t *testing.T) {
 	t.Parallel()
 	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},

@@ -346,18 +346,7 @@ func TestAPITCPListenerNeedsATokenAndSpeaksTLS(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("a reader's token: got %d, want 200", resp.StatusCode)
-	}
-	// The same token on the socket's route is not a way in: the TCP listener has
-	// no local administrator.
-	req, _ = http.NewRequest(http.MethodPost, url+"/v1/sources/"+testSource+"/sync", nil)
-	req.Header.Set("Authorization", "Bearer reader")
-	if resp, err = client.Do(req); err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("a reader's sync request: got %d, want 403", resp.StatusCode)
+		t.Errorf("a valid token: got %d, want 200", resp.StatusCode)
 	}
 
 	// TLS older than 1.2 is not spoken, and plain HTTP gets no answer to the API.

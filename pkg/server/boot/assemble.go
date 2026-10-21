@@ -16,10 +16,7 @@ import (
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/auth"
 	"bearing.example/pkg/clock"
-	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/contracts/instrument"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/resolver"
@@ -107,19 +104,12 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		return nil, errors.New("boot: settings: a source has a webhook_secret, and webhooks arrive on the TCP listener: set listen.addr")
 	}
 	l := listenConfig(s)
-	authz, err := roleAuthorizer(s)
-	if err != nil {
-		return nil, err
-	}
 	if s.Listen.Addr != "" {
-		v, err := auth.NewVerifier(auth.OIDCConfig{
-			Issuer: s.Auth.Issuer, Audience: s.Auth.Audience, GroupsClaim: s.Auth.GroupsClaim,
-			AccessTokenJWT: s.Auth.AccessTokenJWT, AllowedClients: s.Auth.AllowedClients,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("boot: settings: auth: %w", err)
+		token := env.Getenv(s.Auth.TokenEnv)
+		if token == "" {
+			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s is empty or unset: listen.addr needs an API token", s.Auth.TokenEnv)
 		}
-		l.Authenticator = server.OIDCAuthenticator{Verifier: v}
+		l.Authenticator = server.TokenAuthenticator{Token: token}
 	}
 	warnLimits(s)
 
@@ -170,7 +160,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		l.Webhooks = in
 	}
 	api, err := server.NewAPI(server.APIConfig{
-		Server: srv, Query: &query.Querier{Graph: st.Graph}, Authorizer: instrument.Authorizer(authz, "roles"),
+		Server: srv, Query: &query.Querier{Graph: st.Graph},
 	})
 	if err != nil {
 		return nil, err
@@ -414,19 +404,6 @@ func listenConfig(s *Settings) server.ListenConfig {
 		cfg.PeerRate = server.RateLimit{PerMinute: *l.PeerRatePerMinute}
 	}
 	return cfg
-}
-
-// roleAuthorizer builds the authorizer from the grants.
-func roleAuthorizer(s *Settings) (contracts.Authorizer, error) {
-	var grants []contracts.Grant
-	for _, g := range s.Auth.Grants {
-		grants = append(grants, contracts.Grant{Group: g.Group, Client: g.Client, Role: contracts.Role(g.Role), Sources: g.Sources})
-	}
-	a, err := auth.NewRoleAuthorizer(grants)
-	if err != nil {
-		return nil, fmt.Errorf("boot: settings: auth.grants: %w", err)
-	}
-	return a, nil
 }
 
 // warnLimits logs what limitWarnings says at start.

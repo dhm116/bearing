@@ -103,7 +103,7 @@ shard-check:
 # The packages that take locks or run goroutines. pkg/resolver takes about 450
 # seconds under -race, far more than the rest together, so it stays out of the
 # CI run (about five minutes).
-RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/auth/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
+RACE_PKGS ?= ./pkg/server/ ./pkg/server/boot/ ./pkg/store/ ./pkg/adapter/ ./pkg/model/ ./internal/memstore/ ./internal/fakes/ ./internal/testkit/
 
 # race runs RACE_PKGS under the race detector, which needs cgo and a C
 # compiler.

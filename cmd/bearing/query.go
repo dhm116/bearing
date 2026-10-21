@@ -276,26 +276,21 @@ func (s *serverFlags) client(env queryEnv, server string) (*apiclient.Client, er
 
 // explain adds to a refusal from the server what the operator can do about it.
 // The hint names the variable the token comes from and never its contents.
-// Anything that is not a 401 or 403 from a server comes back as it is.
+// Anything that is not a 401 from a server comes back as it is.
 func (s *serverFlags) explain(from answerer, err error) error {
 	var apiErr *apiclient.Error
 	c, ok := from.(*apiclient.Client)
 	// Only the API's own refusals, which pair these codes with these statuses:
 	// a proxy's 401 says nothing about the token.
-	if !ok || !errors.As(err, &apiErr) || (apiErr.Status != http.StatusUnauthorized || apiErr.Code != "unauthenticated") && (apiErr.Status != http.StatusForbidden || apiErr.Code != "forbidden") {
+	if !ok || !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized || apiErr.Code != "unauthenticated" {
 		return err
 	}
 	name := cmp.Or(s.tokenEnv, tokenEnv)
 	var hint string
-	switch {
-	case c.OverSocket() && apiErr.Status == http.StatusUnauthorized:
+	if c.OverSocket() {
 		hint = "the server does not know the account this command runs as (the socket needs no token)"
-	case c.OverSocket():
-		hint = "the server knows the account this command runs as, but its role is not allowed to do this"
-	case apiErr.Status == http.StatusUnauthorized:
-		hint = "the server did not accept the token in $" + name + "; check that it is current and was issued by the identity provider the server trusts"
-	default:
-		hint = "the server accepted the token in $" + name + ", but its caller's role is not allowed to do this"
+	} else {
+		hint = "the server did not accept the token in $" + name + "; check that it matches the one the server reads from auth.token_env"
 	}
 	return fmt.Errorf("%w; hint: %s", err, hint)
 }
