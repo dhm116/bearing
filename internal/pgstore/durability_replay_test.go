@@ -1,7 +1,6 @@
 package pgstore
 
 import (
-	"bytes"
 	"context"
 	"slices"
 	"testing"
@@ -104,14 +103,6 @@ func TestReplayingTheLogIntoAnEmptyStoreGivesTheSameGraph(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := canonicalDump(ctx, t, live, dumpCanonical)
-			liveReport := verifyAuditChain(ctx, t, live)
-			liveHead, err := live.AuditLog().Head(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want.AuditRecords == 0 {
-				t.Fatal("the story wrote no audit records, so comparing chains would prove nothing")
-			}
 			observations, others := observationCount(ctx, t, live)
 			if others == 0 {
 				t.Fatal("the log holds only observations, so reading them alone proves nothing")
@@ -147,25 +138,6 @@ func TestReplayingTheLogIntoAnEmptyStoreGivesTheSameGraph(t *testing.T) {
 						t.Fatalf("the replayed graph differs from the live one:\n%s", firstDifference(want.String(), got.String()))
 					}
 
-					// Its own chain: complete from record 1, and not the live one.
-					replayReport := verifyAuditChain(ctx, t, replay)
-					if replayReport.First != 1 || replayReport.Records != liveReport.Records {
-						t.Errorf("replay chain has records %d to %d (%d), want 1 to %d", replayReport.First, replayReport.Last, replayReport.Records, liveReport.Records)
-					}
-					replayHead, err := replay.AuditLog().Head(ctx)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if bytes.Equal(replayHead.Hash, liveHead.Hash) {
-						t.Error("the replay's chain ends in the live chain's hash; it should be a chain of its own")
-					}
-					after, err := live.AuditLog().Head(ctx)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if after.Seq != liveHead.Seq || !bytes.Equal(after.Hash, liveHead.Hash) {
-						t.Errorf("the live chain moved during the replay: head %d, was %d", after.Seq, liveHead.Seq)
-					}
 					if again := canonicalDump(ctx, t, live, dumpCanonical); again.String() != want.String() {
 						t.Errorf("the live store changed during the replay:\n%s", firstDifference(want.String(), again.String()))
 					}

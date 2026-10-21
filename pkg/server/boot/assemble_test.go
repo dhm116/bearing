@@ -109,7 +109,6 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 		"BEARING_SECRET_GITHUB_TOKEN":   "canary-token",
 		"BEARING_SECRET_GITHUB_WEBHOOK": "canary-webhook-secret",
 		"BEARING_STORE_PASSWORD":        "canary-store-password",
-		"BEARING_AUDIT_KEY":             "canary-audit-key",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://collector.example",
 		"HOME":                          "/home/canary",
 	}
@@ -247,7 +246,7 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
 	}
-	for _, canary := range []string{"canary-store-password", "canary-audit-key", "canary-webhook-secret"} {
+	for _, canary := range []string{"canary-store-password", "canary-webhook-secret"} {
 		if strings.Contains(d.Name, canary) {
 			t.Errorf("the adapter's environment holds %q", canary)
 		}
@@ -513,16 +512,11 @@ func TestAssembleLogsTheWarningsForWhatTheSettingsGaveUp(t *testing.T) {
 	w := newWorld(t, func(s *Settings) {
 		s.Listen = ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true, InsecureNoPeerRate: true}
 	})
-	w.settings.Audit = AuditSettings{
-		Checkpoints:                 &CheckpointSettings{File: filepath.Join(w.dir, "checkpoints.ndjson")},
-		InsecureUnsignedCheckpoints: true,
-	}
 	w.assemble(t).Close()
 	got := logs.all()
 	for _, want := range []string{
 		"insecure_no_peer_rate is on",
 		"behind a proxy every client is one peer",
-		"insecure_unsigned_checkpoints is on",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the log has no warning %q:\n%s", want, got)

@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"testing"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	logglobal "go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -64,52 +62,4 @@ func installCapture() {
 		otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(metricRead)))
 		logglobal.SetLoggerProvider(sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(logs))))
 	})
-}
-
-// spanText renders every span that has ended, with its events and attributes.
-func spanText() string {
-	var b strings.Builder
-	for _, s := range spanLog.Ended() {
-		fmt.Fprintf(&b, "%s %v %s\n", s.Name(), s.Attributes(), s.Status().Description)
-		for _, e := range s.Events() {
-			fmt.Fprintf(&b, "  %s %v\n", e.Name, e.Attributes)
-		}
-	}
-	return b.String()
-}
-
-// metricText renders every data point collected, with its attributes.
-func metricText(t *testing.T) string {
-	t.Helper()
-	var rm metricdata.ResourceMetrics
-	if err := metricRead.Collect(context.Background(), &rm); err != nil {
-		t.Fatal(err)
-	}
-	return fmt.Sprint(rm)
-}
-
-// checkpointFailures sums the writer's failed runs at stage.
-func checkpointFailures(t *testing.T, stage string) int64 {
-	t.Helper()
-	var rm metricdata.ResourceMetrics
-	if err := metricRead.Collect(context.Background(), &rm); err != nil {
-		t.Fatal(err)
-	}
-	var n int64
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			sum, ok := m.Data.(metricdata.Sum[int64])
-			if !ok || m.Name != "bearing.audit.checkpoints" {
-				continue
-			}
-			for _, dp := range sum.DataPoints {
-				res, _ := dp.Attributes.Value(attribute.Key("bearing.result"))
-				st, _ := dp.Attributes.Value(attribute.Key("bearing.stage"))
-				if res.AsString() == "failed" && st.AsString() == stage {
-					n += dp.Value
-				}
-			}
-		}
-	}
-	return n
 }

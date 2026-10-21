@@ -465,12 +465,7 @@ func TestAStoreMidRestoreRefusesEverythingButRestore(t *testing.T) {
 			_, err := other.ChangesPage(ctx, contracts.ChangesRequest{Filter: contracts.FactFilter{SubjectID: "x"}, T1: clk.Now().Add(-time.Hour), T2: clk.Now()})
 			return err
 		}(),
-		"Backup":     other.Backup(ctx, &bytes.Buffer{}),
-		"Audit Head": func() error { _, err := other.AuditLog().Head(ctx); return err }(),
-		"Audit Query": func() error {
-			_, err := other.AuditLog().Query(ctx, contracts.AuditFilter{Limit: 1})
-			return err
-		}(),
+		"Backup": other.Backup(ctx, &bytes.Buffer{}),
 	} {
 		if !errors.Is(err, ErrRestoring) {
 			t.Errorf("%s: got %v, want ErrRestoring", name, err)

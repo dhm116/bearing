@@ -35,9 +35,6 @@ type ApplyResult struct {
 	Minted []*modelv1alpha1.Subject
 	// Merges lists the merges recorded, for re-pointing vector points.
 	Merges []*modelv1alpha1.MergeRecord
-	// Audit lists the ChangeSet's audit entries as applied, in order, with
-	// their refs replaced by the subjects they named.
-	Audit []*modelv1alpha1.AuditEntry
 }
 
 // FactFilter selects facts. Empty fields match anything.

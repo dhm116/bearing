@@ -37,11 +37,10 @@ type Result struct {
 	// marks the event processed even if every part of the observation was
 	// rejected.
 	ChangeSet *modelv1alpha1.ChangeSet
-	// Rejections are the refusals to audit.
+	// Rejections are the refusals.
 	Rejections []Rejection
 	// Dropped are the writes the ChangeSet ignores because a source's
-	// confirmations on both sides of their key were joined into one. The
-	// ChangeSet audits each.
+	// confirmations on both sides of their key were joined into one.
 	Dropped []DroppedWrite
 }
 
@@ -51,8 +50,7 @@ type Result struct {
 // and the write says something else (docs/spec/data-model.md,
 // "Confirmations"). Applied in key order it would have decided the stretch of
 // valid time before the later confirmation, so the answer differs from the
-// one an in-order apply gives. The ChangeSet audits each as
-// compacted_write_dropped.
+// one an in-order apply gives.
 type DroppedWrite struct {
 	// Source is the source whose state ignored the write.
 	Source string
@@ -73,36 +71,10 @@ func droppedFact(source string, f fact, key, first, last *resolverv1alpha1.Order
 	return DroppedWrite{Source: source, Subject: f.subject, Predicate: f.pred, Object: f.token, Key: key, First: first, Last: last}
 }
 
-// audit returns the audit entry for the dropped write: the (subject,
-// predicate) of a fact, or the alias of a binding, with the fact's object or
-// the subject written, and the run, in the reason.
-func (d DroppedWrite) audit() *modelv1alpha1.AuditEntry {
-	target := &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE, Id: d.Subject + "/" + d.Predicate}
-	what := fmt.Sprintf("%s %s -> %s", d.Subject, d.Predicate, d.Object)
-	if d.Alias != "" {
-		target = aliasTarget(string(d.Alias))
-		what = fmt.Sprintf("alias %s -> %s", d.Alias, d.Subject)
-	}
-	return &modelv1alpha1.AuditEntry{
-		Action: modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED,
-		Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:resolver"},
-		Target: target,
-		Rule:   "confirmations",
-		Reason: model.Clip(fmt.Sprintf("observation %q falls among the confirmations of %s by source %s, from %q to %q",
-			d.Key.GetObservationId(), what, d.Source, d.First.GetObservationId(), d.Last.GetObservationId())),
-	}
-}
-
 // Resolve computes the ChangeSet for ev against the store's current head.
 // It reads the store and writes nothing. If another apply lands before the
 // ChangeSet does, Apply fails with contracts.ErrStale; use [Resolver.Apply] to
 // retry.
-//
-// The ChangeSet carries the audit entries for what the resolver decided, in
-// this order: a rejection for each refusal, then the mints, binding changes
-// and merges, the facts whose status changed and the conflicts that opened and
-// closed, and the writes it dropped. An event that changes nothing and refuses
-// nothing has none, so a repeated sync adds no audit records.
 func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 	head, err := r.store.Head(ctx)
 	if err != nil {
@@ -117,7 +89,6 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		return nil, err
 	}
 	if p == nil {
-		cs.Audit = rejectionEntries(ev.ID, rejs)
 		return &Result{ChangeSet: cs, Rejections: rejs}, nil
 	}
 	rejs = append(rejs, p.rejections...)
@@ -127,40 +98,23 @@ func (r *Resolver) Resolve(ctx context.Context, ev Event) (*Result, error) {
 		return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
 	}
 	if u != nil {
-		if u.audit, err = u.identityAudit(); err != nil {
-			return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
-		}
 		if err := u.facts(ctx); err != nil {
 			return nil, fmt.Errorf("resolver: event %s: %w", ev.ID, err)
 		}
 	}
 	rejs = append(rejs, more...)
 	var dropped []DroppedWrite
-	var audit []*modelv1alpha1.AuditEntry
 	if u != nil {
-		dropped, audit = u.dropped, u.audit
-	}
-	cs.Audit = append(rejectionEntries(ev.ID, rejs), audit...)
-	for _, d := range dropped {
-		cs.Audit = append(cs.Audit, d.audit())
+		dropped = u.dropped
 	}
 	if rej := tooLarge(cs); rej != nil {
 		// An error would make the host retry the event forever, so the event
 		// is recorded as processed and changes nothing.
 		rejs = append(rejs, *rej)
-		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt(), Audit: rejectionEntries(ev.ID, rejs)}
+		empty := &modelv1alpha1.ChangeSet{EventId: ev.ID, BaseRecordedAt: cs.GetBaseRecordedAt()}
 		return &Result{ChangeSet: empty, Rejections: rejs}, nil
 	}
 	return &Result{ChangeSet: cs, Rejections: rejs, Dropped: dropped}, nil
-}
-
-// rejectionEntries returns the audit entry of each rejection.
-func rejectionEntries(eventID string, rejs []Rejection) []*modelv1alpha1.AuditEntry {
-	out := make([]*modelv1alpha1.AuditEntry, 0, len(rejs))
-	for _, rj := range rejs {
-		out = append(out, rejectionEntry(eventID, rj))
-	}
-	return out
 }
 
 // tooLarge reports the store limit cs is over, as the rejection of the whole
@@ -181,7 +135,7 @@ func tooLarge(cs *modelv1alpha1.ChangeSet) *Rejection {
 // Applied is the outcome of [Resolver.Apply].
 type Applied struct {
 	contracts.ApplyResult
-	// Rejections are the refusals to audit. They are empty for a duplicate.
+	// Rejections are the refusals. They are empty for a duplicate.
 	Rejections []Rejection
 	// Dropped are the claims the applied ChangeSet ignores (see
 	// [DroppedWrite]). They are empty for a duplicate.

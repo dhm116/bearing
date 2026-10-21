@@ -159,33 +159,3 @@ func (w *world) explainAnalyze(rs *readSet) ([]plan, error) {
 	}
 	return out, nil
 }
-
-// applyStatements returns the n statements that took the most time since the
-// last reset, transaction control included (a COMMIT's time is the wait for
-// the write-ahead log), without plans.
-func (p *pg) applyStatements(ctx context.Context, n int) []statement {
-	if p == nil {
-		return nil
-	}
-	rows, err := p.conn.Query(ctx, `
-SELECT calls, total_exec_time, mean_exec_time, rows, shared_blks_read, shared_blks_hit, query
-FROM pg_stat_statements
-WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND query NOT LIKE '%pg_stat_%' AND query NOT LIKE '%pg_class%'
-  AND query !~* '(password|secret|create role|alter role)'
-ORDER BY total_exec_time DESC LIMIT $1`, n)
-	if err != nil {
-		return nil // pg_stat_statements is optional
-	}
-	defer rows.Close()
-	var out []statement
-	for rows.Next() {
-		var s statement
-		if err := rows.Scan(&s.Calls, &s.TotalMS, &s.MeanMS, &s.Rows, &s.SharedRead, &s.SharedHit, &s.Query); err != nil {
-			return out
-		}
-		s.Query = strings.Join(strings.Fields(s.Query), " ")
-		out = append(out, s)
-	}
-	return out
-}

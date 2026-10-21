@@ -20,13 +20,14 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/model"
 )
 
 // Limits on a token and its claims.
 const (
 	// maxActorBytes is the longest subject or client ID accepted: the audit log
 	// refuses a longer actor ID.
-	maxActorBytes = contracts.MaxAuditIDBytes
+	maxActorBytes = model.MaxActorBytes
 	// MaxTokenBytes bounds the bearer token read from a request.
 	MaxTokenBytes = 16 << 10
 	// maxGroups and maxGroupBytes bound the groups claim.

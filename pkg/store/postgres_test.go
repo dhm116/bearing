@@ -212,7 +212,6 @@ func TestPostgresServesTheGraphWithoutVectorDimensions(t *testing.T) {
 	if head, err := s.Graph.Head(ctx); err != nil || !head.Equal(res.RecordedAt) {
 		t.Fatalf("got head %v, %v, want %v", head, err, res.RecordedAt)
 	}
-	applyAudited(t, s, "store-audited")
 	// One server at a time may use the schema.
 	lock, err := s.LockInstance(ctx)
 	if err != nil {

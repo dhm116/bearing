@@ -141,7 +141,6 @@ func (w *world) storeWriters(rs *readSet, writers int, dur time.Duration, seq *e
 					}
 					cs.EventId = ev.ID
 					withBase(cs, head)
-					stripAudit(cs, w.audit)
 					s := w.now()
 					_, err = w.graph.Apply(w.ctx, cs)
 					attempts.Add(1)

@@ -12,11 +12,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	// The config resources register so the Any in an audit entry that holds one can be read.
-	_ "bearing.example/gen/go/bearing/config/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
@@ -54,9 +51,6 @@ func result(e *modelv1alpha1.JournalEntry, duplicate bool) contracts.ApplyResult
 	for _, m := range e.GetMerges() {
 		res.Merges = append(res.Merges, proto.CloneOf(m))
 	}
-	for _, a := range e.GetChangeSet().GetAudit() {
-		res.Audit = append(res.Audit, proto.CloneOf(a))
-	}
 	return res
 }
 
@@ -79,12 +73,6 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 			return res, fmt.Errorf("event %s: applied twice", in.GetEventId())
 		}
 		return result(s.journal[i], true), nil
-	}
-	if err := contracts.CheckTraceID(in.GetTraceId()); err != nil {
-		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
-	}
-	if err := checkAudit(in.GetAudit()); err != nil {
-		return res, fmt.Errorf("event %s: %w", in.GetEventId(), err)
 	}
 	r, err := s.recordTime(in, want != nil)
 	if err != nil {
@@ -162,9 +150,6 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if err := resolveKeys(cs, entry.GetSubjects()); err != nil {
 		return res, err
 	}
-	if err := s.resolveAuditRefs(cs.GetAudit(), entry.GetSubjects()); err != nil {
-		return res, err
-	}
 	aliases := map[string]bool{}
 	for _, b := range cs.GetBindings() {
 		if _, _, _, err := model.Key(b.GetAlias()).Parse(); err != nil {
@@ -237,176 +222,10 @@ func (s *Store) apply(in *modelv1alpha1.ChangeSet, want *modelv1alpha1.JournalEn
 	if n := protowire.SizeTag(2) + protowire.SizeBytes(len(b)); n > contracts.MaxChangeSetBytes {
 		return res, fmt.Errorf("event %s: change set is %d bytes as recorded, over the %d-byte limit", cs.GetEventId(), n, contracts.MaxChangeSetBytes)
 	}
-	records, auditHead, err := s.writeAudit(cs)
-	if err != nil {
-		return res, fmt.Errorf("event %s: %w", cs.GetEventId(), err)
-	}
 	// Nothing after this can fail, so it needs no undo.
 	s.head, s.events[cs.GetEventId()] = r, len(s.journal)
 	s.journal = append(s.journal, entry)
-	s.audit, s.auditHead = append(s.audit, records...), auditHead
 	return result(entry, false), nil
-}
-
-// checkAudit checks the shape of a ChangeSet's audit entries. Subjects they
-// name are checked once refs are known (resolveAuditRefs).
-func checkAudit(entries []*modelv1alpha1.AuditEntry) error {
-	for i, e := range entries {
-		if _, known := modelv1alpha1.AuditAction_name[int32(e.GetAction())]; !known || e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_UNSPECIFIED {
-			return fmt.Errorf("audit entry %d: action %d is not set or not known", i, int32(e.GetAction()))
-		}
-		if _, known := modelv1alpha1.AuditActorKind_name[int32(e.GetActor().GetKind())]; !known || e.GetActor().GetKind() == modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_UNSPECIFIED || e.GetActor().GetId() == "" {
-			return fmt.Errorf("audit entry %d: the actor needs a known kind and an id", i)
-		}
-		if _, known := modelv1alpha1.AuditTargetKind_name[int32(e.GetTarget().GetKind())]; !known || e.GetTarget().GetKind() == modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED || e.GetTarget().GetId() == "" {
-			return fmt.Errorf("audit entry %d: the target needs a known kind and an id", i)
-		}
-		if e.GetConfidencePpm() > model.MaxConfidence {
-			return fmt.Errorf("audit entry %d: confidence %d is over %d", i, e.GetConfidencePpm(), model.MaxConfidence)
-		}
-		_, known := modelv1alpha1.RejectionCode_name[int32(e.GetRejectionCode())]
-		switch rejected := e.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_REJECTION; {
-		case rejected && (!known || e.GetRejectionCode() == modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED):
-			return fmt.Errorf("audit entry %d: a rejection needs a rejection code, got %d", i, int32(e.GetRejectionCode()))
-		case !rejected && e.GetRejectionCode() != modelv1alpha1.RejectionCode_REJECTION_CODE_UNSPECIFIED:
-			return fmt.Errorf("audit entry %d: %s has a rejection code", i, e.GetAction())
-		}
-	}
-	return nil
-}
-
-// resolveAuditRefs replaces refs with the subjects they name wherever an
-// audit entry holds a subject ID: the target of kind subject, the first part
-// of a subject_predicate target, and the subject fields of the messages in
-// before and after. It checks every other subject ID exists, so no entry
-// leaves the store with a "new:" ref in it. The audit log hashes what the
-// store hands it and a wrong record can't be corrected afterwards.
-// Targets of the other kinds hold no subject IDs and are kept as given.
-func (s *Store) resolveAuditRefs(entries []*modelv1alpha1.AuditEntry, refs map[string]string) error {
-	subject := func(id string) (string, error) {
-		if id == "" {
-			// An empty ID in a list is for the entry's writer to explain, as in
-			// resolveRefs; singular fields that are empty are never visited.
-			return id, nil
-		}
-		if strings.HasPrefix(id, refPrefix) {
-			sub, ok := refs[id]
-			if !ok {
-				return "", fmt.Errorf("ref %s names no mint or unmerge", id)
-			}
-			return sub, nil
-		}
-		if _, ok := s.subjects[id]; !ok {
-			return "", fmt.Errorf("subject %s: %w", id, contracts.ErrNotFound)
-		}
-		return id, nil
-	}
-	for i, e := range entries {
-		if err := resolveAuditEntry(e, subject); err != nil {
-			return fmt.Errorf("audit entry %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func resolveAuditEntry(e *modelv1alpha1.AuditEntry, subject func(string) (string, error)) (err error) {
-	t := e.GetTarget()
-	switch t.GetKind() {
-	case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT:
-		if t.Id, err = subject(t.GetId()); err != nil {
-			return err
-		}
-	case modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE:
-		id, predicate, ok := strings.Cut(t.GetId(), "/")
-		if !ok || id == "" || predicate == "" {
-			return fmt.Errorf("target %q: want <subject_id>/<predicate>", t.GetId())
-		}
-		if id, err = subject(id); err != nil {
-			return err
-		}
-		t.Id = id + "/" + predicate
-	}
-	for _, a := range []**anypb.Any{&e.Before, &e.After} {
-		if *a, err = resolveAny(*a, subject); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resolveAny replaces the subject IDs in the model message an audit entry
-// embeds. A message that holds none to replace keeps the bytes it came
-// with; otherwise it is encoded deterministically, so the same ChangeSet
-// gives the same entry bytes every time. A message type the store doesn't
-// know is refused, since a ref inside it could not be found.
-func resolveAny(a *anypb.Any, subject func(string) (string, error)) (*anypb.Any, error) {
-	if a == nil {
-		return nil, nil
-	}
-	m, err := a.UnmarshalNew()
-	if err != nil {
-		return nil, fmt.Errorf("embedded %s: %w", a.GetTypeUrl(), err)
-	}
-	switch m.ProtoReflect().Descriptor().FullName().Parent() {
-	case "bearing.model.v1alpha1", "bearing.config.v1alpha1":
-	default:
-		return nil, fmt.Errorf("embedded %s: not a message of the model or config package", a.GetTypeUrl())
-	}
-	changed := false
-	if err := rewriteSubjects(m.ProtoReflect(), func(v string) (string, error) {
-		out, err := subject(v)
-		changed = changed || out != v
-		return out, err
-	}); err != nil {
-		return nil, fmt.Errorf("embedded %s: %w", a.GetTypeUrl(), err)
-	}
-	if !changed {
-		return a, nil
-	}
-	out := &anypb.Any{}
-	if err := anypb.MarshalFrom(out, m, proto.MarshalOptions{Deterministic: true}); err != nil {
-		return nil, fmt.Errorf("embedded %s: %w", a.GetTypeUrl(), err)
-	}
-	out.TypeUrl = a.GetTypeUrl()
-	return out, nil
-}
-
-// rewriteSubjects replaces, in place, every subject ID in m and the messages
-// under it with fix(id). It skips the well-known types, except that a nested
-// Any is refused: the store can't tell what it holds without reading it, and
-// no ref may leave the store unreplaced.
-func rewriteSubjects(m protoreflect.Message, fix func(string) (string, error)) (err error) {
-	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		switch {
-		case isSubjectField(fd) && fd.IsList():
-			for i := range v.List().Len() {
-				var id string
-				if id, err = fix(v.List().Get(i).String()); err != nil {
-					return false
-				}
-				v.List().Set(i, protoreflect.ValueOfString(id))
-			}
-		case isSubjectField(fd):
-			var id string
-			if id, err = fix(v.String()); err != nil {
-				return false
-			}
-			m.Set(fd, protoreflect.ValueOfString(id))
-		case fd.Message() != nil && fd.Message().FullName() == "google.protobuf.Any":
-			err = fmt.Errorf("field %s: a nested Any is not read, so a ref inside it could not be found", fd.FullName())
-		case fd.Message() == nil || fd.IsMap() || fd.Message().FullName().Parent() == "google.protobuf":
-		case fd.IsList():
-			for i := range v.List().Len() {
-				if err = rewriteSubjects(v.List().Get(i).Message(), fix); err != nil {
-					return false
-				}
-			}
-		default:
-			err = rewriteSubjects(v.Message(), fix)
-		}
-		return err == nil
-	})
-	return err
 }
 
 // writeReviews appends each of the ChangeSet's merge reviews to its merge

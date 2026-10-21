@@ -479,14 +479,6 @@ func failpoints(txs []txRecord, all bool) []failpoint {
 	return out
 }
 
-func sum(xs []int) int {
-	n := 0
-	for _, x := range xs {
-		n += x
-	}
-	return n
-}
-
 func durabilityAll() bool { return os.Getenv("BEARING_TEST_DURABILITY") == "all" }
 
 // The worker is killed with SIGKILL at each of the places listed by
@@ -503,12 +495,8 @@ func TestKillingTheWorkerAtAnyApplyFailpointLosesNothing(t *testing.T) {
 	cfg.Transcript = filepath.Join(t.TempDir(), "transcript.json")
 	runToEnd(t, cfg)
 	want := canonicalDump(ctx, t, ref.store, dumpCanonical)
-	verifyAuditChain(ctx, t, ref.store)
-	if want.AuditRecords == 0 {
-		t.Fatal("the story wrote no audit records, so a verifying chain would prove nothing")
-	}
 	points := failpoints(readTranscript(t, cfg.Transcript), durabilityAll())
-	t.Logf("%d failpoints; the uninterrupted run applied %d journal entries and wrote %d audit records", len(points), len(want.Journal), want.AuditRecords)
+	t.Logf("%d failpoints; the uninterrupted run applied %d journal entries", len(points), len(want.Journal))
 
 	for _, fp := range points {
 		t.Run(fp.name, func(t *testing.T) {
@@ -527,11 +515,6 @@ func TestKillingTheWorkerAtAnyApplyFailpointLosesNothing(t *testing.T) {
 				t.Fatalf("after the kill the journal holds %d entries, want the first %d of the uninterrupted run's:\n%s",
 					len(got.Journal), fp.applied, firstDifference(strings.Join(want.Journal[:min(len(got.Journal), fp.applied)], "\n"), strings.Join(got.Journal, "\n")))
 			}
-			verifyAuditChain(ctx, t, run.store)
-			// Every change has its audit records and no other record exists.
-			if wantRecords := sum(want.Audited[:fp.applied]); got.AuditRecords != wantRecords {
-				t.Fatalf("after the kill the audit log holds %d records, want the %d of the %d applies that committed", got.AuditRecords, wantRecords, fp.applied)
-			}
 
 			// The worker comes back and finishes.
 			runToEnd(t, run.config())
@@ -539,7 +522,6 @@ func TestKillingTheWorkerAtAnyApplyFailpointLosesNothing(t *testing.T) {
 			if final.String() != want.String() {
 				t.Fatalf("after the restart the graph differs from an uninterrupted run:\n%s", firstDifference(want.String(), final.String()))
 			}
-			verifyAuditChain(ctx, t, run.store)
 			assertLogConsumed(ctx, t, run.store)
 		})
 	}
@@ -602,7 +584,6 @@ func TestKillingTheWorkerAtRandomMomentsAgainAndAgainLosesNothing(t *testing.T) 
 		if n := len(got.Journal); n > 0 && n < len(want.Journal) {
 			midway++
 		}
-		verifyAuditChain(ctx, t, run.store)
 	}
 	if midway < 2 {
 		t.Fatalf("%d of %d killed runs stopped with the story partly applied, so the test did not exercise recovery", midway, kills)
@@ -614,6 +595,5 @@ func TestKillingTheWorkerAtRandomMomentsAgainAndAgainLosesNothing(t *testing.T) 
 	if final.String() != want.String() {
 		t.Fatalf("after %d kills the graph differs from an uninterrupted run:\n%s", kills, firstDifference(want.String(), final.String()))
 	}
-	verifyAuditChain(ctx, t, run.store)
 	assertLogConsumed(ctx, t, run.store)
 }

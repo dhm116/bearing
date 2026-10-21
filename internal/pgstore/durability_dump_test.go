@@ -17,16 +17,13 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/pkg/audit"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
 )
 
-// dumpable is what the durability tests read from a backend: the graph and
-// its audit log. Both memstore and pgstore have both.
+// dumpable is what the durability tests read from a backend: the graph.
 type dumpable interface {
 	contracts.GraphStore
-	AuditLog() contracts.AuditLog
 }
 
 // recordTimeFields are the fields of the model messages that hold when the
@@ -49,15 +46,9 @@ type graphDump struct {
 	// what a backup holds), in apply order. A store that stopped after j
 	// applies has the first j strings of a store that went on.
 	Journal []string
-	// Rest is the audit records in order, the answers of the store's reads
-	// for every subject in the order they were minted, and the resolver
+	// Rest is the answers of the store's reads for every subject in the order they were minted, and the resolver
 	// state entries sorted by key.
 	Rest []string
-	// AuditRecords is how many audit records the dump holds, and Audited how
-	// many audit entries each journal entry carries: a store that holds a
-	// journal entry holds exactly its entries' records.
-	AuditRecords int
-	Audited      []int
 }
 
 func (d graphDump) String() string {
@@ -73,15 +64,14 @@ const (
 	dumpExact dumpMode = iota
 	// dumpCanonical leaves out what differs between two runs of the same
 	// inputs that the clock and the ID source touched: record times, the
-	// audit hashes (which cover them), and the times inside subject IDs.
+	// the times inside subject IDs.
 	// Each subject ID is replaced by its number in order of appearance in the
 	// journal, and so is each fact ID (the hash of its subject's ID, so it
 	// differs with it). Hashes of the inputs stay.
 	dumpCanonical
 )
 
-// canonicalDump reads everything the store holds: the change journal, the
-// audit records, and the answers to the store's reads for every subject and
+// canonicalDump reads everything the store holds: the change journal, and the answers to the store's reads for every subject and
 // every resolver state key the journal names.
 func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode) graphDump {
 	t.Helper()
@@ -94,7 +84,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 		t.Fatal(err)
 	}
 	var journal []string
-	var audited []int
 	var subjects, stateKeys []string
 	for {
 		rec, err := br.Next()
@@ -109,7 +98,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 			t.Fatal(err)
 		}
 		journal = append(journal, jsonText(t, mode, e))
-		audited = append(audited, len(e.GetChangeSet().GetAudit()))
 		for _, m := range e.GetMinted() {
 			subjects = append(subjects, m.GetSubjectId())
 		}
@@ -119,25 +107,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 	}
 
 	var rest []string
-	records := 0
-	for after := uint64(0); ; {
-		page, err := s.AuditLog().Query(ctx, contracts.AuditFilter{After: after, Limit: contracts.MaxAuditQueryRecords})
-		if err != nil {
-			t.Fatalf("audit query: %v", err)
-		}
-		if len(page) == 0 {
-			break
-		}
-		for _, r := range page {
-			if mode == dumpCanonical {
-				r = proto.CloneOf(r)
-				r.RecordedAt, r.PrevHash, r.Hash = nil, nil, nil
-			}
-			rest = append(rest, "audit "+jsonText(t, mode, r))
-			after = r.GetSeq()
-			records++
-		}
-	}
 
 	// A group is the answer of one read for one subject, one item to a line.
 	// Reads that promise no order return it by keys that hold IDs, so in a
@@ -198,7 +167,7 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 	// numbered the same way; the state entries are sorted once numbered,
 	// because their keys hold subject IDs.
 	n := newNumbering(mode == dumpCanonical)
-	for _, texts := range [][]string{journal, rest, state} {
+	for _, texts := range [][]string{journal, state} {
 		for _, s := range texts {
 			n.learn(s)
 		}
@@ -210,9 +179,6 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 	}
 	for i := range journal {
 		journal[i] = n.apply(journal[i])
-	}
-	for i := range rest {
-		rest[i] = n.apply(rest[i])
 	}
 	for _, g := range groups {
 		for i := range g.items {
@@ -235,7 +201,7 @@ func canonicalDump(ctx context.Context, t testing.TB, s dumpable, mode dumpMode)
 			lines[i] = n.number(lines[i])
 		}
 	}
-	return graphDump{Journal: journal, Rest: rest, AuditRecords: records, Audited: audited}
+	return graphDump{Journal: journal, Rest: rest}
 }
 
 func check(t testing.TB, what string, err error) {
@@ -490,29 +456,6 @@ func firstDifference(want, got string) string {
 		}
 	}
 	return fmt.Sprintf("one dump ends at line %d, the other at %d", len(a), len(b))
-}
-
-// verifyAuditChain fails the test unless the store's audit chain verifies
-// from its first record to its head.
-func verifyAuditChain(ctx context.Context, t testing.TB, s dumpable) audit.Report {
-	t.Helper()
-	rep, err := audit.Verify(ctx, s.AuditLog(), nil, audit.Options{})
-	if err != nil {
-		t.Fatalf("verify audit chain: %v", err)
-	}
-	if !rep.OK() {
-		t.Fatalf("audit chain does not verify: %v", rep.Failures)
-	}
-	// The next record chains from the head the store keeps, so it must be the
-	// newest record that was verified.
-	head, err := s.AuditLog().Head(ctx)
-	if err != nil {
-		t.Fatalf("audit head: %v", err)
-	}
-	if head.Seq != rep.Last {
-		t.Fatalf("audit head is record %d, the chain verified up to %d", head.Seq, rep.Last)
-	}
-	return rep
 }
 
 // replaceIDs stands in for the regexp, so it must find the same IDs in

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	resolverv1alpha1 "bearing.example/gen/go/bearing/resolver/v1alpha1"
 	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
@@ -318,9 +317,9 @@ func TestRenameAmongConfirmationsIsReported(t *testing.T) {
 	}
 }
 
-// The ChangeSet audits what it ignores, as the spec's write into a compacted
-// period, and the store takes the entry.
-func TestIgnoredWriteIsAudited(t *testing.T) {
+// The Result lists what the ChangeSet ignores, as the spec's write into a
+// compacted period, and the store takes the ChangeSet.
+func TestIgnoredWriteIsReported(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.apply(syncOf(1, "T1"))
@@ -330,31 +329,22 @@ func TestIgnoredWriteIsAudited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var entries []*modelv1alpha1.AuditEntry
-	for _, a := range res.ChangeSet.GetAudit() {
-		if a.GetAction() == modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED {
-			entries = append(entries, a)
-		}
+	if len(res.Dropped) == 0 {
+		t.Fatal("got no dropped writes, want some")
 	}
-	if len(entries) != len(res.Dropped) || len(entries) == 0 {
-		t.Fatalf("got %d audit entries for %d dropped writes, want one each and some", len(entries), len(res.Dropped))
-	}
-	a := entries[0]
+	d := res.Dropped[0]
 	repo := e.resolveKey("github:repo_node/R1", t0)
-	if want := repo + "/approves_changes"; a.GetTarget().GetId() != want || a.GetTarget().GetKind() != modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_SUBJECT_PREDICATE {
-		t.Errorf("got target %v, want %s as a subject and predicate", a.GetTarget(), want)
-	}
-	if a.GetActor().GetId() != "system:resolver" || a.GetRule() != "confirmations" || !strings.Contains(a.GetReason(), keyAt(between)) {
-		t.Errorf("got entry %v, want the resolver's, rule confirmations, naming %q", a, keyAt(between))
+	if d.Subject != repo || d.Predicate != "approves_changes" || d.Key.GetObservationId() != keyAt(between) {
+		t.Errorf("got dropped write %+v, want %s approves_changes at %q", d, repo, keyAt(between))
 	}
 	if _, err := e.store.Apply(context.Background(), res.ChangeSet); err != nil {
-		t.Fatalf("the store refused the ChangeSet with its audit entries: %v", err)
+		t.Fatalf("the store refused the ChangeSet: %v", err)
 	}
 }
 
 // A sync that arrives out of order but says what the run says is not a
 // dropped write: the facts are those of the in-order apply, so nothing is
-// reported or audited.
+// reported.
 func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
 	t.Parallel()
 	for _, teams := range [][]string{{"T1"}, {"T1", "T2"}} {
@@ -365,9 +355,8 @@ func TestOutOfOrderConfirmationIsNotDropped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dropped := entriesOf(res.ChangeSet.GetAudit(), modelv1alpha1.AuditAction_AUDIT_ACTION_COMPACTED_WRITE_DROPPED)
-		if len(res.Dropped) != 0 || len(dropped) != 0 {
-			t.Errorf("teams %v: got %d dropped and %d dropped-write entries, want none: %v", teams, len(res.Dropped), len(dropped), res.Dropped)
+		if len(res.Dropped) != 0 {
+			t.Errorf("teams %v: got %d dropped writes, want none: %v", teams, len(res.Dropped), res.Dropped)
 		}
 	}
 }

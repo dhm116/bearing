@@ -15,7 +15,6 @@ import (
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/memstore"
-	"bearing.example/pkg/contracts"
 )
 
 // querier is what a transaction offers the loaders.
@@ -92,8 +91,6 @@ type metaRow struct {
 	lastID                    string
 	merges, unmerges, journal int64
 	restoring                 bool
-	// audit is the newest audit record's number, hash and record time.
-	audit contracts.AuditHead
 }
 
 func microTime(us int64) time.Time {
@@ -124,7 +121,7 @@ func kidOf(key string) []byte {
 	return h[:]
 }
 
-const selectMeta = `SELECT head, last_id, merges, unmerges, journal, restoring, audit_seq, audit_hash, audit_time FROM meta`
+const selectMeta = `SELECT head, last_id, merges, unmerges, journal, restoring FROM meta`
 
 // readMeta reads the meta row; forUpdate takes its lock.
 func readMeta(ctx context.Context, q querier, forUpdate bool) (metaRow, error) {
@@ -133,14 +130,8 @@ func readMeta(ctx context.Context, q querier, forUpdate bool) (metaRow, error) {
 		sql += ` FOR UPDATE`
 	}
 	var m metaRow
-	var seq, at int64
-	if err := q.QueryRow(ctx, sql).Scan(&m.head, &m.lastID, &m.merges, &m.unmerges, &m.journal, &m.restoring, &seq, &m.audit.Hash, &at); err != nil {
+	if err := q.QueryRow(ctx, sql).Scan(&m.head, &m.lastID, &m.merges, &m.unmerges, &m.journal, &m.restoring); err != nil {
 		return m, fmt.Errorf("read head: %w", err)
-	}
-	if seq > 0 {
-		m.audit.Seq, m.audit.RecordedAt = uint64(seq), microTime(at)
-	} else {
-		m.audit.Hash = nil
 	}
 	return m, nil
 }
@@ -328,7 +319,6 @@ func load(ctx context.Context, q querier, meta metaRow, sc scope) (*loaded, erro
 		series: map[memstore.Table]map[string]memstore.Series{},
 	}
 	ld.scratch.LoadPosition(ld.head, ld.lastID)
-	ld.scratch.LoadAuditHead(meta.audit)
 	// need is every subject whose merge records the operation needs: the
 	// subjects it names, those the rows it loads name, and their
 	// components. wantRows is the subset whose subject rows it loads.

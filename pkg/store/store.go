@@ -53,17 +53,10 @@ type Config struct {
 	Getenv func(string) string
 }
 
-// Store is an open graph store, audit log, vector index and event log, all
+// Store is an open graph store, vector index and event log, all
 // instrumented with OpenTelemetry.
 type Store struct {
 	Graph contracts.GraphStore
-	// Audit is the graph store's audit log, which the graph store writes
-	// itself inside Apply (ADR 8); this reads it.
-	Audit contracts.AuditLog
-	// AuditRetention removes the audit log's oldest records. Only the
-	// server's retention job takes it, so the handlers that read the log hold
-	// nothing that can delete (threat model C-AUDIT-5).
-	AuditRetention contracts.AuditRetention
 	// Events is the durable event log (ADR 7).
 	Events contracts.EventLog
 	// Vectors is nil when the graph backend does not serve vectors (a
@@ -112,8 +105,6 @@ func (s *Store) Close(ctx context.Context) error {
 type backend struct {
 	name   string // for telemetry: "memory", "postgresql"
 	graph  contracts.GraphStore
-	audit  contracts.AuditLog
-	retain contracts.AuditRetention
 	vector contracts.VectorIndex
 	events contracts.EventLog
 	lock   func(context.Context) (InstanceLock, error)
@@ -138,7 +129,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		return nil, err
 	}
 	s.closers = append(s.closers, g.close)
-	if g.graph == nil || g.audit == nil {
+	if g.graph == nil {
 		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
 	}
 	v := g
@@ -161,8 +152,6 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		s.closers = append(s.closers, e.close)
 	}
 	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
-	s.Audit = instrument.AuditLog(g.audit, g.name)
-	s.AuditRetention = instrument.AuditRetention(g.retain, g.name)
 	s.Events = instrument.EventLog(e.events, e.name)
 	s.lock = g.lock
 	if v.vector != nil {
@@ -180,7 +169,7 @@ func open(ctx context.Context, raw string, getenv func(string) string) (backend,
 	case "mem":
 		m := memstore.New()
 		return backend{
-			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), vector: m, events: m, close: func(context.Context) error { return nil },
+			name: "memory", graph: m, vector: m, events: m, close: func(context.Context) error { return nil },
 			lock: func(context.Context) (InstanceLock, error) { return noLock{}, nil },
 		}, nil
 	case "postgres", "postgresql":

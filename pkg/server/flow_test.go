@@ -672,22 +672,6 @@ func TestServerDoesNotClaimACompleteSyncWhenItRepeatsAFailedRun(t *testing.T) {
 	}
 }
 
-func TestServerDoesNotApplyAnEventWhoseDeadLetterWasAuditedBeforeAStop(t *testing.T) {
-	h := newHarness(t)
-	poison := h.emitted(testSource, "poison", 1)
-	h.emitted(testSource, "next", 1)
-	// The server stopped after step 2 of the dead letter and before the
-	// commit: the audit entry exists, the offset does not.
-	if err := h.s.auditDeadLetter(t.Context(), poison, "attempts exhausted"); err != nil {
-		t.Fatal(err)
-	}
-	h.start()
-	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
-	if got, want := h.ap.called(), []string{testSource + "/next/1"}; !equalStrings(got, want) {
-		t.Fatalf("got applies %v, want only %v: the given-up event must stay given up", got, want)
-	}
-}
-
 func TestReadyAnswerIsNotSpoiledByAProberThatGoesAway(t *testing.T) {
 	h := newHarness(t)
 	h.start()
@@ -759,19 +743,6 @@ func TestServerGivesBackItsSlotBetweenAttempts(t *testing.T) {
 	waitFor(t, "the other source to be applied while the first waits", func() bool { return h.drained("other") })
 }
 
-// auditDown is an audit log whose Query fails while a test says so.
-type auditDown struct {
-	contracts.AuditLog
-	down atomic.Bool
-}
-
-func (a *auditDown) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv1alpha1.AuditRecord, error) {
-	if a.down.Load() {
-		return nil, errors.New("audit unavailable")
-	}
-	return a.AuditLog.Query(ctx, f)
-}
-
 func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -807,21 +778,7 @@ func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 	}
 }
 
-func TestServerWaitsWhenItCannotLookUpAGivenUpEvent(t *testing.T) {
-	audit := &auditDown{}
-	h := newHarness(t, func(c *Config) { audit.AuditLog = c.Audit; c.Audit = audit })
-	h.emitted(testSource, "a", 1)
-	audit.down.Store(true)
-	h.start()
-	time.Sleep(50 * time.Millisecond)
-	if n := len(h.ap.called()); n != 0 {
-		t.Fatalf("applied %d observations of an event it could not check", n)
-	}
-	audit.down.Store(false)
-	waitFor(t, "the partition to be applied", func() bool { return h.drained(testSource) })
-}
-
-func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheAuditEntry(t *testing.T) {
+func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheMark(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
 	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
 	h.emitted(testSource, "a", 1)
@@ -830,27 +787,12 @@ func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheAuditEntry(t *testing.T
 	waitFor(t, "a dead-letter try", func() bool { return len(h.entries("core/dead_letter")) == 1 })
 	time.Sleep(50 * time.Millisecond)
 	if h.drained(testSource) {
-		t.Fatal("committed past an event whose audit entry the store refused")
+		t.Fatal("committed past an event whose processed mark the store refused")
 	}
 	h.graph.failApply.Store(false)
 	waitFor(t, "the event to be given up on", func() bool { return h.drained(testSource) })
 	if n := len(h.entries("core/dead_letter")); n != 1 {
 		t.Errorf("%d dead letters after the retry, want the same record once", n)
-	}
-}
-
-func TestServerDoesNotTryAGivenUpEventAgainWhenTheCommitWasRefused(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
-	h.emitted(testSource, "a", 1)
-	h.log.failCommit.Store(true)
-	h.start()
-	waitFor(t, "the dead letter", func() bool { return len(h.entries("core/dead_letter")) == 1 })
-	time.Sleep(100 * time.Millisecond) // the partition is read again, and the commit refused again
-	h.log.failCommit.Store(false)
-	waitFor(t, "the event to be committed", func() bool { return h.drained(testSource) })
-	if got := len(h.ap.called()); got != 1 {
-		t.Fatalf("the event was tried %d times, want once: it was already given up on", got)
 	}
 }
 

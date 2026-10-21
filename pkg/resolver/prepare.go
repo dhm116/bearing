@@ -35,8 +35,7 @@ type Event struct {
 	IngestedAt time.Time
 }
 
-// Rejection is one thing the resolver refused, for the audit log
-// (docs/spec/data-model.md, "Audit"). A rejection rejects its scope; the rest
+// Rejection is one thing the resolver refused. A rejection rejects its scope; the rest
 // of the event applies.
 type Rejection struct {
 	Code  modelv1alpha1.RejectionCode
@@ -46,7 +45,7 @@ type Rejection struct {
 	Message string
 }
 
-// String describes the rejection for logs and audit messages.
+// String describes the rejection for logs.
 func (r Rejection) String() string {
 	return fmt.Sprintf("%s: %s (%s)", r.Path, r.Message, model.ShortName(r.Code))
 }
