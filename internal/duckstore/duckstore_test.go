@@ -29,7 +29,7 @@ func TestOpenKeepsDataAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO entity VALUES ('e1', 'Team', 'payments', NULL, now())`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO entity VALUES ('e1', 'Team', 'payments', now(), 'e1')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -55,7 +55,7 @@ func TestInMemoryStoreIsSharedAcrossConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c2.Close() })
-	if _, err := c1.ExecContext(ctx, `INSERT INTO entity VALUES ('e1', 'Team', 'payments', NULL, now())`); err != nil {
+	if _, err := c1.ExecContext(ctx, `INSERT INTO entity VALUES ('e1', 'Team', 'payments', now(), 'e1')`); err != nil {
 		t.Fatal(err)
 	}
 	var n int

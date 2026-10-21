@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,44 +14,39 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// factCols are the fact columns every read selects, in scanFact's order.
-const factCols = `f.id, f.subject_id, f.predicate, f.object_id, CAST(f.value AS VARCHAR),
+// factCols are the fact columns every read selects, in scanFact's order, with
+// subject and object as cluster IDs. factFrom joins what they need.
+const (
+	factCols = `f.id, se.cluster_id, f.predicate, oe.cluster_id, CAST(f.value AS VARCHAR),
 	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
-
-// maxMergeHops bounds the merged_into chain so a corrupt loop cannot hang a read.
-const maxMergeHops = 100
+	factFrom = `fact f JOIN entity se ON se.id = f.subject_id LEFT JOIN entity oe ON oe.id = f.object_id`
+)
 
 // Entity implements graph.Graph.
 func (s *Store) Entity(ctx context.Context, ref string) (graph.Entity, error) {
-	id, ok, err := s.survivor(ctx, ref)
+	cluster, ok, err := s.clusterOf(ctx, ref)
 	if err != nil {
 		return graph.Entity{}, err
 	}
-	if !ok {
-		return graph.Entity{}, fmt.Errorf("entity %s: %w", ref, graph.ErrNotFound)
+	if ok {
+		ents, err := s.entities(ctx, []string{cluster})
+		if err != nil {
+			return graph.Entity{}, err
+		}
+		if e, found := ents[cluster]; found {
+			return e, nil
+		}
 	}
-	var e graph.Entity
-	var kind string
-	err = s.db.QueryRowContext(ctx, `SELECT id, kind, name FROM entity WHERE id = ?`, id).Scan(&e.ID, &kind, &e.Name)
-	if err != nil {
-		return graph.Entity{}, fmt.Errorf("entity %s: %w", ref, err)
-	}
-	e.Kind = model.Kind(kind)
-	keys, err := s.keys(ctx, []string{id})
-	if err != nil {
-		return graph.Entity{}, err
-	}
-	e.Keys = keys[id]
-	return e, nil
+	return graph.Entity{}, fmt.Errorf("entity %s: %w", ref, graph.ErrNotFound)
 }
 
-// survivor resolves an entity ID or key to the entity it ends in after
-// following merged_into. ok is false when nothing matches.
-func (s *Store) survivor(ctx context.Context, ref string) (id string, ok bool, err error) {
-	id = ref
-	err = s.db.QueryRowContext(ctx, `SELECT id FROM entity WHERE id = ?`, ref).Scan(&id)
+// clusterOf resolves a cluster ID, record ID or key to its cluster's ID. ok
+// is false when nothing matches.
+func (s *Store) clusterOf(ctx context.Context, ref string) (id string, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT cluster_id FROM entity WHERE id = ?`, ref).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = s.db.QueryRowContext(ctx, `SELECT entity_id FROM alias WHERE key = ?`, ref).Scan(&id)
+		err = s.db.QueryRowContext(ctx, `SELECT e.cluster_id FROM alias a JOIN entity e ON e.id = a.entity_id
+			WHERE a.key = ?`, ref).Scan(&id)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
@@ -58,70 +54,118 @@ func (s *Store) survivor(ctx context.Context, ref string) (id string, ok bool, e
 	if err != nil {
 		return "", false, fmt.Errorf("resolve %s: %w", ref, err)
 	}
-	for range maxMergeHops {
-		var next sql.NullString
-		err = s.db.QueryRowContext(ctx, `SELECT merged_into FROM entity WHERE id = ?`, id).Scan(&next)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && !next.Valid) {
-			return id, true, nil
-		}
-		if err != nil {
-			return "", false, fmt.Errorf("resolve %s: %w", ref, err)
-		}
-		id = next.String
-	}
-	return "", false, fmt.Errorf("resolve %s: merge chain too long", ref)
+	return id, true, nil
 }
 
-// resolveID maps a merged entity ID to its survivor; an ID nothing names stays
-// as it is, so a filter on it simply matches no facts.
+// resolveID maps a record ID to its cluster's; an ID nothing names stays as
+// it is, so a filter on it simply matches no facts.
 func (s *Store) resolveID(ctx context.Context, id graph.EntityID) (graph.EntityID, error) {
 	if id == "" {
 		return "", nil
 	}
-	got, ok, err := s.survivor(ctx, string(id))
+	got, ok, err := s.clusterOf(ctx, string(id))
 	if err != nil || !ok {
 		return id, err
 	}
 	return graph.EntityID(got), nil
 }
 
-// keys returns the sorted alias keys of each entity ID, in one query.
-func (s *Store) keys(ctx context.Context, ids []string) (map[string][]model.Key, error) {
-	out := map[string][]model.Key{}
-	if len(ids) == 0 {
+// entities loads the given clusters: each one's ID, the kind and name of its
+// oldest record that has them, every key, sorted, and its records.
+func (s *Store) entities(ctx context.Context, clusters []string) (map[string]graph.Entity, error) {
+	out := map[string]graph.Entity{}
+	if len(clusters) == 0 {
 		return out, nil
 	}
-	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT entity_id, key FROM alias WHERE entity_id IN (`+placeholders(len(ids))+`) ORDER BY entity_id, key`, anySlice(ids)...)
+	recs, err := s.records(ctx, `e.cluster_id IN (`+placeholders(len(clusters))+`)`, anySlice(clusters)...)
 	if err != nil {
-		return nil, fmt.Errorf("load keys: %w", err)
+		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var id, key string
-		if err := rows.Scan(&id, &key); err != nil {
-			return nil, fmt.Errorf("load keys: %w", err)
+	for _, r := range recs { // oldest first
+		e := out[string(r.Cluster)]
+		e.ID = r.Cluster
+		if e.Kind == "" {
+			e.Kind = r.Kind
 		}
-		out[id] = append(out[id], model.Key(key))
+		if e.Name == "" {
+			e.Name = r.Name
+		}
+		e.Keys = append(e.Keys, r.Keys...)
+		e.Records = append(e.Records, r)
+		out[string(r.Cluster)] = e
 	}
-	return out, rows.Err()
+	for id, e := range out {
+		slices.Sort(e.Keys)
+		out[id] = e
+	}
+	return out, nil
+}
+
+// records loads the records (entity rows aliased e) matching where, oldest
+// first, with their sorted keys and the sources that observed them.
+func (s *Store) records(ctx context.Context, where string, args ...any) ([]graph.Record, error) {
+	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
+	rows, err := s.db.QueryContext(ctx, `SELECT e.id, e.cluster_id, e.kind, e.name FROM entity e
+		WHERE `+where+` ORDER BY e.created_at, e.id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("records: %w", err)
+	}
+	recs, err := collect(rows, func(sc scanner) (graph.Record, error) {
+		var r graph.Record
+		var kind string
+		err := sc.Scan(&r.ID, &r.Cluster, &kind, &r.Name)
+		r.Kind = model.Kind(kind)
+		return r, err
+	})
+	if err != nil || len(recs) == 0 {
+		return nil, wrapErr("records", err)
+	}
+	idx := make(map[string]int, len(recs))
+	for i, r := range recs {
+		idx[string(r.ID)] = i
+	}
+	add := func(q string, put func(r *graph.Record, v string)) error {
+		rows, err := s.db.QueryContext(ctx, q+` WHERE `+where+` ORDER BY 1, 2`, args...)
+		if err != nil {
+			return err
+		}
+		_, err = collect(rows, func(sc scanner) (struct{}, error) {
+			var id, v string
+			err := sc.Scan(&id, &v)
+			if i, ok := idx[id]; ok && err == nil {
+				put(&recs[i], v)
+			}
+			return struct{}{}, err
+		})
+		return err
+	}
+	if err := add(`SELECT a.entity_id, a.key FROM alias a JOIN entity e ON e.id = a.entity_id`,
+		func(r *graph.Record, v string) { r.Keys = append(r.Keys, model.Key(v)) }); err != nil {
+		return nil, fmt.Errorf("records: keys: %w", err)
+	}
+	if err := add(`SELECT DISTINCT a.entity_id, o.source FROM alias a JOIN entity e ON e.id = a.entity_id
+		JOIN observation o ON o.key = a.key`,
+		func(r *graph.Record, v string) { r.Sources = append(r.Sources, v) }); err != nil {
+		return nil, fmt.Errorf("records: sources: %w", err)
+	}
+	return recs, nil
 }
 
 // Find implements graph.Graph. Exact matches rank first, then substrings,
-// then names and keys at least 0.8 similar (Jaro-Winkler).
+// then names and keys at least 0.8 similar (Jaro-Winkler); a cluster ranks
+// by its best record.
 func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit int) ([]graph.Match, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	// Every entity yields one row for its name and one per key; the best
-	// row (lowest tier, highest score) stands for the entity.
+	// Every record yields one row for its name and one per key; the best
+	// row (lowest tier, highest score) stands for its cluster.
 	rows, err := s.db.QueryContext(ctx, `
 WITH cand AS (
-  SELECT id, name AS txt FROM entity WHERE merged_into IS NULL AND (? = '' OR kind = ?)
+  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind = ?)
   UNION ALL
-  SELECT e.id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
-  WHERE e.merged_into IS NULL AND (? = '' OR e.kind = ?)
+  SELECT e.cluster_id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
+  WHERE (? = '' OR e.kind = ?)
 ), scored AS (
   SELECT id,
     CASE WHEN lower(txt) = lower(?) THEN 0 WHEN contains(lower(txt), lower(?)) THEN 1
@@ -156,29 +200,8 @@ ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	keys, err := s.keys(ctx, ids)
+	byID, err := s.entities(ctx, ids)
 	if err != nil {
-		return nil, err
-	}
-	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
-	ents, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, name FROM entity WHERE id IN (`+placeholders(len(ids))+`)`, anySlice(ids)...)
-	if err != nil {
-		return nil, fmt.Errorf("find %q: %w", query, err)
-	}
-	byID := map[string]graph.Entity{}
-	for ents.Next() {
-		var e graph.Entity
-		var k string
-		if err := ents.Scan(&e.ID, &k, &e.Name); err != nil {
-			_ = ents.Close()
-			return nil, fmt.Errorf("find %q: %w", query, err)
-		}
-		e.Kind = model.Kind(k)
-		e.Keys = keys[string(e.ID)]
-		byID[string(e.ID)] = e
-	}
-	if err := closeRows(ents); err != nil {
 		return nil, fmt.Errorf("find %q: %w", query, err)
 	}
 	out := make([]graph.Match, len(ids))
@@ -199,7 +222,7 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 	}
 	where, args := holdsAt("f", f.At, !f.WithProposed)
 	if f.Subject != "" {
-		where += ` AND f.subject_id = ?`
+		where += ` AND se.cluster_id = ?`
 		args = append(args, string(f.Subject))
 	}
 	if f.Predicate != "" {
@@ -207,12 +230,12 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 		args = append(args, f.Predicate)
 	}
 	if f.Object != "" {
-		where += ` AND f.object_id = ?`
+		where += ` AND oe.cluster_id = ?`
 		args = append(args, string(f.Object))
 	}
 	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+factCols+` FROM fact f WHERE `+where+` ORDER BY f.subject_id, f.predicate, f.valid_from, f.id`, args...)
+		`SELECT `+factCols+` FROM `+factFrom+` WHERE `+where+` ORDER BY se.cluster_id, f.predicate, f.valid_from, f.id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("facts: %w", err)
 	}
@@ -230,12 +253,13 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 	return facts, nil
 }
 
-// Walk implements graph.Graph. A path-tracking recursive CTE ends cycles; a
-// fact reached by several paths is returned once, at its shallowest depth.
+// Walk implements graph.Graph over clusters: a fact leads from its subject's
+// cluster to its object's. A path-tracking recursive CTE ends cycles; a fact
+// reached by several paths is returned once, at its shallowest depth.
 // shortcut: the CTE enumerates paths, so a dense DAG can blow up; switch to
 // a level-by-level walk if graphs get that shape.
 func (s *Store) Walk(ctx context.Context, r graph.WalkRequest) ([]graph.Step, error) {
-	from, to := "subject_id", "object_id"
+	from, to := "a", "b"
 	if r.Direction == graph.In {
 		from, to = to, from
 	}
@@ -252,21 +276,20 @@ func (s *Store) Walk(ctx context.Context, r graph.WalkRequest) ([]graph.Step, er
 		where += ` AND f.predicate IN (` + placeholders(len(r.Predicates)) + `)`
 		args = append(args, anySlice(r.Predicates)...)
 	}
-	all := append([]any{string(start)}, args...)
-	all = append(all, args...)
-	all = append(all, r.MaxDepth)
+	args = append(args, string(start), r.MaxDepth)
 	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := s.db.QueryContext(ctx, `
-WITH RECURSIVE w(fact_id, node, depth, path) AS (
-  SELECT f.id, f.`+to+`, 1, [f.`+from+`, f.`+to+`] FROM fact f
-  WHERE f.`+from+` = ? AND `+where+`
+WITH RECURSIVE cf AS (
+  SELECT f.id, se.cluster_id AS a, oe.cluster_id AS b FROM `+factFrom+` WHERE `+where+`
+), w(fact_id, node, depth, path) AS (
+  SELECT id, `+to+`, 1, [`+from+`, `+to+`] FROM cf WHERE `+from+` = ?
   UNION ALL
-  SELECT f.id, f.`+to+`, w.depth + 1, list_append(w.path, f.`+to+`)
-  FROM w JOIN fact f ON f.`+from+` = w.node
-  WHERE `+where+` AND NOT list_contains(w.path, f.`+to+`) AND w.depth < ?
+  SELECT cf.id, cf.`+to+`, w.depth + 1, list_append(w.path, cf.`+to+`)
+  FROM w JOIN cf ON cf.`+from+` = w.node
+  WHERE NOT list_contains(w.path, cf.`+to+`) AND w.depth < ?
 ), shallow AS (SELECT fact_id, min(depth) AS depth FROM w GROUP BY fact_id)
-SELECT d.depth, `+factCols+` FROM shallow d JOIN fact f ON f.id = d.fact_id
-ORDER BY d.depth, f.id`, all...)
+SELECT d.depth, `+factCols+` FROM shallow d JOIN `+factFrom+` ON f.id = d.fact_id
+ORDER BY d.depth, f.id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("walk %s: %w", r.From, err)
 	}
@@ -308,7 +331,7 @@ func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Ch
 			a = append(a, r.Until)
 		}
 		if subject != "" {
-			w += ` AND (f.subject_id = ? OR f.object_id = ?)`
+			w += ` AND (se.cluster_id = ? OR oe.cluster_id = ?)`
 			a = append(a, string(subject), string(subject))
 		}
 		return w + ` AND f.status = 'asserted'`, a
@@ -318,11 +341,11 @@ func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Ch
 	args := append(append(oa, ca...), r.Limit)
 	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := s.db.QueryContext(ctx, `
-SELECT change_kind, changed_at, `+factCols+` FROM (
-  SELECT 'opened' AS change_kind, f.valid_from AS changed_at, f.* FROM fact f WHERE `+ow+`
+SELECT c.change_kind, c.changed_at, `+factCols+` FROM (
+  SELECT 'opened' AS change_kind, f.valid_from AS changed_at, f.id FROM `+factFrom+` WHERE `+ow+`
   UNION ALL
-  SELECT 'closed', f.valid_to, f.* FROM fact f WHERE `+cw+`
-) f ORDER BY changed_at DESC, f.id, change_kind LIMIT ?`, args...)
+  SELECT 'closed', f.valid_to, f.id FROM `+factFrom+` WHERE `+cw+`
+) c JOIN `+factFrom+` ON f.id = c.id ORDER BY c.changed_at DESC, f.id, c.change_kind LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("changes: %w", err)
 	}

@@ -13,14 +13,15 @@ CREATE TABLE IF NOT EXISTS observation (
     payload     JSON NOT NULL         -- the observation's data as ProtoJSON
 );
 
--- One row per thing. merged_into is set when two entities turn out to be
--- the same; the survivor holds every key and fact from then on.
+-- One row per record: a thing as one source described it (ADR 7). Records
+-- joined by asserted same_as links share a cluster_id, the ID of the
+-- cluster's oldest record (40_identity.sql).
 CREATE TABLE IF NOT EXISTS entity (
     id          VARCHAR PRIMARY KEY,
-    kind        VARCHAR NOT NULL,
+    kind        VARCHAR NOT NULL,     -- empty until a source observes it
     name        VARCHAR NOT NULL,
-    merged_into VARCHAR,
-    created_at  TIMESTAMPTZ NOT NULL
+    created_at  TIMESTAMPTZ NOT NULL,
+    cluster_id  VARCHAR
 );
 
 -- Every key that names an entity.
