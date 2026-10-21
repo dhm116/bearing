@@ -7,19 +7,10 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sync"
 	"time"
 
 	"bearing.example/pkg/contracts"
 )
-
-var _ contracts.EventLog = (*Store)(nil)
-
-// logWrite serializes event log writers, so offsets are handed out in commit
-// order and DuckDB never reports a write conflict on a partition's head row.
-// It is shared by all stores in the process; shortcut: a slow writer on one
-// store delays the others, fine until a process opens several busy stores.
-var logWrite sync.Mutex
 
 // inTx runs fn in a transaction, committing if it returns nil.
 func (s *Store) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
@@ -43,8 +34,8 @@ func (s *Store) Append(ctx context.Context, events []contracts.Event) ([]contrac
 		return nil, err
 	}
 	at := s.now().UTC().Truncate(time.Microsecond)
-	logWrite.Lock()
-	defer logWrite.Unlock()
+	s.logWrite.Lock()
+	defer s.logWrite.Unlock()
 	out := make([]contracts.Appended, len(events))
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		heads := map[contracts.Partition]contracts.Offset{}
@@ -131,8 +122,8 @@ func (s *Store) Commit(ctx context.Context, group string, partition contracts.Pa
 	if err := contracts.CheckCommit(group, partition, offset); err != nil {
 		return err
 	}
-	logWrite.Lock()
-	defer logWrite.Unlock()
+	s.logWrite.Lock()
+	defer s.logWrite.Unlock()
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		var head int64
 		err := tx.QueryRowContext(ctx, `SELECT head FROM event_head WHERE partition = ?`, string(partition)).Scan(&head)
@@ -205,8 +196,8 @@ func (s *Store) Trim(ctx context.Context, before time.Time, groups []string) (in
 	if cutoff.Before(before) {
 		cutoff = cutoff.Add(time.Microsecond)
 	}
-	logWrite.Lock()
-	defer logWrite.Unlock()
+	s.logWrite.Lock()
+	defer s.logWrite.Unlock()
 	removed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		removed = 0
@@ -284,8 +275,8 @@ func (s *Store) Release(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	logWrite.Lock()
-	defer logWrite.Unlock()
+	s.logWrite.Lock()
+	defer s.logWrite.Unlock()
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, id := range ids {
 			if _, err := tx.ExecContext(ctx, `UPDATE event_log SET retain = false WHERE id = ?`, id); err != nil {

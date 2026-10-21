@@ -10,10 +10,13 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"sync"
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2" // registers the "duckdb" driver
 
+	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 )
 
@@ -33,11 +36,19 @@ type Config struct {
 	NewID func() string
 }
 
+var (
+	_ graph.Store        = (*Store)(nil)
+	_ contracts.EventLog = (*Store)(nil)
+)
+
 // Store is a graph.Store on one DuckDB database.
 type Store struct {
 	db    *sql.DB
 	now   func() time.Time
 	newID func() string
+	// logWrite serializes event log writers, so offsets are handed out in
+	// commit order and writers never conflict on a partition's head row.
+	logWrite sync.Mutex
 }
 
 // Open opens or creates the database and applies the schema.

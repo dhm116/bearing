@@ -289,3 +289,15 @@ func TestIngestStaleObservationDoesNotCloseNewerFact(t *testing.T) {
 	}
 	wantFacts(t, s, `api depends_on db [10,open) x1`, `api language "Rust" [10,open) x1`)
 }
+
+func TestIngestMergeCollapsesDuplicateFactsAndClosesSelfLoops(t *testing.T) {
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false)))
+	ingestOK(t, s, "gh", obs("o2", 1, "Component", "x:comp/api",
+		rel("depends_on", "k:a/db", false), rel("depends_on", "gh:repo/api", false)))
+	ingestOK(t, s, "gh", obs("o3", 3, "Component", "x:comp/api", aliases("gh:repo/api")))
+	wantFacts(t, s,
+		"api depends_on api [1,3) x1",
+		"api depends_on db [0,open) x2",
+	)
+}

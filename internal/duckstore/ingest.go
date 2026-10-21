@@ -278,6 +278,59 @@ func (g *ingest) merge(loser, winner string) error {
 		return err
 	}
 	g.res.Merges++
+	return g.collapse(winner)
+}
+
+// collapse cleans up winner's facts after a merge: a relation between the
+// two merged entities now points at itself and is closed, and two open
+// copies of one fact from one source become the oldest, which keeps every
+// source of both.
+func (g *ingest) collapse(winner string) error {
+	if _, err := g.exec(`UPDATE fact SET valid_to = greatest(valid_from, ?)
+		WHERE subject_id = ? AND object_id = ? AND valid_to IS NULL`, g.observed, winner, winner); err != nil {
+		return err
+	}
+	// dup pairs each open copy with the copy it folds into: the oldest open
+	// fact with the same subject, predicate, object or value, and source.
+	const dup = `WITH open AS (
+			SELECT id, subject_id, predicate, object_id, CAST(value AS VARCHAR) AS v, source, valid_from
+			FROM fact WHERE valid_to IS NULL AND (subject_id = ? OR object_id = ?)
+		), ranked AS (
+			SELECT id, first_value(id) OVER (
+				PARTITION BY subject_id, predicate, object_id, v, source
+				ORDER BY valid_from, id) AS keep
+			FROM open
+		)
+		SELECT id, keep FROM ranked WHERE id <> keep`
+	rows, err := g.tx.QueryContext(g.ctx, dup, winner, winner)
+	if err != nil {
+		return err
+	}
+	var pairs [][2]string
+	for rows.Next() {
+		var p [2]string
+		if err := rows.Scan(&p[0], &p[1]); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		pairs = append(pairs, p)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		drop, keep := p[0], p[1]
+		if _, err := g.exec(`INSERT INTO fact_source SELECT ?, observation_id FROM fact_source
+			WHERE fact_id = ? ON CONFLICT DO NOTHING`, keep, drop); err != nil {
+			return err
+		}
+		if _, err := g.exec(`DELETE FROM fact_source WHERE fact_id = ?`, drop); err != nil {
+			return err
+		}
+		if _, err := g.exec(`DELETE FROM fact WHERE id = ?`, drop); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
