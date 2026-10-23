@@ -52,21 +52,36 @@ type apiGraph struct {
 }
 
 func (g *apiGraph) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Changes(ctx, r)
+}
+
+func (g *apiGraph) Find(ctx context.Context, q string, k model.Kind, limit int) ([]graph.Match, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Find(ctx, q, k, limit)
+}
+
+// wait fails or holds a read as the test has set up.
+func (g *apiGraph) wait(ctx context.Context) error {
 	g.mu.Lock()
 	enter, hold, err := g.enter, g.hold, g.err
 	g.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if enter != nil {
 		enter <- struct{}{}
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 	}
-	return g.Graph.Changes(ctx, r)
+	return nil
 }
 
 type apiWorld struct {
@@ -536,6 +551,32 @@ func TestAPICapsAndTimesTheChangesReadsOfOneCaller(t *testing.T) {
 	w.graph.mu.Unlock()
 	if rec := w.do("reader", http.MethodGet, "/v1/changes"); rec.Code != http.StatusOK {
 		t.Errorf("after the reads ended: got %d, want 200", rec.Code)
+	}
+}
+
+func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{}) // never released: the deadline ends the reads
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+
+	done := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() { done <- w.do("reader", http.MethodGet, "/v1/find?q=billing") }()
+		<-enter
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/find?q=billing"); rec.Code != http.StatusTooManyRequests || decodeError(t, rec).Code != "too_many_reads" {
+		t.Errorf("a third find by the same caller: got %d %s, want 429 too_many_reads", rec.Code, rec.Body.String())
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&depth=2"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a deep related by the same caller: got %d, want 429", rec.Code)
+	}
+	for range 2 {
+		if rec := <-done; rec.Code != http.StatusGatewayTimeout {
+			t.Errorf("a held find: got %d %s, want 504 at the shorter deadline", rec.Code, rec.Body.String())
+		}
 	}
 }
 
