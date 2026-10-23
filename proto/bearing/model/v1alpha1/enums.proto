@@ -1,5 +1,4 @@
-// The core-closed lists of the data model (docs/spec/data-model.md, "Wire
-// mapping"). On the wire and in configuration they are written as their
+// The core-closed lists of the data model. On the wire and in configuration they are written as their
 // ProtoJSON names (FACT_STATUS_ASSERTED); prose and fact_id use the short
 // form (asserted). A zero *_UNSPECIFIED value means the field's stated
 // default and is rejected only where the field is required.
@@ -9,44 +8,6 @@ syntax = "proto3";
 package bearing.model.v1alpha1;
 
 option go_package = "bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1";
-
-// SubjectStatus says whether a subject is live or was merged into another.
-enum SubjectStatus {
-  // Not set. Required wherever a subject is reported.
-  SUBJECT_STATUS_UNSPECIFIED = 0;
-  // The subject stands on its own.
-  SUBJECT_STATUS_ACTIVE = 1;
-  // The subject was merged; merged_into names the survivor.
-  SUBJECT_STATUS_MERGED = 2;
-}
-
-// MintRule is why the core minted a subject.
-enum MintRule {
-  // Not set. Required on every mint.
-  MINT_RULE_UNSPECIFIED = 0;
-  // Resolution rule 3: an observed entity matched no subject.
-  MINT_RULE_OBSERVATION = 1;
-  // A reference to an unbound alias, or a released name that doesn't redirect.
-  MINT_RULE_REFERENCE = 2;
-  // An un-merge whose aliases never had a subject of their own.
-  MINT_RULE_SPLIT = 3;
-}
-
-// MergeRule is why two subjects merged.
-enum MergeRule {
-  // Not set. Required on every merge.
-  MERGE_RULE_UNSPECIFIED = 0;
-  // One observation carried id aliases bound to both subjects.
-  MERGE_RULE_CO_REPORTED_IDS = 1;
-  // An observed binding covered a placeholder's tentative binding.
-  MERGE_RULE_PLACEHOLDER = 2;
-  // Live authoritative identity evidence joined them.
-  MERGE_RULE_AUTHORITATIVE = 3;
-  // same_as confidence reached the kind's threshold under the score policy.
-  MERGE_RULE_SCORE = 4;
-  // Reserved for manual merges, an operation to come.
-  MERGE_RULE_MANUAL = 5;
-}
 
 // KeyClass says whether a key type is a permanent id or a renamable name.
 enum KeyClass {
@@ -76,18 +37,6 @@ enum KeyCase {
   KEY_CASE_SENSITIVE = 1;
   // Compared and stored after Unicode simple case folding.
   KEY_CASE_INSENSITIVE = 2;
-}
-
-// MergePolicy decides, per kind, when same_as is asserted and subjects merge.
-enum MergePolicy {
-  // Not set. Required in configuration.
-  MERGE_POLICY_UNSPECIFIED = 0;
-  // Live authoritative evidence or a person's confirmation.
-  MERGE_POLICY_AUTHORITATIVE = 1;
-  // As authoritative, or same_as confidence at or above the policy threshold.
-  MERGE_POLICY_SCORE = 2;
-  // Only manual merges, an operation to come.
-  MERGE_POLICY_MANUAL = 3;
 }
 
 // MatchMethod is how a field's values count as identity evidence.
@@ -153,28 +102,6 @@ enum ValueType {
   VALUE_TYPE_JSON = 5;
 }
 
-// SupportReason is why a support version was written.
-enum SupportReason {
-  // Not set. Required on every support version.
-  SUPPORT_REASON_UNSPECIFIED = 0;
-  // An asserting claim.
-  SUPPORT_REASON_ASSERT = 1;
-  // An ending claim (absent).
-  SUPPORT_REASON_END = 2;
-  // A snapshot scope's watermark.
-  SUPPORT_REASON_SNAPSHOT = 3;
-  // entity.deleted or a derived deletion.
-  SUPPORT_REASON_DELETED = 4;
-  // Reserved for manual withdrawal of a claim, an operation to come.
-  SUPPORT_REASON_WITHDRAWN = 5;
-  // A merge re-pointed the support.
-  SUPPORT_REASON_MERGE = 6;
-  // An un-merge re-pointed the support.
-  SUPPORT_REASON_UNMERGE = 7;
-  // A derivation rule re-evaluated the support.
-  SUPPORT_REASON_DERIVED = 8;
-}
-
 // FactStatus is a fact's status at a valid and record time.
 enum FactStatus {
   // Not set. Required in every result.
@@ -191,32 +118,6 @@ enum FactStatus {
   FACT_STATUS_OVERRIDDEN = 5;
 }
 
-// StatusReason is which status step decided a fact's status.
-enum StatusReason {
-  // Not set. Required in every result.
-  STATUS_REASON_UNSPECIFIED = 0;
-  // Step 7: nothing else applied.
-  STATUS_REASON_NONE = 1;
-  // Step 1: no live supports.
-  STATUS_REASON_NO_SUPPORT = 2;
-  // Step 2: a manual override.
-  STATUS_REASON_OVERRIDE = 3;
-  // Step 3: confidence below the threshold.
-  STATUS_REASON_BELOW_THRESHOLD = 4;
-  // Steps 4a, 4c and 6c: a conflict stands.
-  STATUS_REASON_CONFLICT = 5;
-  // Step 4b: a set distinct_from.
-  STATUS_REASON_DISTINCT_FROM = 6;
-  // Step 4d: the kind's merge policy doesn't accept it.
-  STATUS_REASON_MERGE_POLICY = 7;
-  // Step 5: the object has no live exists support.
-  STATUS_REASON_UNOBSERVED_OBJECT = 8;
-  // Step 6a: configured precedence decided.
-  STATUS_REASON_PRECEDENCE = 9;
-  // Step 6b: authority decided.
-  STATUS_REASON_AUTHORITY = 10;
-}
-
 // ConflictResolution is the rule that decided a disagreement.
 enum ConflictResolution {
   // Not set: the conflict stands.
@@ -229,28 +130,6 @@ enum ConflictResolution {
   CONFLICT_RESOLUTION_AUTHORITY = 3;
   // The supports stopped disagreeing.
   CONFLICT_RESOLUTION_EVIDENCE_CHANGED = 4;
-}
-
-// CompactionDetail is the level of detail an answer comes from.
-enum CompactionDetail {
-  // Not set. Required in every precision.
-  COMPACTION_DETAIL_UNSPECIFIED = 0;
-  // Every support version.
-  COMPACTION_DETAIL_FULL = 1;
-  // A summary per UTC calendar quarter.
-  COMPACTION_DETAIL_QUARTER = 2;
-  // A summary per UTC calendar year.
-  COMPACTION_DETAIL_YEAR = 3;
-}
-
-// IssueType is a kind of data-quality issue.
-enum IssueType {
-  // Not set. Required in every issue.
-  ISSUE_TYPE_UNSPECIFIED = 0;
-  // An object referenced by live relation supports has no live exists support.
-  ISSUE_TYPE_UNOBSERVED_OBJECT = 1;
-  // A same_as the merge guard excludes.
-  ISSUE_TYPE_ID_CONFLICT = 2;
 }
 
 // RejectionCode says why part of an event was rejected.
@@ -293,22 +172,8 @@ enum RejectionCode {
   REJECTION_CODE_TOO_LARGE = 16;
 }
 
-// MergeReviewStatus is what re-evaluating a merge's evidence found
-// (docs/spec/data-model.md, "Merge" step 4).
-enum MergeReviewStatus {
-  // Not set. Rejected on a review write.
-  MERGE_REVIEW_STATUS_UNSPECIFIED = 0;
-  // The evidence still supports the merge, or it ended in a way that is not a
-  // reason for review (a subject was deleted, or lost its exists).
-  MERGE_REVIEW_STATUS_HOLDS = 1;
-  // The evidence now contradicts the merge, and the core opened a conflict
-  // on (subject, same_as) for a person to look at. The core never un-merges
-  // by itself.
-  MERGE_REVIEW_STATUS_NEEDS_REVIEW = 2;
-}
-
 // WebhookScheme is how a source signs its webhook deliveries, so the host
-// can check one before anything is stored (ADR 7, ADR 9 A6). The host has
+// can check one before anything is stored. The host has
 // one verifier per scheme; a scheme it has no verifier for cannot be
 // declared.
 enum WebhookScheme {

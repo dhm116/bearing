@@ -583,10 +583,6 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		return nil, 0, fmt.Errorf("spec.adapter %q is not in adapters", model.Clip(spec.GetAdapter()))
 	case adapters[spec.GetAdapter()].Address != "" && len(spec.GetSecrets()) > 0:
 		return nil, 0, errors.New("spec.secrets go to an adapter the server starts; one at an address holds its own")
-	case len(spec.GetAuthority()) > 0:
-		return nil, 0, errors.New("spec.authority is not supported yet")
-	case len(spec.GetCapabilities()) > 0:
-		return nil, 0, errors.New("spec.capabilities is not supported yet: the adapter runs as a local process")
 	}
 	for k, ref := range spec.GetSecrets() {
 		if _, err := s.envRef(ref); err != nil {

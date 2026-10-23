@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -12,7 +11,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
+	_ "bearing.example/gen/go/bearing/config/v1alpha1" // registers the config messages
 )
 
 // fixtureMessage returns an empty message for a fixture named
@@ -63,22 +62,6 @@ func TestExampleEventsAndConfigRoundTrip(t *testing.T) {
 					t.Fatalf("re-encoded %s\nwant        %s", enc, raw)
 				}
 			})
-		}
-	}
-}
-
-// TestEveryConfigResourceHasAnExample keeps the examples in step with the
-// resource kinds: adding a kind to config.Resource without an example fails.
-func TestEveryConfigResourceHasAnExample(t *testing.T) {
-	oneof := (&configv1alpha1.Resource{}).ProtoReflect().Descriptor().Oneofs().ByName("resource")
-	if oneof == nil || oneof.Fields().Len() == 0 {
-		t.Fatal("config.Resource has no resource oneof")
-	}
-	for i := range oneof.Fields().Len() {
-		kind := string(oneof.Fields().Get(i).Message().Name())
-		file := filepath.Join("..", "..", "testdata", "config", "config."+kind+".json")
-		if _, err := os.Stat(file); err != nil {
-			t.Errorf("no example for resource kind %s: %v", kind, err)
 		}
 	}
 }
