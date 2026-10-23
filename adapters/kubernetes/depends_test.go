@@ -191,16 +191,27 @@ func TestServiceInfoResolvesPortAndProtocol(t *testing.T) {
 	}
 }
 
-// TestValueFromIsNeverRead: a variable that takes its value from a Secret or
-// ConfigMap has no literal value, so nothing is read from it.
+// TestValueFromIsNeverRead: a variable that takes its value from a ConfigMap
+// has no literal value, so a ConfigMap name or key that reads like a Service
+// adds no edge; the literal variable beside it shows the workload was read.
 func TestValueFromIsNeverRead(t *testing.T) {
-	var ct container
-	raw := `{"image":"x","env":[{"name":"LEDGER_URL","valueFrom":{"configMapKeyRef":{"name":"ledger.billing","key":"url"}}}]}`
-	if err := json.Unmarshal([]byte(raw), &ct); err != nil {
+	r := newRig(t)
+	err := r.cluster.AddWorkload(fakes.Workload{
+		Kind: fakes.KindDeployment, Namespace: "payments", Name: "caller", Replicas: 1,
+		Containers: []fakes.Container{{
+			Name: "c", Image: "x:1",
+			Env: map[string]string{"DB_URL": "postgres://postgres.billing:5432/app"},
+			EnvFromConfigMaps: map[string]fakes.ConfigMapKey{
+				"LEDGER_URL": {Name: "ledger.billing", Key: "http://ledger.billing:8080"},
+			},
+		}},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	svc := map[string]serviceInfo{"billing/ledger": {Selector: map[string]string{"app": "ledger"}}}
-	if got := dependencies("billing", "self", []container{ct}, svc, map[string][]string{"billing/ledger": {ledger}}); len(got) != 0 {
-		t.Fatalf("got %v, want no relation", got)
+	obs, _ := r.sync()
+	deps := dependsOn(byKey(obs)["kubernetes:workload/k3d-acme/payments/deployment/caller"])
+	if len(deps) != 1 || deps[postgres] == nil {
+		t.Fatalf("caller depends on %v, want only postgres, from its literal variable", deps)
 	}
 }
