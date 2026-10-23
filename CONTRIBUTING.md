@@ -33,7 +33,8 @@ on `tcp://host:port` and serves mutual TLS (TLS 1.3), with three PEM files
 named by variables: `BEARING_ADAPTER_TLS_CERT` and `BEARING_ADAPTER_TLS_KEY`
 (its certificate and key; the key readable by its owner only) and
 `BEARING_ADAPTER_TLS_CLIENT_CA` (the CA whose client certificates may call
-it). `adapter.Main` refuses to listen without all three; the server's
+it; that CA must issue only Bearing core certificates, because any
+certificate from it can call `Sync` and `Handle`). `adapter.Main` refuses to listen without all three; the server's
 settings name the matching `tls.ca_file`, `tls.cert_file` and
 `tls.key_file`. Certificates are read at start, so a new one needs a
 restart. Try it with

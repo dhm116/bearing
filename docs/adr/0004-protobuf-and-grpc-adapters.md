@@ -29,5 +29,6 @@ language can generate.
   present a certificate the other checks against a CA it was configured
   with, never the system roots. One identity scheme, both sides verified,
   and no shared secret to leak (amended 2026-10-22; this replaced a bearer
-  token). Local adapters, on the core's private Unix socket, need no TLS
+  token). The adapter's client CA must issue only Bearing core
+  certificates: any certificate from it can call `Sync` and `Handle`. Local adapters, on the core's private Unix socket, need no TLS
   and no certificates.
