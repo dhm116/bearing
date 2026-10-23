@@ -87,6 +87,8 @@ func TestSyncRefusesBadConfig(t *testing.T) {
 	}{
 		{"missing api_url", `{}`, "api_url"},
 		{"plain http to a remote host", `{"api_url":"http://auth.acme.example"}`, "api_url"},
+		{"api_url with userinfo", `{"api_url":"https://u:p@auth.acme.example"}`, "api_url"},
+		{"ui_url is not http(s)", `{"api_url":"https://auth.acme.example","ui_url":"javascript:alert(1)"}`, "ui_url"},
 		{"token_env names a Bearing variable", `{"api_url":"https://auth.acme.example","token_env":"BEARING_STORE_PASSWORD"}`, "token_env"},
 		{"bad source slug", `{"api_url":"https://auth.acme.example","github_source_slug":"a&b"}`, "github_source_slug"},
 	}

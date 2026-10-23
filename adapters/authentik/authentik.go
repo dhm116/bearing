@@ -95,6 +95,9 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if err := adapter.CheckAPIURL("api_url", c.APIURL); err != nil {
 		return c, err
 	}
+	if err := adapter.CheckAPIURL("ui_url", c.UIURL); err != nil {
+		return c, err
+	}
 	if err := adapter.CheckEnvName("token_env", c.TokenEnv); err != nil {
 		return c, err
 	}

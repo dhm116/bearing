@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,4 +323,14 @@ func (coreFields) Handle(_ context.Context, p HandleParams) (HandleResult, error
 	})
 	o.Time.Nanos = 123_456_789
 	return HandleResult{Observations: Observations{o}}, nil
+}
+
+func TestCheckAPIURLRefusesUserinfoWithoutEchoingIt(t *testing.T) {
+	err := CheckAPIURL("api_url", "https://user:hunter2@example.com")
+	if err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("got %v, want a refusal that doesn't echo the URL", err)
+	}
+	if err := CheckAPIURL("api_url", "https://example.com"); err != nil {
+		t.Fatalf("plain https URL refused: %v", err)
+	}
 }
