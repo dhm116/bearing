@@ -62,7 +62,8 @@ then; without it the answer is what holds now. With no `since`, `changes`
 asks about the last 24 hours. Every fact carries its sources: the
 observations behind it, each with its source, observed time and link:
 per source the first and the latest, with `source_count` saying how many
-there are in all. A
+there are in all, counted per fact row: where several rows are merged into
+one fact the counts are summed, so one observation may be counted twice. A
 relation carries `qualifiers`, how it holds (for a dependency: protocol,
 port, service and where it was found). When
 several sources say the same thing, the answer is one fact with all of

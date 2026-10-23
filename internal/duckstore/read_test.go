@@ -268,7 +268,9 @@ func TestFactsReturnFirstAndLatestSourcePerSourceWithTheCount(t *testing.T) {
 func TestEntityNeverMissesARecordWhileItsClusterChanges(t *testing.T) {
 	t.Parallel()
 	// Each read runs in one transaction, so a recluster cannot land between
-	// resolving a ref to its cluster and loading that cluster.
+	// resolving a ref to its cluster and loading that cluster. The test is
+	// probabilistic: it can pass by luck, but fails often if the transaction
+	// goes.
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1") // id-1, id-2
 	ctx := t.Context()

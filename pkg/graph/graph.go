@@ -113,8 +113,9 @@ type Record struct {
 	Keys    []model.Key
 	// Sources are the configured sources that observed the record.
 	Sources []string
-	// LastSeen is when a source last observed the record itself; zero when
-	// none has, or when that observation deleted it. Matchers date their
+	// LastSeen is the newest observation of the record from any source; zero
+	// when none has, or when that observation deleted it (a deletion wins a
+	// tie). Matchers date their
 	// evidence by it.
 	LastSeen time.Time
 }
@@ -147,7 +148,9 @@ type Fact struct {
 	ValidFrom, ValidTo time.Time
 	// Sources are the observations behind the fact, oldest first: per
 	// source, the first and the latest, so a fact synced every hour stays
-	// small. SourceCount is how many observations there are in all.
+	// small. SourceCount is how many observations there are in all, counted
+	// per fact row: an answer that merges rows sums them, and may count one
+	// observation twice.
 	Sources     []Source
 	SourceCount int
 }
