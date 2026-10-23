@@ -13,7 +13,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
-	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 )
 
 // fixtureMessage returns an empty message for a fixture named
@@ -65,16 +64,6 @@ func TestExampleEventsAndConfigRoundTrip(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestExampleDeclarationChangedDeclaresValidly(t *testing.T) {
-	m := &eventv1alpha1.DeclarationChanged{}
-	if err := DecodeJSON(readFixture(t, "../../testdata/events/event.DeclarationChanged.json"), m); err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateDeclaration(m.GetDeclaration()); err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -503,7 +503,7 @@ func TestServerDeadLettersEventsItCannotDecodeOrPlace(t *testing.T) {
 			}}); err != nil {
 				t.Fatal(err)
 			}
-			h.append(tt.source, "after", &eventv1alpha1.OverrideSet{}) // a type the server skips
+			h.appendRaw(tt.source, "after", futureType, []byte(`{}`)) // a type the server skips
 			h.start()
 			waitFor(t, "the partition to be committed", func() bool { return h.drained(store.Partition(tt.source)) })
 			if n := len(h.entries("core/dead_letter")); n != 1 {

@@ -110,7 +110,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 		"BEARING_SECRET_GITHUB_TOKEN":   "canary-token",
 		"BEARING_SECRET_GITHUB_WEBHOOK": "canary-webhook-secret",
 		"BEARING_STORE_PASSWORD":        "canary-store-password",
-		"BEARING_API_TOKEN":             "canary-api-token",
+		"BEARING_API_TOKEN":             "canary-api-token-0123456789-abcdefghij",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://collector.example",
 		"HOME":                          "/home/canary",
 	}
@@ -305,9 +305,16 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		{"a secret outside the allowlist", func(s *Settings, _ *world) {
 			s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:HOME", 1))
 		}, "allowlist"},
+		{"a token pasted as the variable name, unset", func(s *Settings, _ *world) { s.Auth.TokenEnv = "ghpCanaryPastedToken123" }, "the variable auth.token_env names is empty or unset"},
+		{"a token pasted as the variable name, bad value", func(s *Settings, w *world) {
+			s.Auth.TokenEnv = "ghpCanaryPastedToken123"
+			w.env["ghpCanaryPastedToken123"] = "short"
+		}, "the variable auth.token_env names holds a token shorter"},
 		{"a TCP listener with no token setting", func(s *Settings, _ *world) { s.Auth = AuthSettings{} }, "listen.addr needs auth.token_env"},
-		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "BEARING_API_TOKEN is empty or unset"},
-		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "BEARING_API_TOKEN is empty or unset"},
+		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "the variable auth.token_env names is empty or unset"},
+		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "the variable auth.token_env names is empty or unset"},
+		{"an API token that is too short", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-short" }, "the variable auth.token_env names holds a token shorter than 32 bytes"},
+		{"an API token with whitespace", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-token-0123456789-abcdef ghij" }, "whitespace or control"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -319,7 +326,7 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
-			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token"} {
+			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token-0123456789-abcdefghij", "canary-api-short", "abcdef ghij", "ghpCanaryPastedToken123"} {
 				if err != nil && strings.Contains(err.Error(), secret) {
 					t.Errorf("the error names a secret value: %v", err)
 				}
@@ -426,7 +433,7 @@ func TestLimitWarningsAreAHintForPlainHTTPOffLoopbackWithAnyDefaultLimit(t *test
 		{"a socket only", ListenSettings{Socket: "/run/bearing/api.sock", InsecureAPIPlaintext: true}, false, false},
 		{"plain HTTP on an address that does not parse", ListenSettings{Addr: "not-an-address", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on loopback", ListenSettings{Addr: "127.0.0.1:8443", InsecureAPIPlaintext: true}, true, false},
-		{"plain HTTP on localhost", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on the name localhost, which is not a literal loopback IP", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on IPv6 loopback", ListenSettings{Addr: "[::1]:8443", InsecureAPIPlaintext: true}, true, false},
 		{"plain HTTP on a public address, all defaults", ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP with no host, all defaults", ListenSettings{Addr: ":8443", InsecureAPIPlaintext: true}, true, true},

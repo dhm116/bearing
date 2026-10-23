@@ -119,11 +119,9 @@ func checkListen(l *ListenConfig) error {
 	return nil
 }
 
-// isLoopback reports whether host is a loopback IP address or "localhost".
+// isLoopback reports whether host is a loopback IP address. The name
+// "localhost" is not enough: a resolver can point it anywhere.
 func isLoopback(host string) bool {
-	if host == "localhost" {
-		return true
-	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }

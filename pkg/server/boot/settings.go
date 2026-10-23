@@ -334,6 +334,9 @@ func (s *Settings) check() (*checked, error) {
 		c.sources = append(c.sources, src)
 		c.schedule[name] = every
 	}
+	if err := s.checkSecretIsolation(c); err != nil {
+		return nil, err
+	}
 	for name, o := range s.Authority {
 		if !seen[name] {
 			return nil, fmt.Errorf("boot: settings: authority: %q is not a source", model.Clip(name))
@@ -352,6 +355,67 @@ func (s *Settings) check() (*checked, error) {
 	return c, nil
 }
 
+// checkSecretIsolation refuses an adapter env entry or source secret that
+// names a variable the server keeps from adapters: the API token, a webhook
+// secret, or another adapter's token. Names only are echoed, never values.
+func (s *Settings) checkSecretIsolation(c *checked) error {
+	own := map[string]bool{}
+	if s.Auth.TokenEnv != "" {
+		own[s.Auth.TokenEnv] = true
+	}
+	for _, src := range c.sources {
+		if ref := src.GetSpec().GetWebhookSecret(); ref != "" {
+			own[strings.TrimPrefix(ref, "env:")] = true
+		}
+	}
+	for i := range s.Adapters {
+		a := &s.Adapters[i]
+		held := func(n string) bool {
+			if own[n] {
+				return true
+			}
+			for j := range s.Adapters {
+				if j != i && s.Adapters[j].TokenEnv == n {
+					return true
+				}
+			}
+			return false
+		}
+		for _, n := range a.Env {
+			if held(n) || secretOfOtherAdapter(c, a.Name, n) {
+				return fmt.Errorf("boot: settings: adapters[%d]: env %q is a secret of the server or of another adapter", i, n)
+			}
+		}
+		for _, src := range c.sources {
+			if src.GetSpec().GetAdapter() != a.Name {
+				continue
+			}
+			for k, ref := range src.GetSpec().GetSecrets() {
+				if held(strings.TrimPrefix(ref, "env:")) {
+					return fmt.Errorf("boot: settings: source %q: spec.secrets[%q] names a secret of the server or of another adapter", src.GetMetadata().GetName(), model.Clip(k))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// secretOfOtherAdapter reports whether n is a spec.secrets variable of a
+// source that runs an adapter other than name.
+func secretOfOtherAdapter(c *checked, name, n string) bool {
+	for _, src := range c.sources {
+		if src.GetSpec().GetAdapter() == name {
+			continue
+		}
+		for _, ref := range src.GetSpec().GetSecrets() {
+			if strings.TrimPrefix(ref, "env:") == n {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *Settings) checkListen() error {
 	l := s.Listen
 	if l.Socket == "" && l.Addr == "" {
@@ -364,6 +428,10 @@ func (s *Settings) checkListen() error {
 	}
 	if l.InsecureNoPeerRate && l.PeerRatePerMinute != nil {
 		return errors.New("boot: settings: listen.insecure_no_peer_rate and listen.peer_rate_per_minute contradict each other")
+	}
+	if s.Auth.TokenEnv != "" && !envName.MatchString(s.Auth.TokenEnv) {
+		// Not echoed: a pasted token is not a variable name.
+		return errors.New("boot: settings: auth.token_env must be the name of an environment variable, not the token")
 	}
 	if l.Addr != "" && s.Auth.TokenEnv == "" {
 		return errors.New("boot: settings: listen.addr needs auth.token_env: there is no setting for open access")

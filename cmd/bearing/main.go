@@ -156,9 +156,10 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs, cmd = args[:i], args[i+1:]
 		if len(cmd) == 0 {
-			return nil, nil, errors.New("missing adapter command after --")
+			return nil, nil, fmt.Errorf("missing adapter command after --: %w", errUsage)
 		}
 	}
+	fs.SetOutput(io.Discard)
 	address := fs.String("address", "", "reach the running adapter at https://host:port instead of starting a command")
 	var dc adapter.DialConfig
 	fs.StringVar(&dc.CAFile, "tls-ca", "", "for --address: the CA that signed the adapter's certificate (the system roots are not trusted)")
@@ -166,13 +167,13 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 	fs.StringVar(&dc.KeyFile, "tls-key", "", "for --address: the client certificate's key, readable by its owner only")
 	fs.StringVar(&dc.ServerName, "tls-server-name", "", "for --address: the name the adapter's certificate must hold (default the address's host)")
 	if err := fs.Parse(flagArgs); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: %w", err, errUsage)
 	}
 	switch {
 	case fs.NArg() > 0:
-		return nil, nil, errors.New("put the adapter command after --")
+		return nil, nil, fmt.Errorf("put the adapter command after --: %w", errUsage)
 	case *address != "" && cmd != nil:
-		return nil, nil, errors.New("give --address or an adapter command after --, not both")
+		return nil, nil, fmt.Errorf("give --address or an adapter command after --, not both: %w", errUsage)
 	case *address != "":
 		if dc.CAFile == "" || dc.CertFile == "" || dc.KeyFile == "" {
 			return nil, nil, errors.New("--address needs --tls-ca, --tls-cert and --tls-key: a remote adapter is reached over mutual TLS")
@@ -184,7 +185,7 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 		}
 		return r, func() error { return nil }, nil
 	case cmd == nil:
-		return nil, nil, errors.New("put the adapter command after --, or give --address")
+		return nil, nil, fmt.Errorf("put the adapter command after --, or give --address: %w", errUsage)
 	}
 	dir, err := os.MkdirTemp("", "bearing-")
 	if err != nil {

@@ -27,13 +27,13 @@ import (
 const (
 	// DefaultRequestTimeout is how long a request may run.
 	DefaultRequestTimeout = 30 * time.Second
-	// DefaultChangesTimeout is the deadline of a "what changed" read, which
-	// scans fact rows (C-STORE-9).
+	// DefaultChangesTimeout is the deadline of a slow read: "what changed",
+	// find, or related deeper than one hop (C-STORE-9).
 	DefaultChangesTimeout = 15 * time.Second
 	// DefaultMaxInFlight is how many requests are handled at once.
 	DefaultMaxInFlight = 256
-	// DefaultChangesPerCaller is how many "what changed" reads one caller may
-	// have in flight.
+	// DefaultChangesPerCaller is how many slow reads one caller may have in
+	// flight.
 	DefaultChangesPerCaller = 2
 	// DefaultCallerRate is each caller's requests a minute, with a burst of a
 	// tenth of it.
@@ -95,11 +95,11 @@ type APIConfig struct {
 	Query *query.Querier
 
 	// RequestTimeout and ChangesTimeout are the deadlines of a request and of
-	// a "what changed" read.
+	// a slow read.
 	RequestTimeout, ChangesTimeout time.Duration
 	// MaxInFlight caps the requests handled at once; more get a 503.
 	MaxInFlight int
-	// ChangesPerCaller caps one caller's "what changed" reads in flight.
+	// ChangesPerCaller caps one caller's slow reads in flight.
 	ChangesPerCaller int
 	// CallerRate is each caller's request rate; a PerMinute of zero takes
 	// DefaultCallerRate, and a negative one turns the limit off.
@@ -270,11 +270,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 
 	// The deadline starts here, before the token is checked: a slow
 	// authenticator cannot hold a request, and its slot, past it.
-	timeout := a.cfg.RequestTimeout
-	if rt.method == MethodChanges {
-		timeout = a.cfg.ChangesTimeout
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
 
@@ -284,7 +280,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		apiFail(w, http.StatusUnauthorized, "unauthenticated", "a valid bearer token is required", reqID)
 		return apiUnauthenticated
 	}
-	who := callerKey(caller)
+	who := callerKey(caller, r)
 	if !a.rate.allow(who) {
 		w.Header().Set("Retry-After", "10")
 		apiFail(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down", reqID)
@@ -296,17 +292,35 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiNotFound
 	}
 
-	if rt.method == MethodChanges {
+	if slowRead(rt.method, r) {
 		if !a.enter(who) {
 			w.Header().Set("Retry-After", "1")
-			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many changes reads in flight for this caller", reqID)
+			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many slow reads in flight for this caller", reqID)
 			return apiLimited
 		}
 		defer a.leave(who)
+		// A shorter deadline than the request's; a longer one never replaces it.
+		ctx, cancel = context.WithTimeout(ctx, a.cfg.ChangesTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
 	}
 	rec := &statusRecorder{ResponseWriter: w}
 	rt.handle(a, rec, r.WithContext(context.WithValue(ctx, reqIDKey{}, reqID)), caller)
 	return rec.result()
+}
+
+// slowRead reports whether a request is one of the reads that scan the
+// graph: "what changed", a name search, or a walk deeper than one hop. They
+// share a per-caller cap and a shorter deadline (C-STORE-9).
+func slowRead(m Method, r *http.Request) bool {
+	switch m {
+	case MethodChanges, MethodFind:
+		return true
+	case MethodRelated:
+		d, err := strconv.Atoi(r.URL.Query().Get("depth"))
+		return err == nil && d > 1
+	}
+	return false
 }
 
 // reqIDKey carries the request ID to a handler.
@@ -317,7 +331,7 @@ func requestID(ctx context.Context) string {
 	return id
 }
 
-// enter counts a "what changed" read for who and reports whether they may
+// enter counts a slow read for who and reports whether they may
 // have another in flight.
 func (a *API) enter(who string) bool {
 	a.mu.Lock()
@@ -342,13 +356,15 @@ func (a *API) leave(who string) {
 	a.inflight[who]--
 }
 
-// callerKey names a caller for the per-caller tables. It never reaches a
-// metric label or a log.
-func callerKey(c Caller) string {
+// callerKey names a caller for the per-caller tables. A TCP caller is a
+// subject at a peer address (the /64 rule of the connection limits), so one
+// remote client cannot use up another's share of a shared token. It never
+// reaches a metric label or a log.
+func callerKey(c Caller, r *http.Request) string {
 	if c.Local {
 		return "local\x00" + c.Subject
 	}
-	return "sub\x00" + c.Subject
+	return "sub\x00" + c.Subject + "\x00" + peerOf(r)
 }
 
 // actorOf is who a sync request is recorded as asked by: the subject the
