@@ -418,15 +418,13 @@ func limitWarnings(s *Settings) []string {
 	return out
 }
 
-// loopbackAddr reports whether a host:port address names a loopback IP or
-// "localhost". An address that does not parse counts as not loopback.
+// loopbackAddr reports whether a host:port address names a literal loopback
+// IP. A name, even "localhost", counts as not loopback, since a resolver
+// decides where it points.
 func loopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
-	}
-	if host == "localhost" {
-		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()

@@ -428,7 +428,7 @@ func TestLimitWarningsAreAHintForPlainHTTPOffLoopbackWithAnyDefaultLimit(t *test
 		{"a socket only", ListenSettings{Socket: "/run/bearing/api.sock", InsecureAPIPlaintext: true}, false, false},
 		{"plain HTTP on an address that does not parse", ListenSettings{Addr: "not-an-address", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on loopback", ListenSettings{Addr: "127.0.0.1:8443", InsecureAPIPlaintext: true}, true, false},
-		{"plain HTTP on localhost", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on the name localhost, which is not a literal loopback IP", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on IPv6 loopback", ListenSettings{Addr: "[::1]:8443", InsecureAPIPlaintext: true}, true, false},
 		{"plain HTTP on a public address, all defaults", ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP with no host, all defaults", ListenSettings{Addr: ":8443", InsecureAPIPlaintext: true}, true, true},
