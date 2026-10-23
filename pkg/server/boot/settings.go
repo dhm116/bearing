@@ -109,7 +109,8 @@ type MatchingSettings struct {
 	// Rules assert a link between records whose keys fit two patterns with
 	// the same {name}.
 	Rules []MatchRule `json:"rules,omitempty"`
-	// ProposeAt, Floor and ReviewAt are scores between 0 and 1.
+	// ProposeAt, Floor and ReviewAt are scores with
+	// 0 <= Floor < ReviewAt <= ProposeAt <= 1; 0 (absent) takes the default.
 	ProposeAt float64 `json:"propose_at,omitempty"`
 	Floor     float64 `json:"floor,omitempty"`
 	ReviewAt  float64 `json:"review_at,omitempty"`
@@ -128,15 +129,7 @@ type MatchRule struct {
 // config checks the matching settings and returns them as a match.Config.
 func (m MatchingSettings) config() (match.Config, error) {
 	cfg := match.Config{ProposeAt: m.ProposeAt, Floor: m.Floor, ReviewAt: m.ReviewAt}
-	for name, v := range map[string]float64{"propose_at": m.ProposeAt, "floor": m.Floor, "review_at": m.ReviewAt} {
-		if v < 0 || v > 1 {
-			return cfg, fmt.Errorf("boot: settings: matching.%s must be between 0 and 1, not %v", name, v)
-		}
-	}
-	for i, r := range m.Rules {
-		if r.Name == "" || !strings.Contains(r.A, "{name}") || !strings.Contains(r.B, "{name}") {
-			return cfg, fmt.Errorf("boot: settings: matching.rules[%d]: name and both patterns with {name} are required", i)
-		}
+	for _, r := range m.Rules {
 		cfg.Rules = append(cfg.Rules, match.KeyRule{Name: r.Name, A: r.A, B: r.B})
 	}
 	for k, v := range m.HalfLife {
@@ -151,6 +144,9 @@ func (m MatchingSettings) config() (match.Config, error) {
 			cfg.HalfLife = map[model.Kind]time.Duration{}
 		}
 		cfg.HalfLife[model.Kind(k)] = d
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("boot: settings: matching: %w", err)
 	}
 	return cfg, nil
 }

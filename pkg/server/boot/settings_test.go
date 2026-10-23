@@ -301,6 +301,8 @@ func TestMatchingSettingsBecomeAMatchConfig(t *testing.T) {
 	for name, m := range map[string]MatchingSettings{
 		"a rule without a pattern": {Rules: []MatchRule{{Name: "x", A: "a:{name}", B: "b"}}},
 		"a score over 1":           {Floor: 1.5},
+		"floor above review_at":    {Floor: 0.5},
+		"a negative score":         {Floor: -0.1},
 		"an unknown kind":          {HalfLife: map[string]string{"Widget": "P1D"}},
 		"a bad duration":           {HalfLife: map[string]string{"Team": "90 days"}},
 	} {

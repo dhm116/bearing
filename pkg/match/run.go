@@ -77,17 +77,30 @@ type Reviewable struct {
 	Score Score
 }
 
+// Validate checks the rules and, once defaults apply, that
+// 0 <= Floor < ReviewAt <= ProposeAt <= 1.
+func (c Config) Validate() error {
+	for _, r := range c.Rules {
+		if err := r.validate(); err != nil {
+			return fmt.Errorf("match: %w", err)
+		}
+	}
+	d := c.withDefaults()
+	if d.Floor < 0 || d.Floor >= d.ReviewAt || d.ReviewAt > d.ProposeAt || d.ProposeAt > 1 {
+		return fmt.Errorf("match: scores must satisfy 0 <= floor (%v) < review_at (%v) <= propose_at (%v) <= 1", d.Floor, d.ReviewAt, d.ProposeAt)
+	}
+	return nil
+}
+
 // Run applies the key rules, proposes links for candidate pairs, then closes
 // proposals whose evidence has decayed. Running twice on unchanged evidence
 // adds nothing the second time.
 func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
+	if err := cfg.Validate(); err != nil {
+		return Result{}, err
+	}
 	cfg = cfg.withDefaults()
 	now := cfg.Now()
-	for _, r := range cfg.Rules {
-		if err := r.validate(); err != nil {
-			return Result{}, fmt.Errorf("match: %w", err)
-		}
-	}
 	recs, err := g.Records(ctx, "")
 	if err != nil {
 		return Result{}, fmt.Errorf("match: records: %w", err)

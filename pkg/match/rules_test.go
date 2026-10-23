@@ -50,3 +50,23 @@ func TestKeyRuleValidate(t *testing.T) {
 		t.Fatalf("valid rule rejected: %v", err)
 	}
 }
+
+func TestConfigValidateRefusesMisorderedScoresAndBadRules(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg Config
+		ok  bool
+	}{
+		"defaults":             {Config{}, true},
+		"review above propose": {Config{ReviewAt: 0.7, ProposeAt: 0.6}, false},
+		"floor at review":      {Config{Floor: 0.3}, false},
+		"propose over 1":       {Config{ProposeAt: 1.2}, false},
+		"negative floor":       {Config{Floor: -1}, false},
+		"rule without name":    {Config{Rules: []KeyRule{{A: "a:{name}", B: "b:{name}"}}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := tc.cfg.Validate(); (err == nil) != tc.ok {
+				t.Errorf("got %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}
