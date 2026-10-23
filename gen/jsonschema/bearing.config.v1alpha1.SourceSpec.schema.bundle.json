@@ -240,7 +240,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Secret references by the adapter's secret name: \"env:NAME\",\n \"file:/path\", \"vault:path#key\", \"aws-sm:arn\". Never values.",
+          "description": "Secret references by the name of the environment variable the adapter\n reads the secret from (the key, such as GITHUB_TOKEN or\n AWS_SECRET_ACCESS_KEY): \"env:NAME\", \"file:/path\", \"vault:path#key\",\n \"aws-sm:arn\". Never values.",
           "propertyNames": {
             "type": "string"
           },

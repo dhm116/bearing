@@ -372,7 +372,8 @@ func TestParseConfigRefusesUnsafeURLsAndVariables(t *testing.T) {
 	}{
 		"https":                      {`{"org":"acme","api_url":"https://ghe.example.com/api/v3"}`, true},
 		"plain http to loopback":     {`{"org":"acme","api_url":"http://127.0.0.1:8080"}`, true},
-		"a secret the core hands it": {`{"org":"acme","token_env":"BEARING_SECRET_GITHUB_TOKEN"}`, true},
+		"a secret the core hands it": {`{"org":"acme","token_env":"GITHUB_TOKEN"}`, true},
+		"a BEARING_SECRET_ name":     {`{"org":"acme","token_env":"BEARING_SECRET_GITHUB_TOKEN"}`, false},
 		"plain http off loopback":    {`{"org":"acme","api_url":"http://ghe.example.com/api/v3"}`, false},
 		"no scheme":                  {`{"org":"acme","api_url":"ghe.example.com"}`, false},
 		"a lower-case token_env":     {`{"org":"acme","token_env":"github_token"}`, false},

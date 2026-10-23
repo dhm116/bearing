@@ -100,7 +100,7 @@ func remoteWorld(t *testing.T, f testkit.TLSFiles) *world {
 			TLS:         &AdapterTLS{CAFile: f.CA, CertFile: f.ClientCert, KeyFile: f.ClientKey},
 			Declaration: s.Adapters[0].Declaration,
 		}
-		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1))
+		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1))
 	})
 }
 

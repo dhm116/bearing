@@ -1,6 +1,7 @@
 package boot
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -92,7 +93,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 	w := &world{dir: dir, socket: filepath.Join(dir, "api.sock"), mark: filepath.Join(dir, "mark"), addr: freeAddr(t)}
 	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
 	  "spec": {"adapter": "github", "schedule": "PT1H",
-	    "secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},
+	    "secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},
 	    "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",
 	    "settings": {"org": "acme"}}}`
 	w.settings = &Settings{
@@ -239,7 +240,7 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 	got := strings.Split(d.Name, "\n")
 	slices.Sort(got)
 	want := []string{
-		"BEARING_SECRET_GITHUB_TOKEN=canary-token",
+		"GITHUB_TOKEN=canary-token",
 		"BOOT_STUB=1",
 		"BOOT_STUB_MARK=" + w.mark,
 		"HTTPS_PROXY=http://proxy.example:3128",
@@ -411,10 +412,10 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 
 func TestChildEnvDropsDuplicatesAndUnsetNames(t *testing.T) {
 	t.Parallel()
-	ad := &AdapterSettings{Env: []string{"B", "A", "A", "UNSET", "BEARING_SECRET_X"}}
-	get := func(k string) string { return map[string]string{"A": "1", "B": "2", "BEARING_SECRET_X": "dup"}[k] }
-	got := childEnv(ad, []string{"BEARING_SECRET_X=s"}, get)
-	want := []string{"PATH=" + childPath, "BEARING_SECRET_X=s", "A=1", "B=2"}
+	ad := &AdapterSettings{Env: []string{"B", "A", "A", "UNSET", "AWS_SECRET_ACCESS_KEY"}}
+	get := func(k string) string { return map[string]string{"A": "1", "B": "2", "AWS_SECRET_ACCESS_KEY": "dup"}[k] }
+	got := childEnv(ad, []string{"AWS_SECRET_ACCESS_KEY=s"}, get)
+	want := []string{"PATH=" + childPath, "AWS_SECRET_ACCESS_KEY=s", "A=1", "B=2"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -528,5 +529,43 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 				t.Error("the operator's override should vouch for authentik:user keys")
 			}
 		})
+	}
+}
+
+// A source's spec.secrets key is the variable its adapter reads; the server's
+// variable name stays behind, so two sources can give an SDK's name different
+// values.
+func TestAdaptersReceiveSecretsUnderTheirSourceKey(t *testing.T) {
+	w := newWorld(t, func(s *Settings) {
+		s.Adapters = append(s.Adapters, s.Adapters[0])
+		s.Adapters[1].Name = "aws"
+		decl, err := os.ReadFile(s.Adapters[0].Declaration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Adapters[1].Declaration = s.Adapters[0].Declaration + ".aws"
+		if err := os.WriteFile(s.Adapters[1].Declaration, bytes.Replace(decl, []byte(`"name": "github"`), []byte(`"name": "aws"`), 1), 0o600); err != nil { //nolint:gosec // G703: a path under the test directory
+			t.Fatal(err)
+		}
+		s.Sources = append(s.Sources, json.RawMessage(`{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "aws-prod"},
+		  "spec": {"adapter": "aws", "schedule": "PT1H", "secrets": {"AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_AWS_PROD"}}}`))
+		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"`,
+			`"AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_GITHUB_TOKEN"`, 1))
+	})
+	w.env["BEARING_SECRET_AWS_PROD"] = "canary-aws"
+	ps, err := plans(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"AWS_SECRET_ACCESS_KEY=canary-token", "AWS_SECRET_ACCESS_KEY=canary-aws"} {
+		env := ps[i].start.Env
+		if !slices.Contains(env, want) {
+			t.Errorf("source %s: env %q lacks %q", ps[i].name, env, want)
+		}
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "BEARING_SECRET_") {
+				t.Errorf("source %s: env holds the server's variable %q", ps[i].name, kv)
+			}
+		}
 	}
 }

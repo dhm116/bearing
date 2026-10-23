@@ -589,8 +589,8 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		if _, err := s.envRef(ref); err != nil {
 			return nil, 0, fmt.Errorf("spec.secrets[%q]: %w", model.Clip(k), err)
 		}
-		if !envName.MatchString(k) {
-			return nil, 0, fmt.Errorf("spec.secrets: %q is not a name", model.Clip(k))
+		if err := checkSecretKey(k); err != nil {
+			return nil, 0, fmt.Errorf("spec.secrets[%q]: %w", model.Clip(k), err)
 		}
 	}
 	if ref := spec.GetWebhookSecret(); ref != "" {
@@ -603,6 +603,22 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		return nil, 0, fmt.Errorf("spec.schedule: %w", err)
 	}
 	return src, every, nil
+}
+
+// secretKey is the shape of the variable an adapter receives a secret under.
+var secretKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// checkSecretKey refuses a spec.secrets key that would let a source override
+// the adapter's PATH, Bearing's own variables (the core sets BEARING_ADAPTER_*
+// for the child) or the dynamic loader.
+func checkSecretKey(k string) error {
+	switch {
+	case !secretKey.MatchString(k) || len(k) > 128:
+		return errors.New("must be an upper-case variable name")
+	case k == "PATH" || strings.HasPrefix(k, "BEARING_") || strings.HasPrefix(k, "LD_") || strings.HasPrefix(k, "DYLD_"):
+		return errors.New("is a variable the core or the loader owns")
+	}
+	return nil
 }
 
 // envRef returns the variable an `env:NAME` reference names. Any other form

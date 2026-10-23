@@ -75,7 +75,8 @@ message AdapterSpec {
   string module_digest = 1;
   // The capabilities the module declares it needs.
   repeated CapabilityGrant capabilities = 2;
-  // The names of the secrets it needs; a source supplies each by reference.
+  // The names of the secrets it needs, each the environment variable the
+  // adapter reads it from; a source supplies each by reference.
   repeated string secrets = 3;
   // Default settings, overridden per source. Checked against the settings
   // the adapter's Describe declares.
@@ -109,8 +110,10 @@ message SourceSpec {
   repeated AuthorityOverride authority = 5;
   // Its settings, checked against the adapter's declared settings.
   google.protobuf.Struct settings = 6;
-  // Secret references by the adapter's secret name: "env:NAME",
-  // "file:/path", "vault:path#key", "aws-sm:arn". Never values.
+  // Secret references by the name of the environment variable the adapter
+  // reads the secret from (the key, such as GITHUB_TOKEN or
+  // AWS_SECRET_ACCESS_KEY): "env:NAME", "file:/path", "vault:path#key",
+  // "aws-sm:arn". Never values.
   map<string, string> secrets = 7;
   // Time between scheduled syncs, an ISO 8601 duration such as "PT1H".
   // Empty: webhooks and manual syncs only.

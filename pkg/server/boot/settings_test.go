@@ -19,7 +19,7 @@ const goodSettings = `{
   "sources": [{
     "apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
     "spec": {"adapter": "github", "schedule": "PT1H",
-      "secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},
+      "secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},
       "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK"}
   }]
 }`
@@ -266,7 +266,7 @@ func remoteAdapter(address, tlsBlock string) string {
 func TestSettingsAcceptAnAdapterAtAnAddress(t *testing.T) {
 	t.Parallel()
 	text := strings.Replace(goodSettings, localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), 1)
-	text = strings.Replace(text, `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1)
+	text = strings.Replace(text, `"secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1)
 	s, err := Parse([]byte(text))
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
 	text = strings.Replace(text, `}]
 }`, `},
   {"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "gitlab-acme"},
-    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"token": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
+    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"GITLAB_TOKEN": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
 }`, 1)
 	s, err := Parse([]byte(text))
 	if err == nil {
@@ -393,5 +393,24 @@ func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
 		t.Fatalf("got %v, want a refusal to share another adapter's secret", err)
+	}
+}
+
+// A secret's key becomes a variable in the adapter's environment, so it may
+// not shadow PATH, Bearing's variables or the loader's, and the refusal does
+// not quote the reference.
+func TestSettingsRefuseASecretKeyTheAdapterMustNotSee(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"github_token", "PATH", "BEARING_ADAPTER_LISTEN", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			s, err := Parse([]byte(strings.Replace(goodSettings, `"GITHUB_TOKEN"`, `"`+key+`"`, 1)))
+			if err == nil {
+				err = s.Validate()
+			}
+			if err == nil || !strings.Contains(err.Error(), `spec.secrets["`+key+`"]`) || strings.Contains(err.Error(), "BEARING_SECRET_GITHUB_TOKEN") {
+				t.Fatalf("got %v, want a refusal naming %q and not the reference", err, key)
+			}
+		})
 	}
 }

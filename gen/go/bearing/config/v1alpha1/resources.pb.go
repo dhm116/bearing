@@ -397,7 +397,8 @@ type AdapterSpec struct {
 	ModuleDigest string `protobuf:"bytes,1,opt,name=module_digest,json=moduleDigest,proto3" json:"module_digest,omitempty"`
 	// The capabilities the module declares it needs.
 	Capabilities []*CapabilityGrant `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	// The names of the secrets it needs; a source supplies each by reference.
+	// The names of the secrets it needs, each the environment variable the
+	// adapter reads it from; a source supplies each by reference.
 	Secrets []string `protobuf:"bytes,3,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	// Default settings, overridden per source. Checked against the settings
 	// the adapter's Describe declares.
@@ -553,8 +554,10 @@ type SourceSpec struct {
 	Authority []*AuthorityOverride `protobuf:"bytes,5,rep,name=authority,proto3" json:"authority,omitempty"`
 	// Its settings, checked against the adapter's declared settings.
 	Settings *structpb.Struct `protobuf:"bytes,6,opt,name=settings,proto3" json:"settings,omitempty"`
-	// Secret references by the adapter's secret name: "env:NAME",
-	// "file:/path", "vault:path#key", "aws-sm:arn". Never values.
+	// Secret references by the name of the environment variable the adapter
+	// reads the secret from (the key, such as GITHUB_TOKEN or
+	// AWS_SECRET_ACCESS_KEY): "env:NAME", "file:/path", "vault:path#key",
+	// "aws-sm:arn". Never values.
 	Secrets map[string]string `protobuf:"bytes,7,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Time between scheduled syncs, an ISO 8601 duration such as "PT1H".
 	// Empty: webhooks and manual syncs only.
