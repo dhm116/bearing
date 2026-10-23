@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -107,10 +108,29 @@ func parsePackageJSON(text string) ([]runtime, error) {
 	return nil, nil
 }
 
-// fileVersion parses a file whose whole content is the version.
+// maxFileVersion bounds a version read from a single-value file.
+const maxFileVersion = 64
+
+// versionLike is what a single-value file's version may look like: "20",
+// "v20.1.0", "lts/hydrogen", "lts/*", "pypy3.10-7.3".
+var versionLike = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+*/-]*$`)
+
+// fileVersion parses a file whose first line that is neither blank nor a #
+// comment is the version. A value too long or not version-like is an error,
+// so the caller skips the file with a warning.
 func fileVersion(language string) func(string) ([]runtime, error) {
 	return func(text string) ([]runtime, error) {
-		return []runtime{{language: language, version: strings.TrimSpace(text)}}, nil
+		for line := range strings.SplitSeq(text, "\n") {
+			v := strings.TrimSpace(line)
+			if v == "" || strings.HasPrefix(v, "#") {
+				continue
+			}
+			if len(v) > maxFileVersion || !versionLike.MatchString(v) {
+				return nil, fmt.Errorf("not a version: %.40q", v)
+			}
+			return []runtime{{language: language, version: v}}, nil
+		}
+		return nil, nil
 	}
 }
 

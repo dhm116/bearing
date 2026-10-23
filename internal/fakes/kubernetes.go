@@ -76,7 +76,14 @@ type Container struct {
 	// EnvFromSecrets are the names of the Secrets the container takes its
 	// environment from (envFrom secretRef).
 	EnvFromSecrets []string
+	// EnvFromConfigMaps holds variables that take their value from a
+	// ConfigMap key (valueFrom configMapKeyRef), by name: they have no
+	// literal value.
+	EnvFromConfigMaps map[string]ConfigMapKey
 }
+
+// ConfigMapKey names one key of a ConfigMap.
+type ConfigMapKey struct{ Name, Key string }
 
 // Workload is a Deployment, StatefulSet or DaemonSet.
 type Workload struct {
@@ -463,6 +470,7 @@ func copyContainers(cs []Container) []Container {
 		out[i].Args = slices.Clone(c.Args)
 		out[i].Env = maps.Clone(c.Env)
 		out[i].EnvFromSecrets = slices.Clone(c.EnvFromSecrets)
+		out[i].EnvFromConfigMaps = maps.Clone(c.EnvFromConfigMaps)
 	}
 	return out
 }

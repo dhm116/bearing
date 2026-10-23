@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/url"
@@ -14,15 +15,10 @@ import (
 	"bearing.example/pkg/telemetry"
 )
 
-// The variables an adapter process reads (ADR 4). The core sets them for an
-// adapter it starts; an operator sets them for a remote one.
-const (
-	// EnvListen is where to serve: unix:///absolute/path.sock (what the core
-	// uses) or tcp://host:port (a remote adapter, behind TLS).
-	EnvListen = "BEARING_ADAPTER_LISTEN"
-	// EnvToken is the bearer token callers must send; empty means none.
-	EnvToken = "BEARING_ADAPTER_TOKEN" //nolint:gosec // a variable name, not a secret
-)
+// EnvListen is where to serve: unix:///absolute/path.sock (what the core
+// uses) or tcp://host:port (a remote adapter, over mutual TLS: see
+// EnvTLSCert, EnvTLSKey and EnvTLSClientCA).
+const EnvListen = "BEARING_ADAPTER_LISTEN"
 
 // Main runs a in an adapter binary: it sets up telemetry, serves the adapter
 // service where EnvListen says until SIGINT or SIGTERM, and returns the
@@ -41,12 +37,12 @@ func Main(name, version string, a Adapter) int {
 		return 1
 	}
 	log := telemetry.Logger("pkg/adapter")
-	lis, err := Listen(os.Getenv(EnvListen))
+	lis, err := Listen(os.Getenv(EnvListen), os.Getenv)
 	if err != nil {
 		log.ErrorContext(ctx, "cannot listen", "error", err.Error())
 		return 1
 	}
-	if err := Serve(ctx, a, lis, ServeConfig{Token: os.Getenv(EnvToken)}); err != nil && ctx.Err() == nil {
+	if err := Serve(ctx, a, lis); err != nil && ctx.Err() == nil {
 		log.ErrorContext(ctx, "adapter stopped", "error", err.Error())
 		return 1
 	}
@@ -54,8 +50,15 @@ func Main(name, version string, a Adapter) int {
 }
 
 // Listen opens the listener an EnvListen address names. A unix socket is
-// created with mode 0600, after removing a stale socket at the same path.
-func Listen(addr string) (net.Listener, error) {
+// created with mode 0600, after removing a stale socket at the same path. A
+// tcp address serves mutual TLS (TLS 1.3, a client certificate from the CA
+// in EnvTLSClientCA required) with the files the variables getenv reads
+// name (nil getenv means os.Getenv), and is refused without any one of them: anyone who can reach the
+// port could otherwise call the adapter.
+func Listen(addr string, getenv func(string) string) (net.Listener, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
 	u, err := url.Parse(addr)
 	if err != nil || addr == "" {
 		return nil, fmt.Errorf("adapter: %s must be unix:///path.sock or tcp://host:port", EnvListen)
@@ -80,11 +83,15 @@ func Listen(addr string) (net.Listener, error) {
 		}
 		return lis, nil
 	case "tcp":
+		cfg, err := serverTLS(getenv)
+		if err != nil {
+			return nil, err
+		}
 		lis, err := net.Listen("tcp", u.Host)
 		if err != nil {
 			return nil, fmt.Errorf("adapter: listen: %w", err)
 		}
-		return lis, nil
+		return tls.NewListener(lis, cfg), nil
 	}
 	return nil, fmt.Errorf("adapter: %s must be unix:///path.sock or tcp://host:port", EnvListen)
 }

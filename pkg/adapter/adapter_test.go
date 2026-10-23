@@ -45,7 +45,7 @@ func (p pager) Handle(context.Context, HandleParams) (HandleResult, error) {
 // Remote for it.
 func dialed(t *testing.T, a Adapter) *Remote {
 	t.Helper()
-	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, a, ServeConfig{})})
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, a)})
 	if err != nil {
 		t.Fatal(err)
 	}

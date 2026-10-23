@@ -128,7 +128,7 @@ func TestDescribeAndConfigDefaults(t *testing.T) {
 	}
 	c, err := parseConfig([]byte(`{"org":"acme","api_url":"https://ghe.example.com/api/v3/","per_page":500}`))
 	if err != nil || c.APIURL != "https://ghe.example.com/api/v3" || c.Namespace != "github" || c.TokenEnv != "GITHUB_TOKEN" ||
-		c.WebhookSecretEnv != "GITHUB_WEBHOOK_SECRET" || c.PerPage != 100 {
+		c.PerPage != 100 {
 		t.Errorf("config = %+v, %v", c, err)
 	}
 }

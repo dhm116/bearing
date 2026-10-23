@@ -2,6 +2,7 @@ package github
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -23,6 +24,12 @@ func TestParseManifests(t *testing.T) {
 		{"package.json no engines", parsePackageJSON, `{"name": "x"}`, nil, false},
 		{"package.json malformed", parsePackageJSON, `{"engines": `, nil, true},
 		{"nvmrc", fileVersion("node"), "20\n", []runtime{{"node", "20", ""}}, false},
+		{"nvmrc after comments and blanks", fileVersion("node"), "# pinned\n\n  lts/hydrogen  \n18\n", []runtime{{"node", "lts/hydrogen", ""}}, false},
+		{"python-version first of several", fileVersion("python"), "3.12.1\n3.11\n", []runtime{{"python", "3.12.1", ""}}, false},
+		{"single-value file empty", fileVersion("node"), "\n# none\n", nil, false},
+		{"single-value file too long", fileVersion("node"), strings.Repeat("1", 65), nil, true},
+		{"single-value file not a version", fileVersion("node"), "use \"node 20\"\n", nil, true},
+		{"single-value file with a control character", fileVersion("python"), "3.12\x1b[31m\n", nil, true},
 		{"pyproject", parsePyproject, "[build-system]\nrequires-python = \"<3\"\n[project]\nname = \"x\"\nrequires-python = \">=3.10\"\n", []runtime{{"python", ">=3.10", ""}}, false},
 		{"pyproject single quotes", parsePyproject, "[project]\nrequires-python = '>=3.9'\n", []runtime{{"python", ">=3.9", ""}}, false},
 		{"pyproject missing field", parsePyproject, "[project]\nname = \"x\"\n", nil, false},

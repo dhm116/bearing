@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/server"
@@ -24,6 +25,7 @@ import (
 const (
 	stubEnv     = "BOOT_STUB"      // set in a child: serve the stub adapter
 	stubMarkEnv = "BOOT_STUB_MARK" // the file the stub writes when it is synced
+	githubEnv   = "BOOT_GITHUB"    // set in a child: serve the real GitHub adapter
 )
 
 // stubAdapter reports the environment it was started with as its name and its
@@ -49,6 +51,9 @@ func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 func TestMain(m *testing.M) {
 	if os.Getenv(stubEnv) != "" {
 		os.Exit(adapter.Main("stub", "test", stubAdapter{}))
+	}
+	if os.Getenv(githubEnv) != "" {
+		os.Exit(adapter.Main("github", github.Version, github.New()))
 	}
 	os.Exit(m.Run())
 }
@@ -240,7 +245,7 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 		"HTTPS_PROXY=http://proxy.example:3128",
 		"PATH=" + childPath,
 	}
-	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"), adapter.EnvToken+"=")
+	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"))
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
