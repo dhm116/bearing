@@ -25,5 +25,10 @@ language can generate.
 ## Consequences
 
 - An adapter can be written in any language with a gRPC library.
-- Remote adapters need transport security and an auth token; local ones on
-  a private network or Unix socket can skip TLS.
+- Remote adapters use mutual TLS (TLS 1.3): the core and the adapter each
+  present a certificate the other checks against a CA it was configured
+  with, never the system roots. One identity scheme, both sides verified,
+  and no shared secret to leak (amended 2026-10-22; this replaced a bearer
+  token). The adapter's client CA must issue only Bearing core
+  certificates: any certificate from it can call `Sync` and `Handle`. Local adapters, on the core's private Unix socket, need no TLS
+  and no certificates.

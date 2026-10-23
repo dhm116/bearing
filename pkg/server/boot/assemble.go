@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
@@ -103,7 +104,10 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if s.Listen.Addr != "" {
 		token := env.Getenv(s.Auth.TokenEnv)
 		if token == "" {
-			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s is empty or unset: listen.addr needs an API token", s.Auth.TokenEnv)
+			return nil, errors.New("boot: settings: auth.token_env: the variable auth.token_env names is empty or unset: listen.addr needs an API token")
+		}
+		if err := checkAPIToken(token); err != nil {
+			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable auth.token_env names %w", err)
 		}
 		l.Authenticator = server.TokenAuthenticator{Token: token}
 	}
@@ -274,11 +278,12 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			p.config = b
 		}
 		if ad.Address != "" {
-			token := getenv(ad.TokenEnv)
-			if token == "" {
-				return nil, fmt.Errorf("boot: settings: adapter %s: token_env: the variable %s is not set or is empty", ad.Name, ad.TokenEnv)
+			if err := checkTLSFiles(ad.TLS); err != nil {
+				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
 			}
-			r, err := adapter.Dial(name, adapter.DialConfig{Address: ad.Address, Token: token})
+			r, err := adapter.Dial(name, adapter.DialConfig{
+				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
 			}
@@ -367,6 +372,27 @@ func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	return nil
 }
 
+// checkTLSFiles refuses a remote adapter's CA, certificate or key that anyone
+// but the service user or root could change: whoever can swap the CA can
+// stand in for the adapter. Dial refuses a key others can read.
+func checkTLSFiles(t *AdapterTLS) error {
+	for _, f := range t.files() {
+		fi, err := os.Stat(f.path)
+		switch {
+		case err != nil:
+			return fmt.Errorf("tls.%s: %w", f.field, err)
+		case !fi.Mode().IsRegular():
+			return fmt.Errorf("tls.%s: %s is not a regular file", f.field, f.path)
+		case fi.Mode().Perm()&0o022 != 0:
+			return fmt.Errorf("tls.%s: %s must not be writable by its group or by others (mode %04o)", f.field, f.path, fi.Mode().Perm())
+		}
+		if err := checkOwner(fi); err != nil {
+			return fmt.Errorf("tls.%s: %s: %w", f.field, f.path, err)
+		}
+	}
+	return nil
+}
+
 // listenConfig maps the listen settings.
 func listenConfig(s *Settings) server.ListenConfig {
 	l := s.Listen
@@ -414,15 +440,13 @@ func limitWarnings(s *Settings) []string {
 	return out
 }
 
-// loopbackAddr reports whether a host:port address names a loopback IP or
-// "localhost". An address that does not parse counts as not loopback.
+// loopbackAddr reports whether a host:port address names a literal loopback
+// IP. A name, even "localhost", counts as not loopback, since a resolver
+// decides where it points.
 func loopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
-	}
-	if host == "localhost" {
-		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
@@ -455,4 +479,19 @@ func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []ser
 		}
 	}
 	return cfg, nil
+}
+
+// minAPITokenBytes is the shortest API token the server starts with.
+const minAPITokenBytes = 32
+
+// checkAPIToken refuses a weak or malformed token. The error never holds the
+// token.
+func checkAPIToken(token string) error {
+	if len(token) < minAPITokenBytes {
+		return fmt.Errorf("holds a token shorter than %d bytes", minAPITokenBytes)
+	}
+	if strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return errors.New("holds a token with whitespace or control characters")
+	}
+	return nil
 }

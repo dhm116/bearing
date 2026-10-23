@@ -472,11 +472,17 @@ func containersJSON(cs []Container) []map[string]any {
 		if len(c.Args) > 0 {
 			m["args"] = c.Args
 		}
-		if len(c.Env) > 0 {
-			var env []map[string]string
-			for _, name := range slices.Sorted(maps.Keys(c.Env)) {
-				env = append(env, map[string]string{"name": name, "value": c.Env[name]})
-			}
+		var env []map[string]any
+		for _, name := range slices.Sorted(maps.Keys(c.Env)) {
+			env = append(env, map[string]any{"name": name, "value": c.Env[name]})
+		}
+		for _, name := range slices.Sorted(maps.Keys(c.EnvFromConfigMaps)) {
+			ref := c.EnvFromConfigMaps[name]
+			env = append(env, map[string]any{"name": name, "valueFrom": map[string]any{
+				"configMapKeyRef": map[string]string{"name": ref.Name, "key": ref.Key},
+			}})
+		}
+		if len(env) > 0 {
 			m["env"] = env
 		}
 		if len(c.EnvFromSecrets) > 0 {

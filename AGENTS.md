@@ -162,7 +162,11 @@ and consistent.
   a proposed fix) and move on.
 - **Docs last.** Write and update docs as one of the final steps before
   the PR, once behavior has settled. Audience: a junior engineer. Short,
-  plain, with a diagram where it helps (Mermaid in Markdown, or SVG).
+  plain, with a diagram where it helps. Draw diagrams with the
+  `diagram-design` skill and the Bearing profile (`.diagram-design`,
+  `docs/brand/diagram-design/bearing.md`), not Mermaid: keep the HTML
+  source in `docs/diagrams/`, export light and dark SVGs beside it, run `docs/diagrams/combine.sh` so the light one also follows dark mode, and
+  embed them with a `<picture>` element as the README does for the logo.
 
 ## Changing the design
 

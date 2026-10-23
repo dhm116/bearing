@@ -68,13 +68,19 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"a misspelled setting", `"store": {`, `"stroe": {}, "store": {`, "unknown field"},
 		{"both a command and an address", `"command": "/usr/local/bin/bearing-adapter-github",`, `"command": "/usr/local/bin/bearing-adapter-github", "address": "https://adapter.example:8443",`, "set one of command"},
 		{"neither a command nor an address", `"command": "/usr/local/bin/bearing-adapter-github",`, ``, "set one of command"},
-		{"an address without a token", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, ``), "needs token_env"},
-		{"a token outside the allowlist", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"HOME"`), "token_env must name"},
-		{"an address that is not https", localAdapter, remoteAdapter(`"ftp://adapter.example"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "must be https"},
-		{"credentials in an address", localAdapter, remoteAdapter(`"https://u:p@adapter.example"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "must be https"},
-		{"plain http off loopback", localAdapter, remoteAdapter(`"http://10.0.0.1:9000"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "loopback"},
-		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
-		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), "spec.secrets go to"},
+		{"an address without tls", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, ``), "needs tls"},
+		{"a token instead of tls", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "token_env": "BEARING_SECRET_ADAPTER_TOKEN"`, "remote adapters use mutual TLS"},
+		{"a token on a command", localAdapter, localAdapter + `, "token_env": "BEARING_SECRET_ADAPTER_TOKEN"`, "remote adapters use mutual TLS"},
+		{"tls without a key", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "/etc/bearing/core.pem"}`), "tls.key_file is required"},
+		{"tls without a CA", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"cert_file": "/etc/bearing/core.pem", "key_file": "/etc/bearing/core-key.pem"}`), "tls.ca_file is required"},
+		{"a relative certificate", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "core.pem", "key_file": "/etc/bearing/core-key.pem"}`), "tls.cert_file must be an absolute path"},
+		{"a misspelled tls setting", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca": "/etc/bearing/adapter-ca.pem"}`), "unknown field"},
+		{"tls for a command", localAdapter, localAdapter + `, "tls": ` + goodTLS, "tls is for an adapter at an address"},
+		{"an address that is not https", localAdapter, remoteAdapter(`"ftp://adapter.example"`, goodTLS), "must be https"},
+		{"credentials in an address", localAdapter, remoteAdapter(`"https://u:p@adapter.example"`, goodTLS), "must be https"},
+		{"plain http even on loopback", localAdapter, remoteAdapter(`"http://127.0.0.1:9000"`, goodTLS), "must be https"},
+		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
+		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), "spec.secrets go to"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -244,19 +250,22 @@ func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
 // into one at an address.
 const localAdapter = `"command": "/usr/local/bin/bearing-adapter-github", "declaration": "/etc/bearing/github.json", "env": ["HTTPS_PROXY"]`
 
-// remoteAdapter is the adapter at address with the token variable tokenEnv
-// (a JSON string, or empty for none).
-func remoteAdapter(address, tokenEnv string) string {
+// goodTLS is a remote adapter's tls block.
+const goodTLS = `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "/etc/bearing/core.pem", "key_file": "/etc/bearing/core-key.pem"}`
+
+// remoteAdapter is the adapter at address with the tls block tlsBlock (a JSON
+// object, or empty for none).
+func remoteAdapter(address, tlsBlock string) string {
 	s := `"address": ` + address + `, "declaration": "/etc/bearing/github.json"`
-	if tokenEnv != "" {
-		s += `, "token_env": ` + tokenEnv
+	if tlsBlock != "" {
+		s += `, "tls": ` + tlsBlock
 	}
 	return s
 }
 
 func TestSettingsAcceptAnAdapterAtAnAddress(t *testing.T) {
 	t.Parallel()
-	text := strings.Replace(goodSettings, localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `"BEARING_SECRET_ADAPTER_TOKEN"`), 1)
+	text := strings.Replace(goodSettings, localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), 1)
 	text = strings.Replace(text, `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1)
 	s, err := Parse([]byte(text))
 	if err != nil {
@@ -320,5 +329,69 @@ func TestSettingsRefuseAnAuthorityForAnUnknownSource(t *testing.T) {
 	}
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "not a source") {
 		t.Errorf("got %v, want a refusal naming the unknown source", err)
+	}
+}
+
+// A token pasted into auth.token_env must not come back in the error.
+func TestSettingsRefuseATokenWhereTheVariableNameGoes(t *testing.T) {
+	t.Parallel()
+	const pasted = "ghp_canaryToken-with-dash!"
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "`+pasted+`"}, "store": {`, 1)))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "auth.token_env") || strings.Contains(err.Error(), pasted) {
+		t.Fatalf("got %v, want an auth.token_env error without %q", err, pasted)
+	}
+}
+
+func TestSettingsKeepTheServersSecretsFromAdapters(t *testing.T) {
+	t.Parallel()
+	withAuth := strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "BEARING_SECRET_API"}, "store": {`, 1)
+	for _, tt := range []struct {
+		name, from, to string
+		text           string
+	}{
+		{"env naming the API token", `"HTTPS_PROXY"`, `"BEARING_SECRET_API"`, withAuth},
+		{"env naming a webhook secret", `"HTTPS_PROXY"`, `"BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+		{"a secret naming the API token", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_API"`, withAuth},
+		{"a secret naming a webhook secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, err := Parse([]byte(strings.Replace(tt.text, tt.from, tt.to, 1)))
+			if err == nil {
+				err = s.Validate()
+			}
+			if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+				t.Fatalf("got %v, want a refusal to share the server's secret", err)
+			}
+		})
+	}
+	s, err := Parse([]byte(withAuth))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err != nil {
+		t.Fatalf("the untouched settings: got %v, want them valid", err)
+	}
+}
+
+// An adapter's env must not name a secret another adapter's source holds.
+func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, `"env": ["HTTPS_PROXY"]}]`, `"env": ["BEARING_SECRET_GITLAB_TOKEN"]},
+    {"name": "gitlab", "command": "/usr/local/bin/bearing-adapter-gitlab", "declaration": "/etc/bearing/gitlab.json"}]`, 1)
+	text = strings.Replace(text, `}]
+}`, `},
+  {"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "gitlab-acme"},
+    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"token": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
+}`, 1)
+	s, err := Parse([]byte(text))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+		t.Fatalf("got %v, want a refusal to share another adapter's secret", err)
 	}
 }

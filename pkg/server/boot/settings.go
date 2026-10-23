@@ -173,11 +173,14 @@ type AdapterSettings struct {
 	Name string `json:"name"`
 	// Command is the executable, an absolute path checked once at start.
 	Command string `json:"command,omitempty"`
-	// Address reaches an adapter that runs elsewhere, https://host:port
-	// (http:// for a loopback address only), instead of starting Command.
+	// Address reaches an adapter that runs elsewhere, https://host:port,
+	// instead of starting Command. It is reached over mutual TLS (TLS).
 	Address string `json:"address,omitempty"`
-	// TokenEnv names the variable that holds the bearer token for Address.
-	// It must be in the secret allowlist.
+	// TLS is how the server and the adapter at Address prove themselves to
+	// each other. Required with Address.
+	TLS *AdapterTLS `json:"tls,omitempty"`
+	// TokenEnv is refused: it is here only so the refusal can say that
+	// remote adapters now use mutual TLS, not that the field is unknown.
 	TokenEnv string `json:"token_env,omitempty"`
 	// Args are its arguments.
 	Args []string `json:"args,omitempty"`
@@ -188,6 +191,23 @@ type AdapterSettings struct {
 	// example HTTPS_PROXY. Anything matching BEARING_ must also match the
 	// secret allowlist.
 	Env []string `json:"env,omitempty"`
+}
+
+// AdapterTLS are the PEM files of a remote adapter's mutual TLS, absolute
+// paths owned by the service user or root and writable by no one else; the
+// key must also be readable by no one else. They are read at start, so a new
+// certificate needs a restart.
+type AdapterTLS struct {
+	// CAFile is the CA that signed the adapter's certificate. It is the only
+	// one trusted for the adapter: the system roots are not.
+	CAFile string `json:"ca_file"`
+	// CertFile and KeyFile are the client certificate the server presents,
+	// from a CA the adapter trusts.
+	CertFile string `json:"cert_file"`
+	KeyFile  string `json:"key_file"`
+	// ServerName is the name the adapter's certificate must hold; empty
+	// means the address's host.
+	ServerName string `json:"server_name,omitempty"`
 }
 
 // Load reads and checks the settings file at file. It refuses a file that is
@@ -314,6 +334,9 @@ func (s *Settings) check() (*checked, error) {
 		c.sources = append(c.sources, src)
 		c.schedule[name] = every
 	}
+	if err := s.checkSecretIsolation(c); err != nil {
+		return nil, err
+	}
 	for name, o := range s.Authority {
 		if !seen[name] {
 			return nil, fmt.Errorf("boot: settings: authority: %q is not a source", model.Clip(name))
@@ -332,6 +355,67 @@ func (s *Settings) check() (*checked, error) {
 	return c, nil
 }
 
+// checkSecretIsolation refuses an adapter env entry or source secret that
+// names a variable the server keeps from adapters: the API token, a webhook
+// secret, or another adapter's token. Names only are echoed, never values.
+func (s *Settings) checkSecretIsolation(c *checked) error {
+	own := map[string]bool{}
+	if s.Auth.TokenEnv != "" {
+		own[s.Auth.TokenEnv] = true
+	}
+	for _, src := range c.sources {
+		if ref := src.GetSpec().GetWebhookSecret(); ref != "" {
+			own[strings.TrimPrefix(ref, "env:")] = true
+		}
+	}
+	for i := range s.Adapters {
+		a := &s.Adapters[i]
+		held := func(n string) bool {
+			if own[n] {
+				return true
+			}
+			for j := range s.Adapters {
+				if j != i && s.Adapters[j].TokenEnv == n {
+					return true
+				}
+			}
+			return false
+		}
+		for _, n := range a.Env {
+			if held(n) || secretOfOtherAdapter(c, a.Name, n) {
+				return fmt.Errorf("boot: settings: adapters[%d]: env %q is a secret of the server or of another adapter", i, n)
+			}
+		}
+		for _, src := range c.sources {
+			if src.GetSpec().GetAdapter() != a.Name {
+				continue
+			}
+			for k, ref := range src.GetSpec().GetSecrets() {
+				if held(strings.TrimPrefix(ref, "env:")) {
+					return fmt.Errorf("boot: settings: source %q: spec.secrets[%q] names a secret of the server or of another adapter", src.GetMetadata().GetName(), model.Clip(k))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// secretOfOtherAdapter reports whether n is a spec.secrets variable of a
+// source that runs an adapter other than name.
+func secretOfOtherAdapter(c *checked, name, n string) bool {
+	for _, src := range c.sources {
+		if src.GetSpec().GetAdapter() == name {
+			continue
+		}
+		for _, ref := range src.GetSpec().GetSecrets() {
+			if strings.TrimPrefix(ref, "env:") == n {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *Settings) checkListen() error {
 	l := s.Listen
 	if l.Socket == "" && l.Addr == "" {
@@ -344,6 +428,10 @@ func (s *Settings) checkListen() error {
 	}
 	if l.InsecureNoPeerRate && l.PeerRatePerMinute != nil {
 		return errors.New("boot: settings: listen.insecure_no_peer_rate and listen.peer_rate_per_minute contradict each other")
+	}
+	if s.Auth.TokenEnv != "" && !envName.MatchString(s.Auth.TokenEnv) {
+		// Not echoed: a pasted token is not a variable name.
+		return errors.New("boot: settings: auth.token_env must be the name of an environment variable, not the token")
 	}
 	if l.Addr != "" && s.Auth.TokenEnv == "" {
 		return errors.New("boot: settings: listen.addr needs auth.token_env: there is no setting for open access")
@@ -400,12 +488,16 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 	switch {
 	case !resourceName.MatchString(a.Name):
 		return fmt.Errorf("name %q must be lowercase letters, digits, - and _", model.Clip(a.Name))
+	case a.TokenEnv != "":
+		return errors.New("token_env is no longer read: remote adapters use mutual TLS; set tls.ca_file, tls.cert_file and tls.key_file")
 	case (a.Command == "") == (a.Address == ""):
 		return errors.New("set one of command, for an adapter the server starts, and address, for one that runs elsewhere")
 	case a.Address != "":
-		if err := s.checkRemote(a); err != nil {
+		if err := checkRemote(a); err != nil {
 			return err
 		}
+	case a.TLS != nil:
+		return errors.New("tls is for an adapter at an address; the server reaches the one it starts on a private socket")
 	case !filepath.IsAbs(a.Command):
 		return fmt.Errorf("command %q must be an absolute path: the settings name only adapters the operator installed", model.Clip(a.Command))
 	}
@@ -427,23 +519,33 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 }
 
 // checkRemote checks an adapter reached at an address. Neither the address
-// nor token_env is echoed: either may hold a pasted credential.
-func (s *Settings) checkRemote(a *AdapterSettings) error {
+// nor a TLS setting is echoed: someone may have pasted a credential or a key
+// into one.
+func checkRemote(a *AdapterSettings) error {
 	u, err := url.Parse(a.Address)
 	switch {
-	case err != nil, u.Scheme != "https" && u.Scheme != "http", u.Host == "", u.User != nil,
+	case err != nil, u.Scheme != "https", u.Host == "", u.User != nil,
 		u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "":
-		return errors.New("address must be https://host:port")
-	case u.Scheme == "http" && !loopbackAddr(u.Host):
-		return errors.New("address: plain http is for a loopback address only; use https")
-	case a.TokenEnv == "":
-		return errors.New("address needs token_env: a remote adapter takes a bearer token")
-	case !envName.MatchString(a.TokenEnv), !s.allowed(a.TokenEnv):
-		return fmt.Errorf("token_env must name a variable in the secret allowlist (default %s)", strings.Join(DefaultSecretAllowlist, ", "))
+		return errors.New("address must be https://host:port: a remote adapter is reached over mutual TLS")
+	case a.TLS == nil:
+		return errors.New("address needs tls with ca_file, cert_file and key_file: a remote adapter is reached over mutual TLS")
 	case len(a.Args) > 0, len(a.Env) > 0:
 		return errors.New("args and env are for a command; an adapter at an address runs with its own")
 	}
+	for _, f := range a.TLS.files() {
+		switch {
+		case f.path == "":
+			return fmt.Errorf("tls.%s is required", f.field)
+		case !filepath.IsAbs(f.path):
+			return fmt.Errorf("tls.%s must be an absolute path", f.field)
+		}
+	}
 	return nil
+}
+
+// files are the TLS files with their setting names.
+func (t *AdapterTLS) files() []struct{ field, path string } {
+	return []struct{ field, path string }{{"ca_file", t.CAFile}, {"cert_file", t.CertFile}, {"key_file", t.KeyFile}}
 }
 
 // allowed reports whether an `env:` reference may name name.

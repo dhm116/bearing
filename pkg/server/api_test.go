@@ -52,21 +52,36 @@ type apiGraph struct {
 }
 
 func (g *apiGraph) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Changes(ctx, r)
+}
+
+func (g *apiGraph) Find(ctx context.Context, q string, k model.Kind, limit int) ([]graph.Match, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Find(ctx, q, k, limit)
+}
+
+// wait fails or holds a read as the test has set up.
+func (g *apiGraph) wait(ctx context.Context) error {
 	g.mu.Lock()
 	enter, hold, err := g.enter, g.hold, g.err
 	g.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if enter != nil {
 		enter <- struct{}{}
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 	}
-	return g.Graph.Changes(ctx, r)
+	return nil
 }
 
 type apiWorld struct {
@@ -350,6 +365,18 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 	}
 }
 
+func TestAPIFindRefusesAnUnknownKind(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	rec := w.do("reader", http.MethodGet, "/v1/find?q=billing&kind=Repo")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if e := decodeError(t, rec); e.Code != "invalid_request" || !strings.Contains(e.Message, "kind") {
+		t.Errorf("got %+v, want invalid_request naming kind", e)
+	}
+}
+
 func syncRequests(t *testing.T, w *apiWorld) []*eventv1alpha1.SyncRequested {
 	t.Helper()
 	var out []*eventv1alpha1.SyncRequested
@@ -536,6 +563,66 @@ func TestAPICapsAndTimesTheChangesReadsOfOneCaller(t *testing.T) {
 	w.graph.mu.Unlock()
 	if rec := w.do("reader", http.MethodGet, "/v1/changes"); rec.Code != http.StatusOK {
 		t.Errorf("after the reads ended: got %d, want 200", rec.Code)
+	}
+}
+
+func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{}) // never released: the deadline ends the reads
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+
+	done := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() { done <- w.do("reader", http.MethodGet, "/v1/find?q=billing") }()
+		<-enter
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/find?q=billing"); rec.Code != http.StatusTooManyRequests || decodeError(t, rec).Code != "too_many_reads" {
+		t.Errorf("a third find by the same caller: got %d %s, want 429 too_many_reads", rec.Code, rec.Body.String())
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&depth=2"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a deep related by the same caller: got %d, want 429", rec.Code)
+	}
+	for range 2 {
+		if rec := <-done; rec.Code != http.StatusGatewayTimeout {
+			t.Errorf("a held find: got %d %s, want 504 at the shorter deadline", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestAPILimitsAreKeptPerSubjectAndPeer(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesPerCaller = 1; c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{})
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+	from := func(addr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
+		req.Header.Set("Authorization", "Bearer reader")
+		req.RemoteAddr = addr
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, req)
+		return rec
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- from("192.0.2.1:1000") }()
+	<-enter
+	if rec := from("192.0.2.1:1001"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a second read from the same peer: got %d, want 429", rec.Code)
+	}
+	second := make(chan *httptest.ResponseRecorder, 1)
+	go func() { second <- from("192.0.2.2:1000") }()
+	select { // the other peer's read reaches the store: it has its own share
+	case <-enter:
+	case rec := <-second:
+		t.Fatalf("the other peer's read: got %d before it reached the store, want it to wait there", rec.Code)
+	}
+	<-first
+	if rec := <-second; rec.Code == http.StatusTooManyRequests {
+		t.Errorf("the other peer's read: got %d, want it not limited", rec.Code)
 	}
 }
 

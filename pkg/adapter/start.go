@@ -91,9 +91,8 @@ func Start(ctx context.Context, c StartConfig) (*Process, error) {
 	if c.InheritEnv {
 		cmd.Env = append(os.Environ(), c.Env...)
 	}
-	// Last, so they win over anything inherited: a stray token would make
-	// the adapter refuse the core.
-	cmd.Env = append(cmd.Env, EnvListen+"=unix://"+sock, EnvToken+"=")
+	// Last, so it wins over anything inherited.
+	cmd.Env = append(cmd.Env, EnvListen+"=unix://"+sock)
 	r, err := Dial(c.Name, DialConfig{Address: "unix://" + sock})
 	if err != nil {
 		return nil, err

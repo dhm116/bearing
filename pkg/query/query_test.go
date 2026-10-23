@@ -219,6 +219,7 @@ func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
 		{"backward window", func() error { _, err := q.Changes(ctx, "", at(5), at(1), 0); return err }, query.ErrInvalidRequest},
 		{"limit too big", func() error { _, err := q.Changes(ctx, "", time.Time{}, time.Time{}, 1001); return err }, query.ErrInvalidRequest},
 		{"empty find", func() error { _, err := q.Find(ctx, "", "", 0); return err }, query.ErrInvalidRequest},
+		{"find of a kind that is not one", func() error { _, err := q.Find(ctx, "ledger", "not a kind", 0); return err }, query.ErrInvalidRequest},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.ask(); !errors.Is(err, tt.want) {

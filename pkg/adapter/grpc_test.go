@@ -6,11 +6,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"connectrpc.com/connect"
+
+	"bearing.example/pkg/model"
 )
 
 // serveGRPC serves a on a Unix socket for the test and returns its address.
-func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
+func serveGRPC(t *testing.T, a Adapter) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ad") // short: socket paths are limited to about 100 bytes
 	if err != nil {
@@ -24,7 +29,7 @@ func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, a, lis, c) }()
+	go func() { done <- Serve(ctx, a, lis) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -35,7 +40,7 @@ func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
 }
 
 func TestGRPCCarriesDescribeAndSyncPages(t *testing.T) {
-	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 2}, ServeConfig{})})
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 2})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,34 +66,14 @@ func TestGRPCCarriesDescribeAndSyncPages(t *testing.T) {
 	}
 }
 
-func TestGRPCRefusesCallsWithoutTheToken(t *testing.T) {
-	addr := serveGRPC(t, pager{n: 1}, ServeConfig{Token: "s3cret"})
-	for _, tok := range []string{"", "wrong"} {
-		r, err := Dial("pager", DialConfig{Address: addr, Token: tok})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := r.Describe(t.Context()); err == nil {
-			t.Errorf("token %q: got a description, want a refusal", tok)
-		}
-	}
-	r, err := Dial("pager", DialConfig{Address: addr, Token: "s3cret"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Describe(t.Context()); err != nil {
-		t.Fatalf("got %v with the right token", err)
-	}
-}
-
 func TestGRPCHandleWithoutWebhooksIsNotSupported(t *testing.T) {
-	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 1}, ServeConfig{})})
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 1})})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = r.Handle(t.Context(), HandleParams{})
 	var e *Error
-	if !errors.As(err, &e) || e.Code != CodeNotSupported {
+	if !errors.As(err, &e) || e.Code != CodeNotSupported || !errors.Is(err, ErrNotSupported) {
 		t.Fatalf("got %v, want CodeNotSupported", err)
 	}
 }
@@ -96,6 +81,7 @@ func TestGRPCHandleWithoutWebhooksIsNotSupported(t *testing.T) {
 func TestDialRefusesUnsafeAddresses(t *testing.T) {
 	for _, c := range []DialConfig{
 		{Address: "http://10.0.0.1:9000"},
+		{Address: "http://127.0.0.1:9000"},
 		{Address: "https://adapter.example:443"},
 		{Address: "unix://relative.sock"},
 		{Address: "ftp://x"},
@@ -125,11 +111,12 @@ func TestGRPCCarriesTheAdaptersErrorCode(t *testing.T) {
 	}{
 		{"an adapter error", &Error{Code: CodeUpstream, Message: "GitHub said no"}, CodeUpstream},
 		{"a plain error", errors.New("boom"), CodeInternal},
+		{"a long message", &Error{Code: CodeUpstream, Message: strings.Repeat("x", 10000)}, CodeUpstream},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := dialed(t, failing{err: tt.err}).Sync(t.Context(), SyncParams{})
 			var e *Error
-			if !errors.As(err, &e) || e.Code != tt.want || e.Message != tt.err.Error() {
+			if !errors.As(err, &e) || e.Code != tt.want || e.Message != model.Clip(tt.err.Error()) {
 				t.Fatalf("got %v (%+v), want an *Error with code %d and the adapter's message", err, e, tt.want)
 			}
 		})
@@ -142,5 +129,17 @@ func TestGRPCCarriesTheAdaptersErrorCode(t *testing.T) {
 	var e *Error
 	if _, err := r.Describe(t.Context()); err == nil || errors.As(err, &e) {
 		t.Fatalf("got %v, want a transport error that is not an *Error", err)
+	}
+}
+
+func TestServeRefusesARequestOverTheMessageLimit(t *testing.T) {
+	t.Parallel()
+	r := dialed(t, pager{n: 1})
+	_, err := r.Sync(t.Context(), SyncParams{Config: make([]byte, maxMessage+1)})
+	if connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("got %v, want the request refused as too large", err)
+	}
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
+		t.Fatalf("a small request: got %v", err)
 	}
 }

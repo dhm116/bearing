@@ -284,14 +284,34 @@ func TestSyncFailuresAreErrorsNeverCompleteSyncs(t *testing.T) {
 }
 
 func TestParseConfigRejectsBadInput(t *testing.T) {
-	for name, raw := range map[string]string{
-		"no cluster": `{"api_url":"http://x"}`, "no api_url": `{"cluster":"c"}`, "bad namespace": `{"cluster":"c","api_url":"http://x","namespace":"A B"}`,
-		"not json": `{`,
+	for name, raw := range map[string]string{ //nolint:gosec // G101: variable names, not credentials
+		"no cluster": `{"api_url":"https://x"}`, "no api_url": `{"cluster":"c"}`, "bad namespace": `{"cluster":"c","api_url":"https://x","namespace":"A B"}`,
+		"not json":                `{`,
+		"plain http off loopback": `{"cluster":"c","api_url":"http://10.0.0.1:6443"}`,
+		"plain http to localhost": `{"cluster":"c","api_url":"http://localhost:6443"}`,
+		"no scheme":               `{"cluster":"c","api_url":"kube.example:6443"}`,
+		"https with no host":      `{"cluster":"c","api_url":"https:///api"}`,
+		"a lower-case token_env":  `{"cluster":"c","api_url":"https://x","token_env":"kube_token"}`,
+		"a token_env with a dash": `{"cluster":"c","api_url":"https://x","token_env":"KUBE-TOKEN"}`,
+		"Bearing's own variable":  `{"cluster":"c","api_url":"https://x","token_env":"BEARING_ADAPTER_TOKEN"}`,
+		"the store password":      `{"cluster":"c","api_url":"https://x","token_env":"BEARING_STORE_PASSWORD"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var e *adapter.Error
 			if _, err := parseConfig(json.RawMessage(raw)); !errors.As(err, &e) || e.Code != adapter.CodeInvalidParams {
 				t.Fatalf("got %v, want an invalid-params error", err)
+			}
+		})
+	}
+	for name, raw := range map[string]string{ //nolint:gosec // G101: variable names, not credentials
+		"https":                      `{"cluster":"c","api_url":"https://kube.example:6443"}`,
+		"plain http to 127.0.0.1":    `{"cluster":"c","api_url":"http://127.0.0.1:6443"}`,
+		"plain http to ::1":          `{"cluster":"c","api_url":"http://[::1]:6443"}`,
+		"a secret the core hands it": `{"cluster":"c","api_url":"https://x","token_env":"BEARING_SECRET_KUBE_TOKEN"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseConfig(json.RawMessage(raw)); err != nil {
+				t.Fatalf("got %v, want the config accepted", err)
 			}
 		})
 	}

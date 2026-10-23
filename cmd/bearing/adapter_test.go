@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
@@ -138,9 +138,11 @@ func TestRunRejectsBadUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{"adapter", "describe", os.Args[0]},
 		{"adapter", "describe", "--"},
+		{"adapter", "sync", "--address", "https://a.example", "--", os.Args[0]},
+		{"adapter", "sync"},
 	} {
-		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") {
-			t.Errorf("run %q: got %v, want an error about the adapter command", args, err)
+		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") || !errors.Is(err, errUsage) {
+			t.Errorf("run %q: got %v, want a usage error about the adapter command", args, err)
 		}
 	}
 }
@@ -186,62 +188,64 @@ func TestSyncFailsWhenOnlyClaimsAreRejected(t *testing.T) {
 	}
 }
 
-// serveRemote serves fakeAdapter on a loopback listener that wants token and
-// returns its address.
-func serveRemote(t *testing.T, token string) string {
+// serveRemote serves fakeAdapter over mutual TLS with f on a loopback
+// address and returns it.
+func serveRemote(t *testing.T, f testkit.TLSFiles) string {
 	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	env := map[string]string{adapter.EnvTLSCert: f.ServerCert, adapter.EnvTLSKey: f.ServerKey, adapter.EnvTLSClientCA: f.CA}
+	lis, err := adapter.Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- adapter.Serve(ctx, fakeAdapter{}, lis, adapter.ServeConfig{Token: token}) }()
+	go func() { done <- adapter.Serve(ctx, fakeAdapter{}, lis) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
 			t.Error(err)
 		}
 	})
-	return "http://" + lis.Addr().String()
+	return "https://" + lis.Addr().String()
 }
 
-func TestRunAdapterCommandsReachARunningAdapterWithItsToken(t *testing.T) {
+func TestRunAdapterCommandsReachARunningAdapterOverMutualTLS(t *testing.T) {
 	t.Parallel()
-	addr := serveRemote(t, "s3cret")
-	env := queryEnv{Getenv: func(k string) string { return map[string]string{"ADAPTER_TOKEN": "s3cret"}[k] }}
+	f := testkit.NewTLSFiles(t)
+	addr := serveRemote(t, f)
+	tlsArgs := []string{"--address", addr, "--tls-ca", f.CA, "--tls-cert", f.ClientCert, "--tls-key", f.ClientKey}
 	var out bytes.Buffer
-	if err := runWith(t.Context(), env, []string{"adapter", "describe", "--address", addr, "--token-env", "ADAPTER_TOKEN"}, &out); err != nil {
+	if err := run(t.Context(), append([]string{"adapter", "describe"}, tlsArgs...), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"name": "fake"`) {
 		t.Fatalf("got %s, want the fake adapter described", out.String())
 	}
 	out.Reset()
-	if err := runWith(t.Context(), env, []string{"adapter", "sync", "--address", addr, "--token-env", "ADAPTER_TOKEN"}, &out); err != nil {
+	if err := run(t.Context(), append([]string{"adapter", "sync"}, tlsArgs...), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "test:team/payments") {
 		t.Fatalf("got %q, want the fake adapter's observation", out.String())
 	}
-	// The default variable is unset here, so no token is sent.
-	if err := runWith(t.Context(), env, []string{"adapter", "describe", "--address", addr}, &bytes.Buffer{}); err == nil {
-		t.Fatal("a call without the token succeeded")
+	// A client certificate from another CA is refused.
+	other := testkit.NewTLSFiles(t)
+	if err := run(t.Context(), []string{"adapter", "describe", "--address", addr, "--tls-ca", f.CA, "--tls-cert", other.ClientCert, "--tls-key", other.ClientKey}, &bytes.Buffer{}); err == nil {
+		t.Fatal("a call with an untrusted client certificate succeeded")
 	}
 }
 
 func TestRunAdapterCommandsRefuseAnAddressAndACommandOrNeither(t *testing.T) {
 	t.Parallel()
-	env := queryEnv{Getenv: func(string) string { return "" }}
 	for _, tt := range []struct {
 		args []string
 		want string
 	}{
 		{[]string{"adapter", "describe", "--address", "http://127.0.0.1:1", "--", os.Args[0]}, "not both"},
 		{[]string{"adapter", "sync"}, "or give --address"},
-		{[]string{"adapter", "describe", "--address", "https://adapter.example:8443"}, "no token: set $BEARING_ADAPTER_TOKEN"},
+		{[]string{"adapter", "describe", "--address", "https://adapter.example:8443", "--tls-ca", "/ca.pem"}, "needs --tls-ca, --tls-cert and --tls-key"},
 	} {
-		if err := runWith(t.Context(), env, tt.args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), tt.want) {
+		if err := run(t.Context(), tt.args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("run %q: got %v, want an error containing %q", tt.args, err, tt.want)
 		}
 	}

@@ -33,11 +33,11 @@ func serveChild(mode string) int {
 		return 3
 	case "stubborn":
 		signal.Ignore(syscall.SIGTERM)
-		lis, err := Listen(os.Getenv(EnvListen))
+		lis, err := Listen(os.Getenv(EnvListen), os.Getenv)
 		if err != nil {
 			return 1
 		}
-		_ = Serve(context.Background(), pager{n: 1}, lis, ServeConfig{})
+		_ = Serve(context.Background(), pager{n: 1}, lis)
 		return 0
 	}
 	var a Adapter = pager{n: 1}
@@ -114,7 +114,6 @@ func TestStartRunsAnAdapterThatSyncsAndStopsOnClose(t *testing.T) {
 
 func TestStartGivesTheAdapterOnlyTheEnvironmentItIsGiven(t *testing.T) {
 	t.Setenv("BEARING_STORE_PASSWORD", "canary-password")
-	t.Setenv(EnvToken, "canary-token")
 	dir := socketDir(t)
 	p, err := startChild(t, "env", StartConfig{SocketDir: dir, Env: []string{"KEEP=1"}})
 	if err != nil {
@@ -127,17 +126,18 @@ func TestStartGivesTheAdapterOnlyTheEnvironmentItIsGiven(t *testing.T) {
 	}
 	got := strings.Split(d.Name, "\n")
 	slices.Sort(got)
-	want := []string{EnvListen + "=unix://" + filepath.Join(dir, "child.sock"), EnvToken + "=", childEnv + "=env", "KEEP=1"}
+	want := []string{EnvListen + "=unix://" + filepath.Join(dir, "child.sock"), childEnv + "=env", "KEEP=1"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
 	}
 }
 
-func TestStartWithInheritEnvClearsAnInheritedToken(t *testing.T) {
-	// Without the override the adapter would demand this token and the core,
-	// which sends none, would be refused.
-	t.Setenv(EnvToken, "canary-token")
+func TestStartWithInheritEnvIgnoresInheritedTLSFiles(t *testing.T) {
+	// The core's socket takes no TLS, so a remote adapter's variables left in
+	// the developer's shell must not stop a local start.
+	t.Setenv(EnvListen, "tcp://127.0.0.1:0")
+	t.Setenv(EnvTLSCert, "/nonexistent/cert.pem")
 	p, err := startChild(t, "serve", StartConfig{InheritEnv: true})
 	if err != nil {
 		t.Fatal(err)

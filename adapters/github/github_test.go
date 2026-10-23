@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -54,7 +55,7 @@ func newRig(t *testing.T, mod ...func(*Config)) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"GITHUB_TOKEN": testToken, "GITHUB_WEBHOOK_SECRET": testSecret}
+	env := map[string]string{"GITHUB_TOKEN": testToken}
 	a := &Adapter{HTTP: srv.Client(), Now: c.Now, Getenv: func(k string) string { return env[k] }}
 	return &rig{t: t, clock: c, org: org, srv: srv, a: a, cfg: raw}
 }
@@ -362,4 +363,31 @@ func listOf(v *structpb.Value) []string {
 		out = append(out, e.GetStringValue())
 	}
 	return out
+}
+
+func TestParseConfigRefusesUnsafeURLsAndVariables(t *testing.T) {
+	for name, tt := range map[string]struct {
+		raw string
+		ok  bool
+	}{
+		"https":                      {`{"org":"acme","api_url":"https://ghe.example.com/api/v3"}`, true},
+		"plain http to loopback":     {`{"org":"acme","api_url":"http://127.0.0.1:8080"}`, true},
+		"a secret the core hands it": {`{"org":"acme","token_env":"BEARING_SECRET_GITHUB_TOKEN"}`, true},
+		"plain http off loopback":    {`{"org":"acme","api_url":"http://ghe.example.com/api/v3"}`, false},
+		"no scheme":                  {`{"org":"acme","api_url":"ghe.example.com"}`, false},
+		"a lower-case token_env":     {`{"org":"acme","token_env":"github_token"}`, false},
+		"a token_env with a space":   {`{"org":"acme","token_env":"GITHUB TOKEN"}`, false},
+		"Bearing's own variable":     {`{"org":"acme","token_env":"BEARING_ADAPTER_TOKEN"}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseConfig(json.RawMessage(tt.raw))
+			var e *adapter.Error
+			switch {
+			case tt.ok && err != nil:
+				t.Fatalf("got %v, want the config accepted", err)
+			case !tt.ok && (!errors.As(err, &e) || e.Code != adapter.CodeInvalidParams):
+				t.Fatalf("got %v, want an invalid-params error", err)
+			}
+		})
+	}
 }

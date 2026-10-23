@@ -123,6 +123,12 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if c.PageSize <= 0 {
 		c.PageSize = 500
 	}
+	if err := adapter.CheckAPIURL("api_url", c.APIURL); err != nil {
+		return c, err
+	}
+	if err := adapter.CheckEnvName("token_env", c.TokenEnv); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 

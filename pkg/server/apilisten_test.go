@@ -253,7 +253,7 @@ func TestCheckListenRefusesUnsafeSettings(t *testing.T) {
 		"a name that is not local":    {ListenConfig{Addr: "bearing.example:8443", Authenticator: authn}, "TLS"},
 		"a certificate and no key":    {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn, CertFile: "c.pem"}, "both"},
 		"plaintext on loopback":       {ListenConfig{Addr: "127.0.0.1:8443", Authenticator: authn}, ""},
-		"localhost":                   {ListenConfig{Addr: "localhost:8443", Authenticator: authn}, ""},
+		"localhost by name":           {ListenConfig{Addr: "localhost:8443", Authenticator: authn}, "TLS"},
 		"IPv6 loopback":               {ListenConfig{Addr: "[::1]:8443", Authenticator: authn}, ""},
 		"plaintext allowed":           {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, InsecurePlaintext: true}, ""},
 		"TLS off loopback":            {ListenConfig{Addr: "0.0.0.0:8443", Authenticator: authn, CertFile: "c.pem", KeyFile: "k.pem"}, ""},

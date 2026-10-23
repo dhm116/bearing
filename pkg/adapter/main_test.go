@@ -8,7 +8,7 @@ import (
 
 func TestListenRefusesBadAddressesAndMakesAPrivateSocket(t *testing.T) {
 	for _, addr := range []string{"", "unix://rel.sock", "http://x:1", "::"} {
-		if _, err := Listen(addr); err == nil {
+		if _, err := Listen(addr, func(string) string { return "" }); err == nil {
 			t.Errorf("%q: got a listener, want a refusal", addr)
 		}
 	}
@@ -18,7 +18,7 @@ func TestListenRefusesBadAddressesAndMakesAPrivateSocket(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	path := filepath.Join(dir, "a.sock")
-	lis, err := Listen("unix://" + path)
+	lis, err := Listen("unix://"+path, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
