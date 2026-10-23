@@ -53,6 +53,8 @@ cert_dir = "/run/bearing-adapter/tls"
 svid_file_name = "svid.pem"            # BEARING_ADAPTER_TLS_CERT
 svid_key_file_name = "svid_key.pem"    # BEARING_ADAPTER_TLS_KEY
 svid_bundle_file_name = "bundle.pem"   # BEARING_ADAPTER_TLS_CLIENT_CA
+key_file_mode = 0600                   # Bearing refuses a key others can read
+cert_file_mode = 0644
 daemon_mode = true
 ```
 
