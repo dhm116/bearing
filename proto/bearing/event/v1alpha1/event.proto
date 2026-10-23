@@ -1,16 +1,11 @@
-// Events on Bearing's event log (ADR 7): inputs, adapter output, manual
-// operations and the events the core appends itself
-// (docs/spec/data-model.md, "Manual operations" and "Status and
-// conflicts"). Each payload travels as the data of a CloudEvent; the
+// Events on Bearing's event log: inputs, adapter output and the events the
+// core appends itself. Each payload travels as the data of a CloudEvent; the
 // observation envelope is spelled out because adapters emit it whole.
 
 syntax = "proto3";
 
 package bearing.event.v1alpha1;
 
-import "bearing/config/v1alpha1/resources.proto";
-import "bearing/model/v1alpha1/declaration.proto";
-import "bearing/model/v1alpha1/fact.proto";
 import "bearing/model/v1alpha1/observation.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -92,205 +87,13 @@ message ObservationsEmitted {
   google.protobuf.Timestamp sync_started = 6;
 }
 
-// Actor is who asked for an event: a person, an agent acting for one, or a
-// Bearing component. A component's subject is "system:<name>", for example
-// "system:scheduler" or "system:loader".
+// Actor is who asked for an event.
 message Actor {
-  // The stable ID the authenticator gives a person or agent (OIDC subject
-  // or agent token ID), or "system:<name>".
+  // What the authenticator proved: "token" for the API token, or
+  // "local:<uid>" for the socket's caller.
   string subject = 1;
   // True for an agent.
   bool agent = 2;
-}
-
-// MergeRequested merges two subjects (rule manual).
-message MergeRequested {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // Exactly two subjects of one kind.
-  repeated string subject_ids = 3;
-  // Also withdraws a distinct_from between them.
-  bool clear_distinct_from = 4;
-}
-
-// UnmergeRequested splits aliases off an active subject.
-message UnmergeRequested {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // The active subject.
-  string subject_id = 3;
-  // A non-empty proper subset of its aliases.
-  repeated string aliases = 4;
-}
-
-// DistinctFromSet asserts distinct_from between two subjects on all valid
-// time.
-message DistinctFromSet {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // Exactly two subjects of one kind.
-  repeated string subject_ids = 3;
-}
-
-// DistinctFromCleared withdraws distinct_from between two subjects on all
-// valid time.
-message DistinctFromCleared {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // Exactly two subjects.
-  repeated string subject_ids = 3;
-}
-
-// ClaimWithdrawn withdraws one source's claims on one fact.
-message ClaimWithdrawn {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // The source whose claims are withdrawn.
-  string source = 3;
-  // The fact's subject.
-  string subject_id = 4;
-  // The fact's predicate.
-  string predicate = 5;
-  // The fact's object.
-  bearing.model.v1alpha1.FactObject object = 6;
-}
-
-// OverrideSet is a manual snapshot of (subject, predicate) that decides
-// status.
-message OverrideSet {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // The subject.
-  string subject_id = 3;
-  // The predicate.
-  string predicate = 4;
-  // The objects that are asserted; every other object is overridden.
-  repeated bearing.model.v1alpha1.FactObject objects = 5;
-  // Absent: unbounded.
-  google.protobuf.Timestamp valid_from = 6;
-  // Absent: open.
-  google.protobuf.Timestamp valid_to = 7;
-}
-
-// OverrideCleared ends an override at the event's observed_at.
-message OverrideCleared {
-  // Who asked.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // The subject.
-  string subject_id = 3;
-  // The predicate.
-  string predicate = 4;
-}
-
-// ValidTimeBoundaryReached says valid time passed a known boundary of
-// (subject, predicate); applying it recomputes conflicts and derived claims.
-message ValidTimeBoundaryReached {
-  // The subject.
-  string subject_id = 1;
-  // The predicate.
-  string predicate = 2;
-  // The boundary: a valid_from or valid_to.
-  google.protobuf.Timestamp at = 3;
-}
-
-// SubjectDeletionDerived treats a subject missing from two consecutive
-// complete syncs as entity.deleted at the first missing sync's t0.
-message SubjectDeletionDerived {
-  // The source whose syncs missed it.
-  string source = 1;
-  // The subject.
-  string subject_id = 2;
-  // The first missing sync's ID (its SyncRequested event ID).
-  string sync_id = 3;
-  // That sync's t0.
-  google.protobuf.Timestamp at = 4;
-}
-
-// ConflictOpened reports a conflict that stands.
-message ConflictOpened {
-  // The conflict.
-  bearing.model.v1alpha1.Conflict conflict = 1;
-}
-
-// ConflictResolved reports a standing conflict that closed, with its
-// resolution.
-message ConflictResolved {
-  // The conflict, with resolution set.
-  bearing.model.v1alpha1.Conflict conflict = 1;
-}
-
-// OverrideStale flags an override whose non-manual supports changed after
-// it was recorded.
-message OverrideStale {
-  // The subject.
-  string subject_id = 1;
-  // The predicate.
-  string predicate = 2;
-  // When the override was recorded.
-  google.protobuf.Timestamp override_recorded_at = 3;
-}
-
-// CompactionRequested replaces the history of old periods with summaries
-// where the Retention resources say to (docs/spec/data-model.md, "Retention
-// and compaction"). Its observed_at is the instant tiers count back from,
-// and the summaries' compacted_at. The scheduler appends it, or a person
-// does.
-message CompactionRequested {
-  // Who asked: the scheduler, the CLI or the API.
-  Actor actor = 1;
-  // Compact only this predicate; empty for every predicate a Retention rule
-  // covers.
-  string predicate = 2;
-  // Compact only subjects of this kind; empty for every kind.
-  string kind = 3;
-}
-
-// DeclarationChanged says a source's adapter was upgraded and now declares
-// something else (docs/spec/data-model.md, "Declarations"). The new
-// declaration takes effect from the event's record time. Applying it checks
-// the declaration against the key types already bound and is rejected
-// (invalid_operation) if it changes a bound key type's kind, class or case.
-message DeclarationChanged {
-  // The configured source whose adapter changed.
-  string source = 1;
-  // The adapter's version before, from its Describe result; empty for a
-  // source's first declaration.
-  string previous_adapter_version = 2;
-  // The adapter's version now, from its Describe result.
-  string adapter_version = 3;
-  // The module's digest now, "sha256:<hex>", when the adapter is pinned by
-  // digest.
-  string module_digest = 4;
-  // The new declaration. Required.
-  bearing.model.v1alpha1.AdapterDeclaration declaration = 5;
-}
-
-// ConfigApplied is one atomic change to the configuration (ADR 10). Applying
-// it versions every resource it changes at the event's record time, skips
-// changes that leave a resource as it is, and re-evaluates what the changed
-// resources affect (docs/spec/data-model.md, "Configuration"). Its
-// observed_at is the ingest time.
-message ConfigApplied {
-  // Who applied it: a person, or the loader at start-up.
-  Actor actor = 1;
-  // Why.
-  string reason = 2;
-  // The changes, applied together.
-  repeated ConfigChange changes = 3;
 }
 
 // EventDeadLettered is the record of an event a worker gave up on after
@@ -322,26 +125,4 @@ message EventDeadLettered {
   // credentials, and this record lives until someone releases it. The event
   // stays in the log until retention removes it, and a sync can be run again.
   uint64 data_bytes = 9;
-}
-
-// ConfigChange is one resource set or deleted.
-message ConfigChange {
-  // What the change does.
-  ConfigChangeType type = 1;
-  // The resource's kind, e.g. "Source".
-  string resource_kind = 2;
-  // The resource's name.
-  string resource_name = 3;
-  // The whole resource as it is after the change; absent for a delete.
-  bearing.config.v1alpha1.Resource resource = 4;
-}
-
-// ConfigChangeType is what a ConfigChange does to a resource.
-enum ConfigChangeType {
-  // Not set. Rejected in every change.
-  CONFIG_CHANGE_TYPE_UNSPECIFIED = 0;
-  // Create the resource, or replace its content.
-  CONFIG_CHANGE_TYPE_SET = 1;
-  // Delete the resource.
-  CONFIG_CHANGE_TYPE_DELETE = 2;
 }
