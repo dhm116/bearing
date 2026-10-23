@@ -15,11 +15,13 @@ authenticated caller may call every route; there are no roles yet.
 The socket's directory MUST be mode 0700 exactly and owned by the service
 user, and the socket is mode 0600; the server refuses to start otherwise. It is
 available on Linux only for now, and elsewhere it refuses every connection.
-The TCP listener is off unless `auth.token_env` is set (the server refuses to
-start if that variable is empty) and uses TLS 1.2 or later;
-plaintext is accepted on a loopback address only, or on another with an
-explicit insecure-plaintext setting (named `insecure_api_plaintext` when
-configuration lands). `GET /healthz` and `GET /readyz` need no
+The TCP listener is off unless `auth.token_env` is set. The server refuses to
+start if that variable is empty, holds fewer than 32 bytes, or holds
+whitespace or control characters. The listener uses TLS 1.2 or later;
+plaintext is accepted only when the listen address is a literal loopback IP
+(`127.0.0.1`, `[::1]`; the name `localhost` does not count, because a
+resolver can point it anywhere), or on another address with
+`listen.insecure_api_plaintext`, which logs a warning at start. `GET /healthz` and `GET /readyz` need no
 credentials on either listener and return a status code and one word; they do
 not count against the request limits and carry no request ID.
 
@@ -36,12 +38,13 @@ first failure is the answer:
 3. Authentication (else 401 `unauthenticated`).
 4. The caller's rate limit (else 429 `rate_limited`).
 5. For a sync request, that the source exists (else 404 `unknown_source`).
-6. For `changes`, the caller's reads in flight (else 429 `too_many_reads`).
+6. For a slow read (`changes`, `find`, and `related` with `depth` above 1),
+   the caller's slow reads in flight (else 429 `too_many_reads`).
 7. The parameters (else 400 `invalid_request`).
 
 Parameters go in the query string. A name the route does not define, a name
 given twice, text with control characters and anything over its length limit
-is a 400. Times are RFC 3339.
+is a 400. Times are RFC 3339. `find` with a `kind` that is not a kind is a 400.
 
 ## Routes
 
@@ -81,11 +84,34 @@ with a burst of 200 (else 429 `rate_limited`, counted whatever the token). It
 speaks HTTP/1.1 only, so a connection carries one request at a time. The health
 endpoints and the webhook route are not counted (the route has its own limit,
 see [Webhook deliveries](#webhook-deliveries)), and the socket has no such
-limit. Each caller has a request rate (default 600 a minute), at most two `changes`
-reads in flight, and a deadline per request (30 seconds; 15 for `changes`,
-which scans fact rows). The server holds at most 256 requests at once, reads
+limit. Each caller has a request rate (default 600 a minute), at most two slow
+reads in flight, and a deadline per request (30 seconds; 15 for a slow read).
+The slow reads are `changes`, `find` and `related` with `depth` above 1: they
+scan or walk many rows, so they share one cap and the shorter deadline. A
+caller is its token subject at a peer address (an IPv6 peer is its /64), or
+`local:<uid>` on the socket, so one remote client cannot use up another's
+share of a shared token. The server holds at most 256 requests at once, reads
 headers for at most 10 seconds and 16 KiB, and refuses any body (no route
 takes one).
+
+## Settings
+
+The listeners come from the `listen` and `auth` blocks of the settings file
+(`pkg/server/boot/settings.go`):
+
+| Setting | Meaning |
+| --- | --- |
+| `listen.socket` | Path of the Unix socket |
+| `listen.addr` | TCP address; needs `auth.token_env` |
+| `listen.tls_cert`, `listen.tls_key` | PEM files for TLS; both or neither |
+| `listen.insecure_api_plaintext` | Allow plain HTTP on a non-loopback address, for a TLS-terminating proxy |
+| `listen.max_conns`, `listen.max_conns_per_peer` | Connection caps (defaults 1,024 and 64) |
+| `listen.peer_rate_per_minute` | Requests a minute per peer before authentication (default 1,200) |
+| `listen.insecure_no_peer_rate` | Turn the per-peer request limit off |
+| `auth.token_env` | Name of the variable that holds the API token |
+
+A limit that is present must be positive. The TLS certificate and key are
+read once at start; changing them needs a restart.
 
 ## Errors
 

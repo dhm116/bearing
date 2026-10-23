@@ -165,7 +165,8 @@ and consistent.
   plain, with a diagram where it helps. Draw diagrams with the
   `diagram-design` skill and the Bearing profile (`.diagram-design`,
   `docs/brand/diagram-design/bearing.md`), not Mermaid: keep the HTML
-  source in `docs/diagrams/`, export light and dark SVGs beside it, run `docs/diagrams/combine.sh` so the light one also follows dark mode, and
+  source in `docs/diagrams/`, export light and dark SVGs beside it, run
+  `docs/diagrams/combine.sh` so the light one also follows dark mode, and
   embed them with a `<picture>` element as the README does for the logo.
 
 ## Changing the design

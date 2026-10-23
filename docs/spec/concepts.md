@@ -1,8 +1,9 @@
 # Concepts
 
 How Bearing turns what your tools say into answers you can check. The
-decisions behind this page are [ADR 2](../adr/0002-facts-carry-provenance.md)
-and [ADR 6](../adr/0006-small-data-model.md); the fields are defined in
+decisions behind this page are [ADR 2](../adr/0002-facts-carry-provenance.md),
+[ADR 6](../adr/0006-small-data-model.md) and
+[ADR 7](../adr/0007-records-identity-links-matchers.md); the fields are defined in
 `proto/bearing/model/v1alpha1/observation.proto`.
 
 ```mermaid
@@ -36,11 +37,26 @@ attribute.
 
 ## Entity
 
-An **entity** is one real thing: a service, a repository, a person, a team.
-Every key that names it is an **alias** of it. When one observation names
-keys that Bearing had filed under two entities of the same kind (a GitHub
-user and a directory person, linked by the directory), the two are merged
-into the older one, and the newer one's keys and facts move to it.
+A **record** is what one source says about one key, with the facts it
+observed. An **entity** is one real thing (a service, a repository, a
+person, a team): a cluster of records joined by asserted `same_as` links
+([ADR 7](../adr/0007-records-identity-links-matchers.md)). Reads answer per
+entity, so asking about any of its records shows all of its facts.
+
+Records are never merged. When an observation names a key that another
+record already holds, Bearing opens a `same_as` link between the two and
+keeps both:
+
+- **Asserted** when the shared key is the other record's primary key (some
+  observation is about that key), or when the other record has no kind yet
+  (a relation target nobody has described). The records join one entity.
+- **Proposed** when the key is only an alias of the other record. A
+  proposal carries its evidence and never answers ownership or dependency
+  questions.
+
+A `distinct_from` link keeps a pair apart for good: no `same_as` link is
+opened for it. Closing a link splits the entity again, and nothing is lost.
+Records of different kinds never join.
 
 ## Fact
 
