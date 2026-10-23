@@ -282,7 +282,7 @@ func TestEntityNeverMissesARecordWhileItsClusterChanges(t *testing.T) {
 			}
 			ls, err := s.Links(ctx, graph.LinkFilter{Entity: "id-2", Kind: graph.SameAs})
 			if err != nil || len(ls) != 1 {
-				done <- fmt.Errorf("links: %v, %v", ls, err)
+				done <- fmt.Errorf("links %v: %w", ls, err)
 				return
 			}
 			if err := s.CloseLink(ctx, ls[0].ID, at(60)); err != nil {

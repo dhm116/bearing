@@ -98,6 +98,7 @@ func newFake() *fake {
 	f.seen(t0.Add(day), "d-pay")
 	return f
 }
+
 func TestRunProposesAndRerunAddsNothing(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }}
@@ -195,6 +196,7 @@ func TestRunStaleProposalDecaysBelowFloor(t *testing.T) {
 		t.Fatalf("got proposed %d, reinforced %d, %d links; want a new proposal (1, 0, 2)", res.Proposed, res.Reinforced, len(g.links))
 	}
 }
+
 func TestRunHalfLifeByKind(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindTeam: 2 * day}}

@@ -109,7 +109,6 @@ func entities(ctx context.Context, db querier, clusters []string) (map[string]gr
 // records loads the records (entity rows aliased e) matching where, oldest
 // first, with their sorted keys and the sources that observed them.
 func records(ctx context.Context, db querier, where string, args ...any) ([]graph.Record, error) {
-	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := db.QueryContext(ctx, `SELECT e.id, e.cluster_id, e.kind, e.name,
 		(SELECT CASE WHEN arg_max(coalesce(o.payload->>'$.entity.deleted', 'false'), o.observed_at) = 'true' THEN NULL ELSE max(o.observed_at) END
 		 FROM alias a JOIN observation o ON o.key = a.key WHERE a.entity_id = e.id)
@@ -247,7 +246,6 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 			where += ` AND oe.cluster_id = ?`
 			args = append(args, string(f.Object))
 		}
-		//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 		rows, err := db.QueryContext(ctx,
 			`SELECT `+factCols+` FROM `+factFrom+` WHERE `+where+` ORDER BY se.cluster_id, f.predicate, f.valid_from, f.id`, args...)
 		if err != nil {
@@ -293,7 +291,6 @@ func (s *Store) Walk(ctx context.Context, r graph.WalkRequest) ([]graph.Step, er
 			args = append(args, anySlice(r.Predicates)...)
 		}
 		args = append(args, string(start), r.MaxDepth)
-		//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 		rows, err := db.QueryContext(ctx, `
 WITH RECURSIVE cf AS (
   SELECT f.id, se.cluster_id AS a, oe.cluster_id AS b FROM `+factFrom+` WHERE `+where+`
@@ -357,7 +354,6 @@ func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Ch
 		ow, oa := window("valid_from")
 		cw, ca := window("valid_to")
 		args := append(append(oa, ca...), r.Limit)
-		//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 		rows, err := db.QueryContext(ctx, `
 SELECT c.change_kind, c.changed_at, `+factCols+` FROM (
   SELECT 'opened' AS change_kind, f.valid_from AS changed_at, f.id FROM `+factFrom+` WHERE `+ow+`
@@ -418,7 +414,6 @@ func attachSources(ctx context.Context, db querier, facts []*graph.Fact) error {
 	}
 	// Every sync adds a fact_source row; only each source's first and latest
 	// observation are returned, with the total count.
-	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := db.QueryContext(ctx, `
 SELECT fact_id, id, source, observed_at, url, n FROM (
   SELECT fs.fact_id, o.id, o.source, o.observed_at, o.url,

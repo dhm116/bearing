@@ -44,7 +44,6 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		if !f.WithClosed {
 			where += ` AND l.valid_to IS NULL`
 		}
-		//nolint:gosec // only fixed fragments are joined; values are bound
 		rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to
 		FROM identity_link l WHERE `+where+` ORDER BY l.valid_from, l.id`, args...)
 		if err != nil {
@@ -67,7 +66,6 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		for i, l := range links {
 			idx[l.ID] = i
 		}
-		//nolint:gosec // only fixed fragments are joined; values are bound
 		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR)
 		FROM link_deposit d WHERE d.link_id IN (SELECT l.id FROM identity_link l WHERE `+where+`)
 		ORDER BY d.deposited_at, d.observation_id`, args...)
