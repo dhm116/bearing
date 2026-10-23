@@ -1,5 +1,5 @@
 // The observation payload: one source's report about one entity at one
-// observed_at (docs/spec/data-model.md, "Observations"). The CloudEvents
+// observed_at. The CloudEvents
 // envelope around it is bearing.event.v1alpha1.Observation.
 
 syntax = "proto3";

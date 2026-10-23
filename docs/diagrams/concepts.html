@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>From observation to answer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #F5F7F6;
+      --color-ink:    #18242A;
+      --color-muted:  #55646B;
+      --color-accent: #1D5E74;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1000px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Concepts</p>
+    <h1>From observation to answer</h1>
+    <div class="diagram-container">
+<svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="concepts-title concepts-desc">
+<title id="concepts-title">From observation to answer</title>
+<desc id="concepts-desc">An adapter sends observations to Store.Ingest, which writes four kinds of table: observations, facts with their sources, records with their keys, and identity links; asserted same_as links join records into entities, each fact points back at the observations behind it, and queries from the CLI, API and MCP read facts and entities.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#55646B"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1D5E74"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4B5198"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#55646B" stroke-width="1.2"/></marker></defs>
+<rect width="100%" height="100%" fill="#F5F7F6"/>
+<g>
+<!-- zones -->
+<rect x="472" y="32" width="240" height="400" rx="8" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.10)" stroke-width="0.8"/>
+<rect x="536" y="36" width="112" height="12" rx="2" fill="#F5F7F6"/><text x="592" y="45" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.14em">STORE · DUCKDB</text>
+<!-- arrows -->
+<path d="M 184,236 L 272,236" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 320,176 V 100 Q 320,92 328,92 H 488" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 424,188 L 488,188" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 424,284 L 488,284" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 320,296 V 372 Q 320,380 328,380 H 488" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 592,120 L 592,160" fill="none" stroke="#55646B" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+<path d="M 592,352 L 592,312" fill="none" stroke="#1D5E74" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+<path d="M 696,188 L 800,188" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 696,284 L 800,284" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<!-- labels -->
+<rect x="192" y="216" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="228" y="225" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">OBSERVATIONS</text>
+<rect x="600" y="134" width="60" height="12" rx="2" fill="#F5F7F6"/><text x="630" y="143" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">PROVENANCE</text>
+<rect x="600" y="326" width="68" height="12" rx="2" fill="#F5F7F6"/><text x="634" y="335" fill="#1D5E74" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">JOIN RECORDS</text>
+<rect x="708" y="168" width="80" height="12" rx="2" fill="#F5F7F6"/><text x="748" y="177" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">FACTS, CHANGES</text>
+<rect x="712" y="264" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="748" y="273" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">ENTITY, FIND</text>
+<!-- nodes -->
+<rect x="32" y="204" width="152" height="64" rx="6" fill="#F5F7F6"/><rect x="32" y="204" width="152" height="64" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="40" y="210" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="54" y="219" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PROC</text><text x="108" y="240" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Adapter</text><text x="108" y="255" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">GitHub · directory · K8s</text>
+<rect x="272" y="176" width="152" height="120" rx="6" fill="#F5F7F6"/><rect x="272" y="176" width="152" height="120" rx="6" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><rect x="280" y="182" width="28" height="12" rx="2" fill="none" stroke="rgba(29,94,116,0.50)" stroke-width="0.8"/><text x="294" y="191" fill="#1D5E74" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text><text x="348" y="240" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Store.Ingest</text><text x="348" y="255" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">skips IDs it has</text>
+<rect x="488" y="64" width="208" height="56" rx="6" fill="#F5F7F6"/><rect x="488" y="64" width="208" height="56" rx="6" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><rect x="496" y="70" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="510" y="79" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text><text x="592" y="96" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Observations</text><text x="592" y="111" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">observation</text>
+<rect x="488" y="160" width="208" height="56" rx="6" fill="#F5F7F6"/><rect x="488" y="160" width="208" height="56" rx="6" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><rect x="496" y="166" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="510" y="175" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text><text x="592" y="192" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Facts</text><text x="592" y="207" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">fact · fact_source</text>
+<rect x="488" y="256" width="208" height="56" rx="6" fill="#F5F7F6"/><rect x="488" y="256" width="208" height="56" rx="6" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><rect x="496" y="262" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="510" y="271" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text><text x="592" y="288" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Records</text><text x="592" y="303" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">entity · alias</text>
+<rect x="488" y="352" width="208" height="56" rx="6" fill="#F5F7F6"/><rect x="488" y="352" width="208" height="56" rx="6" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><rect x="496" y="358" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="510" y="367" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text><text x="592" y="384" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Identity links</text><text x="592" y="399" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">identity_link · link_deposit</text>
+<rect x="800" y="176" width="128" height="120" rx="6" fill="#F5F7F6"/><rect x="800" y="176" width="128" height="120" rx="6" fill="rgba(85,100,107,0.10)" stroke="#6B7C82" stroke-width="1"/><rect x="808" y="182" width="28" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="822" y="191" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">READ</text><text x="864" y="240" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Queries</text><text x="864" y="255" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">CLI · API · MCP</text>
+</g>
+<!-- legend -->
+<line x1="40" y1="464" x2="920" y2="464" stroke="rgba(24,36,42,0.10)" stroke-width="0.8"/><text x="40" y="492" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text>
+<rect x="112" y="484" width="14" height="10" rx="2" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><text x="132" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Ingest</text>
+<rect x="180" y="484" width="14" height="10" rx="2" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="200" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Process</text>
+<rect x="252" y="484" width="14" height="10" rx="2" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><text x="272" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Table</text>
+<rect x="316" y="484" width="14" height="10" rx="2" fill="rgba(85,100,107,0.10)" stroke="#6B7C82" stroke-width="1"/><text x="336" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Reader</text>
+<line x1="384" y1="489" x2="404" y2="489" stroke="#55646B" stroke-width="1" stroke-dasharray="4,3"/><text x="412" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Fact points back at its observations</text>
+<line x1="600" y1="489" x2="620" y2="489" stroke="#1D5E74" stroke-width="1.4"/><text x="628" y="492" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Asserted same_as joins records into an entity</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>
