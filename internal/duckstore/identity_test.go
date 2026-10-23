@@ -583,3 +583,28 @@ func TestIngestAliasProposalStopsWhenTheOwnerDropsTheAlias(t *testing.T) {
 		t.Fatalf("got %+v, %+v, want the proposal closed once its owner stopped listing the alias", r, ls)
 	}
 }
+
+func TestRecordsLastSeenDeletionWinsATieBetweenSources(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	// Insert the deletion first and last in turn: the answer must not depend on row order.
+	for i, order := range [][2]string{{"gh", "other"}, {"other", "gh"}} {
+		key := fmt.Sprintf("k:team/pay%d", i)
+		for j, src := range order {
+			var opts []func(*modelv1alpha1.ObservationData)
+			if src == "gh" {
+				opts = append(opts, deleted)
+			}
+			ingestOK(t, s, src, obs(fmt.Sprintf("t%d-%d", i, j), 5, "Team", key, opts...))
+		}
+	}
+	rs, err := s.Records(t.Context(), "Team")
+	if err != nil || len(rs) != 2 {
+		t.Fatalf("got %+v, %v, want two records", rs, err)
+	}
+	for _, r := range rs {
+		if !r.LastSeen.IsZero() {
+			t.Errorf("%s: got LastSeen %v, want zero (the deletion wins the tie)", r.Name, r.LastSeen)
+		}
+	}
+}

@@ -110,7 +110,7 @@ func entities(ctx context.Context, db querier, clusters []string) (map[string]gr
 // first, with their sorted keys and the sources that observed them.
 func records(ctx context.Context, db querier, where string, args ...any) ([]graph.Record, error) {
 	rows, err := db.QueryContext(ctx, `SELECT e.id, e.cluster_id, e.kind, e.name,
-		(SELECT CASE WHEN arg_max(coalesce(o.payload->>'$.entity.deleted', 'false'), o.observed_at) = 'true' THEN NULL ELSE max(o.observed_at) END
+		(SELECT CASE WHEN arg_max(coalesce(o.payload->>'$.entity.deleted', 'false') = 'true', row(o.observed_at, coalesce(o.payload->>'$.entity.deleted', 'false') = 'true')) THEN NULL ELSE max(o.observed_at) END
 		 FROM alias a JOIN observation o ON o.key = a.key WHERE a.entity_id = e.id)
 		FROM entity e WHERE `+where+` ORDER BY e.created_at, e.id`, args...)
 	if err != nil {
