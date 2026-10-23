@@ -31,7 +31,9 @@ var testCallers = server.TokenAuthenticator{Token: apiToken}
 // nopApplier applies nothing: these tests read the graph the world built.
 type nopApplier struct{}
 
-func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation) error { return nil }
+func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation, server.Completion) error {
+	return nil
+}
 
 // api builds the server's API over the world's store, with the static API token
 // authenticator.

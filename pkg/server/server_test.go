@@ -108,7 +108,7 @@ type fakeApplier struct {
 	during func(ev applied)
 }
 
-func (f *fakeApplier) Apply(_ context.Context, source string, obs []*eventv1alpha1.Observation) error {
+func (f *fakeApplier) Apply(_ context.Context, source string, obs []*eventv1alpha1.Observation, _ Completion) error {
 	for i, o := range obs {
 		ev := applied{ID: o.GetId(), Source: source}
 		f.mu.Lock()

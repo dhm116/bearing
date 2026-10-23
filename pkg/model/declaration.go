@@ -197,3 +197,21 @@ func DeclaredAttributes(d *modelv1alpha1.AdapterDeclaration) map[string]Predicat
 	}
 	return out
 }
+
+// LinkAuthority returns a function that says whether the adapter vouches for
+// a linked key: true when some kind of d declares a link with the key's
+// issuer type and key type as authoritative.
+func LinkAuthority(d *modelv1alpha1.AdapterDeclaration) func(Key) bool {
+	vouched := map[string]bool{}
+	for _, k := range d.GetKinds() {
+		for _, l := range k.GetLinks() {
+			if l.GetAuthority().GetAuthoritative() {
+				vouched[l.GetIssuerType()+":"+l.GetKeyType()] = true
+			}
+		}
+	}
+	return func(k Key) bool {
+		issuer, keyType, _, err := k.Parse()
+		return err == nil && vouched[issuer+":"+keyType]
+	}
+}

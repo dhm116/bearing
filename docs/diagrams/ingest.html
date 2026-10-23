@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inside an ingest</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #F5F7F6;
+      --color-ink:    #18242A;
+      --color-muted:  #55646B;
+      --color-accent: #1D5E74;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1000px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Flowchart · How Bearing works inside</p>
+    <h1>Inside an ingest</h1>
+    <div class="diagram-container">
+<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ingest-title ingest-desc">
+<title id="ingest-title">Inside an ingest</title>
+<desc id="ingest-desc">Flowchart of one ingest: an observation already seen is skipped; otherwise it is logged, its record is found or created, linked IDs become asserted same_as links when the source vouches for them and proposed links when it does not, facts are opened, refreshed or closed, and clusters are recomputed from asserted links.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#55646B"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1D5E74"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4B5198"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#55646B" stroke-width="1.2"/></marker></defs>
+<rect width="100%" height="100%" fill="#F5F7F6"/>
+<g>
+<!-- zones -->
+<!-- arrows -->
+<circle cx="240" cy="36" r="4" fill="#18242A"/>
+<path d="M 240,40 L 240,72" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 312,112 L 368,112" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 240,152 L 240,184" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 240,232 L 240,264" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 240,320 L 240,352" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 340,292 L 560,292" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 320,392 L 424,392" fill="none" stroke="#1D5E74" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+<path d="M 240,432 L 240,464" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 720,320 L 720,464" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 584,392 H 632 Q 640,392 640,400 V 464" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<!-- labels -->
+<rect x="248" y="44" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="284" y="53" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">OBSERVATION</text>
+<rect x="326" y="92" width="28" height="12" rx="2" fill="#F5F7F6"/><text x="340" y="101" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
+<rect x="248" y="156" width="24" height="12" rx="2" fill="#F5F7F6"/><text x="260" y="165" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+<rect x="328" y="372" width="88" height="12" rx="2" fill="#F5F7F6"/><text x="372" y="381" fill="#1D5E74" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SOURCE VOUCHES</text>
+<rect x="248" y="436" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="284" y="445" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">NOT VOUCHED</text>
+<!-- nodes -->
+<polygon points="240,72 312,112 240,152 168,112" fill="#F5F7F6"/><polygon points="240,72 312,112 240,152 168,112" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="240" y="116" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Seen this ID?</text>
+<rect x="368" y="92" width="120" height="40" rx="20" fill="#F5F7F6"/><rect x="368" y="92" width="120" height="40" rx="20" fill="rgba(24,36,42,0.03)" stroke="rgba(24,36,42,0.30)" stroke-width="1"/><text x="428" y="116" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Skip it</text>
+<rect x="140" y="184" width="200" height="48" rx="6" fill="#F5F7F6"/><rect x="140" y="184" width="200" height="48" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="240" y="206" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Log it</text><text x="240" y="221" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">in the observation table</text>
+<rect x="140" y="264" width="200" height="56" rx="6" fill="#F5F7F6"/><rect x="140" y="264" width="200" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="240" y="290" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Find or create the record</text><text x="240" y="305" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">by key and aliases</text>
+<polygon points="240,352 320,392 240,432 160,392" fill="#F5F7F6"/><polygon points="240,352 320,392 240,432 160,392" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="240" y="396" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Linked IDs?</text>
+<rect x="424" y="364" width="160" height="56" rx="6" fill="#F5F7F6"/><rect x="424" y="364" width="160" height="56" rx="6" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><text x="504" y="390" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Asserted link</text><text x="504" y="405" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">same_as</text>
+<rect x="140" y="464" width="200" height="56" rx="6" fill="#F5F7F6"/><rect x="140" y="464" width="200" height="56" rx="6" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.20)" stroke-width="1" stroke-dasharray="4,3"/><text x="240" y="490" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Proposed link</text><text x="240" y="505" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">same_as · joins nothing yet</text>
+<rect x="560" y="264" width="240" height="56" rx="6" fill="#F5F7F6"/><rect x="560" y="264" width="240" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="680" y="290" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Open, refresh or close facts</text><text x="680" y="305" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">relations, attributes, qualifiers</text>
+<rect x="560" y="464" width="240" height="56" rx="6" fill="#F5F7F6"/><rect x="560" y="464" width="240" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="680" y="490" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Recompute clusters</text><text x="680" y="505" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">records joined by asserted links</text>
+</g>
+<!-- legend -->
+<line x1="40" y1="548" x2="920" y2="548" stroke="rgba(24,36,42,0.10)" stroke-width="0.8"/><text x="40" y="576" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><rect x="112" y="568" width="14" height="10" rx="2" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="132" y="576" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Step</text><polygon points="187,567 194,573 187,579 180,573" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="200" y="576" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Decision</text><rect x="268" y="568" width="20" height="10" rx="5" fill="rgba(24,36,42,0.03)" stroke="rgba(24,36,42,0.30)" stroke-width="1"/><text x="294" y="576" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">End</text><rect x="338" y="568" width="14" height="10" rx="2" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><text x="358" y="576" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Joins records</text><rect x="450" y="568" width="14" height="10" rx="2" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.20)" stroke-width="1" stroke-dasharray="4,3"/><text x="470" y="576" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Waits for a person or rule</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>

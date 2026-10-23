@@ -18,6 +18,7 @@ import (
 	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
 	"bearing.example/pkg/adapter"
+	"bearing.example/pkg/server"
 	"bearing.example/pkg/store"
 )
 
@@ -468,5 +469,57 @@ func TestAssembleLogsTheWarningsForWhatTheSettingsGaveUp(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the log has no warning %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		matching  *MatchingSettings
+		wantRules int
+	}{
+		{"with a matching block", &MatchingSettings{Rules: []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}}}, 1},
+		{"without one", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) {
+				s.Matching = tc.matching
+				s.Authority = map[string]map[string]bool{"github-acme": {"authentik:user": true}}
+			})
+			c, err := w.settings.check()
+			if err != nil {
+				t.Fatal(err)
+			}
+			decls, err := loadDeclarations(w.settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plans, err := planSources(w.settings, c, decls, w.getenv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := store.Open(t.Context(), store.Config{URL: "mem://"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			cfg, err := serverConfig(w.settings, st, plans, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (cfg.Matching != nil) != (tc.matching != nil) {
+				t.Fatalf("got matching %v, want it set only with a block", cfg.Matching)
+			}
+			if cfg.Matching != nil && len(cfg.Matching.Config.Rules) != tc.wantRules {
+				t.Errorf("got %d rules, want %d", len(cfg.Matching.Config.Rules), tc.wantRules)
+			}
+			applier, ok := cfg.Applier.(server.StoreApplier)
+			if !ok {
+				t.Fatalf("got applier %T, want a StoreApplier", cfg.Applier)
+			}
+			if vouches := applier.Authority["github-acme"]; !vouches("authentik:user/1") {
+				t.Error("the operator's override should vouch for authentik:user keys")
+			}
+		})
 	}
 }

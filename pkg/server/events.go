@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -50,18 +53,32 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	// one that failed partway. The log keeps the first copy of a page, so if
 	// the source changed in between, the pages are a mix of two runs and the
 	// sync has not seen every entity in one pass: it must not claim to be
-	// complete (docs/spec/data-model.md, "Sync completeness"). The next
+	// complete (ADR 6 and ADR 7, complete syncs). The next
 	// scheduled sync starts over.
 	rerun := false
+	// sync_started is the earliest observed_at of the sync, from the adapter's
+	// own clock, which is the one the store compares it with. Using the
+	// server's time would close every record when the adapter's clock runs
+	// behind. A sync that observed nothing claims no completeness.
+	var earliest time.Time
 	sum, err := adapter.SyncPages(ctx, src.Adapter, src.Config, s.cfg.MaxPages, func(p adapter.Page) error {
 		if len(p.Observations) == 0 && !p.Done {
 			return nil
 		}
+		for _, o := range p.Observations {
+			if t := o.GetTime(); t != nil && (earliest.IsZero() || t.AsTime().Before(earliest)) {
+				earliest = t.AsTime()
+			}
+		}
 		complete := p.CompleteSync
-		if rerun {
+		var started time.Time
+		if p.Done {
+			started = earliest
+		}
+		if rerun || started.IsZero() {
 			complete = nil
 		}
-		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete)
+		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete, started)
 		rerun = rerun || dup
 		return err
 	})
@@ -100,18 +117,21 @@ func (s *Server) handleWebhook(ctx context.Context, e store.Entry) (string, erro
 	if len(res.Observations) == 0 {
 		return workerApplied, nil
 	}
-	_, err = s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil)
+	_, err = s.appendObservations(ctx, src.Name, e.ID, 1, res.Observations, true, nil, time.Time{})
 	return workerApplied, err
 }
 
 // appendObservations puts one page of adapter output on the log and reports
 // whether the log already held a page with that ID. The core sets the
 // observations' configured source; adapters never do.
-func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync) (duplicate bool, err error) {
+func (s *Server) appendObservations(ctx context.Context, source, trigger string, page int, obs adapter.Observations, done bool, complete *modelv1alpha1.CompleteSync, syncStarted time.Time) (duplicate bool, err error) {
 	for _, o := range obs {
 		o.Bearingsource = source
 	}
 	msg := &eventv1alpha1.ObservationsEmitted{Source: source, TriggerEventId: trigger, Observations: obs, Done: done, CompleteSync: complete}
+	if !syncStarted.IsZero() {
+		msg.SyncStarted = timestamppb.New(syncStarted)
+	}
 	typ, _ := model.EventType(msg)
 	data, err := model.EncodeJSON(msg)
 	if err != nil {
@@ -141,8 +161,18 @@ func (s *Server) handleObservations(ctx context.Context, e store.Entry) error {
 	if msg.GetSource() != string(e.Partition) {
 		return fmt.Errorf("event %s is in partition %q but names source %q", e.ID, e.Partition, model.Clip(msg.GetSource()))
 	}
-	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations()); err != nil {
+	var done Completion
+	if msg.GetSyncStarted() != nil {
+		done.Started = msg.GetSyncStarted().AsTime()
+		for _, k := range msg.GetCompleteSync().GetKinds() {
+			done.Kinds = append(done.Kinds, model.Kind(k))
+		}
+	}
+	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations(), done); err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)
+	}
+	if msg.GetDone() && msg.GetSyncStarted() != nil && s.cfg.Matching != nil {
+		s.signalMatching()
 	}
 	return nil
 }

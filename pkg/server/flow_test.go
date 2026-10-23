@@ -431,7 +431,7 @@ func TestServerRefusesAPageTooBigForTheLog(t *testing.T) {
 	for i := range obs {
 		obs[i] = o
 	}
-	_, err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil)
+	_, err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil, time.Time{})
 	if err == nil || !strings.Contains(err.Error(), "over the event limit") {
 		t.Fatalf("got %v, want a refusal that names the size", err)
 	}
