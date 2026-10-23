@@ -17,7 +17,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -137,3 +141,36 @@ const (
 
 // ErrNotSupported is returned by adapters for optional methods they skip.
 var ErrNotSupported = &Error{Code: CodeNotSupported, Message: "not supported by this adapter"}
+
+// envNamePattern is the shape of a variable an adapter's config may name.
+var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// CheckEnvName refuses a config setting (field, such as "token_env") that
+// names a variable outside the source's own: anything not shaped like a
+// variable name, and Bearing's own variables (the adapter's listen token, a
+// store password), which a config pointing at another host could otherwise
+// send there. BEARING_SECRET_ names are the secrets the core hands an
+// adapter, so they are allowed.
+func CheckEnvName(field, name string) error {
+	if !envNamePattern.MatchString(name) || (strings.HasPrefix(name, "BEARING_") && !strings.HasPrefix(name, "BEARING_SECRET_")) {
+		return &Error{Code: CodeInvalidParams, Message: "config: " + field + " must be an upper-case variable name not starting with BEARING_ (BEARING_SECRET_ excepted)"}
+	}
+	return nil
+}
+
+// CheckAPIURL refuses a source URL (config field) a token would cross in
+// the clear: it must be https, or http to a loopback address, the rule Dial
+// applies. The URL is not echoed: it may hold credentials.
+func CheckAPIURL(field, raw string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+	case u.Scheme == "https" && u.Host != "":
+		return nil
+	case u.Scheme == "http":
+		if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+	}
+	return &Error{Code: CodeInvalidParams, Message: "config: " + field + " must be an https URL (http only to a loopback address)"}
+}

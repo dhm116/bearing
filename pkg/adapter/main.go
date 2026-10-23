@@ -41,12 +41,13 @@ func Main(name, version string, a Adapter) int {
 		return 1
 	}
 	log := telemetry.Logger("pkg/adapter")
-	lis, err := Listen(os.Getenv(EnvListen))
+	token := os.Getenv(EnvToken)
+	lis, err := Listen(os.Getenv(EnvListen), token)
 	if err != nil {
 		log.ErrorContext(ctx, "cannot listen", "error", err.Error())
 		return 1
 	}
-	if err := Serve(ctx, a, lis, ServeConfig{Token: os.Getenv(EnvToken)}); err != nil && ctx.Err() == nil {
+	if err := Serve(ctx, a, lis, ServeConfig{Token: token}); err != nil && ctx.Err() == nil {
 		log.ErrorContext(ctx, "adapter stopped", "error", err.Error())
 		return 1
 	}
@@ -54,8 +55,10 @@ func Main(name, version string, a Adapter) int {
 }
 
 // Listen opens the listener an EnvListen address names. A unix socket is
-// created with mode 0600, after removing a stale socket at the same path.
-func Listen(addr string) (net.Listener, error) {
+// created with mode 0600, after removing a stale socket at the same path. A
+// tcp address is refused without the token Serve will demand: anyone who
+// can reach the port could otherwise call the adapter.
+func Listen(addr, token string) (net.Listener, error) {
 	u, err := url.Parse(addr)
 	if err != nil || addr == "" {
 		return nil, fmt.Errorf("adapter: %s must be unix:///path.sock or tcp://host:port", EnvListen)
@@ -80,6 +83,9 @@ func Listen(addr string) (net.Listener, error) {
 		}
 		return lis, nil
 	case "tcp":
+		if token == "" {
+			return nil, fmt.Errorf("adapter: %s: a tcp address needs %s set: a remote adapter must refuse callers without the token", EnvListen, EnvToken)
+		}
 		lis, err := net.Listen("tcp", u.Host)
 		if err != nil {
 			return nil, fmt.Errorf("adapter: listen: %w", err)

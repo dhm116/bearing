@@ -33,7 +33,7 @@ func serveChild(mode string) int {
 		return 3
 	case "stubborn":
 		signal.Ignore(syscall.SIGTERM)
-		lis, err := Listen(os.Getenv(EnvListen))
+		lis, err := Listen(os.Getenv(EnvListen), "")
 		if err != nil {
 			return 1
 		}

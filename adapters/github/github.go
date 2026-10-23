@@ -97,6 +97,15 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if c.PerPage <= 0 || c.PerPage > 100 {
 		c.PerPage = 100
 	}
+	if err := adapter.CheckAPIURL("api_url", c.APIURL); err != nil {
+		return c, err
+	}
+	if err := adapter.CheckEnvName("token_env", c.TokenEnv); err != nil {
+		return c, err
+	}
+	if err := adapter.CheckEnvName("webhook_secret_env", c.WebhookSecretEnv); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 

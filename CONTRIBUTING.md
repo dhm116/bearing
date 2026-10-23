@@ -25,5 +25,7 @@ An adapter serves one gRPC service, `AdapterService` in
 `os.Exit(adapter.Main(name, version, a))`; [`adapters/github`](adapters/github)
 and [`adapters/kubernetes`](adapters/kubernetes) are worked examples. In
 another language, generate a gRPC server from that file and listen where
-`BEARING_ADAPTER_LISTEN` says. Try it with
+`BEARING_ADAPTER_LISTEN` says. An adapter on a `tcp://` address (a remote
+one) must demand the bearer token in `BEARING_ADAPTER_TOKEN` (`adapter.Main`
+refuses to listen without it) and sit behind TLS. Try it with
 `bearing adapter describe -- <your binary>` and `bearing adapter sync`.

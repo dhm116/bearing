@@ -35,8 +35,10 @@ type ServeConfig struct {
 
 // Serve answers the adapter service (ADR 4) for a on lis until ctx ends. It
 // speaks gRPC, gRPC-Web and Connect, over HTTP/2 without TLS (the core's
-// Unix socket) or whatever lis provides; terminate TLS in lis or in front
-// of it for a remote adapter.
+// Unix socket) or whatever lis provides. A remote adapter needs both a
+// token (c.Token; Listen refuses a tcp address without one) and TLS,
+// terminated in lis or in front of it: without TLS the token crosses the
+// network in the clear.
 func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) error {
 	// The only caller that gets past the token is the core, so its spans parent
 	// the adapter's, and one trace covers a sync on both sides.
