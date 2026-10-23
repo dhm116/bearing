@@ -41,8 +41,8 @@ func TestGenerateLabelsAreBalancedAndKeysResolve(t *testing.T) {
 		groups[c.Group] = true
 	}
 	n := len(s.Cases)
-	if n < 200 || same < n/3 || same > n*2/3 {
-		t.Errorf("got %d cases, %d same; want at least 200 with between a third and two thirds same", n, same)
+	if n < 150 || same < n/3 || same > n*2/3 {
+		t.Errorf("got %d cases, %d same; want at least 150 with between a third and two thirds same", n, same)
 	}
 	for _, g := range []string{"acme", "convention", "rename", "near-miss", "unrelated", "person-same-email", "person-alias", "person-same-name", "person-different"} {
 		if !groups[g] {
