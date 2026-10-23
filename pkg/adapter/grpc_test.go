@@ -6,9 +6,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
+
+	"bearing.example/pkg/model"
 )
 
 // serveGRPC serves a on a Unix socket for the test and returns its address.
@@ -127,11 +130,12 @@ func TestGRPCCarriesTheAdaptersErrorCode(t *testing.T) {
 	}{
 		{"an adapter error", &Error{Code: CodeUpstream, Message: "GitHub said no"}, CodeUpstream},
 		{"a plain error", errors.New("boom"), CodeInternal},
+		{"a long message", &Error{Code: CodeUpstream, Message: strings.Repeat("x", 10000)}, CodeUpstream},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := dialed(t, failing{err: tt.err}).Sync(t.Context(), SyncParams{})
 			var e *Error
-			if !errors.As(err, &e) || e.Code != tt.want || e.Message != tt.err.Error() {
+			if !errors.As(err, &e) || e.Code != tt.want || e.Message != model.Clip(tt.err.Error()) {
 				t.Fatalf("got %v (%+v), want an *Error with code %d and the adapter's message", err, e, tt.want)
 			}
 		})

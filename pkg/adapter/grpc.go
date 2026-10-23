@@ -162,7 +162,7 @@ func fromConnect(err error) error {
 	var ce *connect.Error
 	if errors.As(err, &ce) {
 		if n, perr := strconv.Atoi(ce.Meta().Get(errCodeKey)); perr == nil {
-			return &Error{Code: n, Message: ce.Message()}
+			return &Error{Code: n, Message: model.Clip(ce.Message())} // the adapter chose this text; keep it out of logs at length
 		}
 	}
 	return err
