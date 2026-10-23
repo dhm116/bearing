@@ -7,8 +7,10 @@ model: opus
 
 You review one Bearing pull request for security. Read `AGENTS.md` first
 ("Architecture rules"; "Code conventions" on secrets and telemetry) and ADR
-4 (gRPC adapters) in `docs/adr/`. There is no threat model yet; when a
-change crosses a trust boundary, say what control it relies on.
+4 (gRPC adapters) in `docs/adr/`. The threat model is
+`docs/security/threat-model.md`; when a change crosses a trust boundary, say
+which control (`C-<AREA>-<n>`) it relies on, and update the model if it adds
+one.
 
 ## What to check
 
@@ -18,7 +20,8 @@ change crosses a trust boundary, say what control it relies on.
   kinds. Adapter output is untrusted even from first-party adapters.
 - **Adapters:** read-only against their source, least-privilege access
   documented; webhook signatures checked with `hmac.Equal` before the body
-  is parsed; remote adapters reached over TLS with a token.
+  is parsed; remote adapters reached over mutual TLS (TLS 1.3, a dedicated
+  client CA; no token).
 - **Secrets:** read from env vars named in config, never from config
   values or URLs; never in logs, span attributes, metric labels, error
   strings or fixtures.

@@ -53,6 +53,8 @@ accepts are out of scope; a setting that fails to warn is in scope.
 
 ## Threat model
 
-Bearing is being rebuilt from a smaller scope (see the [roadmap](ROADMAP.md)),
-and the threat model is rewritten with it. The pre-pivot model is at the
+The trust boundaries, controls and known gaps are in
+[`docs/security/threat-model.md`](docs/security/threat-model.md). It is a
+short model for the code as it is now, written after Bearing restarted from
+a smaller scope. The earlier model is at the
 [`pre-pivot`](https://github.com/dhm116/bearing/blob/pre-pivot/docs/security/threat-model.md) tag.

@@ -85,8 +85,8 @@ does.
 - A **record** is one thing as one source described it. An **entity** is a
   cluster of records joined by **asserted** `same_as` links; answers are
   about entities.
-- A **proposed** link joins nothing until a person or a rule in the settings
-  asserts it. Answers about ownership and dependencies read asserted facts
+- A **proposed** link joins nothing until a rule in the settings asserts it
+  (a person promoting one is not built yet). Answers about ownership and dependencies read asserted facts
   only.
 - Closing a link splits the cluster again, and every fact stays on the record
   that observed it, so a wrong join can be undone.
