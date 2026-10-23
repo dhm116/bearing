@@ -103,16 +103,18 @@ var renames = [][2]string{
 	{"qa", "quality"},
 }
 
-// nearMisses are different teams with similar names.
+// nearMisses are different teams with similar names. No name here is in
+// renames or the Acme story: a repeated name would make records of
+// different cases look alike, and the labels are complete.
 var nearMisses = [][2]string{
-	{"payments", "payroll"},
-	{"platform", "plateau"},
+	{"ledger", "legend"},
+	{"pager", "paper"},
 	{"identity", "identify"},
-	{"search", "research"},
-	{"data", "date"},
+	{"gateway", "gatekeeper"},
+	{"routing", "rooting"},
+	{"release", "relay"},
 	{"core", "care"},
-	{"mobile", "mobility"},
-	{"billing", "building"},
+	{"storage", "stooge"},
 	{"edge", "ledge"},
 	{"ops", "opts"},
 	{"site", "sight"},
@@ -255,20 +257,16 @@ func (g *gen) conventions() {
 }
 
 func (g *gen) renames() {
-	for _, r := range renames {
+	for i, r := range renames {
 		g.used[r[0]], g.used[r[1]] = true, true
-		for _, ov := range []float64{0, 0.5, 1} {
-			g.pairOfTeams("rename", r[0], r[1], true, ov)
-		}
+		g.pairOfTeams("rename", r[0], r[1], true, []float64{0, 0.5, 1}[i%3])
 	}
 }
 
 func (g *gen) nearMisses() {
-	for _, r := range nearMisses {
+	for i, r := range nearMisses {
 		g.used[r[0]], g.used[r[1]] = true, true
-		for _, ov := range []float64{0, 0.25, 0.5} {
-			g.pairOfTeams("near-miss", r[0], r[1], false, ov)
-		}
+		g.pairOfTeams("near-miss", r[0], r[1], false, []float64{0, 0.25, 0.5}[i%3])
 	}
 }
 

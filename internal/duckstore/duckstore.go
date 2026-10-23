@@ -66,6 +66,11 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: open: %w", err)
 	}
+	// shortcut: one connection serializes every query. With a pool, concurrent
+	// queries crashed inside DuckDB (SIGSEGV in duckdb_execute_pending, a read
+	// racing a write transaction; see docs/edge-cases.md). Lift this once the
+	// driver or DuckDB fix is found.
+	db.SetMaxOpenConns(1)
 	if err := applySchema(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("duckstore: %w", err)

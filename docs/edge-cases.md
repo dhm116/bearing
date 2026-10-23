@@ -159,3 +159,12 @@ Each entry:
 - **Example:** two merged entities both held `depends_on ledger`, with different ports.
 - **Impact:** the surviving fact keeps the oldest copy's qualifiers, not the newest. Numbers read back as floats.
 - **Proposed fix:** take the newest source's qualifiers when collapsing, as the query layer does when folding.
+
+## Concurrent DuckDB queries crash the process
+
+- **Found in:** step 4 (a `pkg/server` test under load)
+- **Area:** store
+- **Example:** an event-log read (`Partitions`) while a worker commits an offset in a write transaction on the same store; SIGSEGV inside `duckdb_execute_pending` (duckdb-go v2.10506.0), about 1 in 20 race-detector runs of the server tests, on the commit before step 4 as well.
+- **Impact:** the whole server process dies. Worked around by limiting the store to one connection (`internal/duckstore/duckstore.go`): no crash in 20 runs, but every query now waits for the one before it, so a long sync write delays API reads.
+- **Proposed fix:** reproduce outside Bearing (two goroutines, one database, a read during a write transaction, with and without context cancellation) to tell DuckDB from the driver's interrupt handling; report upstream; then restore a pool, or keep one writer connection and a pool of readers.
+- **Tried:** the duckdb-go 2.0 preview (v2.20000.0-6.preview, the newest, from 2026-08-28) with the pool restored crashed in 2 of 40 race-detector runs of the server tests; the current driver with the pool crashed in 0 of 40 on the same quiet machine, 1 of 20 earlier, and 12 of 20 under heavy load. The crash depends on load and timing; the preview doesn't fix it.
