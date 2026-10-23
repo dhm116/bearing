@@ -141,3 +141,29 @@ func TestSyncRefusesABadCursor(t *testing.T) {
 		t.Fatalf("got %v, want an invalid-params error", err)
 	}
 }
+
+func TestSyncFollowsNoRedirectWithTheToken(t *testing.T) {
+	var seen []string
+	other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(other.Close)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	a := authentik.New()
+	a.Getenv = func(string) string { return canary }
+	raw, err := json.Marshal(authentik.Config{APIURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Sync(t.Context(), adapter.SyncParams{Config: raw})
+	var ae *adapter.Error
+	if !errors.As(err, &ae) || ae.Code != adapter.CodeUpstream || !strings.Contains(ae.Message, "302") {
+		t.Fatalf("got %v, want an upstream error naming status 302", err)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the redirect target got %d requests (Authorization %q), want none", len(seen), seen)
+	}
+}

@@ -117,7 +117,11 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // New returns an adapter using the default HTTP client and environment.
 func New() *Adapter {
 	return &Adapter{
-		HTTP:   &http.Client{Timeout: 30 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		HTTP: &http.Client{
+			Timeout: 30 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport),
+			// A redirect is an answer, not a place to send the token.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		Now:    time.Now,
 		Getenv: os.Getenv,
 	}
