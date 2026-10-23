@@ -97,6 +97,7 @@ func obs1(id string, n int, kind, key string, opts ...func(*modelv1alpha1.Observ
 }
 
 func TestIngestSharedKeyLinksRecordsAndReadsAnswerForTheCluster(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
@@ -156,6 +157,7 @@ func TestIngestSharedKeyLinksRecordsAndReadsAnswerForTheCluster(t *testing.T) {
 }
 
 func TestIngestSharedKeyNeverClustersDifferentKinds(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "a", obs("o1", 0, "Component", "a:x/1"))
 	ingestOK(t, s, "a", obs("o2", 1, "Team", "a:x/2"))
@@ -167,6 +169,7 @@ func TestIngestSharedKeyNeverClustersDifferentKinds(t *testing.T) {
 }
 
 func TestIngestNewRecordUnderARenamedRecordsOldNameStaysApart(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
 	ingestOK(t, s, "gh", obs("o2", 1, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new")))
@@ -184,6 +187,7 @@ func TestIngestNewRecordUnderARenamedRecordsOldNameStaysApart(t *testing.T) {
 }
 
 func TestIngestLinkedIDsAreAssertedOnlyWhenAuthoritative(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestReq(t, s, graph.IngestRequest{Source: "dir", Authoritative: vouchesForNodes, Observations: []*eventv1alpha1.Observation{
 		obs("o1", 0, "Person", "dir:user/jane", linked("gh:user_node/1", "gh:user/jane")), // id-1; kindless id-2, id-4 (links take IDs too)
@@ -221,6 +225,7 @@ func TestIngestLinkedIDsAreAssertedOnlyWhenAuthoritative(t *testing.T) {
 }
 
 func TestLinkClustersThreeRecordsAndClosingALinkSplitsThem(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "src",
 		obs("oa", 0, "Person", "p:a/1", attrs("name", "a", "tier", "1")),
@@ -257,6 +262,7 @@ func TestLinkClustersThreeRecordsAndClosingALinkSplitsThem(t *testing.T) {
 }
 
 func TestLinkNeverClustersDifferentKindsButAKindlessRecordJoinsAny(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "src",
 		obs("o1", 0, "Person", "p:a/1"),
@@ -271,6 +277,7 @@ func TestLinkNeverClustersDifferentKindsButAKindlessRecordJoinsAny(t *testing.T)
 }
 
 func TestLinkDistinctFromBlocksACluster(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1, id-2, id-3
 	apart := graph.Proposal{A: "id-3", B: "id-1", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: "person"}
@@ -288,6 +295,7 @@ func TestLinkDistinctFromBlocksACluster(t *testing.T) {
 }
 
 func TestLinkAssertedPromotesAnOpenProposalAndProposedNeverDemotes(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1") // id-1, id-2
 	p := sameAs("id-2", "id-1", graph.Proposed, "matcher/transparent")
@@ -316,6 +324,7 @@ func TestLinkAssertedPromotesAnOpenProposalAndProposedNeverDemotes(t *testing.T)
 }
 
 func TestLinkRefusesBadProposalsAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1")
 	good := sameAs("id-1", "id-2", graph.Asserted, "r")
@@ -343,6 +352,7 @@ func TestLinkRefusesBadProposalsAndWritesNothing(t *testing.T) {
 }
 
 func TestIngestCompleteSyncClosesAVanishedRecordsFacts(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh",
 		obs("o1", 0, "Repository", "k:r/keep", attrs("language", "Go"), rel("depends_on", "k:r/gone", false)),
@@ -372,6 +382,7 @@ func TestIngestCompleteSyncClosesAVanishedRecordsFacts(t *testing.T) {
 }
 
 func TestRecordsListsRecordsOfAKindWithTheirSources(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Person", "p:a/1", aliases("p:a-login/x"), rel("member_of", "t:x/1", false)))
 	ingestOK(t, s, "dir", obs("o2", 1, "Person", "p:a-login/x"))
@@ -390,6 +401,7 @@ func TestRecordsListsRecordsOfAKindWithTheirSources(t *testing.T) {
 }
 
 func TestOpenMovesAFileWithMergedIntoToClusters(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "old.duckdb")
 	db, err := sql.Open("duckdb", path)
@@ -414,6 +426,7 @@ func TestOpenMovesAFileWithMergedIntoToClusters(t *testing.T) {
 }
 
 func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
@@ -452,6 +465,7 @@ func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
 }
 
 func TestIngestNeverRelinksAPairKeptApartByDistinctFrom(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api"))                         // id-1
 	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", aliases("gh:repo/api"))) // id-2, linked
@@ -471,6 +485,7 @@ func TestIngestNeverRelinksAPairKeptApartByDistinctFrom(t *testing.T) {
 }
 
 func TestIngestDepositsOnALinkOncePerSourceAndHalfLife(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	sync := func(id string, n int) {
 		ingestOK(t, s, "dir", obs(id, n, "Person", "dir:user/jane", linked("gh:user/jane")))
@@ -495,6 +510,7 @@ func TestIngestDepositsOnALinkOncePerSourceAndHalfLife(t *testing.T) {
 }
 
 func TestRecordsLastSeenIsTheNewestObservationUntilADeletion(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	seen := func() time.Time {
 		rs, err := s.Records(t.Context(), "Team")

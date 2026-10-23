@@ -29,6 +29,7 @@ func factIDs(fs []graph.Fact) []string {
 }
 
 func TestEntityResolvesIDsKeysAndRecordsToTheCluster(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	for _, ref := range []string{"s-api", "svc:api", "svc:api-old", "s-old", "svc:legacy-api"} {
 		t.Run(ref, func(t *testing.T) {
@@ -48,6 +49,7 @@ func TestEntityResolvesIDsKeysAndRecordsToTheCluster(t *testing.T) {
 }
 
 func TestFindRanksExactSubstringThenFuzzy(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	tests := []struct {
 		name  string
@@ -85,6 +87,7 @@ func TestFindRanksExactSubstringThenFuzzy(t *testing.T) {
 }
 
 func TestFactsFilterAndTimeTravel(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	tests := []struct {
 		name string
@@ -115,6 +118,7 @@ func TestFactsFilterAndTimeTravel(t *testing.T) {
 }
 
 func TestFactsCarryValuesAndSources(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	got, err := s.Facts(t.Context(), graph.FactFilter{Subject: "s-api"})
 	if err != nil {
@@ -145,6 +149,7 @@ func TestFactsCarryValuesAndSources(t *testing.T) {
 }
 
 func TestWalkFollowsEdgesOnceAndEndsCycles(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	type step struct {
 		depth int
@@ -189,6 +194,7 @@ func TestWalkFollowsEdgesOnceAndEndsCycles(t *testing.T) {
 }
 
 func TestChangesListsOpenedAndClosedNewestFirst(t *testing.T) {
+	t.Parallel()
 	s := acme(t)
 	type change struct {
 		kind graph.ChangeKind
@@ -241,6 +247,7 @@ func TestChangesListsOpenedAndClosedNewestFirst(t *testing.T) {
 }
 
 func TestFactsReturnFirstAndLatestSourcePerSourceWithTheCount(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	for i := range 100 {
 		ingestOK(t, s, "gh", obs(fmt.Sprintf("o%03d", i), i, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
@@ -259,6 +266,7 @@ func TestFactsReturnFirstAndLatestSourcePerSourceWithTheCount(t *testing.T) {
 }
 
 func TestEntityNeverMissesARecordWhileItsClusterChanges(t *testing.T) {
+	t.Parallel()
 	// Each read runs in one transaction, so a recluster cannot land between
 	// resolving a ref to its cluster and loading that cluster.
 	s := ingestStore(t)

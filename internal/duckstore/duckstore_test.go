@@ -30,6 +30,7 @@ func newStore(t *testing.T, c Config) *Store {
 }
 
 func TestOpenKeepsDataAcrossReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "bearing.duckdb")
 	s, err := Open(ctx, Config{Path: path})
@@ -50,6 +51,7 @@ func TestOpenKeepsDataAcrossReopen(t *testing.T) {
 }
 
 func TestConcurrentReadsAndWritesFinish(t *testing.T) {
+	t.Parallel()
 	// The store runs on one connection (see Open); concurrent callers queue
 	// rather than crash DuckDB or deadlock, whichever part they use.
 	s := newStore(t, Config{})
@@ -109,6 +111,7 @@ func TestConcurrentReadsAndWritesFinish(t *testing.T) {
 }
 
 func TestOpenAddsQualifiersToAnOldFile(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "old.duckdb")
 	db, err := sql.Open("duckdb", path)

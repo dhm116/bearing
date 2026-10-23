@@ -95,6 +95,7 @@ func newQuerier(t *testing.T) *query.Querier {
 }
 
 func TestGetAnswersTheEntityWithOneFactPerStatement(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	e, err := q.Get(t.Context(), payments, at(5))
 	if err != nil {
@@ -128,6 +129,7 @@ func TestGetAnswersTheEntityWithOneFactPerStatement(t *testing.T) {
 }
 
 func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	for _, tt := range []struct {
 		name, ref, wantPred, wantOwner string
@@ -152,6 +154,7 @@ func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
 }
 
 func TestRelatedWalksBothWays(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	r, err := q.Related(t.Context(), payments, "depends_on", "out", 2, time.Time{})
 	if err != nil {
@@ -170,6 +173,7 @@ func TestRelatedWalksBothWays(t *testing.T) {
 }
 
 func TestChangesAnswersTheWindow(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	c, err := q.Changes(t.Context(), payments, time.Time{}, time.Time{}, 0)
 	if err != nil {
@@ -188,6 +192,7 @@ func TestChangesAnswersTheWindow(t *testing.T) {
 }
 
 func TestFindMatchesNames(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	ms, err := q.Find(t.Context(), "ledger", "Repository", 0)
 	if err != nil {
@@ -199,6 +204,7 @@ func TestFindMatchesNames(t *testing.T) {
 }
 
 func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	ctx := t.Context()
 	for _, tt := range []struct {
