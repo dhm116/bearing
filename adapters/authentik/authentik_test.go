@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -49,6 +50,9 @@ func syncAll(t *testing.T, a *authentik.Adapter, cfg authentik.Config) ([]*event
 		if res.Done {
 			if res.NextCursor != "" || res.CompleteSync == nil {
 				t.Fatalf("last page: cursor %q, complete_sync %v", res.NextCursor, res.CompleteSync)
+			}
+			if want := []string{"Person", "Team"}; !slices.Equal(res.CompleteSync.Kinds, want) {
+				t.Fatalf("complete_sync kinds %v, want %v", res.CompleteSync.Kinds, want)
 			}
 			return all, calls
 		}

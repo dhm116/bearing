@@ -10,6 +10,7 @@ package authentik
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,9 +56,19 @@ const configSchema = `{
     "token_env": {"type": "string", "default": "AUTHENTIK_TOKEN"},
     "github_source_slug": {"type": "string", "default": "github", "description": "Slug of the OAuth source that signs users in with GitHub"},
     "ui_url": {"type": "string", "description": "Base of the admin UI links used as evidence"},
-    "page_size": {"type": "integer", "minimum": 1, "default": 100}
+    "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
   }
 }`
+
+const (
+	maxPageSize  = 500      // Authentik's own cap on page_size
+	maxReadBytes = 16 << 20 // one reply; the GitHub adapter's limit
+)
+
+// maxCursorBytes bounds the paging state. A var so a test can lower it.
+var maxCursorBytes = 8 << 20
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
@@ -92,6 +103,7 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if c.PageSize <= 0 {
 		c.PageSize = 100
 	}
+	c.PageSize = min(c.PageSize, maxPageSize)
 	if err := adapter.CheckAPIURL("api_url", c.APIURL); err != nil {
 		return c, err
 	}
@@ -135,7 +147,10 @@ func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 		ProtocolVersion: adapter.ProtocolVersion,
 		Emits:           []model.Kind{model.KindPerson, model.KindTeam},
 		ConfigSchema:    json.RawMessage(configSchema),
-		Access:          []string{"core users, groups: list", "sources user_connections oauth: list"},
+		Access: []string{
+			"authentik_core.view_user", "authentik_core.view_group",
+			"authentik_sources_oauth.view_useroauthsourceconnection",
+		},
 	}, nil
 }
 
@@ -160,12 +175,26 @@ const (
 // groups' keys) ride in it. shortcut: it grows with the directory; move it
 // to host state past a few thousand users.
 type cursor struct {
-	Phase    string              `json:"phase"`
-	Page     int                 `json:"page"` // the next page of the phase's list, from 1
+	Phase string `json:"phase"`
+	Page  int    `json:"page"`            // the next page of the phase's list, from 1
+	Count int    `json:"count,omitempty"` // the list's size on this phase's first page
+	// Restarts counts phases begun again because the list changed under the
+	// paging; Unstable means it changed past maxRestarts, so the sync ends
+	// without complete_sync.
+	Restarts int                 `json:"restarts,omitempty"`
+	Unstable bool                `json:"unstable,omitempty"`
 	GitHub   map[int]int64       `json:"github,omitempty"`
 	Users    map[int]string      `json:"users,omitempty"`
 	Children map[string][]string `json:"children,omitempty"`
 }
+
+// maxRestarts bounds how often a sync begins a phase again for a list that
+// keeps changing.
+const maxRestarts = 3
+
+// errListChanged says a list's size changed between its pages, so offsets
+// shifted and an entry may have been skipped.
+var errListChanged = errors.New("list changed while paging")
 
 var phases = []string{phaseConnections, phaseUsers, phaseIndex, phaseGroups}
 
@@ -177,6 +206,9 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 		return adapter.SyncResult{}, err
 	}
 	cur := cursor{Phase: phaseConnections, Page: 1}
+	if len(p.Cursor) > maxCursorBytes {
+		return adapter.SyncResult{}, errCursorTooBig()
+	}
 	if p.Cursor != "" {
 		if err := json.Unmarshal([]byte(p.Cursor), &cur); err != nil {
 			return adapter.SyncResult{}, invalid("bad cursor: %v", err)
@@ -205,25 +237,52 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 	case phaseIndex:
 		more, err = c.indexGroups(ctx, cur, &next)
 	case phaseGroups:
-		obs, more, err = c.syncGroups(ctx, cur)
+		obs, more, err = c.syncGroups(ctx, cur, &next)
 	}
-	if err != nil {
+	switch {
+	case errors.Is(err, errListChanged):
+		// shortcut: a change that leaves the size as it was goes unseen; it
+		// takes an add and a delete between two pages.
+		err = nil
+		obs = nil
+		next.Page, next.Count, next.Restarts = 1, 0, cur.Restarts+1
+		switch cur.Phase {
+		case phaseConnections:
+			next.GitHub = nil
+		case phaseUsers:
+			next.Users = nil
+		case phaseIndex:
+			next.Children = nil
+		}
+	case err != nil:
 		return adapter.SyncResult{}, err
-	}
-	if more {
+	case more:
 		next.Page++
-	} else if i := indexOf(phases, cur.Phase); i == len(phases)-1 {
-		return adapter.SyncResult{Observations: obs, Done: true, CompleteSync: &modelv1alpha1.CompleteSync{
-			Kinds: []string{string(model.KindPerson), string(model.KindTeam)},
-		}}, nil
-	} else {
-		next.Phase, next.Page = phases[i+1], 1
+	default:
+		i := indexOf(phases, cur.Phase)
+		if i < len(phases)-1 {
+			next.Phase, next.Page = phases[i+1], 1
+			break
+		}
+		res := adapter.SyncResult{Observations: obs, Done: true}
+		if !next.Unstable { // a list that kept changing may have lost entries: delete nothing
+			res.CompleteSync = &modelv1alpha1.CompleteSync{Kinds: []string{string(model.KindPerson), string(model.KindTeam)}}
+		}
+		return res, nil
 	}
 	b, err := json.Marshal(next)
 	if err != nil {
 		return adapter.SyncResult{}, err
 	}
+	if len(b) > maxCursorBytes {
+		return adapter.SyncResult{}, errCursorTooBig()
+	}
 	return adapter.SyncResult{Observations: obs, NextCursor: string(b)}, nil
+}
+
+func errCursorTooBig() error {
+	return &adapter.Error{Code: adapter.CodeUpstream, Message: fmt.Sprintf(
+		"the paging state exceeds %d bytes: the directory is too big for the cursor (shortcut: state rides in the cursor; move it to host state)", maxCursorBytes)}
 }
 
 func contains(s []string, v string) bool { return indexOf(s, v) >= 0 }
@@ -245,7 +304,8 @@ type client struct {
 }
 
 type pagination struct {
-	Next int `json:"next"`
+	Next  int `json:"next"`
+	Count int `json:"count"`
 }
 
 type akUser struct {
@@ -277,7 +337,13 @@ type akGroup struct {
 
 // page reads one page of an Authentik list into results and reports whether
 // another follows. q holds the endpoint's own parameters.
-func page[T any](ctx context.Context, c *client, path string, q url.Values, n int) (items []T, at time.Time, more bool, err error) {
+//
+// Lists are ordered by pk so a page boundary falls the same way on every
+// request, and each page's count is checked against the phase's first
+// (errListChanged), since a delete between two pages would skip an entry.
+func page[T any](ctx context.Context, c *client, path string, q url.Values, cur cursor, next *cursor) (items []T, at time.Time, more bool, err error) {
+	n := cur.Page
+	q.Set("ordering", "pk")
 	q.Set("page_size", strconv.Itoa(c.cfg.PageSize))
 	q.Set("page", strconv.Itoa(n))
 	at, raw, err := c.get(ctx, path, q)
@@ -291,6 +357,15 @@ func page[T any](ctx context.Context, c *client, path string, q url.Values, n in
 	if err := json.Unmarshal(raw, &l); err != nil {
 		return nil, at, false, &adapter.Error{Code: adapter.CodeUpstream, Message: path + ": decode response: " + err.Error()}
 	}
+	switch {
+	case n == 1:
+		next.Count = l.Pagination.Count
+	case l.Pagination.Count != cur.Count && !cur.Unstable:
+		if cur.Restarts < maxRestarts {
+			return nil, at, false, errListChanged
+		}
+		next.Unstable = true
+	}
 	return l.Results, at, l.Pagination.Next != 0, nil
 }
 
@@ -300,7 +375,7 @@ func (c *client) syncConnections(ctx context.Context, cur cursor, next *cursor) 
 		Identifier string `json:"identifier"`
 	}
 	items, _, more, err := page[conn](ctx, c, "/api/v3/sources/user_connections/oauth/",
-		url.Values{"source__slug": {c.cfg.GitHubSourceSlug}}, cur.Page)
+		url.Values{"source__slug": {c.cfg.GitHubSourceSlug}}, cur, next)
 	if err != nil {
 		return false, err
 	}
@@ -321,7 +396,7 @@ func (c *client) syncConnections(ctx context.Context, cur cursor, next *cursor) 
 }
 
 func (c *client) syncUsers(ctx context.Context, cur cursor, next *cursor) (adapter.Observations, bool, error) {
-	items, at, more, err := page[akUser](ctx, c, "/api/v3/core/users/", url.Values{"include_groups": {"false"}}, cur.Page)
+	items, at, more, err := page[akUser](ctx, c, "/api/v3/core/users/", url.Values{"include_groups": {"false"}}, cur, next)
 	if err != nil {
 		return nil, false, err
 	}
@@ -331,6 +406,11 @@ func (c *client) syncUsers(ctx context.Context, cur cursor, next *cursor) (adapt
 	}
 	var obs adapter.Observations
 	for _, u := range items {
+		if !uuidPattern.MatchString(u.UUID) {
+			// The uuid keys the person; never log the account's other fields.
+			telemetry.Logger(pkgName).WarnContext(ctx, "skipping a user whose uuid does not parse", "pk", u.PK)
+			continue
+		}
 		key := string(model.NewKey("authentik", "user", u.UUID))
 		next.Users[u.PK] = key
 		e := &modelv1alpha1.Entity{
@@ -359,7 +439,7 @@ func (c *client) syncUsers(ctx context.Context, cur cursor, next *cursor) (adapt
 }
 
 func (c *client) indexGroups(ctx context.Context, cur cursor, next *cursor) (bool, error) {
-	items, _, more, err := page[akGroup](ctx, c, "/api/v3/core/groups/", url.Values{"include_users": {"false"}}, cur.Page)
+	items, _, more, err := page[akGroup](ctx, c, "/api/v3/core/groups/", url.Values{"include_users": {"false"}}, cur, next)
 	if err != nil {
 		return false, err
 	}
@@ -375,8 +455,8 @@ func (c *client) indexGroups(ctx context.Context, cur cursor, next *cursor) (boo
 	return more, nil
 }
 
-func (c *client) syncGroups(ctx context.Context, cur cursor) (adapter.Observations, bool, error) {
-	items, at, more, err := page[akGroup](ctx, c, "/api/v3/core/groups/", url.Values{"include_users": {"false"}}, cur.Page)
+func (c *client) syncGroups(ctx context.Context, cur cursor, next *cursor) (adapter.Observations, bool, error) {
+	items, at, more, err := page[akGroup](ctx, c, "/api/v3/core/groups/", url.Values{"include_users": {"false"}}, cur, next)
 	if err != nil {
 		return nil, false, err
 	}
@@ -451,7 +531,7 @@ func (c *client) get(ctx context.Context, path string, q url.Values) (time.Time,
 		return sent, nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
 	}
 	defer func() { _ = resp.Body.Close() }() // only read
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
 	if err != nil {
 		return sent, nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
 	}
