@@ -17,8 +17,9 @@ import (
 // ErrNotFound means nothing matched.
 var ErrNotFound = errors.New("not found")
 
-// EntityID identifies one entity. It never changes, but an entity merged
-// into another stops being returned; its keys answer for the survivor.
+// EntityID identifies a record or a cluster of records (ADR 7). A record's
+// ID never changes; a cluster's is its oldest record's, so it changes when
+// links join or split the cluster. Store record IDs or keys, not cluster IDs.
 type EntityID string
 
 // Status says whether a fact may answer a question.
@@ -53,9 +54,10 @@ type Graph interface {
 	// Facts returns the facts matching f, ordered by subject, predicate and
 	// valid_from.
 	Facts(ctx context.Context, f FactFilter) ([]Fact, error)
-	// Walk follows facts with the given predicates from an entity, breadth
-	// first, and returns each fact it crossed with its depth. It visits an
-	// entity once, so cycles end.
+	// Walk follows facts with the given predicates from an entity, up to
+	// MaxDepth hops, and returns each fact it crossed once, at the shallowest
+	// depth it was reached. It enumerates paths and never revisits an entity
+	// on one path, so cycles end.
 	Walk(ctx context.Context, r WalkRequest) ([]Step, error)
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
