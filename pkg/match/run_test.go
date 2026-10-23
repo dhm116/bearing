@@ -163,6 +163,16 @@ func TestRunStaleProposalDecaysBelowFloor(t *testing.T) {
 	if res.Proposed != 0 || len(g.links) != 1 {
 		t.Fatalf("closed proposal came back: %+v", g.links)
 	}
+	// Newer evidence proposes the pair again, as a new link.
+	g.facts = append(g.facts, teamFacts("g-pay", now))
+	now = now.Add(day)
+	res, err := Run(context.Background(), g, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed != 1 || res.Reinforced != 0 || len(g.links) != 2 {
+		t.Fatalf("got proposed %d, reinforced %d, %d links; want a new proposal (1, 0, 2)", res.Proposed, res.Reinforced, len(g.links))
+	}
 }
 
 func TestRunHalfLifeByKind(t *testing.T) {

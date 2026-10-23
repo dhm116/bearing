@@ -49,6 +49,9 @@ func (s *Server) matchOnce(ctx context.Context) {
 	}
 	res, err := match.Run(ctx, m.Graph, cfg)
 	if err != nil {
+		if ctx.Err() != nil {
+			return // the server is stopping; not a matching failure
+		}
 		_ = telemetry.Fail(ctx, span, log, "matching failed", err)
 		return
 	}

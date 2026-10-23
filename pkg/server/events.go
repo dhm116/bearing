@@ -53,7 +53,7 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	// one that failed partway. The log keeps the first copy of a page, so if
 	// the source changed in between, the pages are a mix of two runs and the
 	// sync has not seen every entity in one pass: it must not claim to be
-	// complete (docs/spec/data-model.md, "Sync completeness"). The next
+	// complete (ADR 6 and ADR 7, complete syncs). The next
 	// scheduled sync starts over.
 	rerun := false
 	// sync_started is the earliest observed_at of the sync, from the adapter's

@@ -17,6 +17,7 @@ import (
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 // entityObs is a record of kind and key named name, observed at t.
@@ -306,7 +307,7 @@ func TestSlowMatchingDoesNotHoldUpTheApplyWorkers(t *testing.T) {
 	waitFor(t, "the signal that arrived meanwhile to run matching again", func() bool { return block.calls.Load() == 2 })
 }
 
-func TestAWebhookPageTriggersNeitherCompletenessNorMatching(t *testing.T) {
+func TestAWebhookPageClaimsNoCompleteness(t *testing.T) {
 	h, clk := newClockHarness(t)
 	fail := &failingMatcher{}
 	h.s.cfg.Matching = &Matching{Graph: h.mem, Config: match.Config{Matchers: []match.Matcher{fail}}}
@@ -327,7 +328,40 @@ func TestAWebhookPageTriggersNeitherCompletenessNorMatching(t *testing.T) {
 	if m.GetSyncStarted() != nil || m.GetCompleteSync() != nil {
 		t.Errorf("got sync_started %v and complete_sync %v on a webhook page, want neither", m.GetSyncStarted(), m.GetCompleteSync())
 	}
-	if n := fail.calls.Load(); n != 0 {
-		t.Errorf("got %d matching runs after a webhook, want 0", n)
+}
+
+// TestOnlyASyncsLastPageSignalsMatching checks the signal itself, on a server
+// that isn't running, so no matching goroutine can drain it first.
+func TestOnlyASyncsLastPageSignalsMatching(t *testing.T) {
+	h, _ := newClockHarness(t)
+	h.s.cfg.Matching = &Matching{Graph: h.mem}
+	page := func(id string, m *eventv1alpha1.ObservationsEmitted) store.Entry {
+		m.Source = testSource
+		data, err := model.EncodeJSON(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return store.Entry{ID: id, Partition: store.Partition(testSource), Data: data}
+	}
+	for _, tt := range []struct {
+		name string
+		msg  *eventv1alpha1.ObservationsEmitted
+		want int
+	}{
+		{"a webhook page", &eventv1alpha1.ObservationsEmitted{Done: true}, 0},
+		{"a sync page before the last", &eventv1alpha1.ObservationsEmitted{}, 0},
+		{"a sync's last page", &eventv1alpha1.ObservationsEmitted{Done: true, SyncStarted: timestamppb.New(t0)}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := h.s.handleObservations(t.Context(), page(tt.name, tt.msg)); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(h.s.matchWake); got != tt.want {
+				t.Fatalf("got %d matching signals, want %d", got, tt.want)
+			}
+			for len(h.s.matchWake) > 0 {
+				<-h.s.matchWake
+			}
+		})
 	}
 }

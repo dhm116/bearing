@@ -88,7 +88,7 @@ func (c Config) Validate() error {
 	}
 	d := c.withDefaults()
 	if d.Floor < 0 || d.Floor >= d.ReviewAt || d.ReviewAt > d.ProposeAt || d.ProposeAt > 1 {
-		return fmt.Errorf("match: scores must satisfy 0 <= floor (%v) < review_at (%v) <= propose_at (%v) <= 1", d.Floor, d.ReviewAt, d.ProposeAt)
+		return fmt.Errorf("match: scores must satisfy 0 <= floor (%v) < review_at (%v) <= propose_at (%v) <= 1, with unset scores taking their defaults", d.Floor, d.ReviewAt, d.ProposeAt)
 	}
 	return nil
 }
@@ -120,10 +120,12 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	lastAt := map[pair]time.Time{}
 	for _, l := range links {
 		p := pairOf(l.A, l.B)
-		if l.Kind == graph.SameAs {
+		open := l.ValidTo.IsZero()
+		// known: pairs with an open same_as link, so a deposit reinforces it
+		// rather than opening a new one (the store matches open links only).
+		if l.Kind == graph.SameAs && open {
 			known[p] = true
 		}
-		open := l.ValidTo.IsZero()
 		if open && (l.Kind == graph.DistinctFrom || l.Status == graph.Asserted) {
 			joined[p] = true
 		}
