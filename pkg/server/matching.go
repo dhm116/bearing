@@ -11,7 +11,7 @@ import (
 
 // matchLinks counts the identity links matching runs write or close.
 var matchLinks = must(meter.Int64Counter("bearing.match.links",
-	metric.WithDescription("Identity links written or closed by matching runs: asserted (a key rule), proposed (a matcher) or closed (a proposal decayed below the floor)."),
+	metric.WithDescription("Identity links written, reinforced or closed by matching runs: asserted (a key rule), proposed (a new proposal from a matcher), reinforced (a deposit on an existing proposal) or closed (a proposal decayed below the floor)."),
 	metric.WithUnit("{link}")))
 
 // runMatching joins records each time a sync's last page has been applied. It
@@ -52,9 +52,9 @@ func (s *Server) matchOnce(ctx context.Context) {
 		_ = telemetry.Fail(ctx, span, log, "matching failed", err)
 		return
 	}
-	for result, n := range map[string]int{"asserted": res.Asserted, "proposed": res.Proposed, "closed": res.Closed} {
+	for result, n := range map[string]int{"asserted": res.Asserted, "proposed": res.Proposed, "reinforced": res.Reinforced, "closed": res.Closed} {
 		matchLinks.Add(ctx, int64(n), metric.WithAttributes(attrResult.String(result)))
 	}
 	log.InfoContext(ctx, "matching ran after a sync", "asserted", res.Asserted, "proposed", res.Proposed,
-		"closed", res.Closed, "for_review", len(res.Review))
+		"reinforced", res.Reinforced, "closed", res.Closed, "for_review", len(res.Review))
 }
