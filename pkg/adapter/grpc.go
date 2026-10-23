@@ -49,8 +49,9 @@ func Serve(ctx context.Context, a Adapter, lis net.Listener) error {
 		Handler: mux, Protocols: &protocols,
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
 		// A refused handshake (a caller without a trusted certificate) is
-		// logged here, through telemetry rather than the standard log.
-		ErrorLog: slog.NewLogLogger(telemetry.Logger(pkgName).Handler(), slog.LevelWarn),
+		// logged here, through telemetry rather than the standard log, at
+		// Debug: unauthenticated callers could otherwise flood the logs.
+		ErrorLog: slog.NewLogLogger(telemetry.Logger(pkgName).Handler(), slog.LevelDebug),
 	}
 	done := make(chan struct{})
 	go func() {
