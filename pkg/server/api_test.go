@@ -615,9 +615,14 @@ func TestAPILimitsAreKeptPerSubjectAndPeer(t *testing.T) {
 	}
 	second := make(chan *httptest.ResponseRecorder, 1)
 	go func() { second <- from("192.0.2.2:1000") }()
-	<-enter // the other peer's read reaches the store: it has its own share
-	for _, ch := range []chan *httptest.ResponseRecorder{first, second} {
-		<-ch
+	select { // the other peer's read reaches the store: it has its own share
+	case <-enter:
+	case rec := <-second:
+		t.Fatalf("the other peer's read: got %d before it reached the store, want it to wait there", rec.Code)
+	}
+	<-first
+	if rec := <-second; rec.Code == http.StatusTooManyRequests {
+		t.Errorf("the other peer's read: got %d, want it not limited", rec.Code)
 	}
 }
 
