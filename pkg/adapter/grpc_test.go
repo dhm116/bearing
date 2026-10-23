@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"connectrpc.com/connect"
 )
 
 // serveGRPC serves a on a Unix socket for the test and returns its address.
@@ -142,5 +144,17 @@ func TestGRPCCarriesTheAdaptersErrorCode(t *testing.T) {
 	var e *Error
 	if _, err := r.Describe(t.Context()); err == nil || errors.As(err, &e) {
 		t.Fatalf("got %v, want a transport error that is not an *Error", err)
+	}
+}
+
+func TestServeRefusesARequestOverTheMessageLimit(t *testing.T) {
+	t.Parallel()
+	r := dialed(t, pager{n: 1})
+	_, err := r.Sync(t.Context(), SyncParams{Config: make([]byte, maxMessage+1)})
+	if connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("got %v, want the request refused as too large", err)
+	}
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
+		t.Fatalf("a small request: got %v", err)
 	}
 }

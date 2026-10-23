@@ -46,14 +46,17 @@ func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) erro
 	if err != nil {
 		return fmt.Errorf("adapter: telemetry: %w", err)
 	}
-	path, h := adapterv1alpha1connect.NewAdapterServiceHandler(grpcServer{a: a}, connect.WithInterceptors(otel))
+	path, h := adapterv1alpha1connect.NewAdapterServiceHandler(grpcServer{a: a}, connect.WithInterceptors(otel), connect.WithReadMaxBytes(maxMessage))
 	mux := http.NewServeMux()
 	mux.Handle(path, requireToken(c.Token, h))
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
 	protocols.SetHTTP2(true)
 	protocols.SetUnencryptedHTTP2(true)
-	srv := &http.Server{Handler: mux, Protocols: &protocols, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Handler: mux, Protocols: &protocols,
+		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
+	}
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -133,8 +136,9 @@ func (s grpcServer) Handle(ctx context.Context, req *connect.Request[adapterv1al
 // can tell an error the adapter answered with from a call that broke.
 const errCodeKey = "Bearing-Adapter-Error-Code"
 
-// maxMessage bounds one response the core reads from an adapter, so a remote
-// adapter cannot exhaust its memory. Pages should stay well below it.
+// maxMessage bounds one message either side reads: a response the core reads
+// from an adapter, or a request an adapter reads, so neither can exhaust the
+// other's memory. Pages should stay well below it.
 const maxMessage = 32 << 20
 
 // toConnect gives an adapter error its gRPC code (an optional method the
