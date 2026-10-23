@@ -63,7 +63,7 @@ tag.
 - **Kubernetes and remote deployment** (kind, k3d, managed clusters;
   Bearing on a host talking to remote adapters). Same images as Compose.
 - **Scale beyond one writer.** DuckDB's Quack client/server extension (beta)
-  or DuckLake.
+  or DuckLake ([ADR 8](docs/adr/0008-ducklake-not-now.md): not yet).
 - **Search.** DuckDB full-text and vector search, once a question needs
   more than name lookup.
 - **Inference.** Proposed facts from text, with the quoted span as
