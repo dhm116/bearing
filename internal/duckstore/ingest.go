@@ -343,7 +343,7 @@ func (g *ingest) link(ctx context.Context, a, b string, status graph.Status, rul
 		JOIN observation o ON o.id = d.observation_id
 		WHERE l.a = ? AND l.b = ? AND l.kind = 'same_as' AND l.valid_to IS NULL AND o.source = ?
 		AND d.deposited_at > ? AND (l.status = 'asserted' OR ? = 'proposed')`,
-		a, b, g.source, g.observed.Add(-linkHalfLife), string(status))
+		a, b, g.source, g.observed.Add(-g.s.linkEvery), string(status))
 	if err != nil || said > 0 {
 		return err
 	}

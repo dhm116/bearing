@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"bearing.example/pkg/graph"
 )
@@ -105,6 +106,14 @@ type instrumented struct {
 	Store
 	graph  graph.Graph
 	events EventLog
+}
+
+// SetLinkEvery passes the spacing of ingest-made link deposits to a backend
+// that has one (internal/duckstore); others ignore it.
+func (i *instrumented) SetLinkEvery(d time.Duration) {
+	if l, ok := i.Store.(interface{ SetLinkEvery(time.Duration) }); ok {
+		l.SetLinkEvery(d)
+	}
 }
 
 // Graph implements Store.

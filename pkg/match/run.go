@@ -60,6 +60,18 @@ func (c Config) halfLife(k model.Kind) time.Duration {
 	return defaultHalfLife
 }
 
+// ShortestHalfLife is the fastest any kind's evidence fades: the default
+// half-life, or a shorter one set for a kind.
+func (c Config) ShortestHalfLife() time.Duration {
+	h := defaultHalfLife
+	for _, d := range c.HalfLife {
+		if d > 0 && d < h {
+			h = d
+		}
+	}
+	return h
+}
+
 // Result is what one Run did.
 type Result struct {
 	// Asserted counts the links the rules wrote. Proposed counts the new

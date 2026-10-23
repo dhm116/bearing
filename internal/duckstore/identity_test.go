@@ -14,7 +14,9 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 )
 
@@ -503,7 +505,7 @@ func TestIngestDepositsOnALinkOncePerSourceAndHalfLife(t *testing.T) {
 	if n := deposits(); n != 1 {
 		t.Fatalf("got %d deposits after three hourly syncs, want 1", n)
 	}
-	sync("o-later", int(linkHalfLife/time.Minute)+60)
+	sync("o-later", int(defaultLinkEvery/time.Minute)+60)
 	if n := deposits(); n != 2 {
 		t.Fatalf("got %d deposits a half-life later, want 2", n)
 	}
@@ -526,5 +528,35 @@ func TestRecordsLastSeenIsTheNewestObservationUntilADeletion(t *testing.T) {
 	ingestOK(t, s, "gh", obs("o3", 7, "Team", "k:team/pay", deleted))
 	if got := seen(); !got.IsZero() {
 		t.Fatalf("got %v after a deletion, want zero", got)
+	}
+}
+
+func TestIngestProposalSurvivesHourlySyncsUnderAShortHalfLife(t *testing.T) {
+	t.Parallel()
+	const half = 7 * 24 * time.Hour
+	now := t0
+	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID, LinkEvery: half})
+	cfg := match.Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindPerson: half}}
+	ingestOK(t, s, "gh", obs("g1", 0, "Person", "gh:user/jane"))
+	var id string
+	for h := 0; h <= 60*24; h++ {
+		now = t0.Add(time.Duration(h) * time.Hour)
+		ingestOK(t, s, "dir", obs(fmt.Sprintf("o%d", h), h*60, "Person", "dir:user/jane", linked("gh:user/jane")))
+		if h%24 != 0 {
+			continue
+		}
+		r, err := match.Run(t.Context(), s, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ls := links(t, s, graph.LinkFilter{WithClosed: true, Kind: graph.SameAs})
+		if r.Closed != 0 || len(ls) != 1 || !ls[0].ValidTo.IsZero() {
+			t.Fatalf("day %d: got %+v, %+v, want the one proposal still open", h/24, r, ls)
+		}
+		if id == "" {
+			id = ls[0].ID
+		} else if ls[0].ID != id {
+			t.Fatalf("day %d: got link %s, want it to keep %s", h/24, ls[0].ID, id)
+		}
 	}
 }

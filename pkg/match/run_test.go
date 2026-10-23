@@ -357,3 +357,19 @@ func mustRun(t *testing.T, g IdentityGraph, cfg Config) Result {
 	}
 	return res
 }
+
+func TestShortestHalfLifeIsTheDefaultUnlessAKindIsShorter(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		h    map[model.Kind]time.Duration
+		want time.Duration
+	}{
+		"none":        {nil, 30 * day},
+		"shorter":     {map[model.Kind]time.Duration{model.KindTeam: 7 * day, model.KindPerson: 90 * day}, 7 * day},
+		"only longer": {map[model.Kind]time.Duration{model.KindTeam: 90 * day}, 30 * day},
+	} {
+		if got := (Config{HalfLife: tc.h}).ShortestHalfLife(); got != tc.want {
+			t.Errorf("%s: got %v, want %v", name, got, tc.want)
+		}
+	}
+}
