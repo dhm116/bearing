@@ -247,6 +247,21 @@ func TestIngestDeletedTeamClosesItsMembersMemberOf(t *testing.T) {
 	wantFacts(t, s, `ana member_of pay [0,5) x1`)
 }
 
+func TestIngestLateDeletionKeepsAFactANewerObservationSupports(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	members := func(d *modelv1alpha1.ObservationData) {
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: "k:user/ana"}})
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay", attrs("name", "pay"), members))
+	ingestOK(t, s, "gh", obs("o2", 10, "Team", "k:team/pay", members))
+	r := ingestOK(t, s, "gh", obs("o3", 5, "Team", "k:team/pay", deleted))
+	if r.Closed != 0 {
+		t.Fatalf("got %+v, want no close", r)
+	}
+	wantFacts(t, s, `ana member_of pay [0,open) x2`)
+}
+
 func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
 	t.Parallel()
 	s := ingestStore(t)

@@ -132,7 +132,10 @@ func (g *ingest) observation(ctx context.Context, o *eventv1alpha1.Observation) 
 	// A deleted record ends this source's facts on both ends: a deleted team
 	// ends its members' member_of too.
 	if e.GetDeleted() {
-		return g.closeWhere(ctx, `(subject_id = ? OR object_id = ?) AND source = ?`, g.entity, g.entity, g.source)
+		// Not a fact a newer observation supports: a late deletion must not end it.
+		return g.closeWhere(ctx, `(subject_id = ? OR object_id = ?) AND source = ?
+			AND NOT EXISTS (SELECT 1 FROM fact_source fs JOIN observation o ON o.id = fs.observation_id
+				WHERE fs.fact_id = fact.id AND o.observed_at > ?)`, g.entity, g.entity, g.source, g.observed)
 	}
 	for _, r := range d.GetRelations() {
 		if err := g.relation(ctx, r); err != nil {
