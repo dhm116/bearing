@@ -42,8 +42,11 @@ func ownedBy(team string) func(*modelv1alpha1.ObservationData) {
 	}
 }
 
+// t0 is the instant the applier tests run at.
+var t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
 func TestStoreApplierVouchesForLinkedKeysTheAuthorityNames(t *testing.T) {
-	now := time.Now()
+	now := t0
 	for _, tc := range []struct {
 		name      string
 		authority map[string]func(model.Key) bool
@@ -53,7 +56,7 @@ func TestStoreApplierVouchesForLinkedKeysTheAuthorityNames(t *testing.T) {
 		{"not vouched", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := newDuck(t, time.Now)
+			d := newDuck(t, testkit.NewClock(t0).Now)
 			a := StoreApplier{Store: d, Authority: tc.authority}
 			gh := entityObs("Person", "github:user_node/U1", "Jane", now)
 			dir := entityObs("Person", "authentik:user/1", "Jane", now, func(d *modelv1alpha1.ObservationData) {
@@ -81,14 +84,14 @@ func TestStoreApplierVouchesForLinkedKeysTheAuthorityNames(t *testing.T) {
 }
 
 func TestStoreApplierCompleteSyncClosesTheFactsOfARecordTheSourceNoLongerLists(t *testing.T) {
-	d := newDuck(t, time.Now)
+	d := newDuck(t, testkit.NewClock(t0).Now)
 	a := StoreApplier{Store: d}
-	t1 := time.Now().Add(-time.Hour)
+	t1 := t0.Add(-time.Hour)
 	old := entityObs("Repository", "github:repo/acme/old", "old", t1, ownedBy("github:team/acme/payments"))
 	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{old}, Completion{}); err != nil {
 		t.Fatal(err)
 	}
-	t2 := time.Now()
+	t2 := t0
 	kept := entityObs("Repository", "github:repo/acme/kept", "kept", t2, ownedBy("github:team/acme/payments"))
 	if err := a.Apply(t.Context(), testSource, []*eventv1alpha1.Observation{kept}, Completion{Kinds: []model.Kind{"Repository"}, Started: t2.Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
@@ -182,7 +185,7 @@ func TestServerClosesOnlyWhatAFullSyncNoLongerListsOnTheAdaptersClock(t *testing
 
 func TestServerMatchesAfterASyncAndAFailingMatcherDoesNotFailIt(t *testing.T) {
 	teams := func() []*eventv1alpha1.Observation {
-		now := time.Now()
+		now := t0
 		return []*eventv1alpha1.Observation{
 			entityObs("Team", "github:team/acme/payments", "payments", now),
 			entityObs("Team", "kubernetes:team/payments", "payments", now),
@@ -301,4 +304,30 @@ func TestSlowMatchingDoesNotHoldUpTheApplyWorkers(t *testing.T) {
 	h.syncAndWait(4) // applied while the first matching run is still blocked
 	close(block.release)
 	waitFor(t, "the signal that arrived meanwhile to run matching again", func() bool { return block.calls.Load() == 2 })
+}
+
+func TestAWebhookPageTriggersNeitherCompletenessNorMatching(t *testing.T) {
+	h, clk := newClockHarness(t)
+	fail := &failingMatcher{}
+	h.s.cfg.Matching = &Matching{Graph: h.mem, Config: match.Config{Matchers: []match.Matcher{fail}}}
+	h.ad.handleFn = func(context.Context, adapter.HandleParams) (adapter.HandleResult, error) {
+		now := clk.Now()
+		return adapter.HandleResult{Observations: []*eventv1alpha1.Observation{
+			entityObs("Team", "github:team/acme/payments", "payments", now),
+			entityObs("Team", "kubernetes:team/payments", "payments", now),
+		}}, nil
+	}
+	h.append(testSource, "d1", &eventv1alpha1.WebhookReceived{Source: testSource, Body: []byte(`{}`)})
+	h.start()
+	waitFor(t, "the delivery's page to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == 2 })
+	m := &eventv1alpha1.ObservationsEmitted{}
+	if err := model.DecodeJSON(h.entries(testSource)[1].Data, m); err != nil {
+		t.Fatal(err)
+	}
+	if m.GetSyncStarted() != nil || m.GetCompleteSync() != nil {
+		t.Errorf("got sync_started %v and complete_sync %v on a webhook page, want neither", m.GetSyncStarted(), m.GetCompleteSync())
+	}
+	if n := fail.calls.Load(); n != 0 {
+		t.Errorf("got %d matching runs after a webhook, want 0", n)
+	}
 }
