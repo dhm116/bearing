@@ -286,6 +286,9 @@ type Deposit struct {
 	Against bool
 	// ObservationID is the observation behind it, when there is one.
 	ObservationID string
+	// Actor is who decided, for a person's decision (an event's
+	// Actor.subject); empty for evidence from observations and matchers.
+	Actor string
 	// Features are a matcher's inputs and their contributions, as evidence.
 	Features map[string]float64
 }

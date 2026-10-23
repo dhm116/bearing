@@ -66,7 +66,7 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		for i, l := range links {
 			idx[l.ID] = i
 		}
-		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR)
+		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR), d.actor
 		FROM link_deposit d WHERE d.link_id IN (SELECT l.id FROM identity_link l WHERE `+where+`)
 		ORDER BY d.deposited_at, d.observation_id`, args...)
 		if err != nil {
@@ -75,11 +75,11 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		_, err = collect(rows, func(sc scanner) (struct{}, error) {
 			var id string
 			var d graph.Deposit
-			var obs, feats sql.NullString
-			if err := sc.Scan(&id, &d.At, &d.Weight, &d.Against, &obs, &feats); err != nil {
+			var obs, feats, actor sql.NullString
+			if err := sc.Scan(&id, &d.At, &d.Weight, &d.Against, &obs, &feats, &actor); err != nil {
 				return struct{}{}, err
 			}
-			d.At, d.ObservationID = d.At.UTC(), obs.String
+			d.At, d.ObservationID, d.Actor = d.At.UTC(), obs.String, actor.String
 			if feats.Valid {
 				if err := json.Unmarshal([]byte(feats.String), &d.Features); err != nil {
 					return struct{}{}, fmt.Errorf("link %s: decode features: %w", id, err)
@@ -204,8 +204,8 @@ func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, p graph.Proposal) (o
 		}
 		feats = string(b)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO link_deposit VALUES (?, ?, ?, ?, ?, ?)`,
-		id, d.At, d.Weight, d.Against, nullIfEmpty(d.ObservationID), feats); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO link_deposit VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, d.At, d.Weight, d.Against, nullIfEmpty(d.ObservationID), feats, nullIfEmpty(d.Actor)); err != nil {
 		return false, false, fmt.Errorf("deposit: %w", err)
 	}
 	return opened, changed, nil

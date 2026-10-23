@@ -32,3 +32,7 @@ CREATE TABLE IF NOT EXISTS link_deposit (
     features       JSON               -- a matcher's features and contributions
 );
 CREATE INDEX IF NOT EXISTS link_deposit_link ON link_deposit (link_id);
+
+-- Who decided, for a person's decision; NULL for observations and matchers.
+-- Files made before this column was added get it here.
+ALTER TABLE link_deposit ADD COLUMN IF NOT EXISTS actor VARCHAR;
