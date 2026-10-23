@@ -167,3 +167,20 @@ func TestSyncFollowsNoRedirectWithTheToken(t *testing.T) {
 		t.Fatalf("the redirect target got %d requests (Authorization %q), want none", len(seen), seen)
 	}
 }
+
+func TestSyncRedactsATokenTheServerEchoes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"detail": "bad header " + r.Header.Get("Authorization")})
+	}))
+	t.Cleanup(srv.Close)
+	raw, err := json.Marshal(authentik.Config{APIURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapterFor(srv.Client(), canary).Sync(t.Context(), adapter.SyncParams{Config: raw})
+	if err == nil || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("got %v, want an error naming status 400", err)
+	}
+	testkit.AssertNoLeaks(t, err.Error(), canary)
+}

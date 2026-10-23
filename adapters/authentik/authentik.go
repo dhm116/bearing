@@ -456,20 +456,23 @@ func (c *client) get(ctx context.Context, path string, q url.Values) (time.Time,
 		return sent, nil, &adapter.Error{Code: adapter.CodeUpstream, Message: err.Error()}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return sent, nil, c.statusError(ctx, path, resp.StatusCode, raw)
+		return sent, nil, c.statusError(path, resp.StatusCode, raw)
 	}
 	return sent, raw, nil
 }
 
 // statusError explains a non-200 reply. Authentik answers a bad or missing
 // token with 403 (401 behind some proxies). It never includes the token.
-func (c *client) statusError(ctx context.Context, path string, status int, raw []byte) error {
+func (c *client) statusError(path string, status int, raw []byte) error {
 	var body struct {
 		Detail string `json:"detail"`
 	}
 	_ = json.Unmarshal(raw, &body) // a non-JSON body just has no detail
-	telemetry.Logger(pkgName).WarnContext(ctx, "authentik API returned an error", "path", path, "status", status)
-	msg := fmt.Sprintf("%s: %d %s", path, status, truncate(body.Detail))
+	detail := body.Detail
+	if c.token != "" {
+		detail = strings.ReplaceAll(detail, c.token, "[redacted]")
+	}
+	msg := fmt.Sprintf("%s: %d %s", path, status, truncate(detail))
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		msg += " (set a valid token in " + c.cfg.TokenEnv + ")"
 	}
