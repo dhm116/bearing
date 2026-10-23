@@ -80,14 +80,6 @@ Each entry:
 - **Impact:** Trim runs one query per group per partition; Read may buffer more rows than the 32 MiB it returns.
 - **Proposed fix:** one grouped query over `event_commit` for Trim; page the Read query.
 
-## Remote adapters behind a private CA
-
-- **Found in:** step 3 host (`pkg/server/boot`, `pkg/adapter`)
-- **Area:** adapters
-- **Example:** a remote adapter's certificate is signed by an internal CA.
-- **Impact:** only the system's roots are trusted, so the connection fails.
-- **Proposed fix:** a `tls_ca` setting on the adapter that feeds `DialConfig.TLS`.
-
 ## Slow adapter starts hold the source's lock
 
 - **Found in:** step 3 host
@@ -160,6 +152,102 @@ Each entry:
 - **Impact:** the surviving fact keeps the oldest copy's qualifiers, not the newest. Numbers read back as floats.
 - **Proposed fix:** take the newest source's qualifiers when collapsing, as the query layer does when folding.
 
+## Reverse alias fold
+
+- **Found in:** identity review (`internal/duckstore/ingest.go`, `resolve`)
+- **Area:** identity
+- **Example:** record A (a Team) lists `x:team/1` as an alias. Later a source observes `x:team/1` as a primary key.
+- **Impact:** the new observation lands on A, because a key already bound to a record is never moved. It is order-dependent and cannot be undone. No adapter emits this today.
+- **Proposed fix:** make a new record for the primary key and open an asserted `shared_key` link to A. This needs a decision on whether the key binding moves.
+
+## Observation IDs collide across sources
+
+- **Found in:** identity review (`pkg/model/model.go`)
+- **Area:** ingest
+- **Example:** two sources observe `x:repo/1` at the same instant; the ID is `key@time`.
+- **Impact:** the second observation is dropped as a duplicate, with its facts and sources. Rare: needs the same key and the same timestamp.
+- **Proposed fix:** put the source in the ID (`source/key@time`).
+
+## Aliases never move
+
+- **Found in:** identity review
+- **Area:** identity
+- **Example:** team `@acme/old` is renamed `@acme/new`, and a new team takes the name `@acme/old`. CODEOWNERS lines with `@acme/old` still resolve to the renamed team.
+- **Impact:** owner answers name the wrong team until the alias is dropped from the first record.
+- **Proposed fix:** when a new primary key claims a name that is another record's alias, propose a `distinct_from` link and let the claim win once the old record stops listing it.
+
+## Ingest cost per observation
+
+- **Found in:** identity review
+- **Area:** store
+- **Example:** an hourly sync of a large org: tens of thousands of observations.
+- **Impact:** about 8 ms per observation (about 0.4 ms per DuckDB statement), so 50,000 observations take about 7 minutes.
+- **Proposed fix:** batch statements (one insert per table per page, not per observation) before big orgs sync hourly.
+
+## TLS certificates are read once
+
+- **Found in:** security review (`pkg/server/apilisten.go`, `pkg/adapter/tls.go`)
+- **Area:** TLS
+- **Example:** the API certificate or a remote adapter's certificate is renewed on disk.
+- **Impact:** the server and adapters keep the old one until restarted, so an expired certificate needs a restart.
+- **Proposed fix:** a `GetCertificate` callback that re-reads the files when they change.
+
+## Kubernetes Secret mounts are group-readable by default
+
+- **Found in:** security review (`pkg/server/boot/assemble.go`, `checkTLSFiles`)
+- **Area:** deployment
+- **Example:** a Secret volume's `defaultMode` is 0644, so a mounted adapter key is readable by others.
+- **Impact:** `Dial` refuses the key until the volume sets `defaultMode: 0400`. The failure is loud, but the operator has to know why.
+- **Proposed fix:** say it in the operations doc, with a manifest snippet.
+
+## TLS file check and read are separate
+
+- **Found in:** security review (`checkTLSFiles`, `adapter.Dial`)
+- **Area:** TLS
+- **Example:** the server checks a CA file's owner and mode by path; `Dial` reads it a moment later. A file swapped in between is read unchecked.
+- **Impact:** needs write access to the directory, which already means the attacker can edit the files. Small window.
+- **Proposed fix:** check on the open file descriptor, or read the PEM bytes once and pass them to `Dial`.
+
+## Refused TLS handshakes are logged at Debug only
+
+- **Found in:** security review (`pkg/server/apilisten.go`, `newHTTPServer`)
+- **Area:** API
+- **Example:** a scanner opens connections and fails the TLS handshake over and over.
+- **Impact:** the handshake error goes to the Debug log, not to Info or a metric, so nobody sees a scan. The log is not flooded either, and the per-peer connection caps already bound the cost, so there is no rate-limit worry now.
+- **Proposed fix:** if scans matter, count refused handshakes in a metric (never labelled with the peer).
+
+## Remote adapter trust and protocol limits
+
+- **Found in:** security review
+- **Area:** adapters
+- **Example:** (a) a remote adapter in a Kubernetes cluster is trusted through its own CA file only; the cluster CA and service accounts are not used; (b) the adapter protocol version is not part of the gRPC `Describe` answer (the Go constant `adapter.ProtocolVersion` is not sent); (c) there is a short window between creating a local adapter's socket and setting its mode (the directory is already 0700); (d) a webhook is replayed after the log's retention has dropped its first copy; (e) the API is HTTP/1.1 only, and this is not tested against every client.
+- **Impact:** (a) operators manage CAs by hand; (b) a core and an adapter that disagree find out at the first bad call; (c) none while the directory stays private; (d) the replay is applied again; (e) unknown.
+- **Proposed fix:** (a) accept the cluster CA; (b) send a version in `Describe` and refuse a mismatch; (c) set the umask around `Listen`; (d) keep delivery IDs longer than events; (e) test the clients that matter.
+
+## Related makes one query per step
+
+- **Found in:** security review (`pkg/query/query.go`)
+- **Area:** queries
+- **Example:** `related` at depth 5 on a service with many dependencies.
+- **Impact:** one `Entity` query for each distinct entity the walk reaches (N+1; repeats are cached). It is bounded by the slow-read cap and the 15 s deadline, but it is slow on a wide walk.
+- **Proposed fix:** load all the entities a walk names in one query.
+
+## Pages can go stale during a long sync
+
+- **Found in:** sync review (`pkg/server/events.go`)
+- **Area:** sync
+- **Example:** an adapter pages a large org over several minutes; a repository changes between page 1 and page 9.
+- **Impact:** the sync mixes times, and a late page can show an older state than an earlier page. The next sync fixes it.
+- **Proposed fix:** have the adapter report one `sync_started` time and skip items changed after it, or read from a consistent snapshot where the source has one.
+
+## Deposits mixing rules on one link
+
+- **Found in:** matcher review (`internal/duckstore/links.go`, `upsertLink`)
+- **Area:** identity
+- **Example:** a key rule and the name matcher both support the same pair of records.
+- **Impact:** a pair has one open `same_as` link, so both rules' deposits go on it and are scored together. The link's `rule` is the one that opened it (or the one that promoted it to asserted), so the rule name does not say who did most of the work.
+- **Proposed fix:** keep the rule on each deposit, and show it in the link's evidence.
+
 ## Concurrent DuckDB queries crash the process
 
 - **Found in:** step 4 (a `pkg/server` test under load)
@@ -168,3 +256,4 @@ Each entry:
 - **Impact:** the whole server process dies. Worked around by limiting the store to one connection (`internal/duckstore/duckstore.go`): no crash in 20 runs, but every query now waits for the one before it, so a long sync write delays API reads.
 - **Proposed fix:** reproduce outside Bearing (two goroutines, one database, a read during a write transaction, with and without context cancellation) to tell DuckDB from the driver's interrupt handling; report upstream; then restore a pool, or keep one writer connection and a pool of readers.
 - **Tried:** the duckdb-go 2.0 preview (v2.20000.0-6.preview, the newest, from 2026-08-28) with the pool restored crashed in 2 of 40 race-detector runs of the server tests; the current driver with the pool crashed in 0 of 40 on the same quiet machine, 1 of 20 earlier, and 12 of 20 under heavy load. The crash depends on load and timing; the preview doesn't fix it.
+- **See also:** [ADR 8](adr/0008-ducklake-not-now.md) keeps the single connection. Its DuckLake spike saw no crash in 13 runs, which hints the bug is in DuckDB's storage layer, but proves nothing.
