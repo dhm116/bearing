@@ -53,9 +53,12 @@ func Main(name, version string, a Adapter) int {
 // created with mode 0600, after removing a stale socket at the same path. A
 // tcp address serves mutual TLS (TLS 1.3, a client certificate from the CA
 // in EnvTLSClientCA required) with the files the variables getenv reads
-// name, and is refused without any one of them: anyone who can reach the
+// name (nil getenv means os.Getenv), and is refused without any one of them: anyone who can reach the
 // port could otherwise call the adapter.
 func Listen(addr string, getenv func(string) string) (net.Listener, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
 	u, err := url.Parse(addr)
 	if err != nil || addr == "" {
 		return nil, fmt.Errorf("adapter: %s must be unix:///path.sock or tcp://host:port", EnvListen)
