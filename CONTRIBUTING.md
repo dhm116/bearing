@@ -50,6 +50,6 @@ unchanged and two sources can give it different values:
             "AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_AWS_PROD_SECRET"}
 ```
 
-A key is an upper-case variable name and may not be `PATH` or start with
+A key is an upper-case variable name and may not be `PATH` or `GODEBUG`, or start with
 `BEARING_`, `LD_` or `DYLD_`. An adapter's own `*_env` setting
 (`token_env`) names the key, never a `BEARING_` variable.

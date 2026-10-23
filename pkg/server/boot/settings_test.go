@@ -79,6 +79,8 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"an address that is not https", localAdapter, remoteAdapter(`"ftp://adapter.example"`, goodTLS), "must be https"},
 		{"credentials in an address", localAdapter, remoteAdapter(`"https://u:p@adapter.example"`, goodTLS), "must be https"},
 		{"plain http even on loopback", localAdapter, remoteAdapter(`"http://127.0.0.1:9000"`, goodTLS), "must be https"},
+		{"env naming the loader", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"LD_PRELOAD"`, 1), "how the adapter is loaded or run"},
+		{"env naming GODEBUG", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"GODEBUG"`, 1), "how the adapter is loaded or run"},
 		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
 		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), "spec.secrets go to"},
 	} {
@@ -401,7 +403,7 @@ func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
 // not quote the reference.
 func TestSettingsRefuseASecretKeyTheAdapterMustNotSee(t *testing.T) {
 	t.Parallel()
-	for _, key := range []string{"github_token", "PATH", "BEARING_ADAPTER_LISTEN", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"} {
+	for _, key := range []string{"github_token", "PATH", "BEARING_ADAPTER_LISTEN", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "GODEBUG"} {
 		t.Run(key, func(t *testing.T) {
 			t.Parallel()
 			s, err := Parse([]byte(strings.Replace(goodSettings, `"GITHUB_TOKEN"`, `"`+key+`"`, 1)))
