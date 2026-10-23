@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"bearing.example/internal/githubid"
+
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -426,7 +428,7 @@ func (c *client) syncUsers(ctx context.Context, cur cursor, next *cursor) (adapt
 		// The OAuth connection is the authoritative link: the node ID derives
 		// from the numeric ID it records.
 		if id, ok := cur.GitHub[u.PK]; ok {
-			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", nextNodeID("U", id))))
+			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", githubid.NextNodeID("U", id))))
 		}
 		if gh := u.Attributes.GitHub; gh != nil && gh.Login != "" {
 			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user", gh.Login)))

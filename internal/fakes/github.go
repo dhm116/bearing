@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"bearing.example/internal/githubid"
 )
 
 // GitHubOptions configures the GitHub fake.
@@ -192,7 +194,7 @@ func userNodeID(u GitHubUser, next bool) string {
 
 func orgNodeID(next bool) string {
 	if next {
-		return nextNodeID("O", orgDatabaseID)
+		return githubid.NextNodeID("O", orgDatabaseID)
 	}
 	return legacyNodeID("Organization", orgDatabaseID)
 }

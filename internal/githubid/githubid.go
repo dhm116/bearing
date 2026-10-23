@@ -1,15 +1,20 @@
-package authentik
+// Package githubid derives GitHub's next-format global node IDs, which the
+// GitHub adapter, the Authentik adapter (from the numeric ID an OAuth
+// connection records) and the fakes share.
+package githubid
 
 import (
 	"encoding/base64"
 	"encoding/binary"
 )
 
-// nextNodeID derives GitHub's next-format node ID for prefix and database
+// NextNodeID derives GitHub's next-format node ID for prefix and database
 // IDs: the prefix, "_", and the URL-safe unpadded base64 of a MessagePack
-// array [0, ids...]. It is the same derivation as adapters/github's, which
-// keeps it unexported; the OAuth connection records only the numeric ID.
-func nextNodeID(prefix string, ids ...int64) string {
+// array [0, ids...]: [0, database ID] for users and repositories,
+// [0, org ID, team ID] for teams. Webhook payloads carry only legacy IDs
+// (standard base64, which has no "_"), and no header selects the format
+// there.
+func NextNodeID(prefix string, ids ...int64) string {
 	b := []byte{0x90 | byte(len(ids)+1), 0x00} //nolint:gosec // G115: a fixarray holds at most 15; node IDs have two or three
 	for _, id := range ids {
 		b = appendUint(b, uint64(id)) //nolint:gosec // G115: callers pass positive database IDs

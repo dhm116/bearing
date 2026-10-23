@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/internal/githubid"
+
 	"bearing.example/internal/testkit"
 )
 
@@ -38,7 +40,7 @@ func TestStoryIsInOrderAndApplies(t *testing.T) {
 	play(t, o, c, MembershipEndsAt.Add(time.Hour))
 
 	r, ok := o.Repo("payments")
-	if !ok || r.NodeID() != nextNodeID("R", 525776495) {
+	if !ok || r.NodeID() != githubid.NextNodeID("R", 525776495) {
 		t.Fatalf("got payments %+v, %v; want the renamed payments-api", r, ok)
 	}
 	if got, want := r.Files[".github/CODEOWNERS"], "# Payments service\n* @acme/platform\n"; got != want {
