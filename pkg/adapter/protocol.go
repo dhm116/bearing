@@ -49,8 +49,7 @@ type DescribeResult struct {
 }
 
 // WebhookSignature is the JSON form of the declaration's WebhookSignature
-// message (docs/spec/adapter-protocol.md, "bearing.describe"), with the
-// scheme by its ProtoJSON name. It never holds a secret.
+// message, with the scheme by its ProtoJSON name. It never holds a secret.
 type WebhookSignature struct {
 	Scheme          string `json:"scheme"`
 	SignatureHeader string `json:"signature_header"`
@@ -86,8 +85,7 @@ type SyncResult struct {
 	NextCursor   string       `json:"next_cursor,omitempty"`
 	Done         bool         `json:"done"`
 	// CompleteSync is set only on the last page (Done): the sync visited
-	// every entity of these kinds the source can see
-	// (docs/spec/data-model.md, "Sync completeness").
+	// every entity of these kinds the source can see.
 	CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync,omitempty"`
 }
 

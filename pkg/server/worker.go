@@ -282,9 +282,8 @@ func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err 
 	return workerSkipped, nil
 }
 
-// deadLetter gives up on an event in the steps of docs/spec/store.md,
-// "Dead letters", in that order, so a crash between them repeats safely:
-// the record and then (by the caller) the commit. Re-applying an observation
+// deadLetter gives up on an event in two steps, so a crash between
+// them repeats safely: the record, then (by the caller) the commit. Re-applying an observation
 // ID is a no-op, so the event needs no processed mark in the graph.
 func (s *Server) deadLetter(ctx context.Context, span trace.Span, e store.Entry, attempts int, cause error) error {
 	text := cleanErrorText(cause.Error())

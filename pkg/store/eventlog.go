@@ -27,7 +27,7 @@ var ErrInvalidRequest = errors.New("store: invalid event log request")
 
 // The bounds on what the event log takes and returns. Raising one is
 // compatible; lowering one makes an event that was accepted before refuse
-// to be redelivered (docs/spec/contracts.md, "EventLog").
+// to be redelivered.
 const (
 	// MaxEventBytes bounds Event.Data. A webhook body is at most 1 MiB by
 	// default (docs/security/threat-model.md, C-INGEST-4); a page of
@@ -54,9 +54,8 @@ const (
 // read in the order they were appended, and events in different partitions
 // have no order. It is the configured source the event is about; `manual`
 // for people's operations; `core/<name>` for events the core appends about
-// itself (docs/spec/contracts.md, "EventLog"). Source names `manual` and
-// `core/...` are reserved (docs/spec/data-model.md, "Observations"), so
-// they can't collide.
+// itself. Source names `manual` and `core/...` are reserved, so they can't
+// collide.
 type Partition string
 
 // Offset is an event's position in its partition. Offsets are positive and
@@ -70,7 +69,7 @@ type Offset int64
 // and the payload. The log stores it as given and does not read Data.
 type Event struct {
 	// ID is stable for the same input, so a redelivery repeats it:
-	// "<partition>/<local ID>" (docs/spec/data-model.md, "Observations"),
+	// "<partition>/<local ID>",
 	// where the local ID is the source's delivery ID or a content hash and
 	// holds no slash. The partition is therefore everything before the last
 	// slash, so no two partitions can produce one ID, and an ID names its
@@ -89,7 +88,7 @@ type Event struct {
 	Data []byte
 	// Retain exempts the event from Trim until Release names it. Events in
 	// the manual partition must set it: they are kept as long as their
-	// effects are live (docs/adr/0011-identity-store-is-primary-state.md).
+	// effects are live.
 	Retain bool
 }
 
@@ -130,8 +129,7 @@ type PartitionInfo struct {
 }
 
 // EventLog is the durable, ordered, replayable log of everything that
-// enters Bearing (docs/adr/0007-durable-event-log.md). It replaces the
-// EventBus. A webhook is acknowledged only after Append returns for its
+// enters Bearing. A webhook is acknowledged only after Append returns for its
 // event; if Append fails, the sender is told to retry.
 //
 // Events are ordered within a partition only. A consumer reads a partition
@@ -189,10 +187,8 @@ type EventLog interface {
 	// Retained and that every group in groups has processed, and returns
 	// how many. An entry is processed by a group when the group's committed
 	// offset in that partition (zero if it has none) is at or above the
-	// entry's offset. This is the retention window the data model refers to
-	// ("event log retention", docs/spec/data-model.md): the caller passes
-	// now minus the configured window, so the window is how long applied
-	// events are kept.
+	// entry's offset. The caller passes now minus the configured retention
+	// window, so the window is how long applied events are kept.
 	//
 	// groups are the required groups, the ones whose work must not be lost;
 	// the server passes the groups that apply events to the graph, and each

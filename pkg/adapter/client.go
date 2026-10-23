@@ -81,11 +81,11 @@ type SyncSummary struct {
 	RejectedClaims int
 }
 
-// Complete reports whether SyncAll skipped no observation. A sync that skipped some has not seen every entity
-// the adapter returned, so the core must not count it as complete when it
-// looks for entities that went missing (docs/spec/data-model.md, "Sync
-// completeness"). It says nothing about whether the sync finished: callers
-// must also require that SyncAll returned no error.
+// Complete reports whether SyncAll skipped no observation. A sync that
+// skipped some has not seen every entity the adapter returned, so the core
+// must not count it as complete when it looks for entities that went
+// missing. It says nothing about whether the sync finished: callers must
+// also require that SyncAll returned no error.
 func (s SyncSummary) Complete() bool { return s.RejectedObservations == 0 }
 
 // maxRejectionLogs is how many rejections SyncAll logs one by one in a sync;

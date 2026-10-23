@@ -9,9 +9,8 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
-// ValidateDeclaration checks an adapter's declarations against the registry
-// (docs/spec/data-model.md, "Declarations" and "Key types"). Checks that
-// need other adapters' declarations or source configuration happen at
+// ValidateDeclaration checks an adapter's declarations against the registry.
+// Checks that need other adapters' declarations or source configuration happen at
 // configuration apply. It returns a *ValidationError.
 func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 	c := &checker{}

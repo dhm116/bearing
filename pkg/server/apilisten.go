@@ -354,8 +354,7 @@ func localConnContext(ctx context.Context, c net.Conn) context.Context {
 }
 
 // localAuthenticator authenticates a request by the UID of its connection's
-// peer. The caller is an administrator recorded as local:<uid> (C-API-1,
-// C-AUDIT-6). A request without a vetted peer is not authenticated.
+// peer. The caller is an administrator recorded as local:<uid> (C-API-1). A request without a vetted peer is not authenticated.
 type localAuthenticator struct{}
 
 // Authenticate implements Authenticator.

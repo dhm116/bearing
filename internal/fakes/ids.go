@@ -12,7 +12,7 @@ import (
 // array: [0, database ID] for users and repositories, [0, org ID, team ID]
 // for teams. The legacy format is the standard base64 of
 // "0<len(type)>:<type><database ID>". The spec allows only the next format
-// in keys (docs/spec/data-model.md, "Key types").
+// in keys.
 
 // nextNodeID returns the next-format node ID for prefix and database IDs.
 func nextNodeID(prefix string, ids ...int64) string {

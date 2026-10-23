@@ -126,8 +126,7 @@
 // exclude_namespaces covers here; default, kube-public and kube-node-lease
 // are left out). Its workloads:
 //
-//   - payments-api, a Deployment in payments: the spec's example input
-//     (docs/spec/adapter-protocol.md). Labels team=payments and tier=gold,
+//   - payments-api, a Deployment in payments: the spec's example input. Labels team=payments and tier=gold,
 //     annotations github.com/project-slug=acme/payments-api and the
 //     Deployment controller's revision, one container with a fake token
 //     argument and a fake password variable. It starts at image 1.4.1 on 2

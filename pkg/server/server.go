@@ -19,8 +19,7 @@ import (
 	"bearing.example/pkg/store"
 )
 
-// Defaults of Config. The attempts and the pause come from
-// docs/spec/store.md, "Dead letters".
+// Defaults of Config.
 const (
 	DefaultGroup        = "apply"
 	DefaultWorkers      = 4
@@ -40,7 +39,7 @@ const (
 	readBatch = 100
 	// deadLetterPartition holds the records of events given up on.
 	deadLetterPartition store.Partition = "core/dead_letter"
-	// manualPartition holds operators' requests (docs/spec/store.md).
+	// manualPartition holds operators' requests.
 	manualPartition store.Partition = "manual"
 )
 
@@ -103,7 +102,7 @@ type Config struct {
 	// never read by two workers, since its events must be applied in order.
 	Workers int
 	// PollInterval is how long an idle server waits before reading the log
-	// again; Read does not block (docs/spec/store.md, "EventLog").
+	// again; Read does not block.
 	PollInterval time.Duration
 	// MaxAttempts is how many times a worker tries an event before it gives
 	// up on it (a dead letter). RetryPause is the pause after the first
@@ -291,7 +290,7 @@ type syncSlot struct {
 // A source has at most one request waiting to be applied: while the last one
 // is not applied, a new request is answered with it and logs nothing, so a
 // caller cannot queue syncs faster than the source can run them
-// (docs/spec/api.md, "Sync requests"). The request is remembered in memory,
+// (docs/spec/api.md, "Routes"). The request is remembered in memory,
 // so a restart can leave one more waiting.
 func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1alpha1.Actor) (SyncRequest, error) {
 	slot, ok := s.syncs[source]
@@ -337,8 +336,7 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 
 // pageEventID is the ID of page n of the output for a causing event: the
 // source, a slash and the hex SHA-256 of the causing event's ID, a NUL and the
-// page number, so a replayed run repeats its IDs (docs/spec/store.md,
-// "Event IDs").
+// page number, so a replayed run repeats its IDs.
 func pageEventID(source, trigger string, page int) string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d", trigger, page))
 	return source + "/" + hex.EncodeToString(sum[:])

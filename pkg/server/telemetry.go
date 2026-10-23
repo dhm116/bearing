@@ -53,7 +53,7 @@ const (
 
 // workerEvents counts the outcomes of the apply workers by event type and
 // result. A rise in retried is a source or the store failing; dead_lettered
-// is an event given up on (docs/spec/store.md, "Dead letters").
+// is an event given up on.
 var workerEvents = must(meter.Int64Counter("bearing.worker.events",
 	metric.WithDescription("Events handled by the apply workers by type and result: applied, skipped (a type the server does not handle yet), retried or dead_lettered."),
 	metric.WithUnit("{event}")))

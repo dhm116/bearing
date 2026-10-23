@@ -11,7 +11,7 @@ import (
 )
 
 // Kind is a subject kind. Kinds are strings on the wire and come only from
-// the registry in docs/spec/data-model.md ("Subject kinds").
+// the registry.
 type Kind string
 
 // The registered subject kinds.

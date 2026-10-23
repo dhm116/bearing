@@ -1,9 +1,9 @@
 // Package boot turns the server's process settings file into a running
-// `bearing server`: it opens the store, takes the instance lock, starts the
-// configured adapters with a minimal environment, and runs the workers, the
-// scheduler and the API's listeners (ADR 7, docs/operations.md). The settings
-// file holds what must be known before the store opens; the Source resources
-// inside it are the objects M5 loads from the store instead.
+// `bearing server`: it opens the store, starts the configured adapters
+// with a minimal environment, and runs the workers, the scheduler and the
+// API's listeners. The settings file holds what must be known before the
+// store opens; the Source resources inside it are the objects a later config
+// store would hold instead.
 package boot
 
 import (
@@ -51,7 +51,7 @@ type Settings struct {
 	// {"github-acme": {"github:user_login": true}}.
 	Authority map[string]map[string]bool `json:"authority,omitempty"`
 	// Sources are Source resources in ProtoJSON (kind Source, apiVersion
-	// bearing/v1alpha1): the same objects M5 reads from the store.
+	// bearing/v1alpha1): the same objects a later config store would hold.
 	Sources []json.RawMessage `json:"sources"`
 }
 
@@ -584,9 +584,9 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 	case adapters[spec.GetAdapter()].Address != "" && len(spec.GetSecrets()) > 0:
 		return nil, 0, errors.New("spec.secrets go to an adapter the server starts; one at an address holds its own")
 	case len(spec.GetAuthority()) > 0:
-		return nil, 0, errors.New("spec.authority is not supported until M5")
+		return nil, 0, errors.New("spec.authority is not supported yet")
 	case len(spec.GetCapabilities()) > 0:
-		return nil, 0, errors.New("spec.capabilities is not supported until M5: the adapter runs as a local process")
+		return nil, 0, errors.New("spec.capabilities is not supported yet: the adapter runs as a local process")
 	}
 	for k, ref := range spec.GetSecrets() {
 		if _, err := s.envRef(ref); err != nil {
@@ -637,7 +637,7 @@ func (s *Settings) envRef(ref string) (string, error) {
 	name, ok := strings.CutPrefix(ref, "env:")
 	switch {
 	case !ok && (strings.HasPrefix(ref, "file:") || strings.HasPrefix(ref, "vault:") || strings.HasPrefix(ref, "aws-sm:")):
-		return "", errors.New("only env:NAME references work until M5")
+		return "", errors.New("only env:NAME references are supported for now")
 	case !ok:
 		return "", errors.New("must be a reference, env:NAME; a secret is never written in the settings")
 	case !envName.MatchString(name), !s.allowed(name):

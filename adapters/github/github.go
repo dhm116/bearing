@@ -632,7 +632,7 @@ var handledEvents = []string{"repository", "push", "team", "membership"}
 // see: a repository transferred away or no longer shared with it reads the
 // same as one deleted.
 func (a *Adapter) Handle(ctx context.Context, p adapter.HandleParams) (res adapter.HandleResult, err error) {
-	// The core checked the delivery's signature before logging it (ADR 4);
+	// The core checked the delivery's signature before logging it (docs/spec/api.md, "Webhook deliveries");
 	// the event name still labels spans and metrics only if the adapter knows it.
 	event := header(p.Headers, "X-GitHub-Event")
 	label := "other"

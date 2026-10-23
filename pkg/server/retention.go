@@ -9,7 +9,7 @@ import (
 
 // runRetention trims the log every TrimEvery, and keeps the dead-letter gauge
 // current. Trim is told the apply group, so it keeps an event until the
-// workers have applied it (docs/spec/store.md, "Retention").
+// workers have applied it.
 func (s *Server) runRetention(ctx context.Context) error {
 	s.refreshDeadLetters(ctx)
 	t := s.clk.NewTicker(s.cfg.TrimEvery)

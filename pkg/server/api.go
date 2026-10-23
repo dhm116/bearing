@@ -368,8 +368,8 @@ func callerKey(c Caller, r *http.Request) string {
 }
 
 // actorOf is who a sync request is recorded as asked by: the subject the
-// authenticator gave, or local:<uid> (C-AUDIT-6). It
-// comes from the Caller, never from anything the request said.
+// authenticator gave, or local:<uid>. It comes from the
+// Caller, never from anything the request said.
 func actorOf(c Caller) *eventv1alpha1.Actor {
 	return &eventv1alpha1.Actor{Subject: c.Subject}
 }

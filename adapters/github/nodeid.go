@@ -12,7 +12,7 @@ import (
 // URL-safe unpadded base64 of a MessagePack array: [0, database ID] for
 // users and repositories, [0, org ID, team ID] for teams. The legacy format
 // is standard base64, which has no "_", so nextID tells them apart. Keys
-// hold next-format IDs only (docs/spec/data-model.md, "Key types").
+// hold next-format IDs only.
 
 // nextNodeID derives the next-format node ID for prefix and database IDs.
 // Webhook payloads carry only legacy IDs, and no header selects the format

@@ -12,7 +12,7 @@ import (
 )
 
 // SecretResolver turns a secret reference such as "env:GITHUB_TOKEN" or
-// "file:/run/secrets/x" into its value (ADR 10).
+// "file:/run/secrets/x" into its value.
 type SecretResolver interface {
 	Resolve(ctx context.Context, ref string) (string, error)
 }
@@ -21,7 +21,7 @@ type SecretResolver interface {
 // was removed with [Secrets.Unset].
 var ErrSecretNotFound = errors.New("testkit: secret not found")
 
-// secretSchemes are the reference schemes ADR 10 names.
+// secretSchemes are the reference schemes the fake accepts.
 var secretSchemes = []string{"env", "file", "vault", "aws-sm"}
 
 // Canary returns the value [Secrets] resolves ref to by default: a
@@ -65,8 +65,8 @@ func (s *Secrets) Unset(ref string) {
 }
 
 // Resolve returns the value for ref. It fails if ctx is done, if ref is not
-// "scheme:name" with a scheme from ADR 10 (env, file, vault, aws-sm), or if
-// ref was unset.
+// "scheme:name" with a scheme from secretSchemes (env, file, vault, aws-sm),
+// or if ref was unset.
 func (s *Secrets) Resolve(ctx context.Context, ref string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
