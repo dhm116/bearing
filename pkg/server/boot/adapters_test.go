@@ -203,6 +203,7 @@ func TestAssembleRefusesUnsafeTLSFiles(t *testing.T) {
 	}{
 		{"a key others can read", func(a *AdapterTLS) error { return os.Chmod(a.KeyFile, 0o640) }, "must not be readable"}, //nolint:gosec // G302: the unsafe mode under test
 		{"a CA others can write", func(a *AdapterTLS) error { return os.Chmod(a.CAFile, 0o666) }, "tls.ca_file"},           //nolint:gosec // G302: the unsafe mode under test
+		{"a key the group can write", func(a *AdapterTLS) error { return os.Chmod(a.KeyFile, 0o620) }, "tls.key_file"},     //nolint:gosec // G302: the unsafe mode under test
 		{"a missing certificate", func(a *AdapterTLS) error { return os.Remove(a.CertFile) }, "tls.cert_file"},
 		{"a directory for a CA", func(a *AdapterTLS) error { a.CAFile = filepath.Dir(a.CAFile); return nil }, "not a regular file"},
 		{"a key that does not parse", func(a *AdapterTLS) error {
