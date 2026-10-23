@@ -280,7 +280,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		apiFail(w, http.StatusUnauthorized, "unauthenticated", "a valid bearer token is required", reqID)
 		return apiUnauthenticated
 	}
-	who := callerKey(caller)
+	who := callerKey(caller, r)
 	if !a.rate.allow(who) {
 		w.Header().Set("Retry-After", "10")
 		apiFail(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down", reqID)
@@ -356,13 +356,15 @@ func (a *API) leave(who string) {
 	a.inflight[who]--
 }
 
-// callerKey names a caller for the per-caller tables. It never reaches a
-// metric label or a log.
-func callerKey(c Caller) string {
+// callerKey names a caller for the per-caller tables. A TCP caller is a
+// subject at a peer address (the /64 rule of the connection limits), so one
+// remote client cannot use up another's share of a shared token. It never
+// reaches a metric label or a log.
+func callerKey(c Caller, r *http.Request) string {
 	if c.Local {
 		return "local\x00" + c.Subject
 	}
-	return "sub\x00" + c.Subject
+	return "sub\x00" + c.Subject + "\x00" + peerOf(r)
 }
 
 // actorOf is who a sync request is recorded as asked by: the subject the

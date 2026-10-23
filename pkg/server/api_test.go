@@ -580,6 +580,35 @@ func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
 	}
 }
 
+func TestAPILimitsAreKeptPerSubjectAndPeer(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesPerCaller = 1; c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{})
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+	from := func(addr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
+		req.Header.Set("Authorization", "Bearer reader")
+		req.RemoteAddr = addr
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, req)
+		return rec
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- from("192.0.2.1:1000") }()
+	<-enter
+	if rec := from("192.0.2.1:1001"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a second read from the same peer: got %d, want 429", rec.Code)
+	}
+	second := make(chan *httptest.ResponseRecorder, 1)
+	go func() { second <- from("192.0.2.2:1000") }()
+	<-enter // the other peer's read reaches the store: it has its own share
+	for _, ch := range []chan *httptest.ResponseRecorder{first, second} {
+		<-ch
+	}
+}
+
 func TestNewAPIRefusesWhatItNeeds(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
