@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
@@ -104,6 +105,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		token := env.Getenv(s.Auth.TokenEnv)
 		if token == "" {
 			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s is empty or unset: listen.addr needs an API token", s.Auth.TokenEnv)
+		}
+		if err := checkAPIToken(token); err != nil {
+			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s %w", s.Auth.TokenEnv, err)
 		}
 		l.Authenticator = server.TokenAuthenticator{Token: token}
 	}
@@ -450,4 +454,19 @@ func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []ser
 		cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
 	}
 	return cfg, nil
+}
+
+// minAPITokenBytes is the shortest API token the server starts with.
+const minAPITokenBytes = 32
+
+// checkAPIToken refuses a weak or malformed token. The error never holds the
+// token.
+func checkAPIToken(token string) error {
+	if len(token) < minAPITokenBytes {
+		return fmt.Errorf("holds a token shorter than %d bytes", minAPITokenBytes)
+	}
+	if strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return errors.New("holds a token with whitespace or control characters")
+	}
+	return nil
 }

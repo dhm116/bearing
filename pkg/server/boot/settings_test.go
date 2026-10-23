@@ -322,3 +322,16 @@ func TestSettingsRefuseAnAuthorityForAnUnknownSource(t *testing.T) {
 		t.Errorf("got %v, want a refusal naming the unknown source", err)
 	}
 }
+
+// A token pasted into auth.token_env must not come back in the error.
+func TestSettingsRefuseATokenWhereTheVariableNameGoes(t *testing.T) {
+	t.Parallel()
+	const pasted = "ghp_canaryToken-with-dash!"
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "`+pasted+`"}, "store": {`, 1)))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "auth.token_env") || strings.Contains(err.Error(), pasted) {
+		t.Fatalf("got %v, want an auth.token_env error without %q", err, pasted)
+	}
+}

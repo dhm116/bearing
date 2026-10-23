@@ -105,7 +105,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 		"BEARING_SECRET_GITHUB_TOKEN":   "canary-token",
 		"BEARING_SECRET_GITHUB_WEBHOOK": "canary-webhook-secret",
 		"BEARING_STORE_PASSWORD":        "canary-store-password",
-		"BEARING_API_TOKEN":             "canary-api-token",
+		"BEARING_API_TOKEN":             "canary-api-token-0123456789-abcdefghij",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://collector.example",
 		"HOME":                          "/home/canary",
 	}
@@ -303,6 +303,8 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		{"a TCP listener with no token setting", func(s *Settings, _ *world) { s.Auth = AuthSettings{} }, "listen.addr needs auth.token_env"},
 		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "BEARING_API_TOKEN is empty or unset"},
 		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "BEARING_API_TOKEN is empty or unset"},
+		{"an API token that is too short", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-short" }, "BEARING_API_TOKEN holds a token shorter than 32 bytes"},
+		{"an API token with whitespace", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-token-0123456789-abcdef ghij" }, "whitespace or control"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -314,7 +316,7 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
-			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token"} {
+			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token-0123456789-abcdefghij", "canary-api-short", "abcdef ghij"} {
 				if err != nil && strings.Contains(err.Error(), secret) {
 					t.Errorf("the error names a secret value: %v", err)
 				}

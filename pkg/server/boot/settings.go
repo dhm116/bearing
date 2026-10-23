@@ -345,6 +345,10 @@ func (s *Settings) checkListen() error {
 	if l.InsecureNoPeerRate && l.PeerRatePerMinute != nil {
 		return errors.New("boot: settings: listen.insecure_no_peer_rate and listen.peer_rate_per_minute contradict each other")
 	}
+	if s.Auth.TokenEnv != "" && !envName.MatchString(s.Auth.TokenEnv) {
+		// Not echoed: a pasted token is not a variable name.
+		return errors.New("boot: settings: auth.token_env must be the name of an environment variable, not the token")
+	}
 	if l.Addr != "" && s.Auth.TokenEnv == "" {
 		return errors.New("boot: settings: listen.addr needs auth.token_env: there is no setting for open access")
 	}
