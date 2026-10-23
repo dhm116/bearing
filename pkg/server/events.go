@@ -56,16 +56,26 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	// complete (docs/spec/data-model.md, "Sync completeness"). The next
 	// scheduled sync starts over.
 	rerun := false
+	// sync_started is the earliest observed_at of the sync, from the adapter's
+	// own clock, which is the one the store compares it with. Using the
+	// server's time would close every record when the adapter's clock runs
+	// behind. A sync that observed nothing claims no completeness.
+	var earliest time.Time
 	sum, err := adapter.SyncPages(ctx, src.Adapter, src.Config, s.cfg.MaxPages, func(p adapter.Page) error {
 		if len(p.Observations) == 0 && !p.Done {
 			return nil
 		}
+		for _, o := range p.Observations {
+			if t := o.GetTime(); t != nil && (earliest.IsZero() || t.AsTime().Before(earliest)) {
+				earliest = t.AsTime()
+			}
+		}
 		complete := p.CompleteSync
 		var started time.Time
 		if p.Done {
-			started = e.Time
+			started = earliest
 		}
-		if rerun {
+		if rerun || started.IsZero() {
 			complete = nil
 		}
 		dup, err := s.appendObservations(ctx, src.Name, e.ID, p.Number, p.Observations, p.Done, complete, started)

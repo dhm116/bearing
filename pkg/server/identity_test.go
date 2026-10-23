@@ -12,6 +12,7 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/match"
@@ -122,41 +123,59 @@ func (h *harness) syncAndWait(wantEntries int) {
 	waitFor(h.t, "the sync to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == wantEntries })
 }
 
-func TestServerPassesCompleteSyncsToTheStore(t *testing.T) {
-	h := newHarness(t)
+// holds is how many facts of key's approves_changes hold.
+func (h *harness) holds(key string) int {
+	h.t.Helper()
+	e, err := h.mem.Entity(h.t.Context(), key)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	fs, err := h.mem.Facts(h.t.Context(), graph.FactFilter{Subject: e.ID, Predicate: "approves_changes"})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return len(fs)
+}
+
+// newClockHarness is a harness whose server and store run on a fake clock.
+func newClockHarness(t *testing.T) (*harness, *testkit.FakeClock) {
+	t.Helper()
+	clk := testkit.NewClock(time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC))
+	h := newHarness(t, func(c *Config) { c.Clock = clk })
+	h.now = clk.Now
 	h.s.cfg.Applier = StoreApplier{Store: h.mem}
+	return h, clk
+}
+
+// TestServerClosesOnlyWhatAFullSyncNoLongerListsOnTheAdaptersClock runs the
+// adapter an hour behind the server: sync_started is the adapter's, so the
+// records it lists stay open, and one it stops listing closes.
+func TestServerClosesOnlyWhatAFullSyncNoLongerListsOnTheAdaptersClock(t *testing.T) {
+	h, clk := newClockHarness(t)
+	const kept, gone = "github:repo/acme/kept", "github:repo/acme/gone"
 	var syncs atomic.Int32
 	h.ad.syncFn = teamSync(func() []*eventv1alpha1.Observation {
-		now := time.Now()
-		obs := []*eventv1alpha1.Observation{entityObs("Repository", "github:repo/acme/kept", "kept", now, ownedBy("github:team/acme/payments"))}
-		if syncs.Add(1) == 1 {
-			obs = append(obs, entityObs("Repository", "github:repo/acme/gone", "gone", now, ownedBy("github:team/acme/payments")))
+		n := syncs.Add(1)
+		at := clk.Now().Add(-time.Hour + time.Duration(n)*time.Minute) // the adapter's clock runs behind
+		obs := []*eventv1alpha1.Observation{entityObs("Repository", kept, "kept", at, ownedBy("github:team/acme/payments"))}
+		if n <= 2 {
+			obs = append(obs, entityObs("Repository", gone, "gone", at, ownedBy("github:team/acme/payments")))
 		}
 		return obs
 	}, "Repository")
 	h.start()
 	h.syncAndWait(2)
-	holds := func(key string) int {
-		t.Helper()
-		e, err := h.mem.Entity(t.Context(), key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fs, err := h.mem.Facts(t.Context(), graph.FactFilter{Subject: e.ID, Predicate: "approves_changes"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(fs)
-	}
-	if holds("github:repo/acme/gone") != 1 || holds("github:repo/acme/kept") != 1 {
-		t.Fatal("the first sync should leave both records' facts holding")
-	}
-	time.Sleep(10 * time.Millisecond) // the second sync starts after the first one's observations
+	clk.Advance(time.Minute)
 	h.syncAndWait(4)
-	if got := holds("github:repo/acme/gone"); got != 0 {
+	if h.holds(gone) != 1 || h.holds(kept) != 1 {
+		t.Fatalf("got %d and %d holding facts after full syncs that list both, want 1 and 1", h.holds(gone), h.holds(kept))
+	}
+	clk.Advance(time.Minute)
+	h.syncAndWait(6)
+	if got := h.holds(gone); got != 0 {
 		t.Errorf("got %d holding facts for the record the full sync no longer lists, want 0", got)
 	}
-	if got := holds("github:repo/acme/kept"); got != 1 {
+	if got := h.holds(kept); got != 1 {
 		t.Errorf("got %d holding facts for the record still listed, want 1", got)
 	}
 }
@@ -215,17 +234,36 @@ func (f *failingMatcher) Match(context.Context, []match.Candidate, match.Evidenc
 	return nil, errors.New("model unavailable")
 }
 
-func TestObservationsEmittedCarriesWhenTheSyncStarted(t *testing.T) {
-	h := newHarness(t)
-	h.ad.syncFn = teamSync(func() []*eventv1alpha1.Observation { return []*eventv1alpha1.Observation{validObservation(t)} })
+func TestObservationsEmittedCarriesTheEarliestObservedTimeAsWhenTheSyncStarted(t *testing.T) {
+	h, clk := newClockHarness(t)
+	early := clk.Now().Add(-3 * time.Hour)
+	h.ad.syncFn = teamSync(func() []*eventv1alpha1.Observation {
+		return []*eventv1alpha1.Observation{
+			entityObs("Repository", "github:repo/acme/a", "a", early.Add(time.Hour)),
+			entityObs("Repository", "github:repo/acme/b", "b", early),
+		}
+	}, "Repository")
 	h.start()
 	h.syncAndWait(2)
-	es := h.entries(testSource)
 	m := &eventv1alpha1.ObservationsEmitted{}
-	if err := model.DecodeJSON(es[1].Data, m); err != nil {
+	if err := model.DecodeJSON(h.entries(testSource)[1].Data, m); err != nil {
 		t.Fatal(err)
 	}
-	if !m.GetSyncStarted().AsTime().Equal(es[0].Time) {
-		t.Errorf("got sync_started %v, want the request's time %v", m.GetSyncStarted().AsTime(), es[0].Time)
+	if !m.GetSyncStarted().AsTime().Equal(early) {
+		t.Errorf("got sync_started %v, want the earliest observed_at %v", m.GetSyncStarted().AsTime(), early)
+	}
+}
+
+func TestSyncThatObservedNothingClaimsNoCompleteness(t *testing.T) {
+	h, _ := newClockHarness(t)
+	h.ad.syncFn = teamSync(func() []*eventv1alpha1.Observation { return nil }, "Repository")
+	h.start()
+	h.syncAndWait(2)
+	m := &eventv1alpha1.ObservationsEmitted{}
+	if err := model.DecodeJSON(h.entries(testSource)[1].Data, m); err != nil {
+		t.Fatal(err)
+	}
+	if m.GetSyncStarted() != nil || m.GetCompleteSync() != nil {
+		t.Errorf("got sync_started %v and complete_sync %v, want neither", m.GetSyncStarted(), m.GetCompleteSync())
 	}
 }

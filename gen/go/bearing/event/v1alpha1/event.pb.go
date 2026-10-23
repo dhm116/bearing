@@ -397,8 +397,10 @@ type ObservationsEmitted struct {
 	Done bool `protobuf:"varint,4,opt,name=done,proto3" json:"done,omitempty"`
 	// On the last page, the kinds the sync visited completely.
 	CompleteSync *v1alpha1.CompleteSync `protobuf:"bytes,5,opt,name=complete_sync,json=completeSync,proto3" json:"complete_sync,omitempty"`
-	// On the last page of a sync, when the sync started: the time of its
-	// SyncRequested event. A webhook's page leaves it unset.
+	// On the last page of a sync, when the sync started by the adapter's clock:
+	// the earliest observed_at among all the sync's observations, since the
+	// store compares it with observed_at. Unset when the sync observed nothing
+	// and on a webhook's page.
 	SyncStarted   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=sync_started,json=syncStarted,proto3" json:"sync_started,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

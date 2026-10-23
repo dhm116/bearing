@@ -85,8 +85,10 @@ message ObservationsEmitted {
   bool done = 4;
   // On the last page, the kinds the sync visited completely.
   bearing.model.v1alpha1.CompleteSync complete_sync = 5;
-  // On the last page of a sync, when the sync started: the time of its
-  // SyncRequested event. A webhook's page leaves it unset.
+  // On the last page of a sync, when the sync started by the adapter's clock:
+  // the earliest observed_at among all the sync's observations, since the
+  // store compares it with observed_at. Unset when the sync observed nothing
+  // and on a webhook's page.
   google.protobuf.Timestamp sync_started = 6;
 }
 

@@ -58,7 +58,7 @@
         },
         "^(syncStarted)$": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
-          "description": "On the last page of a sync, when the sync started: the time of its\n SyncRequested event. A webhook's page leaves it unset."
+          "description": "On the last page of a sync, when the sync started by the adapter's clock:\n the earliest observed_at among all the sync's observations, since the\n store compares it with observed_at. Unset when the sync observed nothing\n and on a webhook's page."
         },
         "^(triggerEventId)$": {
           "default": "",
@@ -90,7 +90,7 @@
         },
         "sync_started": {
           "$ref": "#/$defs/google.protobuf.Timestamp.schema.json",
-          "description": "On the last page of a sync, when the sync started: the time of its\n SyncRequested event. A webhook's page leaves it unset."
+          "description": "On the last page of a sync, when the sync started by the adapter's clock:\n the earliest observed_at among all the sync's observations, since the\n store compares it with observed_at. Unset when the sync observed nothing\n and on a webhook's page."
         },
         "trigger_event_id": {
           "default": "",
