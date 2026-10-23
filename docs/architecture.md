@@ -15,7 +15,7 @@ diagram and the packages to read next. The decisions behind it are in
 - **Adapters** (`adapters/*`, `pkg/adapter`) only read a source and turn
   what they see into observations. The server starts each one as its own
   process and talks to it over gRPC on a private Unix socket, or reaches a
-  remote one over TLS with a token.
+  remote one over mutual TLS (each side checks the other's certificate).
 - **The event log** (`pkg/store`, `internal/duckstore/eventlog.go`) is the
   server's to-do list. Everything that will change the graph is written there
   first, so nothing is lost if the server stops halfway.
@@ -65,9 +65,7 @@ observations later.
   bad or missing signature and an unknown source get the same `401`, so a
   stranger learns nothing.
 - **The adapter never needs the webhook secret.** By the time it sees a
-  delivery, the server has checked it and logged it. (Today the GitHub
-  adapter still checks again, with a secret the server deliberately doesn't
-  give it, so deliveries fail; removing that check is pending.)
+  delivery, the server has checked it and logged it.
 - A webhook page is never a full sync, so it doesn't close anything and
   doesn't start matching.
 
