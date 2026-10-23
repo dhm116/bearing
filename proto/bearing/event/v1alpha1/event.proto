@@ -90,7 +90,8 @@ message ObservationsEmitted {
 // Actor is who asked for an event.
 message Actor {
   // What the authenticator proved: "token" for the API token, or
-  // "local:<uid>" for the socket's caller.
+  // "local:<uid>" for the socket's caller, or "system:<name>" for a Bearing
+  // component (the scheduler).
   string subject = 1;
   // True for an agent.
   bool agent = 2;

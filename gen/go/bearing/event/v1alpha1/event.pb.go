@@ -426,7 +426,8 @@ func (x *ObservationsEmitted) GetSyncStarted() *timestamppb.Timestamp {
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// What the authenticator proved: "token" for the API token, or
-	// "local:<uid>" for the socket's caller.
+	// "local:<uid>" for the socket's caller, or "system:<name>" for a Bearing
+	// component (the scheduler).
 	Subject string `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	// True for an agent.
 	Agent         bool `protobuf:"varint,2,opt,name=agent,proto3" json:"agent,omitempty"`

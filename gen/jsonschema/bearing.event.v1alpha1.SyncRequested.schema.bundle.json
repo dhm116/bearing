@@ -12,7 +12,7 @@
         },
         "subject": {
           "default": "",
-          "description": "What the authenticator proved: \"token\" for the API token, or\n \"local:\u003cuid\u003e\" for the socket's caller.",
+          "description": "What the authenticator proved: \"token\" for the API token, or\n \"local:\u003cuid\u003e\" for the socket's caller, or \"system:\u003cname\u003e\" for a Bearing\n component (the scheduler).",
           "type": "string"
         }
       },
