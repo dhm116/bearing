@@ -185,7 +185,9 @@ func nullIfEmpty(s string) any {
 
 // resolve finds or creates the record the observation is about and binds its
 // keys. Keys and aliases already bound to other records are not moved: each
-// such record gets an asserted same_as link (shared_key) to this one, and
+// such record gets a same_as link (shared_key) to this one, asserted when the
+// shared key is that record's primary key and proposed when it is only an
+// alias (a renamed repository's old name may name a new one), and
 // each linked ID one to the record its key names (linked_ids), asserted when
 // the source vouches for that key type.
 func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, error) {
@@ -231,11 +233,12 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		}
 	}
 
-	// The primary key's record, else the oldest one an alias names that has
-	// no kind or this kind.
+	// The primary key's record, else the oldest kindless one an alias names
+	// (a relation target no source has described yet). A record of a kind is
+	// never taken over through an alias.
 	id := boundTo[e.GetKey()]
 	for _, x := range recs {
-		if id == "" && (x.kind == "" || x.kind == e.GetKind()) {
+		if id == "" && x.kind == "" {
 			id = x.id
 		}
 	}
@@ -268,10 +271,15 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		}
 	}
 	for _, x := range recs {
-		if x.id != id {
-			if err := g.link(ctx, id, x.id, graph.Asserted, ruleSharedKey); err != nil {
-				return "", fmt.Errorf("shared key with %s: %w", x.id, err)
-			}
+		if x.id == id {
+			continue
+		}
+		status, err := g.sharedKeyStatus(ctx, keys, boundTo, x.id, x.kind)
+		if err != nil {
+			return "", err
+		}
+		if err := g.link(ctx, id, x.id, status, ruleSharedKey); err != nil {
+			return "", fmt.Errorf("shared key with %s: %w", x.id, err)
 		}
 	}
 	for _, k := range e.GetLinkedIds() {
@@ -291,6 +299,29 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		}
 	}
 	return id, nil
+}
+
+// sharedKeyStatus is the status of a shared_key link to record other:
+// asserted when other is kindless (a relation target this source now
+// describes) or one of keys bound to it is its primary key (some observation
+// is about that key), proposed when they are only its aliases.
+func (g *ingest) sharedKeyStatus(ctx context.Context, keys []string, boundTo map[string]string, other, kind string) (graph.Status, error) {
+	if kind == "" {
+		return graph.Asserted, nil
+	}
+	for _, k := range keys {
+		if boundTo[k] != other {
+			continue
+		}
+		n, err := g.count(ctx, `SELECT count(*) FROM observation WHERE key = ?`, k)
+		if err != nil {
+			return "", fmt.Errorf("shared key %s: %w", k, err)
+		}
+		if n > 0 {
+			return graph.Asserted, nil
+		}
+	}
+	return graph.Proposed, nil
 }
 
 // link opens or reinforces a same_as link with this observation as evidence.

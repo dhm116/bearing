@@ -164,6 +164,23 @@ func TestIngestSharedKeyNeverClustersDifferentKinds(t *testing.T) {
 	wantClusters(t, s, map[string]graph.EntityID{"a:x/1": "id-1", "a:x/2": "id-2"})
 }
 
+func TestIngestNewRecordUnderARenamedRecordsOldNameStaysApart(t *testing.T) {
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
+	ingestOK(t, s, "gh", obs("o2", 1, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new")))
+	r := ingestOK(t, s, "gh", obs("o3", 2, "Repository", "gh:repo_node/2", aliases("gh:repo/acme/old")))
+	if r.Entities != 1 {
+		t.Fatalf("got %+v, want a new record for the new repository", r)
+	}
+	if a, b := clusterOf(t, s, "gh:repo_node/1"), clusterOf(t, s, "gh:repo_node/2"); a == b {
+		t.Fatalf("got both repositories in cluster %s, want two entities", a)
+	}
+	ls := links(t, s, graph.LinkFilter{Entity: "gh:repo_node/2"})
+	if len(ls) != 1 || ls[0].Rule != ruleSharedKey || ls[0].Status != graph.Proposed {
+		t.Fatalf("got links %+v, want one proposed shared_key link", ls)
+	}
+}
+
 func TestIngestLinkedIDsAreAssertedOnlyWhenAuthoritative(t *testing.T) {
 	s := ingestStore(t)
 	ingestReq(t, s, graph.IngestRequest{Source: "dir", Authoritative: vouchesForNodes, Observations: []*eventv1alpha1.Observation{
