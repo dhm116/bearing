@@ -160,6 +160,7 @@ func openAdapter(ctx context.Context, env queryEnv, fs *flag.FlagSet, args []str
 			return nil, nil, fmt.Errorf("missing adapter command after --: %w", errUsage)
 		}
 	}
+	fs.SetOutput(io.Discard)
 	address := fs.String("address", "", "reach the running adapter at https://host:port instead of starting a command")
 	tokenEnv := fs.String("token-env", adapter.EnvToken, "the variable that holds the adapter's bearer token, for --address")
 	if err := fs.Parse(flagArgs); err != nil {
