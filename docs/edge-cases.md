@@ -32,13 +32,13 @@ Each entry:
 - **Impact:** a wrong display name until the next observation. Answers are unaffected.
 - **Proposed fix:** keep the name's observed time and skip older names.
 
-## linked_ids treated as keys
+## linked_ids_complete is ignored
 
-- **Found in:** step 2 ingest
+- **Found in:** step 2 ingest; still true after ADR 7 (linked IDs now open `same_as` links, not merges)
 - **Area:** identity
-- **Example:** a GitHub user links an email the IdP also has; both entities merge at once, and `linked_ids_complete` is ignored.
-- **Impact:** a wrong link merges two people with no way to undo it (there is no un-merge).
-- **Proposed fix:** store linked IDs as proposed `same_as` facts and merge on a rule or a review; honour `linked_ids_complete`.
+- **Example:** a GitHub user unlinks an email; the next observation sends the remaining `linked_ids` with `linked_ids_complete`, but the link to the old email stays open.
+- **Impact:** an asserted link the source withdrew keeps two records joined until someone closes it. A proposed one decays.
+- **Proposed fix:** when `linked_ids_complete` is set, close this source's `linked_ids` links to keys no longer listed.
 
 ## Claims with valid_to before valid_from
 
