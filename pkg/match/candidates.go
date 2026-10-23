@@ -16,15 +16,18 @@ type Candidate struct {
 }
 
 // Candidates is the cheap first pass before scoring (what record linkage
-// calls blocking): it returns the pairs of records of one kind, in different
-// clusters, that are worth a matcher's time: equal normalized names, Jaro-Winkler of at least 0.9 on names, or
-// a shared member (members maps a cluster to the clusters that are
-// member_of it). Pairs for which skip is true are left out. The scan is
-// quadratic within a kind; upgrade to a name index when kinds hold tens of
-// thousands of records.
+// calls blocking): it returns the pairs of records of one kind (never
+// kindless), in different clusters, that are worth a matcher's time: equal
+// normalized names, Jaro-Winkler of at least 0.9 on names, or a shared
+// member (members maps a cluster to the clusters that are member_of it).
+// Pairs for which skip is true are left out. The scan is quadratic within a
+// kind; upgrade to a name index when kinds hold tens of thousands of records.
 func Candidates(recs []graph.Record, members map[graph.EntityID]map[graph.EntityID]bool, skip func(a, b graph.EntityID) bool) []Candidate {
 	byKind := map[string][]graph.Record{}
 	for _, r := range recs {
+		if r.Kind == "" {
+			continue // a relation target no source has described: nothing to match on
+		}
 		byKind[string(r.Kind)] = append(byKind[string(r.Kind)], r)
 	}
 	var out []Candidate

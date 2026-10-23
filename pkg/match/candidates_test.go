@@ -59,3 +59,10 @@ func TestCandidatesSkipsSameClusterAndOtherKinds(t *testing.T) {
 		t.Fatalf("other kind: got %v", got)
 	}
 }
+
+func TestCandidatesSkipKindlessRecords(t *testing.T) {
+	a, b := rec("a", "payments", ""), rec("b", "payments", "")
+	if got := Candidates([]graph.Record{a, b}, nil, nil); len(got) != 0 {
+		t.Fatalf("got %v, want no pairs of kindless records", got)
+	}
+}
