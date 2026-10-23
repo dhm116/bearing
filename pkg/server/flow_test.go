@@ -32,7 +32,7 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"GITHUB_TOKEN": "tok", "GITHUB_WEBHOOK_SECRET": "sec"}
+	env := map[string]string{"GITHUB_TOKEN": "tok"}
 	gh := &github.Adapter{HTTP: srv.Client(), Now: clk.Now, Getenv: func(k string) string { return env[k] }}
 
 	h := newHarness(t, func(c *Config) {
