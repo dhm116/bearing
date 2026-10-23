@@ -21,6 +21,7 @@ import (
 	"time"
 
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 )
 
@@ -41,6 +42,14 @@ type Settings struct {
 	Webhooks WebhookSettings   `json:"webhooks"`
 	Secrets  SecretSettings    `json:"secrets"`
 	Adapters []AdapterSettings `json:"adapters"`
+	// Matching tunes how records are joined after each sync (pkg/match);
+	// absent, no matching runs.
+	Matching *MatchingSettings `json:"matching,omitempty"`
+	// Authority overrides, per source, which linked keys the source vouches
+	// for beyond its adapter's declaration: source name, then
+	// "<issuer_type>:<key_type>", for example
+	// {"github-acme": {"github:user_login": true}}.
+	Authority map[string]map[string]bool `json:"authority,omitempty"`
 	// Sources are Source resources in ProtoJSON (kind Source, apiVersion
 	// bearing/v1alpha1): the same objects M5 reads from the store.
 	Sources []json.RawMessage `json:"sources"`
@@ -93,6 +102,67 @@ type SecretSettings struct {
 	// EnvAllowlist are the variable names (path.Match patterns) an `env:`
 	// reference may name. Default: DefaultSecretAllowlist.
 	EnvAllowlist []string `json:"env_allowlist,omitempty"`
+}
+
+// MatchingSettings tunes matching. Zero values take pkg/match's defaults.
+type MatchingSettings struct {
+	// Rules assert a link between records whose keys fit two patterns with
+	// the same {name}.
+	Rules []MatchRule `json:"rules,omitempty"`
+	// ProposeAt, Floor and ReviewAt are scores with
+	// 0 <= Floor < ReviewAt <= ProposeAt <= 1; 0 (absent) takes the default.
+	ProposeAt float64 `json:"propose_at,omitempty"`
+	Floor     float64 `json:"floor,omitempty"`
+	ReviewAt  float64 `json:"review_at,omitempty"`
+	// HalfLife is how fast evidence fades, an ISO 8601 duration per kind,
+	// such as {"Team": "P90D"}.
+	HalfLife map[string]string `json:"half_life,omitempty"`
+}
+
+// MatchRule is one key rule (match.KeyRule).
+type MatchRule struct {
+	Name string `json:"name"`
+	A    string `json:"a"`
+	B    string `json:"b"`
+}
+
+// config checks the matching settings and returns them as a match.Config.
+func (m MatchingSettings) config() (match.Config, error) {
+	cfg := match.Config{ProposeAt: m.ProposeAt, Floor: m.Floor, ReviewAt: m.ReviewAt}
+	for _, r := range m.Rules {
+		cfg.Rules = append(cfg.Rules, match.KeyRule{Name: r.Name, A: r.A, B: r.B})
+	}
+	for k, v := range m.HalfLife {
+		if !model.Kind(k).Valid() {
+			return cfg, fmt.Errorf("boot: settings: matching.half_life: %q is not a kind", model.Clip(k))
+		}
+		d, err := parseISO(v, time.Hour, 3650*24*time.Hour)
+		if err != nil {
+			return cfg, fmt.Errorf("boot: settings: matching.half_life[%q]: %w", k, err)
+		}
+		if cfg.HalfLife == nil {
+			cfg.HalfLife = map[model.Kind]time.Duration{}
+		}
+		cfg.HalfLife[model.Kind(k)] = d
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("boot: settings: matching: %w", err)
+	}
+	return cfg, nil
+}
+
+// authority combines an adapter's declared authority with the operator's
+// overrides for one source: an override names "<issuer_type>:<key_type>" and
+// wins over the declaration.
+func authority(declared func(model.Key) bool, overrides map[string]bool) func(model.Key) bool {
+	return func(k model.Key) bool {
+		if issuer, keyType, _, err := k.Parse(); err == nil {
+			if v, ok := overrides[issuer+":"+keyType]; ok {
+				return v
+			}
+		}
+		return declared(k)
+	}
 }
 
 // AdapterSettings is an adapter the operator has installed: a Command the
@@ -243,6 +313,21 @@ func (s *Settings) check() (*checked, error) {
 		seen[name] = true
 		c.sources = append(c.sources, src)
 		c.schedule[name] = every
+	}
+	for name, o := range s.Authority {
+		if !seen[name] {
+			return nil, fmt.Errorf("boot: settings: authority: %q is not a source", model.Clip(name))
+		}
+		for k := range o {
+			if ns, kt, ok := strings.Cut(k, ":"); !ok || ns == "" || kt == "" || strings.Contains(kt, ":") {
+				return nil, fmt.Errorf("boot: settings: authority[%q]: %q must be <issuer_type>:<key_type>", name, model.Clip(k))
+			}
+		}
+	}
+	if s.Matching != nil {
+		if _, err := s.Matching.config(); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

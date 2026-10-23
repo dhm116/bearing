@@ -123,9 +123,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 	}()
 	var sources []server.Source
-	declared := map[string]map[string]model.Predicate{}
 	for _, p := range plans {
-		declared[p.name] = model.DeclaredAttributes(p.decl)
 		var a adapter.Adapter = p.remote
 		if p.remote == nil {
 			if sockets == "" {
@@ -143,10 +141,11 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
-	srv, err := server.New(server.Config{
-		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared},
-		Sources: sources, Clock: env.Clock,
-	})
+	scfg, err := serverConfig(s, st, plans, sources, env.Clock)
+	if err != nil {
+		return nil, err
+	}
+	srv, err := server.New(scfg)
 	if err != nil {
 		return nil, err
 	}
@@ -427,4 +426,28 @@ func loopbackAddr(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// serverConfig is the server's configuration from the settings: what each
+// source's declaration and the operator's authority overrides allow, and
+// matching only when the settings have a matching block.
+func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
+	declared := map[string]map[string]model.Predicate{}
+	authorities := map[string]func(model.Key) bool{}
+	for _, p := range plans {
+		declared[p.name] = model.DeclaredAttributes(p.decl)
+		authorities[p.name] = authority(model.LinkAuthority(p.decl), s.Authority[p.name])
+	}
+	cfg := server.Config{
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
+		Sources: sources, Clock: clk,
+	}
+	if s.Matching != nil {
+		matchCfg, err := s.Matching.config()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
+	}
+	return cfg, nil
 }

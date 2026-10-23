@@ -50,6 +50,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up |
 | `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |
 | `retention.trim` | internal | core, one per trim of the event log | |
+| `match.run` | internal | core, one per matching run after a sync's last page | `bearing.source` |
 | `api.request` | server | core, one per API request, whatever its answer | `bearing.request.id`, `bearing.authz.method`, `bearing.result`. Never the caller or the request's parameters |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
@@ -77,6 +78,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `bearing.deadletter.retained` | gauge | {event} | | Dead-letter records still in `core/dead_letter`. Any rise needs a person: an event was given up on |
 | `bearing.scheduler.syncs` | counter | {sync} | `bearing.source`, `bearing.result` (`requested`, `skipped`, `failed`) | Scheduled syncs. `skipped` means the last request, scheduled or manual, is still waiting to be applied, so the source is slower than its interval; `failed` means the log refused |
 | `bearing.retention.trimmed` | counter | {event} | | Events removed from the log by the server's retention job |
+| `bearing.match.links` | counter | {link} | `bearing.result` (`asserted`, `proposed`, `reinforced`, `closed`) | Identity links written, reinforced or closed by matching runs: asserted by a key rule, proposed (a new proposal) by a matcher, reinforced (a deposit on an existing proposal), closed when a proposal decayed below the floor |
 | `bearing.api.requests` | counter | {request} | `bearing.authz.method`, `bearing.result` (`ok`, `unauthenticated`, `rate_limited`, `invalid`, `not_found`, `timeout`, `error`) | API requests. A rise in `unauthenticated` is a client with the wrong token, or probing; `error` is a fault. Never labelled with the caller |
 | `bearing.api.peers_refused` | counter | {connection} | | Connections to the local socket refused because the peer is neither the service user nor root (C-API-1). Never labelled with the UID |
 | `bearing.api.pre_auth_refused` | counter | {refusal} | `bearing.result` (`connections`, `peer_connections`, `peer_rate`) | What the TCP API listener turned away before looking at a credential (C-API-6): a connection past the total cap or one peer's cap, or a request past one peer's rate. A steady count is a scanner or a client in a loop; `connections` rising with honest peers means the cap is too low for them. Never labelled with the peer |

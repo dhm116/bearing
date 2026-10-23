@@ -61,9 +61,10 @@ func (c Config) halfLife(k model.Kind) time.Duration {
 
 // Result is what one Run did.
 type Result struct {
-	// Asserted and Proposed count the links the rules and the matcher wrote
-	// (new links and new deposits).
-	Asserted, Proposed int
+	// Asserted counts the links the rules wrote. Proposed counts the new
+	// proposal links a matcher opened; Reinforced the deposits it added to
+	// proposals that already existed.
+	Asserted, Proposed, Reinforced int
 	// Closed counts proposals that decayed below the floor.
 	Closed int
 	// Review lists open proposals at or above ReviewAt, strongest first. They
@@ -77,17 +78,30 @@ type Reviewable struct {
 	Score Score
 }
 
+// Validate checks the rules and, once defaults apply, that
+// 0 <= Floor < ReviewAt <= ProposeAt <= 1.
+func (c Config) Validate() error {
+	for _, r := range c.Rules {
+		if err := r.validate(); err != nil {
+			return fmt.Errorf("match: %w", err)
+		}
+	}
+	d := c.withDefaults()
+	if d.Floor < 0 || d.Floor >= d.ReviewAt || d.ReviewAt > d.ProposeAt || d.ProposeAt > 1 {
+		return fmt.Errorf("match: scores must satisfy 0 <= floor (%v) < review_at (%v) <= propose_at (%v) <= 1, with unset scores taking their defaults", d.Floor, d.ReviewAt, d.ProposeAt)
+	}
+	return nil
+}
+
 // Run applies the key rules, proposes links for candidate pairs, then closes
 // proposals whose evidence has decayed. Running twice on unchanged evidence
 // adds nothing the second time.
 func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
+	if err := cfg.Validate(); err != nil {
+		return Result{}, err
+	}
 	cfg = cfg.withDefaults()
 	now := cfg.Now()
-	for _, r := range cfg.Rules {
-		if err := r.validate(); err != nil {
-			return Result{}, fmt.Errorf("match: %w", err)
-		}
-	}
 	recs, err := g.Records(ctx, "")
 	if err != nil {
 		return Result{}, fmt.Errorf("match: records: %w", err)
@@ -102,11 +116,16 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	}
 
 	// joined: pairs not worth a new link; lastAt: newest same_as deposit per pair.
-	joined := map[pair]bool{}
+	joined, known := map[pair]bool{}, map[pair]bool{}
 	lastAt := map[pair]time.Time{}
 	for _, l := range links {
 		p := pairOf(l.A, l.B)
 		open := l.ValidTo.IsZero()
+		// known: pairs with an open same_as link, so a deposit reinforces it
+		// rather than opening a new one (the store matches open links only).
+		if l.Kind == graph.SameAs && open {
+			known[p] = true
+		}
 		if open && (l.Kind == graph.DistinctFrom || l.Status == graph.Asserted) {
 			joined[p] = true
 		}
@@ -157,7 +176,12 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 				A: c.A.ID, B: c.B.ID, Kind: graph.SameAs, Status: graph.Proposed,
 				Rule: m.Rule(), Deposit: graph.Deposit{At: at, Weight: j.Score, Features: f},
 			})
-			res.Proposed++
+			if p := pairOf(c.A.ID, c.B.ID); known[p] {
+				res.Reinforced++
+			} else {
+				known[p] = true
+				res.Proposed++
+			}
 		}
 	}
 	if len(ps) > 0 {

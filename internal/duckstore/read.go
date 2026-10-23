@@ -20,6 +20,9 @@ const (
 	factCols = `f.id, se.cluster_id, f.predicate, oe.cluster_id, CAST(f.value AS VARCHAR),
 	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
 	factFrom = `fact f JOIN entity se ON se.id = f.subject_id LEFT JOIN entity oe ON oe.id = f.object_id`
+	// notSelfLoop hides a relation whose ends are in one cluster: an artifact
+	// of two records joining, not something a source said.
+	notSelfLoop = `(oe.cluster_id IS NULL OR oe.cluster_id <> se.cluster_id)`
 )
 
 // Entity implements graph.Graph.
@@ -220,7 +223,7 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 	if f.Object, err = s.resolveID(ctx, f.Object); err != nil {
 		return nil, err
 	}
-	where, args := holdsAt("f", f.At, !f.WithProposed)
+	where, args := holdsAt(f.At, !f.WithProposed)
 	if f.Subject != "" {
 		where += ` AND se.cluster_id = ?`
 		args = append(args, string(f.Subject))
@@ -270,7 +273,7 @@ func (s *Store) Walk(ctx context.Context, r graph.WalkRequest) ([]graph.Step, er
 	if err != nil {
 		return nil, err
 	}
-	where, args := holdsAt("f", r.At, true)
+	where, args := holdsAt(r.At, true)
 	where += ` AND f.object_id IS NOT NULL`
 	if len(r.Predicates) > 0 {
 		where += ` AND f.predicate IN (` + placeholders(len(r.Predicates)) + `)`
@@ -365,19 +368,21 @@ SELECT c.change_kind, c.changed_at, `+factCols+` FROM (
 	return changes, s.attachSources(ctx, ptrs)
 }
 
-// holdsAt builds the condition for facts about alias a that held at at (zero
-// means now), asserted only when assertedOnly.
-func holdsAt(a string, at time.Time, assertedOnly bool) (string, []any) {
+// holdsAt builds the condition for facts (alias f) that held at at (zero
+// means now), asserted only when assertedOnly. A current read leaves out
+// self-loops by today's clusters; a read at a past time does not, since the
+// clusters then were not today's.
+func holdsAt(at time.Time, assertedOnly bool) (string, []any) {
 	var w string
 	var args []any
 	if at.IsZero() {
-		w = a + `.valid_to IS NULL`
+		w = `f.valid_to IS NULL AND ` + notSelfLoop
 	} else {
-		w = a + `.valid_from <= ? AND (` + a + `.valid_to IS NULL OR ` + a + `.valid_to > ?)`
+		w = `f.valid_from <= ? AND (f.valid_to IS NULL OR f.valid_to > ?)`
 		args = []any{at, at}
 	}
 	if assertedOnly {
-		w += ` AND ` + a + `.status = 'asserted'`
+		w += ` AND f.status = 'asserted'`
 	}
 	return w, args
 }
