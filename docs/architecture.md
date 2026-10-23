@@ -7,37 +7,10 @@ diagram and the packages to read next. The decisions behind it are in
 
 ## The big picture
 
-```mermaid
-flowchart LR
-  subgraph sources[Tools Bearing reads]
-    GH[GitHub]
-    K8s[Kubernetes]
-    IdP[Directory]
-  end
-  subgraph adapters[Adapters, one process each]
-    AGH[github adapter]
-    AK8s[kubernetes adapter]
-  end
-  subgraph server[bearing server]
-    API[API: socket and TCP]
-    WH[Webhook route]
-    LOG[(Event log)]
-    W[Apply workers]
-    M[Matcher]
-    S[(Store: DuckDB)]
-  end
-  GH -- webhooks --> WH
-  AGH -- reads --> GH
-  AK8s -- reads --> K8s
-  WH --> LOG
-  W <-- gRPC: Sync, Handle --> AGH
-  W <-- gRPC --> AK8s
-  LOG --> W
-  W -- Ingest --> S
-  W -. sync done .-> M
-  M -- links --> S
-  CLI[bearing CLI / MCP] --> API --> S
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/architecture-overview-dark.svg">
+  <img src="diagrams/architecture-overview.svg" alt="Architecture of the Bearing server. Source systems (GitHub, Kubernetes, a directory) send webhooks to the webhook route, and adapters, one process each, read them. The route appends to the event log; apply workers take events from it in order, call the adapters over gRPC for observations and ingest them into the store (DuckDB). After each sync the workers signal the matcher, which writes links to the store. The CLI and MCP ask questions through the API, which reads the store.">
+</picture>
 
 - **Adapters** (`adapters/*`, `pkg/adapter`) only read a source and turn
   what they see into observations. The server starts each one as its own
@@ -60,27 +33,10 @@ flowchart LR
 A sync reads everything a source has, page by page. It starts on a schedule
 or when someone runs `bearing source sync`.
 
-```mermaid
-sequenceDiagram
-  participant Sch as Scheduler or API
-  participant Log as Event log
-  participant Wk as Apply worker
-  participant Ad as Adapter
-  participant St as Store
-  participant Mt as Matcher
-  Sch->>Log: SyncRequested
-  Log->>Wk: next event for this source
-  loop each page
-    Wk->>Ad: Sync(config, cursor)
-    Ad-->>Wk: observations, next cursor, done?
-    Wk->>Log: ObservationsEmitted (one page)
-  end
-  Log->>Wk: each page in turn
-  Wk->>St: Ingest(page, authority, full-sync kinds)
-  Note over Wk,St: the last page carries sync_started, so records<br/>the source no longer lists have their facts closed
-  Wk--)Mt: sync done (a signal, not a wait)
-  Mt->>St: propose or assert identity links
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/sync-dark.svg">
+  <img src="diagrams/sync.svg" alt="Sequence of a sync. A SyncRequested event goes into the event log and the apply worker takes it. For each page it calls the adapter's Sync with a cursor, gets observations and the next cursor back and appends the page to the log. It then ingests each page into the store; only the last page carries sync_started, from the adapter's clock, so only then does the store close what the source stopped listing. Last, the worker signals the matcher without waiting, and the matcher writes identity links to the store.">
+</picture>
 
 - Pages are logged before they are ingested, so a crash replays them; the
   store skips an observation it already has.
@@ -99,25 +55,10 @@ A source can also push a change as it happens. The server checks the
 delivery, logs it and answers at once; the adapter turns it into
 observations later.
 
-```mermaid
-sequenceDiagram
-  participant Src as GitHub
-  participant Rt as Webhook route
-  participant Log as Event log
-  participant Wk as Apply worker
-  participant Ad as Adapter
-  participant St as Store
-  Src->>Rt: POST /webhooks/{source}
-  Note over Rt: 1. per-peer rate limit<br/>2. body size limit<br/>3. HMAC signature, constant time<br/>4. per-source rate limit
-  Rt->>Log: WebhookReceived (body and headers)
-  Rt-->>Src: 202 Accepted, only once it is logged
-  Log->>Wk: next event for this source
-  Wk->>Ad: Handle(config, headers, body)
-  Ad-->>Wk: observations
-  Wk->>Log: ObservationsEmitted
-  Log->>Wk: the page
-  Wk->>St: Ingest
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/webhook-dark.svg">
+  <img src="diagrams/webhook.svg" alt="Sequence of a webhook. GitHub posts to /webhooks/{source}. The route checks, in order, a per-peer rate limit, the body size limit, the HMAC signature in constant time and a per-source rate limit, logs the delivery and only then answers 202 Accepted. Later the apply worker takes the event, has the adapter's Handle turn it into observations, appends that page to the log and ingests it into the store.">
+</picture>
 
 - **The server owns verification.** The route uses the signature scheme the
   adapter's declaration names and the secret from the server's settings. A
@@ -138,19 +79,10 @@ Read next: `pkg/server/ingest.go` (`serve`), `pkg/server/verify.go`,
 Each `Ingest` call is one transaction: everything in it lands, or nothing
 does.
 
-```mermaid
-flowchart TD
-  O[Observation] --> D{Seen this ID before?}
-  D -- yes --> X[Skip it]
-  D -- no --> L[Log it in observation]
-  L --> R[Find or create the record<br/>for its key and aliases]
-  R --> I{Linked IDs?}
-  I -- source vouches --> A[Asserted same_as link]
-  I -- source doesn't --> P[Proposed same_as link]
-  R --> F[Open, refresh or close facts:<br/>relations, attributes, qualifiers]
-  A --> C[Recompute clusters:<br/>records joined by asserted links]
-  F --> C
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/ingest-dark.svg">
+  <img src="diagrams/ingest.svg" alt="Flowchart of one ingest. An observation whose ID was seen before is skipped. Otherwise it is logged in the observation table and its record is found or created by key and aliases. Linked IDs become an asserted same_as link when the source vouches for them and a proposed link, which joins nothing yet, when it does not. Facts are opened, refreshed or closed, and clusters of records joined by asserted links are recomputed.">
+</picture>
 
 - A **record** is one thing as one source described it. An **entity** is a
   cluster of records joined by **asserted** `same_as` links; answers are
@@ -165,19 +97,10 @@ Read next: `internal/duckstore/ingest.go`, `links.go`, ADR 7.
 
 ## A question
 
-```mermaid
-sequenceDiagram
-  participant U as bearing CLI or a client
-  participant API as API
-  participant Q as pkg/query
-  participant St as Store
-  U->>API: GET /v1/owner?ref=github:repo/acme/payments
-  Note over API: socket: peer UID check<br/>TCP: bearer token, TLS, limits
-  API->>Q: Owners(ref)
-  Q->>St: Entity, Facts (asserted only)
-  St-->>Q: facts with their sources
-  Q-->>API: one fact per statement, all sources
-  API-->>U: JSON answer with evidence
-```
+The CLI, or any client, asks the API, for example
+`GET /v1/owner?ref=github:repo/acme/payments`. The API checks the caller
+(the peer's UID on the socket; a bearer token, TLS and rate limits on TCP),
+and `pkg/query` reads only asserted facts from the store and answers in JSON
+with one fact per statement and every source behind it.
 
 Read next: `pkg/server/api.go`, `pkg/query`, [the API spec](spec/api.md).
