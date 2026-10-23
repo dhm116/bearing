@@ -167,9 +167,11 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		l.Webhooks = in
 	}
-	api, err := server.NewAPI(server.APIConfig{
-		Server: srv, Query: &query.Querier{Graph: st.Graph()},
-	})
+	q := &query.Querier{Graph: st.Graph()}
+	if scfg.Matching != nil {
+		q.HalfLife = scfg.Matching.Config.HalfLifeOf // review scores decay as the matcher's do
+	}
+	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q})
 	if err != nil {
 		return nil, err
 	}
@@ -464,6 +466,7 @@ func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []ser
 	}
 	cfg := server.Config{
 		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
+		Links:   st.Graph(),
 		Sources: sources, Clock: clk,
 	}
 	if s.Matching != nil {

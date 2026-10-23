@@ -147,7 +147,16 @@ func (w *apiWorld) seed(t *testing.T) {
 
 // do makes a request as the caller who holds token ("" sends none).
 func (w *apiWorld) do(token, method, target string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, nil)
+	return w.doBody(token, method, target, "")
+}
+
+// doBody is do with a request body.
+func (w *apiWorld) doBody(token, method, target, body string) *httptest.ResponseRecorder {
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, rd)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -187,14 +196,17 @@ func TestAPIRefusesMissingAndWrongTokensOnEveryRoute(t *testing.T) {
 	type probe struct {
 		method, target string
 		ok             int
+		body           string
 	}
 	table := map[string]probe{
-		"GET /v1/get":                    {http.MethodGet, "/v1/get?ref=catalog:repo/payments", http.StatusOK},
-		"GET /v1/owner":                  {http.MethodGet, "/v1/owner?ref=catalog:repo/payments", http.StatusOK},
-		"GET /v1/related":                {http.MethodGet, "/v1/related?ref=catalog:repo/payments", http.StatusOK},
-		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK},
-		"GET /v1/find":                   {http.MethodGet, "/v1/find?q=payments", http.StatusOK},
-		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted},
+		"GET /v1/get":                    {http.MethodGet, "/v1/get?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/owner":                  {http.MethodGet, "/v1/owner?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/related":                {http.MethodGet, "/v1/related?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK, ""},
+		"GET /v1/find":                   {http.MethodGet, "/v1/find?q=payments", http.StatusOK, ""},
+		"GET /v1/links":                  {http.MethodGet, "/v1/links", http.StatusOK, ""},
+		"POST /v1/links/decisions":       {http.MethodPost, "/v1/links/decisions", http.StatusAccepted, `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/billing"}`},
+		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted, ""},
 	}
 	for _, rt := range routes {
 		p, ok := table[rt.pattern]
@@ -203,15 +215,15 @@ func TestAPIRefusesMissingAndWrongTokensOnEveryRoute(t *testing.T) {
 			continue
 		}
 		t.Run(rt.pattern, func(t *testing.T) {
-			if got := w.do("", p.method, p.target); got.Code != http.StatusUnauthorized {
+			if got := w.doBody("", p.method, p.target, p.body); got.Code != http.StatusUnauthorized {
 				t.Errorf("no token: got %d, want 401", got.Code)
 			} else {
 				decodeError(t, got)
 			}
-			if got := w.do("wrong", p.method, p.target); got.Code != http.StatusUnauthorized {
+			if got := w.doBody("wrong", p.method, p.target, p.body); got.Code != http.StatusUnauthorized {
 				t.Errorf("an unknown token: got %d, want 401", got.Code)
 			}
-			if got := w.do("admin", p.method, p.target); got.Code != p.ok {
+			if got := w.doBody("admin", p.method, p.target, p.body); got.Code != p.ok {
 				t.Errorf("an authenticated caller: got %d (%s), want %d", got.Code, got.Body.String(), p.ok)
 			}
 		})
@@ -249,12 +261,15 @@ func TestAPIUnknownPathsAndMethodsAreRefusedBeforeCredentials(t *testing.T) {
 	}
 }
 
-// No route takes a body, so one is refused before anything is done for the
-// request, however large and however it is framed.
+// Only the decision route takes a body; the others refuse one before anything
+// is done for the request, however large and however it is framed.
 func TestAPIRefusesABodyOnEveryRoute(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	for _, rt := range routes {
+		if rt.body {
+			continue
+		}
 		target := strings.NewReplacer("{source}", testSource).Replace(strings.SplitN(rt.pattern, " ", 2)[1])
 		for name, body := range map[string]string{"a large body": strings.Repeat("x", 100<<10), "a small one": "{}"} {
 			req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, strings.NewReader(body))

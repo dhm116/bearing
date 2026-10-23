@@ -15,6 +15,12 @@ const (
 	MethodChanges Method = "query.changes"
 	// MethodFind is "what matches this name": bearing find.
 	MethodFind Method = "query.find"
+	// MethodLinks is "which identity links are waiting for review": bearing
+	// links.
+	MethodLinks Method = "links.list"
+	// MethodDecide records a person's decision on an identity link, which
+	// appends a LinkDecided event.
+	MethodDecide Method = "links.decide"
 	// MethodSyncRequest asks for a sync of one Source, which appends a
 	// SyncRequested event.
 	MethodSyncRequest Method = "sync.request"
@@ -29,4 +35,9 @@ type Caller struct {
 	// Local is set only by the server for a caller it accepted on the
 	// Unix socket (C-API-1).
 	Local bool
+	// Agent is set by an authenticator that can tell the caller is an agent
+	// (software acting for a person) and not a person. Agents read but do not
+	// decide identity links. No authenticator sets it yet: the API token and
+	// the socket's UID are people by definition (docs/spec/api.md).
+	Agent bool
 }

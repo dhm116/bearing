@@ -31,16 +31,19 @@ A request to the API (not a webhook delivery) is checked in this order, and the
 first failure is the answer:
 
 1. The route exists (else 404 `not_found` or 405 `method_not_allowed`, with
-   an `Allow` header) and the request has no body (else 400 `invalid_request`,
-   whatever the body's size or framing). Nothing else is looked at before this.
+   an `Allow` header) and, unless the route takes a body, the request has none
+   (else 400 `invalid_request`, whatever the body's size or framing); a body
+   that announces more than 8 KiB is a 413 `too_large`. Nothing else is looked
+   at before this.
 2. The server is below its limit of requests in flight (else 503 `busy`). The
    request's deadline starts here.
 3. Authentication (else 401 `unauthenticated`).
 4. The caller's rate limit (else 429 `rate_limited`).
 5. For a sync request, that the source exists (else 404 `unknown_source`).
-6. For a slow read (`changes`, `find`, and `related` with `depth` above 1),
-   the caller's slow reads in flight (else 429 `too_many_reads`).
-7. The parameters (else 400 `invalid_request`).
+6. For a slow read (`changes`, `find`, `links`, and `related` with `depth`
+   above 1), the caller's slow reads in flight (else 429 `too_many_reads`).
+7. The parameters or, for a decision, the caller (an agent is a 403
+   `forbidden`) and the body (else 400 `invalid_request`).
 
 Parameters go in the query string. A name the route does not define, a name
 given twice, text with control characters and anything over its length limit
@@ -55,6 +58,8 @@ is a 400. Times are RFC 3339. `find` with a `kind` that is not a kind is a 400.
 | `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
 | `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
 | `GET /v1/find` | `query.find` | `q` (required), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
+| `GET /v1/links` | `links.list` | `status` (`proposed` or `asserted`), `kind` (`same_as` or `distinct_from`), `entity` (an entity ID, record ID or key), `limit` (1 to 1,000, default 100) | `{"links": [...]}`: the open identity links, strongest first. This is the review queue when `status=proposed`. Each link has its `id`, `kind`, `status`, `rule`, both records (`a`, `b`: `id`, `kind`, `name`, first `key`, `sources`), its `score` (`strength`, `certainty`, `support`, `contrary`) at the server's time, and its `deposits`: the evidence over time with a matcher's `features`, or, for a person's decision, the `actor` and `reason` |
+| `POST /v1/links/decisions` | `links.decide` | JSON body (below) | 202 `{"event_id", "offset"}`, only after the decision is on the event log (partition `core/identity`); the worker applies it in order, once. 400 for a malformed or inconsistent decision, 404 for a link or record that does not exist, 403 for an agent, 501 when the server takes no decisions |
 | `POST /v1/sources/{source}/sync` | `sync.request` | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log. The pending request may already be running, in which case a change made after it started is seen by the next sync, not by this one |
 
 `ref` is an entity ID or a key such as `github:repo/acme/payments`, at most
@@ -75,6 +80,32 @@ them.
 **Who asked.** A sync request is recorded with the caller the authenticator
 proved: `token` for the API token, or `local:<uid>` on the socket. Nothing in the request chooses it.
 
+**Link decisions.** The body of `POST /v1/links/decisions` is one JSON object
+(unknown fields are refused): `decision`, one of `accept`, `reject`, `join`,
+`split` and `undo_distinct`, and either `link_id` (`accept` and `reject` a
+proposed `same_as`, `undo_distinct` a `distinct_from`) or `a` and `b` (`join`
+and `split`: two references, each an entity ID, a record ID or a key), and an
+optional `reason`, free text clipped to 1 KiB and never interpreted. `accept`
+asserts the proposed link; `reject` closes it and asserts a `distinct_from`, so
+the pair is not proposed again; `join` asserts a `same_as` (and closes a
+`distinct_from` between the pair); `split` closes the `same_as` links between
+the pair and asserts a `distinct_from`; `undo_distinct` closes a
+`distinct_from`. Facts stay on their records, so every decision can be undone
+by another. The decision is recorded with the caller as its actor, and its
+event ID is the key that makes applying it once: accepting a link that is
+already asserted or closed changes nothing and logs a warning, and a decision
+the store cannot carry out (a link that has vanished, records of different
+kinds) becomes a dead letter with the reason.
+
+Only a person decides ([ADR 7](../adr/0007-records-identity-links-matchers.md):
+a proposed link becomes asserted only by a person or a rule the settings
+name). An authenticator that knows its caller is an agent sets `Caller.Agent`,
+and such a caller reads but gets a 403 on this route. Neither authenticator
+the server has can tell yet: the API token and the socket's UID are people by
+definition, so a person who hands the token to an agent hands over the right to
+decide too. Telling an agent from a person needs an identity provider that
+marks agents (OIDC); until then, hold the token as you would a password.
+
 ## Limits
 
 Before any of the checks above, the TCP listener limits each remote peer (an
@@ -86,13 +117,13 @@ endpoints and the webhook route are not counted (the route has its own limit,
 see [Webhook deliveries](#webhook-deliveries)), and the socket has no such
 limit. Each caller has a request rate (default 600 a minute), at most two slow
 reads in flight, and a deadline per request (30 seconds; 15 for a slow read).
-The slow reads are `changes`, `find` and `related` with `depth` above 1: they
+The slow reads are `changes`, `find`, `links` and `related` with `depth` above 1: they
 scan or walk many rows, so they share one cap and the shorter deadline. A
 caller is its token subject at a peer address (an IPv6 peer is its /64), or
 `local:<uid>` on the socket, so one remote client cannot use up another's
 share of a shared token. The server holds at most 256 requests at once, reads
-headers for at most 10 seconds and 16 KiB, and refuses any body (no route
-takes one).
+headers for at most 10 seconds and 16 KiB, and refuses any body except the 8 KiB
+of a decision.
 
 ## Settings
 
@@ -125,11 +156,14 @@ carries `Retry-After`, in seconds.
 | --- | --- |
 | 400 | `invalid_request` |
 | 401 | `unauthenticated` |
+| 403 | `forbidden` (an agent decided a link) |
 | 404 | `not_found`, `unknown_source` |
 | 405 | `method_not_allowed` |
+| 413 | `too_large` |
 | 429 | `rate_limited`, `too_many_reads` |
 | 500 | `internal` |
-| 503 | `busy`, `unavailable` (the event log refused a sync request) |
+| 501 | `not_implemented` (the server takes no link decisions) |
+| 503 | `busy`, `unavailable` (the event log refused a sync request or a decision) |
 | 504 | `timeout` |
 
 ## The command line

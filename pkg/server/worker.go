@@ -27,6 +27,7 @@ var (
 	typeWebhookReceived     = mustType(&eventv1alpha1.WebhookReceived{})
 	typeObservationsEmitted = mustType(&eventv1alpha1.ObservationsEmitted{})
 	typeEventDeadLettered   = mustType(&eventv1alpha1.EventDeadLettered{})
+	typeLinkDecided         = mustType(&eventv1alpha1.LinkDecided{})
 )
 
 func mustType(m proto.Message) string {
@@ -260,6 +261,8 @@ func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err 
 		return s.handleWebhook(ctx, e)
 	case typeObservationsEmitted:
 		return workerApplied, s.handleObservations(ctx, e)
+	case typeLinkDecided:
+		return workerApplied, s.handleLinkDecided(ctx, e)
 	case typeEventDeadLettered:
 		// A required group reads every partition, and a record of a dead
 		// letter has nothing to apply.

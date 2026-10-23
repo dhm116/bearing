@@ -92,6 +92,9 @@ type Config struct {
 	// Matching runs, off the apply path, after the last page of a sync is
 	// applied; nil means never.
 	Matching *Matching
+	// Links carries out people's decisions on identity links (DecideLink);
+	// nil means the server takes none.
+	Links LinkDecider
 	// Sources are the configured sources.
 	Sources []Source
 
@@ -147,6 +150,8 @@ type Server struct {
 	wake   chan struct{}
 	// matchWake tells the matching goroutine that a sync finished.
 	matchWake chan struct{}
+	// identityMu orders a matching run against a person's decision.
+	identityMu sync.Mutex
 
 	oldestUnapplied atomic.Int64 // seconds
 	deadLetters     atomic.Int64

@@ -60,6 +60,10 @@ func (c Config) halfLife(k model.Kind) time.Duration {
 	return defaultHalfLife
 }
 
+// HalfLifeOf is how fast evidence for records of kind k fades: the setting
+// for the kind, else the default.
+func (c Config) HalfLifeOf(k model.Kind) time.Duration { return c.halfLife(k) }
+
 // ShortestHalfLife is the fastest any kind's evidence fades: the default
 // half-life, or a shorter one set for a kind.
 func (c Config) ShortestHalfLife() time.Duration {
