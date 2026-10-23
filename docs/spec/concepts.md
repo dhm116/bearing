@@ -6,16 +6,10 @@ decisions behind this page are [ADR 2](../adr/0002-facts-carry-provenance.md),
 [ADR 7](../adr/0007-records-identity-links-matchers.md); the fields are defined in
 `proto/bearing/model/v1alpha1/observation.proto`.
 
-```mermaid
-flowchart LR
-  A[Adapter<br/>reads GitHub, a directory, Kubernetes] -->|observations| S[Store.Ingest]
-  S --> O[(observation)]
-  S --> E[(entity + alias)]
-  S --> F[(fact + fact_source)]
-  F -->|Facts, Walk, Changes| Q[Queries<br/>CLI, API, MCP]
-  E -->|Entity, Find| Q
-  O -.->|provenance| F
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/concepts-dark.svg">
+  <img src="../diagrams/concepts.svg" alt="How data moves through the store. An adapter, reading GitHub, a directory or Kubernetes, sends observations to Store.Ingest, which skips IDs it already has and writes four kinds of table in the DuckDB store: observation, fact with fact_source, records (entity with alias) and identity links (identity_link with link_deposit). Each fact points back at the observations behind it, its provenance. Asserted same_as links join records into one entity. Queries from the CLI, API and MCP read facts (Facts, Walk, Changes) and entities (Entity, Find).">
+</picture>
 
 ## Observation
 
