@@ -27,7 +27,14 @@ An adapter serves one gRPC service, `AdapterService` in
 `os.Exit(adapter.Main(name, version, a))`; [`adapters/github`](adapters/github)
 and [`adapters/kubernetes`](adapters/kubernetes) are worked examples. In
 another language, generate a gRPC server from that file and listen where
-`BEARING_ADAPTER_LISTEN` says. An adapter on a `tcp://` address (a remote
-one) must demand the bearer token in `BEARING_ADAPTER_TOKEN` (`adapter.Main`
-refuses to listen without it) and sit behind TLS. Try it with
+`BEARING_ADAPTER_LISTEN` says. An adapter the server starts listens on a
+private `unix://` socket and needs nothing else. A remote adapter listens
+on `tcp://host:port` and serves mutual TLS (TLS 1.3), with three PEM files
+named by variables: `BEARING_ADAPTER_TLS_CERT` and `BEARING_ADAPTER_TLS_KEY`
+(its certificate and key; the key readable by its owner only) and
+`BEARING_ADAPTER_TLS_CLIENT_CA` (the CA whose client certificates may call
+it). `adapter.Main` refuses to listen without all three; the server's
+settings name the matching `tls.ca_file`, `tls.cert_file` and
+`tls.key_file`. Certificates are read at start, so a new one needs a
+restart. Try it with
 `bearing adapter describe -- <your binary>` and `bearing adapter sync`.
