@@ -165,11 +165,12 @@ func CheckEnvName(field, name string) error {
 
 // CheckAPIURL refuses a source URL (config field) a token would cross in
 // the clear: it must be https, or http to a loopback address, the rule Dial
-// applies. The URL is not echoed: it may hold credentials.
+// applies, and must carry no userinfo. The URL is not echoed: it may hold
+// credentials.
 func CheckAPIURL(field, raw string) error {
 	u, err := url.Parse(raw)
 	switch {
-	case err != nil:
+	case err != nil, u.User != nil: // userinfo would send credentials along with every request
 	case u.Scheme == "https" && u.Host != "":
 		return nil
 	case u.Scheme == "http":

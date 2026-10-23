@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"bearing.example/internal/githubid"
+
 	"bearing.example/pkg/clock"
 )
 
@@ -43,7 +45,7 @@ type GitHubUser struct {
 }
 
 // NodeID returns the account's next-format node ID.
-func (u GitHubUser) NodeID() string { return nextNodeID("U", u.DatabaseID) }
+func (u GitHubUser) NodeID() string { return githubid.NextNodeID("U", u.DatabaseID) }
 
 // DirectoryUser is a person's account in the identity directory.
 type DirectoryUser struct {
@@ -79,7 +81,7 @@ type GitHubTeam struct {
 }
 
 // NodeID returns the team's next-format node ID.
-func (t GitHubTeam) NodeID() string { return nextNodeID("T", orgDatabaseID, t.DatabaseID) }
+func (t GitHubTeam) NodeID() string { return githubid.NextNodeID("T", orgDatabaseID, t.DatabaseID) }
 
 // DirectoryGroup is a team's group in the directory.
 type DirectoryGroup struct {
@@ -109,7 +111,7 @@ type Repo struct {
 }
 
 // NodeID returns the repository's next-format node ID.
-func (r Repo) NodeID() string { return nextNodeID("R", r.DatabaseID) }
+func (r Repo) NodeID() string { return githubid.NextNodeID("R", r.DatabaseID) }
 
 // FullName returns "acme/<name>".
 func (r Repo) FullName() string { return OrgLogin + "/" + r.Name }

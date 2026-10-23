@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"bearing.example/internal/githubid"
+
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -698,7 +700,7 @@ func notFound(what string, id int64) error {
 // as deleted if it is gone and the delivery says it was deleted. The ID is derived from the payload's numeric id
 // because its node_id is legacy-format.
 func (c *client) rereadRepo(ctx context.Context, id int64, deletedEvent bool) (adapter.Observations, error) {
-	nodeID := nextNodeID("R", id)
+	nodeID := githubid.NextNodeID("R", id)
 	var data struct {
 		Node *gqlRepo `json:"node"`
 	}
@@ -722,7 +724,7 @@ func (c *client) rereadRepo(ctx context.Context, id int64, deletedEvent bool) (a
 // rereadTeam observes the team as it is now, with its members, or as
 // deleted if it is gone and the delivery says it was deleted.
 func (c *client) rereadTeam(ctx context.Context, orgID, id int64, deletedEvent bool) (adapter.Observations, error) {
-	nodeID := nextNodeID("T", orgID, id)
+	nodeID := githubid.NextNodeID("T", orgID, id)
 	var data struct {
 		Node *gqlTeam `json:"node"`
 	}

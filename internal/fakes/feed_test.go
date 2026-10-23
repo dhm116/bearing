@@ -3,22 +3,22 @@ package fakes
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"flag"
 	"net/http"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"bearing.example/adapters/authentik"
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
+	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
 
@@ -30,99 +30,31 @@ const feedPath = "../../testdata/acme/directory.ndjson"
 // directorySource is the CloudEvents source of the directory feed.
 const directorySource = "adapter/authentik"
 
-// recordFeed reads the directory fake as an Authentik adapter would and
-// returns its observations under the reference declaration: one per user,
-// then one per group with its members (users and child groups) as
-// member_of claims and a snapshot scope over them.
+// recordFeed runs the Authentik adapter against the directory fake, as the
+// server would, and returns its observations. The adapter's UI links point
+// at the admin UI the fake's evidence URLs name.
 func recordFeed(t *testing.T, d *Directory, at time.Time) []*eventv1alpha1.Observation {
 	t.Helper()
-	users := listAll[akUser](t, d.URL, "/api/v3/core/users/")
-	groups := listAll[akGroup](t, d.URL, "/api/v3/core/groups/")
-	type conn struct {
-		User       int    `json:"user"`
-		Identifier string `json:"identifier"`
-	}
-	githubID := map[int]int64{} // user pk -> numeric GitHub user ID
-	for _, c := range listAll[conn](t, d.URL, "/api/v3/sources/user_connections/oauth/?source__slug=github") {
-		id, err := strconv.ParseInt(c.Identifier, 10, 64)
-		if err != nil {
-			t.Fatal(err)
-		}
-		githubID[c.User] = id
-	}
-	var obs []*eventv1alpha1.Observation
-	userKey := map[int]string{}
-	for _, u := range users {
-		key := string(model.NewKey("authentik", "user", u.UUID))
-		userKey[u.PK] = key
-		e := &modelv1alpha1.Entity{
-			Kind: string(model.KindPerson), Key: key,
-			Aliases: []string{string(model.NewKey("authentik", "username", u.Username))},
-			Attributes: map[string]*structpb.Value{
-				"name":  structpb.NewStringValue(u.Name),
-				"email": structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue(u.Email)}}),
-			},
-		}
-		// The fake reads the whole OAuth connection list, so the link list
-		// is complete, even if empty.
-		e.LinkedIdsComplete = true
-		// The OAuth connection is the authoritative link: the next-format
-		// node ID derives from the numeric ID it records.
-		if id, ok := githubID[u.PK]; ok {
-			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user_node", nextNodeID("U", id))))
-		}
-		if gh := u.Attributes.GitHub; gh != nil && gh.Login != "" {
-			e.LinkedIds = append(e.LinkedIds, string(model.NewKey("github", "user", gh.Login)))
-		}
-		obs = append(obs, model.NewObservation(directorySource, at, &modelv1alpha1.ObservationData{
-			Entity: e, Evidence: &modelv1alpha1.Evidence{Url: UserURL(u.PK)},
-		}))
-	}
-	for _, g := range groups {
-		periods := map[int]akPeriod{}
-		for _, p := range g.Attributes.MembershipPeriods {
-			periods[p.User] = p
-		}
-		var rels []*modelv1alpha1.Relation
-		for _, pk := range g.Users {
-			r := &modelv1alpha1.Relation{Type: string(model.RelMemberOf), End: &modelv1alpha1.Relation_From{From: userKey[pk]}}
-			if p, ok := periods[pk]; ok {
-				r.ValidFrom, r.ValidTo = timestamp(t, p.Start), timestamp(t, p.End)
-			}
-			rels = append(rels, r)
-		}
-		for _, child := range groups {
-			if child.Parent != nil && *child.Parent == g.PK {
-				rels = append(rels, &modelv1alpha1.Relation{
-					Type: string(model.RelMemberOf),
-					End:  &modelv1alpha1.Relation_From{From: string(model.NewKey("authentik", "group", child.PK))},
-				})
-			}
-		}
-		obs = append(obs, model.NewObservation(directorySource, at, &modelv1alpha1.ObservationData{
-			Entity: &modelv1alpha1.Entity{
-				Kind: string(model.KindTeam), Key: string(model.NewKey("authentik", "group", g.PK)),
-				Aliases:    []string{string(model.NewKey("authentik", "group_name", g.Name))},
-				Attributes: map[string]*structpb.Value{"name": structpb.NewStringValue(g.Name)},
-			},
-			Relations: rels,
-			Snapshots: []*modelv1alpha1.SnapshotScope{{Direction: modelv1alpha1.Direction_DIRECTION_IN, Predicates: []string{string(model.RelMemberOf)}}},
-			Evidence:  &modelv1alpha1.Evidence{Url: GroupURL(g.PK)},
-		}))
-	}
-	return obs
-}
-
-func timestamp(t *testing.T, s *string) *timestamppb.Timestamp {
-	t.Helper()
-	if s == nil {
-		return nil
-	}
-	ts, err := time.Parse(time.RFC3339, *s)
+	cfg, err := json.Marshal(authentik.Config{APIURL: d.URL, UIURL: directoryUI, PageSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return timestamppb.New(ts)
+	a := &authentik.Adapter{HTTP: d.Client(), Now: func() time.Time { return at }, Getenv: func(string) string { return testToken }}
+	var obs []*eventv1alpha1.Observation
+	cur := ""
+	for range 100 {
+		res, err := a.Sync(t.Context(), adapter.SyncParams{Config: cfg, Cursor: cur})
+		if err != nil {
+			t.Fatal(err)
+		}
+		obs = append(obs, res.Observations...)
+		if res.Done {
+			return obs
+		}
+		cur = res.NextCursor
+	}
+	t.Fatal("sync did not finish")
+	return nil
 }
 
 // readFeed decodes and validates every line of the recorded feed.
@@ -164,15 +96,12 @@ func TestDirectoryFeedMatchesTheFake(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	recorded := readFeed(t)
-	if len(recorded) != len(obs) {
-		t.Fatalf("got %d recorded observations, want %d (run go test ./internal/fakes -update and review the diff)", len(recorded), len(obs))
+	want, err := os.ReadFile(feedPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i := range obs {
-		if !proto.Equal(recorded[i], obs[i]) {
-			t.Fatalf("%s line %d differs from the fake (run go test ./internal/fakes -update and review the diff):\n got %v\nwant %v",
-				feedPath, i+1, recorded[i], obs[i])
-		}
+	if !bytes.Equal(want, buf.Bytes()) {
+		t.Fatalf("%s differs from the adapter's output (run go test ./internal/fakes -update and review the diff)", feedPath)
 	}
 }
 

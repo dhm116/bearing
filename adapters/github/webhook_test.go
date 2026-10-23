@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"bearing.example/internal/githubid"
+
 	"google.golang.org/protobuf/proto"
 
 	"bearing.example/internal/fakes"
@@ -127,7 +129,7 @@ func TestHandleObservesAMissingObjectAsDeleted(t *testing.T) {
 	}
 	o := res.Observations[0]
 	// observed_at is the re-read's send time, not anything in the payload.
-	if e := o.GetData().GetEntity(); e.GetKey() != "github:repo_node/"+nextNodeID("R", 999) || !e.GetDeleted() || !o.GetTime().AsTime().Equal(fakes.TeamDeletedAt) {
+	if e := o.GetData().GetEntity(); e.GetKey() != "github:repo_node/"+githubid.NextNodeID("R", 999) || !e.GetDeleted() || !o.GetTime().AsTime().Equal(fakes.TeamDeletedAt) {
 		t.Fatalf("got %v at %v, want repo 999 deleted at %v", e, o.GetTime().AsTime(), fakes.TeamDeletedAt)
 	}
 }

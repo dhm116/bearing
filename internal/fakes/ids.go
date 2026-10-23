@@ -2,7 +2,6 @@ package fakes
 
 import (
 	"encoding/base64"
-	"encoding/binary"
 	"strconv"
 )
 
@@ -13,31 +12,6 @@ import (
 // for teams. The legacy format is the standard base64 of
 // "0<len(type)>:<type><database ID>". The spec allows only the next format
 // in keys.
-
-// nextNodeID returns the next-format node ID for prefix and database IDs.
-func nextNodeID(prefix string, ids ...int64) string {
-	b := []byte{0x90 | byte(len(ids)+1), 0x00} //nolint:gosec // G115: a fixarray holds at most 15; node IDs have two or three
-	for _, id := range ids {
-		b = appendMsgpackUint(b, uint64(id)) //nolint:gosec // G115: database IDs are positive
-	}
-	return prefix + "_" + base64.RawURLEncoding.EncodeToString(b)
-}
-
-// appendMsgpackUint appends v in MessagePack's shortest unsigned encoding.
-func appendMsgpackUint(b []byte, v uint64) []byte {
-	switch {
-	case v < 0x80:
-		return append(b, byte(v))
-	case v <= 0xff:
-		return append(b, 0xcc, byte(v))
-	case v <= 0xffff:
-		return binary.BigEndian.AppendUint16(append(b, 0xcd), uint16(v))
-	case v <= 0xffffffff:
-		return binary.BigEndian.AppendUint32(append(b, 0xce), uint32(v))
-	default:
-		return binary.BigEndian.AppendUint64(append(b, 0xcf), v)
-	}
-}
 
 // legacyNodeID returns the legacy node ID of a typeName object.
 func legacyNodeID(typeName string, id int64) string {

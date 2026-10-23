@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"bearing.example/internal/githubid"
+
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/pkg/model"
@@ -53,10 +55,10 @@ func TestOwnerKey(t *testing.T) {
 // payments-api (database ID 525776495) and the payments team of an org with
 // ID 81234567.
 func TestNextNodeIDMatchesGitHub(t *testing.T) {
-	if got := nextNodeID("R", 525776495); got != "R_kgDOH1a2bw" {
+	if got := githubid.NextNodeID("R", 525776495); got != "R_kgDOH1a2bw" {
 		t.Errorf("repository: got %s", got)
 	}
-	if got := nextNodeID("T", 81234567, 1920002); got != "T_kwDOBNeKh84AHUwC" {
+	if got := githubid.NextNodeID("T", 81234567, 1920002); got != "T_kwDOBNeKh84AHUwC" {
 		t.Errorf("team: got %s", got)
 	}
 	for _, ok := range []string{"R_kgDOH1a2bw", "T_kwDOBNeKh84AHUwC", "U_kgDOA2TdkQ"} {

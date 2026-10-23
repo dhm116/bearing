@@ -25,9 +25,9 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    fact; the gRPC service and transport (local adapters on a private
    socket, remote ones over mutual TLS; stdio is gone), GitHub
    `runtime` facts from manifests, and the Kubernetes adapter (workloads, namespaces, `owned_by`
-   from a label, `defined_in` from an annotation or image). Still needed:
-   - The directory (IdP) adapter; until then the recorded
-     `testdata/acme/directory.ndjson` stands in.
+   from a label, `defined_in` from an annotation or image) and the
+   Authentik directory adapter (`testdata/acme/directory.ndjson` is its
+   recorded output against the fake, kept as a golden file and demo data).
 4. **Resolution.** Design in [ADR 7](docs/adr/0007-records-identity-links-matchers.md)
    (accepted): records, identity links and matchers, proven on the Acme set.
    Done: records and clusters in `internal/duckstore`, with authority from
