@@ -373,3 +373,32 @@ func TestShortestHalfLifeIsTheDefaultUnlessAKindIsShorter(t *testing.T) {
 		}
 	}
 }
+
+func TestRunDatesADepositByTheFactsBehindItsFeatures(t *testing.T) {
+	later := t0.Add(31 * day)
+	src := []graph.Source{{ObservedAt: later}}
+	for name, facts := range map[string][]graph.Fact{
+		"members": {
+			{Subject: "p1", Predicate: "member_of", Object: "g-pay", Sources: src},
+			{Subject: "p1", Predicate: "member_of", Object: "d-pay", Sources: src},
+		},
+		"email": {
+			{Subject: "g-pay", Predicate: "email", Value: "pay@acme.test", Sources: src},
+			{Subject: "d-pay", Predicate: "email", Value: "pay@acme.test", Sources: src},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, now := newFake(), t0.Add(2*day)
+			cfg := Config{Now: func() time.Time { return now }}
+			mustRun(t, g, cfg)
+			// LastSeen stays old; only the facts behind the feature are observed again.
+			g.facts = facts
+			now = later.Add(day)
+			mustRun(t, g, cfg)
+			ds := g.links[0].Deposits
+			if len(ds) != 2 || !ds[1].At.Equal(later) {
+				t.Fatalf("got deposits %+v, want a second one dated %v", ds, later)
+			}
+		})
+	}
+}
