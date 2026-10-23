@@ -24,8 +24,8 @@ An adapter serves one gRPC service, `AdapterService` in
 `proto/bearing/adapter/v1alpha1/adapter.proto`
 ([ADR 4](docs/adr/0004-protobuf-and-grpc-adapters.md)). In Go, implement
 `adapter.Adapter` (`Describe`, `Sync`, `Handle`) and make `main`
-`os.Exit(adapter.Main(name, version, a))`; [`adapters/github`](adapters/github)
-and [`adapters/kubernetes`](adapters/kubernetes) are worked examples. In
+`os.Exit(adapter.Main(name, version, a))`; [`adapters/github`](adapters/github),
+[`adapters/kubernetes`](adapters/kubernetes) and [`adapters/authentik`](adapters/authentik) are worked examples. In
 another language, generate a gRPC server from that file and listen where
 `BEARING_ADAPTER_LISTEN` says. An adapter the server starts listens on a
 private `unix://` socket and needs nothing else. A remote adapter listens

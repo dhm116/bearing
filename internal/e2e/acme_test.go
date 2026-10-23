@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/adapters/authentik"
 	"bearing.example/adapters/github"
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -69,22 +68,33 @@ func (w *world) syncGitHub() graph.IngestResult {
 	return graph.IngestResult{}
 }
 
+// syncDirectory runs the Authentik adapter against a directory fake read
+// at the time the recorded feed was (testdata/acme/directory.ndjson, which
+// internal/fakes checks the adapter still reproduces byte for byte).
 func (w *world) syncDirectory() graph.IngestResult {
 	w.t.Helper()
-	b, err := os.ReadFile("../../testdata/acme/directory.ndjson")
+	clock := testkit.NewClock(fakes.DirectorySyncAt)
+	d := fakes.NewDirectory(w.t, fakes.NewOrg(clock), fakes.DirectoryOptions{Token: "tok"})
+	cfg, err := json.Marshal(authentik.Config{APIURL: d.URL, PageSize: 100})
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	var obs []*eventv1alpha1.Observation
-	sc := bufio.NewScanner(bytes.NewReader(b))
-	for sc.Scan() {
-		o, err := model.DecodeObservation(sc.Bytes())
+	a := &authentik.Adapter{HTTP: d.Client(), Now: clock.Now, Getenv: func(string) string { return "tok" }}
+	var all []*eventv1alpha1.Observation
+	cur := ""
+	for range 50 {
+		res, err := a.Sync(w.t.Context(), adapter.SyncParams{Config: cfg, Cursor: cur})
 		if err != nil {
 			w.t.Fatal(err)
 		}
-		obs = append(obs, o)
+		all = append(all, res.Observations...)
+		if res.Done {
+			return w.ingest("directory", all)
+		}
+		cur = res.NextCursor
 	}
-	return w.ingest("directory", obs)
+	w.t.Fatal("sync did not finish")
+	return graph.IngestResult{}
 }
 
 func (w *world) ingest(source string, obs []*eventv1alpha1.Observation) graph.IngestResult {
