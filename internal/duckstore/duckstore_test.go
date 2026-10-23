@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/store"
 )
 
@@ -49,31 +51,60 @@ func TestOpenKeepsDataAcrossReopen(t *testing.T) {
 
 func TestConcurrentReadsAndWritesFinish(t *testing.T) {
 	// The store runs on one connection (see Open); concurrent callers queue
-	// rather than crash DuckDB or deadlock.
+	// rather than crash DuckDB or deadlock, whichever part they use.
 	s := newStore(t, Config{})
+	if n := s.db.Stats().MaxOpenConnections; n != 1 {
+		t.Fatalf("got %d max open connections, want 1", n)
+	}
 	ctx := t.Context()
+	ingestOK(t, s, "src", obs("o-a", 0, "Person", "p:a/1"), obs("o-b", 0, "Person", "p:b/1"), obs("o-api", 0, "Component", "k:a/api"))
+	recs, err := s.Records(ctx, "Person")
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("got %+v, %v, want two records", recs, err)
+	}
+	a, b := recs[0].ID, recs[1].ID
+	work := []func(i int) error{
+		func(i int) error {
+			_, err := s.Append(ctx, []store.Event{{ID: fmt.Sprintf("p/%d", i), Partition: "p", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}})
+			return err
+		},
+		func(int) error { _, err := s.Partitions(ctx); return err },
+		func(i int) error {
+			_, err := s.Ingest(ctx, graph.IngestRequest{Source: "src", Observations: []*eventv1alpha1.Observation{
+				obs(fmt.Sprintf("o%d", i), i, "Component", "k:a/api", rel("depends_on", "k:a/db", false)),
+			}})
+			return err
+		},
+		func(int) error {
+			_, err := s.Link(ctx, []graph.Proposal{{A: a, B: b, Kind: graph.SameAs, Status: graph.Proposed, Rule: "test", Deposit: graph.Deposit{Weight: 1}}})
+			return err
+		},
+		func(int) error { _, err := s.Entity(ctx, "k:a/api"); return err },
+		func(int) error { _, err := s.Walk(ctx, graph.WalkRequest{From: "k:a/api"}); return err },
+		func(int) error { _, err := s.Links(ctx, graph.LinkFilter{Entity: a}); return err },
+	}
 	var wg sync.WaitGroup
-	errs := make(chan error, 2)
-	wg.Go(func() {
-		for i := range 50 {
-			if _, err := s.Append(ctx, []store.Event{{ID: fmt.Sprintf("p/%d", i), Partition: "p", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}}); err != nil {
-				errs <- err
-				return
+	errs := make(chan error, len(work))
+	for _, w := range work {
+		wg.Go(func() {
+			for i := range 30 {
+				if err := w(i); err != nil {
+					errs <- err
+					return
+				}
 			}
-		}
-	})
-	wg.Go(func() {
-		for range 50 {
-			if _, err := s.Partitions(ctx); err != nil {
-				errs <- err
-				return
-			}
-		}
-	})
-	wg.Wait()
+		})
+	}
+	finished := make(chan struct{})
+	go func() { wg.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(30 * time.Second):
+		t.Fatal("concurrent calls did not finish: a deadlock on the one connection")
+	}
 	close(errs)
 	for err := range errs {
-		t.Fatal(err)
+		t.Error(err)
 	}
 }
 
