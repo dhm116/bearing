@@ -27,13 +27,14 @@ the numbers here, so a regression shows. Numbers are for seed 1.
 | acme | 12 | 11 | 0.917 | 1.000 | 1.000 |
 | convention (same team, another naming style) | 50 | 50 | 1.000 | 0.580 | 0.960 |
 | rename (same team, new name) | 10 | 10 | 1.000 | 0.400 | 0.600 |
+| rename-collision (a renamed team takes another team's name) | 1 | 0 | 0.000 | - | - |
 | near-miss (similar names, different teams) | 12 | 0 | 0.000 | - | - |
 | unrelated | 20 | 0 | 1.000 | - | - |
 | person-same-email | 15 | 15 | 1.000 | 1.000 | 1.000 |
 | person-alias (login or nickname, same email) | 10 | 10 | 1.000 | 0.000 | 0.000 |
 | person-same-name (different people) | 15 | 0 | 0.000 | - | - |
 | person-different | 15 | 0 | 1.000 | - | - |
-| **all** | 159 | 96 | 0.747 | 0.615 | 0.833 |
+| **all** | 160 | 96 | 0.738 | 0.615 | 0.833 |
 
 A group's precision counts only the proposals for its own pairs. A group with
 no true pairs and precision 0.000 means every proposal there is wrong.
@@ -42,6 +43,9 @@ no true pairs and precision 0.000 means every proposal there is wrong.
 
 - **Near-miss names** (`ledger`/`legend`): each one is proposed. Name
   similarity alone cannot tell them from a rename.
+- **A rename onto another team's name** (`rename-collision`): the pair is
+  proposed, since the names are equal. The teams stay two records until a
+  person accepts the proposal.
 - **Different people with one name** (`person-same-name`): every one is
   proposed. The matcher has no feature that says "same name, different
   email, so probably two people". Proposals wait for review, so this costs

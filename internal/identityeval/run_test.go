@@ -183,6 +183,19 @@ func TestEvalGeneratedSet(t *testing.T) {
 	}
 	t.Logf("%d proposals open, %d for pairs no case names (all wrong)", len(proposed), unlabelled)
 
+	// A proposal waits for review: a rename that collides with an existing
+	// team's name never joins the two.
+	for _, c := range set.Cases {
+		if c.Group != "rename-collision" {
+			continue
+		}
+		a, errA := g.Entity(ctx, string(c.A))
+		b, errB := g.Entity(ctx, string(c.B))
+		if errA != nil || errB != nil || a.ID == b.ID {
+			t.Errorf("%s and %s: got %v, %v, clusters %s and %s, want two teams", c.A, c.B, errA, errB, a.ID, b.ID)
+		}
+	}
+
 	p, r := PrecisionRecall(set.Cases, proposed)
 	if cr := CandidateRecall(set.Cases, cands); cr < floorCandidateRecall {
 		t.Errorf("candidate recall %.3f, want at least %.2f", cr, floorCandidateRecall)
