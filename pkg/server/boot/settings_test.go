@@ -59,7 +59,7 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"a webhook secret outside the allowlist", `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, `"env:HOME"`, "the secret allowlist"},
 		{"a schedule that is not ISO 8601", `"PT1H"`, `"1h"`, "ISO 8601"},
 		{"a schedule that is a typo for seconds", `"PT1H"`, `"PT5S"`, "shorter than"},
-		{"authority", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "not supported yet"},
+		{"a removed field (authority)", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "unknown field"},
 		{"a zero in-flight webhook cap", `"store": {`, `"webhooks": {"max_in_flight": 0}, "store": {`, "webhooks.max_in_flight must be positive"},
 		{"a negative webhook body cap", `"store": {`, `"webhooks": {"max_body_bytes": -1}, "store": {`, "webhooks.max_body_bytes must be positive"},
 		{"an adapter with no declaration", `"declaration": "/etc/bearing/github.json", `, ``, "declaration is required"},

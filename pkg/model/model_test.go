@@ -343,7 +343,6 @@ func TestShortName(t *testing.T) {
 		{modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, "asserted"},
 		{modelv1alpha1.ValueType_VALUE_TYPE_STRING, "string"},
 		{modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, "not_declared"},
-		{modelv1alpha1.MergeRule_MERGE_RULE_CO_REPORTED_IDS, "co_reported_ids"},
 		{modelv1alpha1.KeyCase_KEY_CASE_INSENSITIVE, "insensitive"},
 	}
 	for _, tt := range tests {
