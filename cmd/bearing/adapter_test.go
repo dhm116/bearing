@@ -138,9 +138,11 @@ func TestRunRejectsBadUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{"adapter", "describe", os.Args[0]},
 		{"adapter", "describe", "--"},
+		{"adapter", "sync", "--address", "https://a.example", "--", os.Args[0]},
+		{"adapter", "sync"},
 	} {
-		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") {
-			t.Errorf("run %q: got %v, want an error about the adapter command", args, err)
+		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") || !errors.Is(err, errUsage) {
+			t.Errorf("run %q: got %v, want a usage error about the adapter command", args, err)
 		}
 	}
 }
