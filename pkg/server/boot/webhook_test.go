@@ -22,9 +22,9 @@ func TestAStartedGitHubAdapterHandlesAVerifiedDelivery(t *testing.T) {
 		s.Adapters[0].Env = []string{githubEnv}
 		s.Sources[0] = []byte(`{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
 		  "spec": {"adapter": "github", "schedule": "PT1H",
-		    "secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},
+		    "secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},
 		    "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",
-		    "settings": {"org": "acme", "api_url": "` + gh.URL + `", "token_env": "BEARING_SECRET_GITHUB_TOKEN"}}}`)
+		    "settings": {"org": "acme", "api_url": "` + gh.URL + `", "token_env": "GITHUB_TOKEN"}}}`)
 	})
 	w.env[githubEnv] = "1"
 	r := w.assemble(t)

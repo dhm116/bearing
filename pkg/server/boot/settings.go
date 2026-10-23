@@ -514,6 +514,9 @@ func (s *Settings) checkAdapter(a *AdapterSettings) error {
 		if strings.HasPrefix(n, "BEARING_") && !s.allowed(n) {
 			return fmt.Errorf("env %q is one of Bearing's own variables", n)
 		}
+		if loaderOrRuntime(n) {
+			return fmt.Errorf("env %q changes how the adapter is loaded or run", n)
+		}
 	}
 	return nil
 }
@@ -589,8 +592,8 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		if _, err := s.envRef(ref); err != nil {
 			return nil, 0, fmt.Errorf("spec.secrets[%q]: %w", model.Clip(k), err)
 		}
-		if !envName.MatchString(k) {
-			return nil, 0, fmt.Errorf("spec.secrets: %q is not a name", model.Clip(k))
+		if err := checkSecretKey(k); err != nil {
+			return nil, 0, fmt.Errorf("spec.secrets[%q]: %w", model.Clip(k), err)
 		}
 	}
 	if ref := spec.GetWebhookSecret(); ref != "" {
@@ -603,6 +606,29 @@ func (s *Settings) checkSource(raw json.RawMessage, adapters map[string]*Adapter
 		return nil, 0, fmt.Errorf("spec.schedule: %w", err)
 	}
 	return src, every, nil
+}
+
+// secretKey is the shape of the variable an adapter receives a secret under.
+var secretKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// checkSecretKey refuses a spec.secrets key that would let a source override
+// the adapter's PATH, Bearing's own variables (the core sets BEARING_ADAPTER_*
+// for the child), the dynamic loader or the Go runtime.
+func checkSecretKey(k string) error {
+	switch {
+	case !secretKey.MatchString(k) || len(k) > 128:
+		return errors.New("must be an upper-case variable name")
+	case k == "PATH" || strings.HasPrefix(k, "BEARING_") || loaderOrRuntime(k):
+		return errors.New("is a variable the core, the loader or the runtime owns")
+	}
+	return nil
+}
+
+// loaderOrRuntime reports whether n changes how an adapter is loaded or run:
+// the dynamic loader's variables, and GODEBUG, which can weaken Go's TLS and
+// certificate checks.
+func loaderOrRuntime(n string) bool {
+	return strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || n == "GODEBUG"
 }
 
 // envRef returns the variable an `env:NAME` reference names. Any other form

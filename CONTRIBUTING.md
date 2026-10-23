@@ -39,3 +39,17 @@ settings name the matching `tls.ca_file`, `tls.cert_file` and
 `tls.key_file`. Certificates are read at start, so a new one needs a
 restart. Try it with
 `bearing adapter describe -- <your binary>` and `bearing adapter sync`.
+
+Secrets reach an adapter the server starts as environment variables. A
+source's `spec.secrets` key is the variable the adapter sees; the value is
+a reference to a variable of the server, so an SDK's own name works
+unchanged and two sources can give it different values:
+
+```json
+"secrets": {"AWS_ACCESS_KEY_ID": "env:BEARING_SECRET_AWS_PROD_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_AWS_PROD_SECRET"}
+```
+
+A key is an upper-case variable name and may not be `PATH` or `GODEBUG`, or start with
+`BEARING_`, `LD_` or `DYLD_`. An adapter's own `*_env` setting
+(`token_env`) names the key, never a `BEARING_` variable.

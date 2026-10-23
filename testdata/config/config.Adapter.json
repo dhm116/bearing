@@ -9,6 +9,6 @@
       { "name": "kv" },
       { "name": "log" }
     ],
-    "secrets": [ "token" ]
+    "secrets": [ "GITHUB_TOKEN" ]
   }
 }

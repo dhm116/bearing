@@ -259,7 +259,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			if val == "" {
 				return nil, fmt.Errorf("boot: settings: sources[%d].spec.secrets[%q]: the variable %s is not set or is empty", i, key, varName)
 			}
-			secretEnv = append(secretEnv, varName+"="+val)
+			secretEnv = append(secretEnv, key+"="+val) // the adapter sees the key, not the server variable
 		}
 		p := sourcePlan{name: name, decl: decls[ad.Name], every: c.schedule[name], config: json.RawMessage(`{}`)}
 		if ref := spec.GetWebhookSecret(); ref != "" {

@@ -295,6 +295,7 @@ func TestParseConfigRejectsBadInput(t *testing.T) {
 		"a token_env with a dash": `{"cluster":"c","api_url":"https://x","token_env":"KUBE-TOKEN"}`,
 		"Bearing's own variable":  `{"cluster":"c","api_url":"https://x","token_env":"BEARING_ADAPTER_TOKEN"}`,
 		"the store password":      `{"cluster":"c","api_url":"https://x","token_env":"BEARING_STORE_PASSWORD"}`,
+		"a BEARING_SECRET_ name":  `{"cluster":"c","api_url":"https://x","token_env":"BEARING_SECRET_KUBE_TOKEN"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var e *adapter.Error
@@ -307,7 +308,7 @@ func TestParseConfigRejectsBadInput(t *testing.T) {
 		"https":                      `{"cluster":"c","api_url":"https://kube.example:6443"}`,
 		"plain http to 127.0.0.1":    `{"cluster":"c","api_url":"http://127.0.0.1:6443"}`,
 		"plain http to ::1":          `{"cluster":"c","api_url":"http://[::1]:6443"}`,
-		"a secret the core hands it": `{"cluster":"c","api_url":"https://x","token_env":"BEARING_SECRET_KUBE_TOKEN"}`,
+		"a secret the core hands it": `{"cluster":"c","api_url":"https://x","token_env":"KUBE_TOKEN"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseConfig(json.RawMessage(raw)); err != nil {

@@ -59,7 +59,7 @@
           "type": "string"
         },
         "secrets": {
-          "description": "The names of the secrets it needs; a source supplies each by reference.",
+          "description": "The names of the secrets it needs, each the environment variable the\n adapter reads it from; a source supplies each by reference.",
           "items": {
             "type": "string"
           },

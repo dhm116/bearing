@@ -12,7 +12,7 @@
       { "derived": "codeowners", "authority": { "authoritative": true } }
     ],
     "settings": { "org": "acme" },
-    "secrets": { "token": "env:GITHUB_TOKEN" },
+    "secrets": { "GITHUB_TOKEN": "env:GITHUB_TOKEN" },
     "schedule": "PT1H",
     "capabilities": [ { "name": "http", "scope": [ "api.github.com" ] } ]
   }
