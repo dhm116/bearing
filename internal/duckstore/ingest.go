@@ -279,11 +279,12 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		if x.id == id {
 			continue
 		}
-		status, err := g.sharedKeyStatus(ctx, keys, boundTo, x.id, x.kind)
-		if err != nil {
-			return "", err
-		}
-		if status == graph.Proposed {
+		x := x
+		status := func() (graph.Status, error) {
+			st, err := g.sharedKeyStatus(ctx, keys, boundTo, x.id, x.kind)
+			if err != nil || st != graph.Proposed {
+				return st, err
+			}
 			// An alias is a claim by its owner: stop depositing once the owner
 			// no longer lists it (a renamed repository's old name).
 			var held []string
@@ -294,12 +295,10 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 			}
 			n, err := g.count(ctx, `SELECT count(*) FROM alias WHERE entity_id = ? AND last_seen >= ? AND key IN (`+placeholders(len(held))+`)`,
 				append([]any{x.id, g.observed.Add(-g.s.linkEvery)}, anySlice(held)...)...)
-			if err != nil {
-				return "", err
-			}
 			if n == 0 {
-				continue
+				return "", err // no link
 			}
+			return st, err
 		}
 		if err := g.link(ctx, id, x.id, status, ruleSharedKey); err != nil {
 			return "", fmt.Errorf("shared key with %s: %w", x.id, err)
@@ -317,7 +316,7 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		if g.authoritative != nil && g.authoritative(model.Key(k)) {
 			status = graph.Asserted
 		}
-		if err := g.link(ctx, id, other, status, ruleLinkedIDs); err != nil {
+		if err := g.link(ctx, id, other, func() (graph.Status, error) { return status, nil }, ruleLinkedIDs); err != nil {
 			return "", fmt.Errorf("linked %s: %w", k, err)
 		}
 	}
@@ -336,11 +335,11 @@ func (g *ingest) sharedKeyStatus(ctx context.Context, keys []string, boundTo map
 		if boundTo[k] != other {
 			continue
 		}
-		n, err := g.count(ctx, `SELECT count(*) FROM observation WHERE key = ?`, k)
-		if err != nil {
+		var seen bool
+		if err := g.tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM observation WHERE key = ? LIMIT 1)`, k).Scan(&seen); err != nil {
 			return "", fmt.Errorf("shared key %s: %w", k, err)
 		}
-		if n > 0 {
+		if seen {
 			return graph.Asserted, nil
 		}
 	}
@@ -349,8 +348,9 @@ func (g *ingest) sharedKeyStatus(ctx context.Context, keys []string, boundTo map
 
 // link opens or reinforces a same_as link with this observation as evidence,
 // unless an asserted distinct_from keeps the pair apart: that is how a join
-// is undone for good.
-func (g *ingest) link(ctx context.Context, a, b string, status graph.Status, rule string) error {
+// is undone for good. status is called only once the cheap checks pass; an
+// empty status means no link.
+func (g *ingest) link(ctx context.Context, a, b string, status func() (graph.Status, error), rule string) error {
 	if b < a {
 		a, b = b, a
 	}
@@ -362,16 +362,23 @@ func (g *ingest) link(ctx context.Context, a, b string, status graph.Status, rul
 	// One deposit per source and pair per half-life: a source naming the same
 	// key every hour is one piece of evidence, not 720. A deposit that
 	// promotes a proposal still goes in.
-	said, err := g.count(ctx, `SELECT count(*) FROM identity_link l JOIN link_deposit d ON d.link_id = l.id
+	var recent sql.NullString // the open link's status, when this source deposited recently
+	err = g.tx.QueryRowContext(ctx, `SELECT l.status FROM identity_link l JOIN link_deposit d ON d.link_id = l.id
 		JOIN observation o ON o.id = d.observation_id
 		WHERE l.a = ? AND l.b = ? AND l.kind = 'same_as' AND l.valid_to IS NULL AND o.source = ?
-		AND d.deposited_at > ? AND (l.status = 'asserted' OR ? = 'proposed')`,
-		a, b, g.source, g.observed.Add(-g.s.linkEvery), string(status))
-	if err != nil || said > 0 {
+		AND d.deposited_at > ? LIMIT 1`, a, b, g.source, g.observed.Add(-g.s.linkEvery)).Scan(&recent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if recent.String == string(graph.Asserted) {
+		return nil
+	}
+	st, err := status()
+	if err != nil || st == "" || (recent.Valid && st == graph.Proposed) {
 		return err
 	}
 	_, changed, err := g.s.upsertLink(ctx, g.tx, graph.Proposal{
-		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: status, Rule: rule,
+		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: st, Rule: rule,
 		Deposit: graph.Deposit{At: g.observed, Weight: 1, ObservationID: g.obsID},
 	})
 	if changed {

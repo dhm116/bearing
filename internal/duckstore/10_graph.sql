@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS entity (
     cluster_id  VARCHAR
 );
 
+CREATE INDEX IF NOT EXISTS observation_key ON observation (key);
+
 -- Every key that names an entity.
 CREATE TABLE IF NOT EXISTS alias (
     key        VARCHAR PRIMARY KEY,
