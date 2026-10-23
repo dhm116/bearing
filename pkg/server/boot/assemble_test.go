@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/store"
@@ -23,6 +24,7 @@ import (
 const (
 	stubEnv     = "BOOT_STUB"      // set in a child: serve the stub adapter
 	stubMarkEnv = "BOOT_STUB_MARK" // the file the stub writes when it is synced
+	githubEnv   = "BOOT_GITHUB"    // set in a child: serve the real GitHub adapter
 )
 
 // stubAdapter reports the environment it was started with as its name and its
@@ -48,6 +50,9 @@ func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 func TestMain(m *testing.M) {
 	if os.Getenv(stubEnv) != "" {
 		os.Exit(adapter.Main("stub", "test", stubAdapter{}))
+	}
+	if os.Getenv(githubEnv) != "" {
+		os.Exit(adapter.Main("github", github.Version, github.New()))
 	}
 	os.Exit(m.Run())
 }

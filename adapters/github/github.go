@@ -11,9 +11,6 @@ package github
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -45,12 +42,11 @@ const Version = "0.3.0"
 // Config is the adapter's configuration. Secrets are read from environment
 // variables named here, never passed in config.
 type Config struct {
-	Org              string `json:"org"`
-	APIURL           string `json:"api_url,omitempty"`            // default https://api.github.com
-	Namespace        string `json:"namespace,omitempty"`          // default github; keys are <namespace>:<key_type>/<id>
-	TokenEnv         string `json:"token_env,omitempty"`          // default GITHUB_TOKEN
-	WebhookSecretEnv string `json:"webhook_secret_env,omitempty"` // default GITHUB_WEBHOOK_SECRET
-	PerPage          int    `json:"per_page,omitempty"`           // default 100
+	Org       string `json:"org"`
+	APIURL    string `json:"api_url,omitempty"`   // default https://api.github.com
+	Namespace string `json:"namespace,omitempty"` // default github; keys are <namespace>:<key_type>/<id>
+	TokenEnv  string `json:"token_env,omitempty"` // default GITHUB_TOKEN
+	PerPage   int    `json:"per_page,omitempty"`  // default 100
 }
 
 const configSchema = `{
@@ -61,7 +57,6 @@ const configSchema = `{
     "api_url": {"type": "string", "default": "https://api.github.com", "description": "API base URL, from which the GraphQL endpoint follows; GitHub Enterprise Server uses https://HOST/api/v3"},
     "namespace": {"type": "string", "default": "github", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Key namespace, e.g. ghes-acme for a GitHub Enterprise Server source"},
     "token_env": {"type": "string", "default": "GITHUB_TOKEN"},
-    "webhook_secret_env": {"type": "string", "default": "GITHUB_WEBHOOK_SECRET"},
     "per_page": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
   }
 }`
@@ -91,9 +86,6 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if c.TokenEnv == "" {
 		c.TokenEnv = "GITHUB_TOKEN"
 	}
-	if c.WebhookSecretEnv == "" {
-		c.WebhookSecretEnv = "GITHUB_WEBHOOK_SECRET"
-	}
 	if c.PerPage <= 0 || c.PerPage > 100 {
 		c.PerPage = 100
 	}
@@ -101,9 +93,6 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 		return c, err
 	}
 	if err := adapter.CheckEnvName("token_env", c.TokenEnv); err != nil {
-		return c, err
-	}
-	if err := adapter.CheckEnvName("webhook_secret_env", c.WebhookSecretEnv); err != nil {
 		return c, err
 	}
 	return c, nil
@@ -643,8 +632,8 @@ var handledEvents = []string{"repository", "push", "team", "membership"}
 // see: a repository transferred away or no longer shared with it reads the
 // same as one deleted.
 func (a *Adapter) Handle(ctx context.Context, p adapter.HandleParams) (res adapter.HandleResult, err error) {
-	// The header is not authenticated until the signature is checked, so it
-	// labels spans and metrics only if it names an event the adapter knows.
+	// The core checked the delivery's signature before logging it (ADR 4);
+	// the event name still labels spans and metrics only if the adapter knows it.
 	event := header(p.Headers, "X-GitHub-Event")
 	label := "other"
 	if slices.Contains(handledEvents, event) {
@@ -669,17 +658,6 @@ func (a *Adapter) handle(ctx context.Context, event string, p adapter.HandlePara
 	if err != nil {
 		return adapter.HandleResult{}, err
 	}
-	secret := a.Getenv(cfg.WebhookSecretEnv)
-	if secret == "" {
-		return adapter.HandleResult{}, &adapter.Error{
-			Code:    adapter.CodeInvalidParams,
-			Message: "webhook secret is not set in " + cfg.WebhookSecretEnv,
-		}
-	}
-	if !validSignature(secret, header(p.Headers, "X-Hub-Signature-256"), p.Body) {
-		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: "webhook signature does not match"}
-	}
-
 	if !slices.Contains(handledEvents, event) {
 		*result = "ignored"
 		return adapter.HandleResult{}, nil
@@ -689,8 +667,8 @@ func (a *Adapter) handle(ctx context.Context, event string, p adapter.HandlePara
 	if err := json.Unmarshal(p.Body, &ev); err != nil {
 		return adapter.HandleResult{}, &adapter.Error{Code: adapter.CodeInvalidParams, Message: err.Error()}
 	}
-	// The signature proves the delivery came from the configured webhook,
-	// not that it concerns the configured organization.
+	// A verified delivery came from the configured webhook; that doesn't mean
+	// it concerns the configured organization.
 	if !strings.EqualFold(ev.Organization.Login, cfg.Org) || (event == "push" && !ev.pushedCodeowners()) {
 		*result = "ignored"
 		return adapter.HandleResult{}, nil
@@ -768,18 +746,4 @@ func header(h map[string][]string, name string) string {
 		}
 	}
 	return ""
-}
-
-func validSignature(secret, sig string, body []byte) bool {
-	hexSig, ok := strings.CutPrefix(sig, "sha256=")
-	if !ok {
-		return false
-	}
-	got, err := hex.DecodeString(hexSig)
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return hmac.Equal(got, mac.Sum(nil))
 }

@@ -8,8 +8,10 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
 - Changes to the data model or protocols start with the spec in `docs/spec/`
   and, for significant decisions, an ADR in `docs/adr/`.
 - Every store implementation must pass `pkg/store/storetest`.
-- Adapters need read-only access to their source and must verify webhook
-  signatures when the source signs them.
+- Adapters need read-only access to their source. They don't check webhook
+  signatures: the server checks each delivery against the scheme the
+  adapter declares before logging it, and never gives the adapter the
+  webhook secret.
 - Log with `telemetry.Logger`, report failures with `telemetry.Fail`, and
   add new metrics to [docs/telemetry.md](docs/telemetry.md).
 - Run `make check` (what CI runs) before sending a change.

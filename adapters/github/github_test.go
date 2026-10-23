@@ -55,7 +55,7 @@ func newRig(t *testing.T, mod ...func(*Config)) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"GITHUB_TOKEN": testToken, "GITHUB_WEBHOOK_SECRET": testSecret}
+	env := map[string]string{"GITHUB_TOKEN": testToken}
 	a := &Adapter{HTTP: srv.Client(), Now: c.Now, Getenv: func(k string) string { return env[k] }}
 	return &rig{t: t, clock: c, org: org, srv: srv, a: a, cfg: raw}
 }
