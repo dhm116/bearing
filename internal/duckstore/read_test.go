@@ -257,3 +257,47 @@ func TestFactsReturnFirstAndLatestSourcePerSourceWithTheCount(t *testing.T) {
 		t.Fatalf("got count %d, sources %+v; want 100, o000 then o099", f.SourceCount, f.Sources)
 	}
 }
+
+func TestEntityNeverMissesARecordWhileItsClusterChanges(t *testing.T) {
+	// Each read runs in one transaction, so a recluster cannot land between
+	// resolving a ref to its cluster and loading that cluster.
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1") // id-1, id-2
+	ctx := t.Context()
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		for range 50 {
+			if _, err := s.Link(ctx, []graph.Proposal{sameAs("id-1", "id-2", graph.Asserted, "test")}); err != nil {
+				done <- err
+				return
+			}
+			ls, err := s.Links(ctx, graph.LinkFilter{Entity: "id-2", Kind: graph.SameAs})
+			if err != nil || len(ls) != 1 {
+				done <- fmt.Errorf("links: %v, %v", ls, err)
+				return
+			}
+			if err := s.CloseLink(ctx, ls[0].ID, at(60)); err != nil {
+				done <- err
+				return
+			}
+			if _, err := s.Records(ctx, ""); err != nil { // gives the reader turns while apart
+				done <- err
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			return
+		default:
+		}
+		if _, err := s.Entity(ctx, "p:b/1"); err != nil {
+			t.Fatalf("got %v while the cluster changed, want the entity", err)
+		}
+	}
+}
