@@ -196,3 +196,90 @@ func TestTLSFilesAreRefusedWithoutTheirContents(t *testing.T) {
 		})
 	}
 }
+
+// A PEM pasted where a path belongs (the usual mistake with an environment
+// variable) is refused by the name of the setting, never echoed.
+func TestTLSSettingsHoldingPEMTextAreRefusedWithoutItsText(t *testing.T) {
+	t.Parallel()
+	const canary = "canary-key-material"
+	pem := "-----BEGIN PRIVATE KEY-----\n" + canary + "\n-----END PRIVATE KEY-----\n"
+	f := testkit.NewTLSFiles(t)
+	t.Run("Listen", func(t *testing.T) {
+		t.Parallel()
+		env := tlsEnv(f)
+		env[EnvTLSKey] = pem
+		_, err := Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+		if err == nil || strings.Contains(err.Error(), canary) || !strings.Contains(err.Error(), EnvTLSKey) {
+			t.Fatalf("got %v, want a refusal naming %s and not the text", err, EnvTLSKey)
+		}
+	})
+	t.Run("Dial", func(t *testing.T) {
+		t.Parallel()
+		_, err := Dial("x", DialConfig{Address: "https://127.0.0.1:1", CAFile: f.CA, CertFile: f.ClientCert, KeyFile: pem})
+		if err == nil || strings.Contains(err.Error(), canary) || !strings.Contains(err.Error(), "KeyFile") {
+			t.Fatalf("got %v, want a refusal naming KeyFile and not the text", err)
+		}
+	})
+}
+
+func TestTLSFilesOthersCanWriteAreRefused(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	if err := os.Chmod(f.CA, 0o666); err != nil { //nolint:gosec // G302: the unsafe mode under test
+		t.Fatal(err)
+	}
+	env := tlsEnv(f)
+	_, err := Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+	if err == nil || !strings.Contains(err.Error(), "must not be writable") {
+		t.Fatalf("got %v, want the client CA refused as writable", err)
+	}
+}
+
+func TestTLSFileOverTheSizeCapIsRefused(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	if err := os.WriteFile(f.CA, make([]byte, maxPEMBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := tlsEnv(f)
+	_, err := Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+	if err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("got %v, want the oversized CA refused", err)
+	}
+}
+
+func TestListenNilGetenvReadsTheProcessEnvironment(t *testing.T) { //nolint:paralleltest // t.Setenv
+	f := testkit.NewTLSFiles(t)
+	for k, v := range tlsEnv(f) {
+		t.Setenv(k, v)
+	}
+	lis, err := Listen("tcp://127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatalf("got %v, want a listener from the process environment", err)
+	}
+	_ = lis.Close()
+}
+
+func TestDialServerNameIsChecked(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	addr := "https://" + serveMTLS(t, f)
+	for _, tt := range []struct {
+		name    string
+		wantErr bool
+	}{{"localhost", false}, {"wrong.example", true}} {
+		r, err := Dial("remote", DialConfig{Address: addr, CAFile: f.CA, CertFile: f.ClientCert, KeyFile: f.ClientKey, ServerName: tt.name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = r.Describe(t.Context())
+		// The HTTP client flattens the error to text, so errors.As cannot see
+		// the *x509.HostnameError.
+		switch {
+		case tt.wantErr && (err == nil || !strings.Contains(err.Error(), "certificate is valid for localhost, not wrong.example")):
+			t.Errorf("%s: got %v, want a hostname error", tt.name, err)
+		case !tt.wantErr && err != nil:
+			t.Errorf("%s: got %v, want success", tt.name, err)
+		}
+	}
+}
