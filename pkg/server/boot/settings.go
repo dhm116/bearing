@@ -42,8 +42,9 @@ type Settings struct {
 	Webhooks WebhookSettings   `json:"webhooks"`
 	Secrets  SecretSettings    `json:"secrets"`
 	Adapters []AdapterSettings `json:"adapters"`
-	// Matching tunes how records are joined after each sync (pkg/match).
-	Matching MatchingSettings `json:"matching"`
+	// Matching tunes how records are joined after each sync (pkg/match);
+	// absent, no matching runs.
+	Matching *MatchingSettings `json:"matching,omitempty"`
 	// Authority overrides, per source, which linked keys the source vouches
 	// for beyond its adapter's declaration: source name, then
 	// "<issuer_type>:<key_type>", for example
@@ -327,8 +328,10 @@ func (s *Settings) check() (*checked, error) {
 			}
 		}
 	}
-	if _, err := s.Matching.config(); err != nil {
-		return nil, err
+	if s.Matching != nil {
+		if _, err := s.Matching.config(); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

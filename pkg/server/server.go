@@ -90,8 +90,8 @@ type Config struct {
 	Log store.EventLog
 	// Applier applies observations.
 	Applier Applier
-	// Matching runs after the last page of each sync is applied; nil means
-	// never.
+	// Matching runs, off the apply path, after the last page of a sync is
+	// applied; nil means never.
 	Matching *Matching
 	// Sources are the configured sources.
 	Sources []Source
@@ -146,8 +146,8 @@ type Server struct {
 	syncs  map[string]*syncSlot
 	warned map[string]bool
 	wake   chan struct{}
-	// matchMu keeps two sources' syncs from matching at once.
-	matchMu sync.Mutex
+	// matchWake tells the matching goroutine that a sync finished.
+	matchWake chan struct{}
 
 	oldestUnapplied atomic.Int64 // seconds
 	deadLetters     atomic.Int64
@@ -195,7 +195,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg: cfg, clk: cfg.Clock, sources: map[string]*Source{},
 		inflight: map[store.Partition]bool{}, syncs: map[string]*syncSlot{},
-		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, wake: make(chan struct{}, 1),
+		slots: make(chan struct{}, cfg.Workers), warned: map[string]bool{}, wake: make(chan struct{}, 1), matchWake: make(chan struct{}, 1),
 	}
 	for i := range cfg.Sources {
 		src := cfg.Sources[i]
@@ -248,6 +248,9 @@ func (s *Server) Run(ctx context.Context) error {
 	run("workers", s.runWorkers)
 	run("scheduler", s.runScheduler)
 	run("retention", s.runRetention)
+	if s.cfg.Matching != nil {
+		run("matching", s.runMatching)
+	}
 	<-ctx.Done()
 	wg.Wait()
 	err := context.Cause(ctx)

@@ -171,8 +171,8 @@ func (s *Server) handleObservations(ctx context.Context, e store.Entry) error {
 	if err := s.cfg.Applier.Apply(ctx, msg.GetSource(), msg.GetObservations(), done); err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)
 	}
-	if msg.GetDone() && msg.GetSyncStarted() != nil {
-		s.runMatching(ctx, msg.GetSource())
+	if msg.GetDone() && msg.GetSyncStarted() != nil && s.cfg.Matching != nil {
+		s.signalMatching()
 	}
 	return nil
 }

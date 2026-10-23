@@ -197,17 +197,15 @@ func TestServerMatchesAfterASyncAndAFailingMatcherDoesNotFailIt(t *testing.T) {
 		h.ad.syncFn = teamSync(teams)
 		h.start()
 		h.syncAndWait(2)
-		x, err := h.mem.Entity(t.Context(), "github:team/acme/payments")
-		if err != nil {
-			t.Fatal(err)
-		}
-		y, err := h.mem.Entity(t.Context(), "kubernetes:team/payments")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if x.ID != y.ID {
-			t.Errorf("got teams %s and %s, want one entity joined by the rule", x.ID, y.ID)
-		}
+		var x, y graph.Entity
+		waitFor(t, "the rule to join the teams", func() bool {
+			var err error
+			if x, err = h.mem.Entity(t.Context(), "github:team/acme/payments"); err != nil {
+				return false
+			}
+			y, err = h.mem.Entity(t.Context(), "kubernetes:team/payments")
+			return err == nil && x.ID == y.ID
+		})
 	})
 	t.Run("a failing matcher", func(t *testing.T) {
 		h := newHarness(t)
@@ -220,6 +218,7 @@ func TestServerMatchesAfterASyncAndAFailingMatcherDoesNotFailIt(t *testing.T) {
 		if _, err := h.mem.Entity(t.Context(), "kubernetes:team/payments"); err != nil {
 			t.Errorf("the page was not applied: %v", err)
 		}
+		waitFor(t, "the matcher to run", func() bool { return fail.calls.Load() > 0 })
 		if n := fail.calls.Load(); n != 1 {
 			t.Errorf("got %d matcher runs, want 1: a matching failure must not retry the sync's last page", n)
 		}
@@ -266,4 +265,40 @@ func TestSyncThatObservedNothingClaimsNoCompleteness(t *testing.T) {
 	if m.GetSyncStarted() != nil || m.GetCompleteSync() != nil {
 		t.Errorf("got sync_started %v and complete_sync %v, want neither", m.GetSyncStarted(), m.GetCompleteSync())
 	}
+}
+
+// blockingMatcher holds every run until release is closed.
+type blockingMatcher struct {
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (*blockingMatcher) Rule() string { return "matcher/blocking" }
+func (b *blockingMatcher) Match(ctx context.Context, _ []match.Candidate, _ match.Evidence) ([]match.Judgement, error) {
+	b.calls.Add(1)
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
+	return nil, nil
+}
+
+func TestSlowMatchingDoesNotHoldUpTheApplyWorkers(t *testing.T) {
+	h, clk := newClockHarness(t)
+	block := &blockingMatcher{release: make(chan struct{})}
+	h.s.cfg.Matching = &Matching{Graph: h.mem, Config: match.Config{Matchers: []match.Matcher{block}}}
+	h.ad.syncFn = teamSync(func() []*eventv1alpha1.Observation {
+		now := clk.Now()
+		return []*eventv1alpha1.Observation{
+			entityObs("Team", "github:team/acme/payments", "payments", now),
+			entityObs("Team", "kubernetes:team/payments", "payments", now),
+		}
+	})
+	h.start()
+	h.syncAndWait(2)
+	waitFor(t, "matching to start", func() bool { return block.calls.Load() == 1 })
+	clk.Advance(time.Minute)
+	h.syncAndWait(4) // applied while the first matching run is still blocked
+	close(block.release)
+	waitFor(t, "the signal that arrived meanwhile to run matching again", func() bool { return block.calls.Load() == 2 })
 }

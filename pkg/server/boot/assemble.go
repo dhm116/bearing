@@ -145,15 +145,18 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
-	matchCfg, err := s.Matching.config()
-	if err != nil {
-		return nil, err
-	}
-	srv, err := server.New(server.Config{
+	scfg := server.Config{
 		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
-		Matching: &server.Matching{Graph: st.Graph(), Config: matchCfg},
-		Sources:  sources, Clock: env.Clock,
-	})
+		Sources: sources, Clock: env.Clock,
+	}
+	if s.Matching != nil {
+		matchCfg, err := s.Matching.config()
+		if err != nil {
+			return nil, err
+		}
+		scfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
+	}
+	srv, err := server.New(scfg)
 	if err != nil {
 		return nil, err
 	}
