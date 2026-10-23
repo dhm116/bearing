@@ -560,3 +560,26 @@ func TestIngestProposalSurvivesHourlySyncsUnderAShortHalfLife(t *testing.T) {
 		}
 	}
 }
+
+func TestIngestAliasProposalStopsWhenTheOwnerDropsTheAlias(t *testing.T) {
+	t.Parallel()
+	now := t0
+	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID})
+	ingestOK(t, s, "gh", obs("a0", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
+	ingestOK(t, s, "gh", obs("a1", 60, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new"))) // renamed
+	const step = 6 * time.Hour
+	var end time.Time
+	for i := 1; i <= 600; i++ { // 150 days of the new repository listing the old name
+		end = t0.Add(time.Duration(i) * step)
+		ingestOK(t, s, "gh", obs(fmt.Sprintf("b%d", i), int(end.Sub(t0)/time.Minute), "Repository", "gh:repo_node/2", aliases("gh:repo/acme/old")))
+	}
+	now = end
+	r, err := match.Run(t.Context(), s, match.Config{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := links(t, s, graph.LinkFilter{WithClosed: true, Kind: graph.SameAs})
+	if r.Closed != 1 || len(ls) != 1 || ls[0].ValidTo.IsZero() {
+		t.Fatalf("got %+v, %+v, want the proposal closed once its owner stopped listing the alias", r, ls)
+	}
+}

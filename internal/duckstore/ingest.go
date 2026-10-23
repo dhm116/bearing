@@ -187,7 +187,8 @@ func nullIfEmpty(s string) any {
 // keys. Keys and aliases already bound to other records are not moved: each
 // such record gets a same_as link (shared_key) to this one, asserted when the
 // shared key is that record's primary key and proposed when it is only an
-// alias (a renamed repository's old name may name a new one), and
+// alias (a renamed repository's old name may name a new one; only while its
+// record still lists that alias), and
 // each linked ID one to the record its key names (linked_ids), asserted when
 // the source vouches for that key type.
 func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, error) {
@@ -265,7 +266,8 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 	}
 	for _, k := range keys {
 		if _, err := g.exec(ctx, `INSERT INTO alias VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT (key) DO UPDATE SET last_seen = greatest(alias.last_seen, excluded.last_seen)`,
+			ON CONFLICT (key) DO UPDATE SET last_seen = CASE WHEN alias.entity_id = excluded.entity_id
+				THEN greatest(alias.last_seen, excluded.last_seen) ELSE alias.last_seen END`,
 			k, id, g.source, g.observed, g.observed); err != nil {
 			return "", fmt.Errorf("bind %s: %w", k, err)
 		}
@@ -277,6 +279,24 @@ func (g *ingest) resolve(ctx context.Context, e *modelv1alpha1.Entity) (string, 
 		status, err := g.sharedKeyStatus(ctx, keys, boundTo, x.id, x.kind)
 		if err != nil {
 			return "", err
+		}
+		if status == graph.Proposed {
+			// An alias is a claim by its owner: stop depositing once the owner
+			// no longer lists it (a renamed repository's old name).
+			var held []string
+			for _, k := range keys {
+				if boundTo[k] == x.id {
+					held = append(held, k)
+				}
+			}
+			n, err := g.count(ctx, `SELECT count(*) FROM alias WHERE entity_id = ? AND last_seen >= ? AND key IN (`+placeholders(len(held))+`)`,
+				append([]any{x.id, g.observed.Add(-g.s.linkEvery)}, anySlice(held)...)...)
+			if err != nil {
+				return "", err
+			}
+			if n == 0 {
+				continue
+			}
 		}
 		if err := g.link(ctx, id, x.id, status, ruleSharedKey); err != nil {
 			return "", fmt.Errorf("shared key with %s: %w", x.id, err)
