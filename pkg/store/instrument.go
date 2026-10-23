@@ -161,3 +161,12 @@ func (g *graphStore) Link(ctx context.Context, ps []graph.Proposal) (res graph.L
 func (g *graphStore) CloseLink(ctx context.Context, id string, at time.Time) error {
 	return g.observe(ctx, "close_link", func(ctx context.Context) error { return g.next.CloseLink(ctx, id, at) })
 }
+
+// Decide implements graph.Graph.
+func (g *graphStore) Decide(ctx context.Context, d graph.Decision) (res graph.LinkResult, err error) {
+	err = g.observe(ctx, "decide", func(ctx context.Context) error {
+		res, err = g.next.Decide(ctx, d)
+		return err
+	})
+	return res, err
+}

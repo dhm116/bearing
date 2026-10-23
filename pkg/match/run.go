@@ -132,9 +132,15 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	// open or closed, so a closed proposal stays closed on the same evidence.
 	joined, known := map[pair]bool{}, map[pair]bool{}
 	last := map[pair]graph.Deposit{}
+	// undone: when a person last undid a distinct_from for the pair; the
+	// matcher judges the pair afresh after that, whatever it proposed before.
+	undone := map[pair]time.Time{}
 	for _, l := range links {
 		p := pairOf(l.A, l.B)
 		open := l.ValidTo.IsZero()
+		if l.Kind == graph.DistinctFrom && !open {
+			undone[p] = laterOf(undone[p], l.ValidTo)
+		}
 		// known: pairs with an open same_as link, so a deposit reinforces it
 		// rather than opening a new one (the store matches open links only).
 		if l.Kind == graph.SameAs && open {
@@ -186,6 +192,9 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 			// then either changed features or a half-life since: a matcher never
 			// reinforces its own unchanged judgement.
 			at, prev := dated(j, ev), last[pairOf(c.A.ID, c.B.ID)]
+			if !prev.At.After(undone[pairOf(c.A.ID, c.B.ID)]) {
+				prev = graph.Deposit{}
+			}
 			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(prev.At) ||
 				maps.Equal(f, prev.Features) && at.Sub(prev.At) < cfg.halfLife(c.A.Kind) {
 				continue

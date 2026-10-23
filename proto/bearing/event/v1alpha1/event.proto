@@ -87,6 +87,43 @@ message ObservationsEmitted {
   google.protobuf.Timestamp sync_started = 6;
 }
 
+// LinkDecided is a person's decision on an identity link (ADR 7: a proposed
+// link becomes asserted only by a person or a rule the settings name). It is
+// appended to the core/identity partition and applied in order, once.
+message LinkDecided {
+  // What the person decided.
+  enum Decision {
+    // Not set; refused.
+    DECISION_UNSPECIFIED = 0;
+    // Assert a proposed same_as link (link_id): the two records join.
+    DECISION_ACCEPT = 1;
+    // Close a proposed same_as link (link_id) and assert a distinct_from
+    // for its pair, so no matcher or ingest proposes the pair again.
+    DECISION_REJECT = 2;
+    // Assert a same_as link between a and b, with or without a proposal.
+    DECISION_JOIN = 3;
+    // Close the same_as links between a and b and assert a distinct_from.
+    // Facts stay on their records, so a later join reverses it.
+    DECISION_SPLIT = 4;
+    // Close a distinct_from link (link_id): the pair may be proposed again.
+    DECISION_UNDO_DISTINCT = 5;
+  }
+
+  // For JOIN and SPLIT, the two records, each an entity ID, a record ID or
+  // a key; the store resolves them to records. Unused by the others.
+  string a = 1;
+  // The second record, as a.
+  string b = 2;
+  // What was decided.
+  Decision decision = 3;
+  // The link ACCEPT, REJECT and UNDO_DISTINCT act on.
+  string link_id = 4;
+  // Why, as free text. Optional, never interpreted, clipped to 1 KiB.
+  string reason = 5;
+  // Who decided: what the authenticator proved. Never an agent.
+  Actor actor = 6;
+}
+
 // Actor is who asked for an event.
 message Actor {
   // What the authenticator proved: "token" for the API token, or

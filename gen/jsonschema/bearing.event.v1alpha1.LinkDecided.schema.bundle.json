@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "What the authenticator proved: \"token\" for the API token, or\n \"local:\u003cuid\u003e\" for the socket's caller, or \"system:\u003cname\u003e\" for a Bearing\n component (the scheduler).",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.LinkDecided.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "LinkDecided is a person's decision on an identity link (ADR 7: a proposed\n link becomes asserted only by a person or a rule the settings name). It is\n appended to the core/identity partition and applied in order, once.",
+      "patternProperties": {
+        "^(linkId)$": {
+          "default": "",
+          "description": "The link ACCEPT, REJECT and UNDO_DISTINCT act on.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "a": {
+          "default": "",
+          "description": "For JOIN and SPLIT, the two records, each an entity ID, a record ID or\n a key; the store resolves them to records. Unused by the others.",
+          "type": "string"
+        },
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who decided: what the authenticator proved. Never an agent."
+        },
+        "b": {
+          "default": "",
+          "description": "The second record, as a.",
+          "type": "string"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "pattern": "^DECISION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DECISION_ACCEPT",
+                "DECISION_REJECT",
+                "DECISION_JOIN",
+                "DECISION_SPLIT",
+                "DECISION_UNDO_DISTINCT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What was decided.",
+          "title": "Decision"
+        },
+        "link_id": {
+          "default": "",
+          "description": "The link ACCEPT, REJECT and UNDO_DISTINCT act on.",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why, as free text. Optional, never interpreted, clipped to 1 KiB.",
+          "type": "string"
+        }
+      },
+      "title": "Link Decided",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.LinkDecided.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.LinkDecided.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
