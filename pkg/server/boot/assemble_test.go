@@ -508,8 +508,11 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 			if cfg.Matching != nil && len(cfg.Matching.Config.Rules) != tc.wantRules {
 				t.Errorf("got %d rules, want %d", len(cfg.Matching.Config.Rules), tc.wantRules)
 			}
-			vouches := cfg.Applier.(server.StoreApplier).Authority["github-acme"]
-			if !vouches("authentik:user/1") {
+			applier, ok := cfg.Applier.(server.StoreApplier)
+			if !ok {
+				t.Fatalf("got applier %T, want a StoreApplier", cfg.Applier)
+			}
+			if vouches := applier.Authority["github-acme"]; !vouches("authentik:user/1") {
 				t.Error("the operator's override should vouch for authentik:user keys")
 			}
 		})
