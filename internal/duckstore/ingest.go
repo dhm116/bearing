@@ -129,8 +129,10 @@ func (g *ingest) observation(ctx context.Context, o *eventv1alpha1.Observation) 
 	if g.entity, err = g.resolve(ctx, e); err != nil {
 		return fmt.Errorf("identity: %w", err)
 	}
+	// A deleted record ends this source's facts on both ends: a deleted team
+	// ends its members' member_of too.
 	if e.GetDeleted() {
-		return g.closeWhere(ctx, `subject_id = ? AND source = ?`, g.entity, g.source)
+		return g.closeWhere(ctx, `(subject_id = ? OR object_id = ?) AND source = ?`, g.entity, g.entity, g.source)
 	}
 	for _, r := range d.GetRelations() {
 		if err := g.relation(ctx, r); err != nil {

@@ -225,6 +225,19 @@ func TestIngestDeletedEntityClosesOnlyItsSourcesFacts(t *testing.T) {
 	wantFacts(t, s, `api depends_on db [0,5) x1`, `api language "Go" [0,5) x1`, `api tier "1" [1,open) x1`)
 }
 
+func TestIngestDeletedTeamClosesItsMembersMemberOf(t *testing.T) {
+	s := ingestStore(t)
+	members := func(d *modelv1alpha1.ObservationData) {
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: "k:user/ana"}})
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay", attrs("name", "pay"), members))
+	r := ingestOK(t, s, "gh", obs("o2", 5, "Team", "k:team/pay", deleted))
+	if r.Closed != 1 {
+		t.Fatalf("got %+v, want one close", r)
+	}
+	wantFacts(t, s, `ana member_of pay [0,5) x1`)
+}
+
 func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
 	s := ingestStore(t)
 	bad := &eventv1alpha1.Observation{Id: "bad", Time: timestamppb.New(at(1))}
