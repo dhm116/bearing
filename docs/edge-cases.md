@@ -184,12 +184,12 @@ Each entry:
 - **Impact:** about 8 ms per observation (about 0.4 ms per DuckDB statement), so 50,000 observations take about 7 minutes.
 - **Proposed fix:** batch statements (one insert per table per page, not per observation) before big orgs sync hourly.
 
-## TLS certificates are read once
+## The API's TLS certificate is read once
 
-- **Found in:** security review (`pkg/server/apilisten.go`, `pkg/adapter/tls.go`)
+- **Found in:** security review (`pkg/server/apilisten.go`)
 - **Area:** TLS
-- **Example:** the API certificate or a remote adapter's certificate is renewed on disk.
-- **Impact:** the server and adapters keep the old one until restarted, so an expired certificate needs a restart.
+- **Example:** the API certificate is renewed on disk.
+- **Impact:** the server keeps the old one until restarted, so an expired certificate needs a restart. (Remote adapter certificates are reloaded, `pkg/adapter/tls.go`.)
 - **Proposed fix:** a `GetCertificate` callback that re-reads the files when they change.
 
 ## Kubernetes Secret mounts are group-readable by default
