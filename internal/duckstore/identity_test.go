@@ -419,7 +419,15 @@ func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
 		t.Fatalf("before the join: got %d facts, %d steps, %d changes, want 1 of each", f, w, c)
 	}
 	link(t, s, sameAs("id-1", "id-2", graph.Asserted, "rule/same"))
-	if f, w, c := counts(); f != 0 || w != 0 || c != 0 {
-		t.Errorf("after the join: got %d facts, %d steps, %d changes, want none: the fact now points at its own cluster", f, w, c)
+	if f, w, c := counts(); f != 0 || w != 0 || c != 1 {
+		t.Errorf("after the join: got %d facts, %d steps, %d changes, want 0, 0, 1: a current read hides the fact, which now points at its own cluster, and the history keeps it", f, w, c)
+	}
+	// A read at a past time uses that time's clusters, which today's join does not change.
+	past, err := s.Facts(ctx, graph.FactFilter{Predicate: "depends_on", At: at(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(past) != 1 {
+		t.Errorf("got %d facts as of before the join, want 1", len(past))
 	}
 }
