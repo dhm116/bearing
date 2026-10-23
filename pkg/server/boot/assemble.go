@@ -472,6 +472,11 @@ func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []ser
 			return cfg, err
 		}
 		cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
+		// Ingest spaces its own link deposits by the shortest half-life, so a
+		// proposal it made does not decay between them.
+		if l, ok := st.(interface{ SetLinkEvery(time.Duration) }); ok {
+			l.SetLinkEvery(matchCfg.ShortestHalfLife())
+		}
 	}
 	return cfg, nil
 }

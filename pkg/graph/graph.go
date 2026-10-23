@@ -17,8 +17,9 @@ import (
 // ErrNotFound means nothing matched.
 var ErrNotFound = errors.New("not found")
 
-// EntityID identifies one entity. It never changes, but an entity merged
-// into another stops being returned; its keys answer for the survivor.
+// EntityID identifies a record or a cluster of records (ADR 7). A record's
+// ID never changes; a cluster's is its oldest record's, so it changes when
+// links join or split the cluster. Store record IDs or keys, not cluster IDs.
 type EntityID string
 
 // Status says whether a fact may answer a question.
@@ -53,9 +54,10 @@ type Graph interface {
 	// Facts returns the facts matching f, ordered by subject, predicate and
 	// valid_from.
 	Facts(ctx context.Context, f FactFilter) ([]Fact, error)
-	// Walk follows facts with the given predicates from an entity, breadth
-	// first, and returns each fact it crossed with its depth. It visits an
-	// entity once, so cycles end.
+	// Walk follows facts with the given predicates from an entity, up to
+	// MaxDepth hops, and returns each fact it crossed once, at the shallowest
+	// depth it was reached. It enumerates paths and never revisits an entity
+	// on one path, so cycles end.
 	Walk(ctx context.Context, r WalkRequest) ([]Step, error)
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
@@ -71,7 +73,8 @@ type Graph interface {
 	// recomputed for the records an asserted link touches.
 	Link(ctx context.Context, ps []Proposal) (LinkResult, error)
 	// CloseLink ends a link at a time; a closed asserted same_as splits its
-	// cluster.
+	// cluster. Closing a link Ingest made lasts only until the source says it
+	// again; to keep two records apart for good, assert a distinct_from.
 	CloseLink(ctx context.Context, id string, at time.Time) error
 }
 
@@ -110,6 +113,11 @@ type Record struct {
 	Keys    []model.Key
 	// Sources are the configured sources that observed the record.
 	Sources []string
+	// LastSeen is the newest observation of the record from any source; zero
+	// when none has, or when that observation deleted it (a deletion wins a
+	// tie). Matchers date their
+	// evidence by it.
+	LastSeen time.Time
 }
 
 // Match is one Find result.
@@ -138,8 +146,13 @@ type Fact struct {
 	// ValidFrom is when a source first observed the fact; ValidTo when it was
 	// observed absent, or zero while it holds.
 	ValidFrom, ValidTo time.Time
-	// Sources are the observations behind the fact, oldest first.
-	Sources []Source
+	// Sources are the observations behind the fact, oldest first: per
+	// source, the first and the latest, so a fact synced every hour stays
+	// small. SourceCount is how many observations there are in all, counted
+	// per fact row: an answer that merges rows sums them, and may count one
+	// observation twice.
+	Sources     []Source
+	SourceCount int
 }
 
 // Source is one observation behind a fact: the provenance an answer shows.
@@ -243,7 +256,9 @@ type LinkKind string
 const (
 	// SameAs says two records describe one thing.
 	SameAs LinkKind = "same_as"
-	// DistinctFrom says they don't, and keeps a matcher from proposing it.
+	// DistinctFrom says they don't. Asserted, it keeps a matcher from
+	// proposing the pair and Ingest from linking it: undoing a join for good
+	// is closing the same_as and asserting a distinct_from.
 	DistinctFrom LinkKind = "distinct_from"
 )
 

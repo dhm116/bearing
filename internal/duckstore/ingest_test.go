@@ -130,6 +130,7 @@ func count(t *testing.T, s *Store, q string) (n int) {
 }
 
 func TestIngestCreatesEntityWithKeysAndAttributes(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	r := ingestOK(t, s, "gh", obs("o1", 0, "Component", "github:repo/acme/api",
 		aliases("backstage:component/api"), attrs("name", "API", "language", "Go")))
@@ -148,6 +149,7 @@ func TestIngestCreatesEntityWithKeysAndAttributes(t *testing.T) {
 }
 
 func TestIngestRepeatedIDIsDuplicate(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	o := obs("o1", 0, "Component", "k:a/api", attrs("language", "Go"))
 	ingestOK(t, s, "gh", o)
@@ -159,6 +161,7 @@ func TestIngestRepeatedIDIsDuplicate(t *testing.T) {
 }
 
 func TestIngestRefreshAddsSourceAndKeepsOneFact(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
 	r := ingestOK(t, s, "gh", obs("o2", 5, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
@@ -169,6 +172,7 @@ func TestIngestRefreshAddsSourceAndKeepsOneFact(t *testing.T) {
 }
 
 func TestIngestAbsentRelationCloses(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
 	r := ingestOK(t, s, "gh", obs("o2", 5, "Component", "k:a/api", rel("depends_on", "k:a/db", true)))
@@ -179,6 +183,7 @@ func TestIngestAbsentRelationCloses(t *testing.T) {
 }
 
 func TestIngestChangedAttributeClosesOldValueAndOpensNew(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", attrs("language", "Go")))
 	ingestOK(t, s, "gh", obs("o2", 5, "Component", "k:a/api", attrs("language", "Rust")))
@@ -186,6 +191,7 @@ func TestIngestChangedAttributeClosesOldValueAndOpensNew(t *testing.T) {
 }
 
 func TestIngestSnapshotClosesWhatItNoLongerLists(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api",
 		rel("depends_on", "k:a/db", false), rel("depends_on", "k:a/cache", false)))
@@ -199,6 +205,7 @@ func TestIngestSnapshotClosesWhatItNoLongerLists(t *testing.T) {
 }
 
 func TestIngestRelationToUnknownKeyCreatesKindlessEntityLaterFilled(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", rel("owned_by", "k:team/payments", false)))
 	var kind string
@@ -215,6 +222,7 @@ func TestIngestRelationToUnknownKeyCreatesKindlessEntityLaterFilled(t *testing.T
 }
 
 func TestIngestDeletedEntityClosesOnlyItsSourcesFacts(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", attrs("language", "Go"), rel("depends_on", "k:a/db", false)))
 	ingestOK(t, s, "other", obs("o2", 1, "Component", "k:a/api", attrs("tier", "1")))
@@ -225,7 +233,37 @@ func TestIngestDeletedEntityClosesOnlyItsSourcesFacts(t *testing.T) {
 	wantFacts(t, s, `api depends_on db [0,5) x1`, `api language "Go" [0,5) x1`, `api tier "1" [1,open) x1`)
 }
 
+func TestIngestDeletedTeamClosesItsMembersMemberOf(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	members := func(d *modelv1alpha1.ObservationData) {
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: "k:user/ana"}})
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay", attrs("name", "pay"), members))
+	r := ingestOK(t, s, "gh", obs("o2", 5, "Team", "k:team/pay", deleted))
+	if r.Closed != 1 {
+		t.Fatalf("got %+v, want one close", r)
+	}
+	wantFacts(t, s, `ana member_of pay [0,5) x1`)
+}
+
+func TestIngestLateDeletionKeepsAFactANewerObservationSupports(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	members := func(d *modelv1alpha1.ObservationData) {
+		d.Relations = append(d.Relations, &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: "k:user/ana"}})
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay", attrs("name", "pay"), members))
+	ingestOK(t, s, "gh", obs("o2", 10, "Team", "k:team/pay", members))
+	r := ingestOK(t, s, "gh", obs("o3", 5, "Team", "k:team/pay", deleted))
+	if r.Closed != 0 {
+		t.Fatalf("got %+v, want no close", r)
+	}
+	wantFacts(t, s, `ana member_of pay [0,open) x2`)
+}
+
 func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	bad := &eventv1alpha1.Observation{Id: "bad", Time: timestamppb.New(at(1))}
 	_, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "gh", Observations: []*eventv1alpha1.Observation{
@@ -242,6 +280,7 @@ func TestIngestFailureRollsBackTheWholeCall(t *testing.T) {
 }
 
 func TestIngestStaleObservationDoesNotCloseNewerFact(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 10, "Component", "k:a/api", attrs("language", "Rust"), rel("depends_on", "k:a/db", false)))
 	// Older observations: a different value, an absent relation, a snapshot.
@@ -269,6 +308,7 @@ func relWith(typ, to string, kv ...any) func(*modelv1alpha1.ObservationData) {
 }
 
 func TestIngestStoresAndRefreshesQualifiersWithoutANewFact(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s := ingestStore(t)
 	ingestOK(t, s, "k8s", obs("o1", 0, "Component", "k:a/api", relWith("depends_on", "k:a/db", "protocol", "http", "port", 8080)))

@@ -12,6 +12,7 @@ import (
 )
 
 func TestEventLogConformance(t *testing.T) {
+	t.Parallel()
 	storetest.EventLog(t, func(t *testing.T) (store.EventLog, storetest.Clock) {
 		clk := testkit.NewClock(time.Time{})
 		return newStore(t, Config{Now: clk.Now}), clk
@@ -20,6 +21,7 @@ func TestEventLogConformance(t *testing.T) {
 
 // A cancelled context stops every call before it writes anything.
 func TestEventLogRefusesACancelledContext(t *testing.T) {
+	t.Parallel()
 	s := newStore(t, Config{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

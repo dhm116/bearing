@@ -36,7 +36,7 @@ const (
 // keys, from different sources.
 type Case struct {
 	// Group names the variation the case tests: "acme", "convention",
-	// "rename", "near-miss", "unrelated" or "person-*".
+	// "rename", "rename-collision", "near-miss", "unrelated" or "person-*".
 	Group string
 	Kind  model.Kind
 	A, B  model.Key
@@ -91,7 +91,7 @@ var overlaps = []float64{0, 0.25, 0.5, 0.75, 1}
 
 // renames are teams that changed names: the pair is one team.
 var renames = [][2]string{
-	{"sre", "reliability"},
+	{"oncall", "reliability"},
 	{"infra", "infrastructure"},
 	{"devex", "developer-experience"},
 	{"data", "analytics"},
@@ -236,13 +236,14 @@ func dirTeam(id, slug string) (model.Key, model.Key) {
 }
 
 // pairOfTeams observes a GitHub team and a directory team and labels them.
-func (g *gen) pairOfTeams(group, ghName, dirName string, same bool, overlap float64) {
+func (g *gen) pairOfTeams(group, ghName, dirName string, same bool, overlap float64) (model.Key, model.Key) {
 	a, b := g.split(4, overlap)
 	ak, aa := ghTeam(g.id("T_"), slug(ghName))
 	bk, ba := dirTeam(g.id("g-"), slug(dirName))
 	g.team(SourceGitHub, ak, aa, ghName, a)
 	g.team(SourceDirectory, bk, ba, dirName, b)
 	g.cases = append(g.cases, Case{Group: group, Kind: model.KindTeam, A: ak, B: bk, Same: same})
+	return ak, bk
 }
 
 func (g *gen) conventions() {
@@ -259,8 +260,20 @@ func (g *gen) conventions() {
 func (g *gen) renames() {
 	for i, r := range renames {
 		g.used[r[0]], g.used[r[1]] = true, true
-		g.pairOfTeams("rename", r[0], r[1], true, []float64{0, 0.5, 1}[i%3])
+		_, dir := g.pairOfTeams("rename", r[0], r[1], true, []float64{0, 0.5, 1}[i%3])
+		if i == 0 {
+			g.renameCollision(r[1], dir)
+		}
 	}
+}
+
+// renameCollision is a GitHub team that was renamed to name, which an
+// existing directory team (dir) already has. They are two teams with no
+// members in common.
+func (g *gen) renameCollision(name string, dir model.Key) {
+	ak, aa := ghTeam(g.id("T_"), slug(name))
+	g.team(SourceGitHub, ak, aa, name, g.members(4))
+	g.cases = append(g.cases, Case{Group: "rename-collision", Kind: model.KindTeam, A: ak, B: dir, Same: false})
 }
 
 func (g *gen) nearMisses() {

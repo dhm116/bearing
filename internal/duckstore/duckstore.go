@@ -35,7 +35,14 @@ type Config struct {
 	Now func() time.Time
 	// NewID mints entity and fact IDs; nil means UUIDv7s from Now.
 	NewID func() string
+	// LinkEvery spaces the deposits Ingest makes on one link from one source;
+	// zero means 30 days. Keep it at or below the shortest half-life, or an
+	// ingest-made proposal decays between deposits.
+	LinkEvery time.Duration
 }
+
+// defaultLinkEvery is pkg/match's default half-life.
+const defaultLinkEvery = 30 * 24 * time.Hour
 
 var (
 	_ store.Store    = (*Store)(nil)
@@ -49,6 +56,8 @@ type Store struct {
 	db    *sql.DB
 	now   func() time.Time
 	newID func() string
+	// linkEvery is Config.LinkEvery; set it before the first Ingest.
+	linkEvery time.Duration
 	// logWrite serializes event log writers, so offsets are handed out in
 	// commit order and writers never conflict on a partition's head row.
 	logWrite sync.Mutex
@@ -58,6 +67,9 @@ type Store struct {
 func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.LinkEvery <= 0 {
+		c.LinkEvery = defaultLinkEvery
 	}
 	if c.NewID == nil {
 		c.NewID = model.NewUUIDv7Source(c.Now, rand.Reader).NewID
@@ -75,7 +87,15 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("duckstore: %w", err)
 	}
-	return &Store{db: db, now: c.Now, newID: c.NewID}, nil
+	return &Store{db: db, now: c.Now, newID: c.NewID, linkEvery: c.LinkEvery}, nil
+}
+
+// SetLinkEvery changes Config.LinkEvery for a store opened from a URL. Call it
+// before the first Ingest; it is not safe alongside one.
+func (s *Store) SetLinkEvery(d time.Duration) {
+	if d > 0 {
+		s.linkEvery = d
+	}
 }
 
 // Graph implements store.Store.

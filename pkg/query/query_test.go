@@ -95,6 +95,7 @@ func newQuerier(t *testing.T) *query.Querier {
 }
 
 func TestGetAnswersTheEntityWithOneFactPerStatement(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	e, err := q.Get(t.Context(), payments, at(5))
 	if err != nil {
@@ -119,12 +120,16 @@ func TestGetAnswersTheEntityWithOneFactPerStatement(t *testing.T) {
 	if len(f.Sources) != 2 || f.Sources[0].ObservationID != "g3" || f.Sources[1].ObservationID != "c1" {
 		t.Errorf("got sources %+v, want GitHub's then the catalog's, oldest first", f.Sources)
 	}
+	if f.SourceCount != 2 {
+		t.Errorf("got source_count %d, want 2: one observation from each source", f.SourceCount)
+	}
 	if !f.ValidFrom.Equal(at(1)) || f.ValidTo != nil {
 		t.Errorf("got valid %v to %v, want from minute 1 and open (the catalog still says so)", f.ValidFrom, f.ValidTo)
 	}
 }
 
 func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	for _, tt := range []struct {
 		name, ref, wantPred, wantOwner string
@@ -149,6 +154,7 @@ func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
 }
 
 func TestRelatedWalksBothWays(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	r, err := q.Related(t.Context(), payments, "depends_on", "out", 2, time.Time{})
 	if err != nil {
@@ -167,6 +173,7 @@ func TestRelatedWalksBothWays(t *testing.T) {
 }
 
 func TestChangesAnswersTheWindow(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	c, err := q.Changes(t.Context(), payments, time.Time{}, time.Time{}, 0)
 	if err != nil {
@@ -185,6 +192,7 @@ func TestChangesAnswersTheWindow(t *testing.T) {
 }
 
 func TestFindMatchesNames(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	ms, err := q.Find(t.Context(), "ledger", "Repository", 0)
 	if err != nil {
@@ -196,6 +204,7 @@ func TestFindMatchesNames(t *testing.T) {
 }
 
 func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
+	t.Parallel()
 	q := newQuerier(t)
 	ctx := t.Context()
 	for _, tt := range []struct {

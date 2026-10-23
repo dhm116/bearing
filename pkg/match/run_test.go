@@ -2,6 +2,7 @@ package match
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -75,31 +76,34 @@ func (f *fake) CloseLink(_ context.Context, id string, at time.Time) error {
 	return nil
 }
 
-// teamFacts gives a record's cluster one fact observed at t.
-func teamFacts(id string, at time.Time) graph.Fact {
-	return graph.Fact{
-		Subject: graph.EntityID(id), Predicate: "name", Value: id,
-		Sources: []graph.Source{{ObservedAt: at}},
+// seen sets when a source last observed the records.
+func (f *fake) seen(at time.Time, ids ...graph.EntityID) {
+	for i, r := range f.recs {
+		if slices.Contains(ids, r.ID) {
+			f.recs[i].LastSeen = at
+		}
 	}
 }
 
 func newFake() *fake {
-	return &fake{
+	f := &fake{
 		recs: []graph.Record{
 			rec("g-pay", "payments", model.KindTeam, "github:team/acme/payments"),
 			rec("d-pay", "Payments", model.KindTeam, "authentik:group/payments"),
 			rec("k-pay", "pay", model.KindTeam, "kubernetes:team/payments"),
 			rec("g-sre", "sre", model.KindTeam),
 		},
-		facts: []graph.Fact{teamFacts("g-pay", t0), teamFacts("d-pay", t0.Add(day)), teamFacts("g-sre", t0)},
 	}
+	f.seen(t0, "g-pay", "g-sre")
+	f.seen(t0.Add(day), "d-pay")
+	return f
 }
 
 func TestRunProposesAndRerunAddsNothing(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }}
 
-	res, err := Run(context.Background(), g, cfg)
+	res, err := Run(t.Context(), g, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,66 +115,84 @@ func TestRunProposesAndRerunAddsNothing(t *testing.T) {
 		t.Fatalf("got %+v", l)
 	}
 	d := l.Deposits[0]
-	if !d.At.Equal(t0.Add(day)) || d.Features["name"] != 1 || d.Features["score"] != 0.6 {
-		t.Fatalf("got deposit %+v, want At newest evidence and name feature 1", d)
+	if !d.At.Equal(t0) || d.Features["name"] != 1 || d.Features["score"] != 0.6 {
+		t.Fatalf("got deposit %+v, want At the earlier side's evidence (t0) and name feature 1", d)
 	}
 	if len(res.Review) != 1 || res.Review[0].Link.ID != l.ID {
 		t.Fatalf("got review %+v, want the proposal", res.Review)
 	}
 
 	now = now.Add(day) // the clock moves, the evidence does not
-	res, _ = Run(context.Background(), g, cfg)
+	if res, err = Run(t.Context(), g, cfg); err != nil {
+		t.Fatal(err)
+	}
 	if res.Proposed != 0 || len(g.links[0].Deposits) != 1 {
 		t.Fatalf("rerun added a deposit: %+v", g.links[0].Deposits)
 	}
 }
 
-func TestRunNewEvidenceReinforces(t *testing.T) {
-	g, now := newFake(), t0.Add(2*day)
-	cfg := Config{Now: func() time.Time { return now }}
-	if _, err := Run(context.Background(), g, cfg); err != nil {
-		t.Fatal(err)
+func TestRunDepositsOnlyForNewObservationsThatChangeSomethingOrAHalfLifeLater(t *testing.T) {
+	member := func(at time.Time, team graph.EntityID) graph.Fact {
+		return graph.Fact{Subject: "p1", Predicate: "member_of", Object: team, Sources: []graph.Source{{ObservedAt: at}}}
 	}
-	g.facts = append(g.facts, teamFacts("g-pay", t0.Add(5*day)))
-	now = t0.Add(6 * day)
-	res, _ := Run(context.Background(), g, cfg)
-	if res.Proposed != 0 || res.Reinforced != 1 || len(g.links) != 1 || len(g.links[0].Deposits) != 2 {
-		t.Fatalf("got %d links, deposits %+v; want one link with two deposits", len(g.links), g.links[0].Deposits)
+	for _, tt := range []struct {
+		name   string
+		evolve func(g *fake)
+		want   int // deposits after the second run
+	}{
+		{"same features, a day newer", func(g *fake) { g.seen(t0.Add(3*day), "g-pay", "d-pay") }, 1},
+		{"one side newer only", func(g *fake) { g.seen(t0.Add(40*day), "g-pay") }, 1},
+		{"same features, a half-life newer", func(g *fake) { g.seen(t0.Add(31*day), "g-pay", "d-pay") }, 2},
+		{"a shared member, a day newer", func(g *fake) {
+			g.seen(t0.Add(3*day), "g-pay", "d-pay")
+			g.facts = append(g.facts, member(t0.Add(3*day), "g-pay"), member(t0.Add(3*day), "d-pay"))
+		}, 2},
+		{"one side deleted", func(g *fake) {
+			g.seen(t0.Add(40*day), "d-pay")
+			g.seen(time.Time{}, "g-pay")
+		}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g, now := newFake(), t0.Add(2*day)
+			cfg := Config{Now: func() time.Time { return now }}
+			if _, err := Run(t.Context(), g, cfg); err != nil {
+				t.Fatal(err)
+			}
+			tt.evolve(g)
+			now = t0.Add(41 * day)
+			if _, err := Run(t.Context(), g, cfg); err != nil {
+				t.Fatal(err)
+			}
+			if len(g.links) != 1 || len(g.links[0].Deposits) != tt.want {
+				t.Fatalf("got links %+v, want one link with %d deposits", g.links, tt.want)
+			}
+		})
 	}
 }
 
 func TestRunStaleProposalDecaysBelowFloor(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }}
-	if _, err := Run(context.Background(), g, cfg); err != nil {
-		t.Fatal(err)
-	}
-	// strength 0.6/1.6 = 0.375; one half-life later 0.3/1.3 = 0.23: still open.
-	now = t0.Add(day + 30*day)
-	res, _ := Run(context.Background(), g, cfg)
-	if res.Closed != 0 || len(res.Review) != 0 {
+	mustRun(t, g, cfg) // a deposit dated t0
+	// strength 0.6/1.6 = 0.375; 31 days later 0.29/1.29 = 0.23: still open.
+	now = t0.Add(31 * day)
+	if res := mustRun(t, g, cfg); res.Closed != 0 || len(res.Review) != 0 {
 		t.Fatalf("got closed %d, review %d after one half-life; want 0, 0", res.Closed, len(res.Review))
 	}
 	// 0.6 x 2^-3 = 0.075; strength 0.07 < 0.1.
-	now = t0.Add(day + 90*day)
-	res, _ = Run(context.Background(), g, cfg)
-	if res.Closed != 1 || g.links[0].ValidTo.IsZero() {
+	now = t0.Add(91 * day)
+	if res := mustRun(t, g, cfg); res.Closed != 1 || g.links[0].ValidTo.IsZero() {
 		t.Fatalf("got closed %d, link %+v; want the proposal closed", res.Closed, g.links[0])
 	}
 	// The same evidence does not bring it back.
 	now = now.Add(day)
-	res, _ = Run(context.Background(), g, cfg)
-	if res.Proposed != 0 || len(g.links) != 1 {
+	if res := mustRun(t, g, cfg); res.Proposed != 0 || len(g.links) != 1 {
 		t.Fatalf("closed proposal came back: %+v", g.links)
 	}
-	// Newer evidence proposes the pair again, as a new link.
-	g.facts = append(g.facts, teamFacts("g-pay", now))
+	// Newer evidence on both sides proposes the pair again, as a new link.
+	g.seen(now, "g-pay", "d-pay")
 	now = now.Add(day)
-	res, err := Run(context.Background(), g, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Proposed != 1 || res.Reinforced != 0 || len(g.links) != 2 {
+	if res := mustRun(t, g, cfg); res.Proposed != 1 || res.Reinforced != 0 || len(g.links) != 2 {
 		t.Fatalf("got proposed %d, reinforced %d, %d links; want a new proposal (1, 0, 2)", res.Proposed, res.Reinforced, len(g.links))
 	}
 }
@@ -178,11 +200,11 @@ func TestRunStaleProposalDecaysBelowFloor(t *testing.T) {
 func TestRunHalfLifeByKind(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindTeam: 2 * day}}
-	if _, err := Run(context.Background(), g, cfg); err != nil {
+	if _, err := Run(t.Context(), g, cfg); err != nil {
 		t.Fatal(err)
 	}
 	now = t0.Add(day + 10*day) // five short half-lives
-	res, _ := Run(context.Background(), g, cfg)
+	res := mustRun(t, g, cfg)
 	if res.Closed != 1 {
 		t.Fatalf("got closed %d, want 1", res.Closed)
 	}
@@ -199,7 +221,7 @@ func TestRunSkipsDistinctAndJoinedPairs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := newFake()
 			g.links = []graph.Link{tc.link}
-			res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }})
+			res := mustRun(t, g, Config{Now: func() time.Time { return t0.Add(2 * day) }})
 			if res.Proposed != 0 || len(g.links) != 1 {
 				t.Fatalf("got %d proposed, links %+v; want none", res.Proposed, g.links)
 			}
@@ -213,7 +235,7 @@ func TestRunRulesAssertLinks(t *testing.T) {
 		Now:   func() time.Time { return t0.Add(2 * day) },
 		Rules: []KeyRule{{Name: "k8s-team", A: "kubernetes:team/{name}", B: "github:team/acme/{name}"}},
 	}
-	res, err := Run(context.Background(), g, cfg)
+	res, err := Run(t.Context(), g, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,14 +249,14 @@ func TestRunRulesAssertLinks(t *testing.T) {
 		pairOf(found.A, found.B) != pairOf("g-pay", "k-pay") {
 		t.Fatalf("got asserted %d, links %+v", res.Asserted, g.links)
 	}
-	res, _ = Run(context.Background(), g, cfg)
+	res = mustRun(t, g, cfg)
 	if res.Asserted != 0 {
 		t.Fatalf("rerun asserted %d, want 0", res.Asserted)
 	}
 }
 
 func TestRunRejectsBadRule(t *testing.T) {
-	if _, err := Run(context.Background(), newFake(), Config{Rules: []KeyRule{{Name: "bad"}}}); err == nil {
+	if _, err := Run(t.Context(), newFake(), Config{Rules: []KeyRule{{Name: "bad"}}}); err == nil {
 		t.Fatal("bad rule accepted")
 	}
 }
@@ -252,12 +274,13 @@ func TestRunMatchesPeopleByEmailAndMembers(t *testing.T) {
 			{Subject: "dir-jane", Predicate: "email", Value: "jane@acme.test", Sources: []graph.Source{{ObservedAt: t0}}},
 		},
 	}
+	g.seen(t0, "gh-jane", "dir-jane", "t1", "t2")
 	// Two different teams sharing their only member: name 0.x*0.6 + 0.3.
 	g.facts = append(g.facts,
 		graph.Fact{Subject: "gh-jane", Predicate: "member_of", Object: "t1", Sources: []graph.Source{{ObservedAt: t0}}},
 		graph.Fact{Subject: "gh-jane", Predicate: "member_of", Object: "t2", Sources: []graph.Source{{ObservedAt: t0}}})
 
-	res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return t0 }})
+	res := mustRun(t, g, Config{Now: func() time.Time { return t0 }})
 	if res.Proposed != 1 {
 		t.Fatalf("got %d proposed (%+v); want only the people pair", res.Proposed, g.links)
 	}
@@ -278,7 +301,7 @@ func TestRunReviewOrderedStrongestFirst(t *testing.T) {
 		ID: "S", A: "g-sre", B: "k-pay", Kind: graph.SameAs, Status: graph.Proposed,
 		Deposits: []graph.Deposit{{At: now, Weight: 1}, {At: now, Weight: 1}},
 	}}
-	res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return now }})
+	res := mustRun(t, g, Config{Now: func() time.Time { return now }})
 	if len(res.Review) != 2 || res.Review[0].Link.ID != "S" ||
 		res.Review[0].Score.Strength <= res.Review[1].Score.Strength {
 		t.Fatalf("got %+v", res.Review)
@@ -309,7 +332,7 @@ func TestRunUsesTheConfiguredMatchers(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g := newFake()
-			res, err := Run(context.Background(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }, Matchers: []Matcher{stubMatcher{tt.score}}})
+			res, err := Run(t.Context(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }, Matchers: []Matcher{stubMatcher{tt.score}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -320,6 +343,61 @@ func TestRunUsesTheConfiguredMatchers(t *testing.T) {
 				if l.Rule != "matcher/stub" {
 					t.Errorf("got rule %q, want matcher/stub", l.Rule)
 				}
+			}
+		})
+	}
+}
+
+// mustRun runs Run and fails the test on an error.
+func mustRun(t *testing.T, g IdentityGraph, cfg Config) Result {
+	t.Helper()
+	res, err := Run(t.Context(), g, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestShortestHalfLifeIsTheDefaultUnlessAKindIsShorter(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		h    map[model.Kind]time.Duration
+		want time.Duration
+	}{
+		"none":        {nil, 30 * day},
+		"shorter":     {map[model.Kind]time.Duration{model.KindTeam: 7 * day, model.KindPerson: 90 * day}, 7 * day},
+		"only longer": {map[model.Kind]time.Duration{model.KindTeam: 90 * day}, 30 * day},
+	} {
+		if got := (Config{HalfLife: tc.h}).ShortestHalfLife(); got != tc.want {
+			t.Errorf("%s: got %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestRunDatesADepositByTheFactsBehindItsFeatures(t *testing.T) {
+	later := t0.Add(31 * day)
+	src := []graph.Source{{ObservedAt: later}}
+	for name, facts := range map[string][]graph.Fact{
+		"members": {
+			{Subject: "p1", Predicate: "member_of", Object: "g-pay", Sources: src},
+			{Subject: "p1", Predicate: "member_of", Object: "d-pay", Sources: src},
+		},
+		"email": {
+			{Subject: "g-pay", Predicate: "email", Value: "pay@acme.test", Sources: src},
+			{Subject: "d-pay", Predicate: "email", Value: "pay@acme.test", Sources: src},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, now := newFake(), t0.Add(2*day)
+			cfg := Config{Now: func() time.Time { return now }}
+			mustRun(t, g, cfg)
+			// LastSeen stays old; only the facts behind the feature are observed again.
+			g.facts = facts
+			now = later.Add(day)
+			mustRun(t, g, cfg)
+			ds := g.links[0].Deposits
+			if len(ds) != 2 || !ds[1].At.Equal(later) {
+				t.Fatalf("got deposits %+v, want a second one dated %v", ds, later)
 			}
 		})
 	}

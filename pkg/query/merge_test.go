@@ -8,6 +8,7 @@ import (
 )
 
 func TestMergeJoinsOverlappingFactsOnly(t *testing.T) {
+	t.Parallel()
 	h := func(n int) time.Time { return time.Date(2026, 1, 1, n, 0, 0, 0, time.UTC) }
 	f := func(id string, from, to int, conf float64) graph.Fact {
 		g := graph.Fact{
@@ -35,6 +36,7 @@ func TestMergeJoinsOverlappingFactsOnly(t *testing.T) {
 }
 
 func TestMergeTakesQualifiersOfTheNewestSource(t *testing.T) {
+	t.Parallel()
 	h := func(n int) time.Time { return time.Date(2026, 1, 1, n, 0, 0, 0, time.UTC) }
 	f := func(id string, observed int, q string) graph.Fact {
 		return graph.Fact{

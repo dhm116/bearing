@@ -4,15 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 )
 
@@ -95,6 +99,7 @@ func obs1(id string, n int, kind, key string, opts ...func(*modelv1alpha1.Observ
 }
 
 func TestIngestSharedKeyLinksRecordsAndReadsAnswerForTheCluster(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
@@ -154,6 +159,7 @@ func TestIngestSharedKeyLinksRecordsAndReadsAnswerForTheCluster(t *testing.T) {
 }
 
 func TestIngestSharedKeyNeverClustersDifferentKinds(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "a", obs("o1", 0, "Component", "a:x/1"))
 	ingestOK(t, s, "a", obs("o2", 1, "Team", "a:x/2"))
@@ -164,7 +170,26 @@ func TestIngestSharedKeyNeverClustersDifferentKinds(t *testing.T) {
 	wantClusters(t, s, map[string]graph.EntityID{"a:x/1": "id-1", "a:x/2": "id-2"})
 }
 
+func TestIngestNewRecordUnderARenamedRecordsOldNameStaysApart(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
+	ingestOK(t, s, "gh", obs("o2", 1, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new")))
+	r := ingestOK(t, s, "gh", obs("o3", 2, "Repository", "gh:repo_node/2", aliases("gh:repo/acme/old")))
+	if r.Entities != 1 {
+		t.Fatalf("got %+v, want a new record for the new repository", r)
+	}
+	if a, b := clusterOf(t, s, "gh:repo_node/1"), clusterOf(t, s, "gh:repo_node/2"); a == b {
+		t.Fatalf("got both repositories in cluster %s, want two entities", a)
+	}
+	ls := links(t, s, graph.LinkFilter{Entity: "gh:repo_node/2"})
+	if len(ls) != 1 || ls[0].Rule != ruleSharedKey || ls[0].Status != graph.Proposed {
+		t.Fatalf("got links %+v, want one proposed shared_key link", ls)
+	}
+}
+
 func TestIngestLinkedIDsAreAssertedOnlyWhenAuthoritative(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestReq(t, s, graph.IngestRequest{Source: "dir", Authoritative: vouchesForNodes, Observations: []*eventv1alpha1.Observation{
 		obs("o1", 0, "Person", "dir:user/jane", linked("gh:user_node/1", "gh:user/jane")), // id-1; kindless id-2, id-4 (links take IDs too)
@@ -202,6 +227,7 @@ func TestIngestLinkedIDsAreAssertedOnlyWhenAuthoritative(t *testing.T) {
 }
 
 func TestLinkClustersThreeRecordsAndClosingALinkSplitsThem(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "src",
 		obs("oa", 0, "Person", "p:a/1", attrs("name", "a", "tier", "1")),
@@ -238,6 +264,7 @@ func TestLinkClustersThreeRecordsAndClosingALinkSplitsThem(t *testing.T) {
 }
 
 func TestLinkNeverClustersDifferentKindsButAKindlessRecordJoinsAny(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "src",
 		obs("o1", 0, "Person", "p:a/1"),
@@ -252,6 +279,7 @@ func TestLinkNeverClustersDifferentKindsButAKindlessRecordJoinsAny(t *testing.T)
 }
 
 func TestLinkDistinctFromBlocksACluster(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1, id-2, id-3
 	apart := graph.Proposal{A: "id-3", B: "id-1", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: "person"}
@@ -269,6 +297,7 @@ func TestLinkDistinctFromBlocksACluster(t *testing.T) {
 }
 
 func TestLinkAssertedPromotesAnOpenProposalAndProposedNeverDemotes(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1") // id-1, id-2
 	p := sameAs("id-2", "id-1", graph.Proposed, "matcher/transparent")
@@ -297,6 +326,7 @@ func TestLinkAssertedPromotesAnOpenProposalAndProposedNeverDemotes(t *testing.T)
 }
 
 func TestLinkRefusesBadProposalsAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1")
 	good := sameAs("id-1", "id-2", graph.Asserted, "r")
@@ -324,6 +354,7 @@ func TestLinkRefusesBadProposalsAndWritesNothing(t *testing.T) {
 }
 
 func TestIngestCompleteSyncClosesAVanishedRecordsFacts(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh",
 		obs("o1", 0, "Repository", "k:r/keep", attrs("language", "Go"), rel("depends_on", "k:r/gone", false)),
@@ -353,6 +384,7 @@ func TestIngestCompleteSyncClosesAVanishedRecordsFacts(t *testing.T) {
 }
 
 func TestRecordsListsRecordsOfAKindWithTheirSources(t *testing.T) {
+	t.Parallel()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Person", "p:a/1", aliases("p:a-login/x"), rel("member_of", "t:x/1", false)))
 	ingestOK(t, s, "dir", obs("o2", 1, "Person", "p:a-login/x"))
@@ -371,6 +403,7 @@ func TestRecordsListsRecordsOfAKindWithTheirSources(t *testing.T) {
 }
 
 func TestOpenMovesAFileWithMergedIntoToClusters(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "old.duckdb")
 	db, err := sql.Open("duckdb", path)
@@ -395,6 +428,7 @@ func TestOpenMovesAFileWithMergedIntoToClusters(t *testing.T) {
 }
 
 func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s := ingestStore(t)
 	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", rel("depends_on", "k:a/db", false))) // id-1, id-2, fact id-3
@@ -429,5 +463,148 @@ func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
 	}
 	if len(past) != 1 {
 		t.Errorf("got %d facts as of before the join, want 1", len(past))
+	}
+}
+
+func TestIngestNeverRelinksAPairKeptApartByDistinctFrom(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api"))                         // id-1
+	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", aliases("gh:repo/api"))) // id-2, linked
+	ls := links(t, s, graph.LinkFilter{Entity: "id-2"})
+	if len(ls) != 1 {
+		t.Fatalf("got %+v, want the shared_key link", ls)
+	}
+	if err := s.CloseLink(t.Context(), ls[0].ID, at(2)); err != nil {
+		t.Fatal(err)
+	}
+	link(t, s, graph.Proposal{A: "id-1", B: "id-2", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: "person"})
+	ingestOK(t, s, "bs", obs("o3", 3, "Component", "bs:comp/api", aliases("gh:repo/api")))
+	if ls := links(t, s, graph.LinkFilter{Entity: "id-2", Kind: graph.SameAs}); len(ls) != 0 {
+		t.Fatalf("got %+v, want no open same_as", ls)
+	}
+	wantClusters(t, s, map[string]graph.EntityID{"gh:repo/api": "id-1", "bs:comp/api": "id-2"})
+}
+
+func TestIngestDepositsOnALinkOncePerSourceAndHalfLife(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	sync := func(id string, n int) {
+		ingestOK(t, s, "dir", obs(id, n, "Person", "dir:user/jane", linked("gh:user/jane")))
+	}
+	for h := range 3 {
+		sync(fmt.Sprintf("o%d", h), h*60) // hourly
+	}
+	deposits := func() int {
+		ls := links(t, s, graph.LinkFilter{Entity: "dir:user/jane"})
+		if len(ls) != 1 {
+			t.Fatalf("got links %+v, want one", ls)
+		}
+		return len(ls[0].Deposits)
+	}
+	if n := deposits(); n != 1 {
+		t.Fatalf("got %d deposits after three hourly syncs, want 1", n)
+	}
+	sync("o-later", int(defaultLinkEvery/time.Minute)+60)
+	if n := deposits(); n != 2 {
+		t.Fatalf("got %d deposits a half-life later, want 2", n)
+	}
+}
+
+func TestRecordsLastSeenIsTheNewestObservationUntilADeletion(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	seen := func() time.Time {
+		rs, err := s.Records(t.Context(), "Team")
+		if err != nil || len(rs) != 1 {
+			t.Fatalf("got %+v, %v, want one record", rs, err)
+		}
+		return rs[0].LastSeen
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay"), obs("o2", 5, "Team", "k:team/pay"))
+	if got := seen(); !got.Equal(at(5)) {
+		t.Fatalf("got %v, want %v", got, at(5))
+	}
+	ingestOK(t, s, "gh", obs("o3", 7, "Team", "k:team/pay", deleted))
+	if got := seen(); !got.IsZero() {
+		t.Fatalf("got %v after a deletion, want zero", got)
+	}
+}
+
+func TestIngestProposalSurvivesHourlySyncsUnderAShortHalfLife(t *testing.T) {
+	t.Parallel()
+	const half = 7 * 24 * time.Hour
+	now := t0
+	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID, LinkEvery: half})
+	cfg := match.Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindPerson: half}}
+	ingestOK(t, s, "gh", obs("g1", 0, "Person", "gh:user/jane"))
+	var id string
+	for h := 0; h <= 60*24; h++ {
+		now = t0.Add(time.Duration(h) * time.Hour)
+		ingestOK(t, s, "dir", obs(fmt.Sprintf("o%d", h), h*60, "Person", "dir:user/jane", linked("gh:user/jane")))
+		if h%24 != 0 {
+			continue
+		}
+		r, err := match.Run(t.Context(), s, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ls := links(t, s, graph.LinkFilter{WithClosed: true, Kind: graph.SameAs})
+		if r.Closed != 0 || len(ls) != 1 || !ls[0].ValidTo.IsZero() {
+			t.Fatalf("day %d: got %+v, %+v, want the one proposal still open", h/24, r, ls)
+		}
+		if id == "" {
+			id = ls[0].ID
+		} else if ls[0].ID != id {
+			t.Fatalf("day %d: got link %s, want it to keep %s", h/24, ls[0].ID, id)
+		}
+	}
+}
+
+func TestIngestAliasProposalStopsWhenTheOwnerDropsTheAlias(t *testing.T) {
+	t.Parallel()
+	now := t0
+	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID})
+	ingestOK(t, s, "gh", obs("a0", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
+	ingestOK(t, s, "gh", obs("a1", 60, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new"))) // renamed
+	const step = 6 * time.Hour
+	var end time.Time
+	for i := 1; i <= 600; i++ { // 150 days of the new repository listing the old name
+		end = t0.Add(time.Duration(i) * step)
+		ingestOK(t, s, "gh", obs(fmt.Sprintf("b%d", i), int(end.Sub(t0)/time.Minute), "Repository", "gh:repo_node/2", aliases("gh:repo/acme/old")))
+	}
+	now = end
+	r, err := match.Run(t.Context(), s, match.Config{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := links(t, s, graph.LinkFilter{WithClosed: true, Kind: graph.SameAs})
+	if r.Closed != 1 || len(ls) != 1 || ls[0].ValidTo.IsZero() {
+		t.Fatalf("got %+v, %+v, want the proposal closed once its owner stopped listing the alias", r, ls)
+	}
+}
+
+func TestRecordsLastSeenDeletionWinsATieBetweenSources(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	// Insert the deletion first and last in turn: the answer must not depend on row order.
+	for i, order := range [][2]string{{"gh", "other"}, {"other", "gh"}} {
+		key := fmt.Sprintf("k:team/pay%d", i)
+		for j, src := range order {
+			var opts []func(*modelv1alpha1.ObservationData)
+			if src == "gh" {
+				opts = append(opts, deleted)
+			}
+			ingestOK(t, s, src, obs(fmt.Sprintf("t%d-%d", i, j), 5, "Team", key, opts...))
+		}
+	}
+	rs, err := s.Records(t.Context(), "Team")
+	if err != nil || len(rs) != 2 {
+		t.Fatalf("got %+v, %v, want two records", rs, err)
+	}
+	for _, r := range rs {
+		if !r.LastSeen.IsZero() {
+			t.Errorf("%s: got LastSeen %v, want zero (the deletion wins the tie)", r.Name, r.LastSeen)
+		}
 	}
 }

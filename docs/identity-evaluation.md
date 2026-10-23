@@ -27,13 +27,14 @@ the numbers here, so a regression shows. Numbers are for seed 1.
 | acme | 12 | 11 | 0.917 | 1.000 | 1.000 |
 | convention (same team, another naming style) | 50 | 50 | 1.000 | 0.580 | 0.960 |
 | rename (same team, new name) | 10 | 10 | 1.000 | 0.400 | 0.600 |
+| rename-collision (a renamed team takes another team's name) | 1 | 0 | 0.000 | - | - |
 | near-miss (similar names, different teams) | 12 | 0 | 0.000 | - | - |
 | unrelated | 20 | 0 | 1.000 | - | - |
 | person-same-email | 15 | 15 | 1.000 | 1.000 | 1.000 |
 | person-alias (login or nickname, same email) | 10 | 10 | 1.000 | 0.000 | 0.000 |
 | person-same-name (different people) | 15 | 0 | 0.000 | - | - |
 | person-different | 15 | 0 | 1.000 | - | - |
-| **all** | 159 | 96 | 0.747 | 0.615 | 0.833 |
+| **all** | 160 | 96 | 0.738 | 0.615 | 0.833 |
 
 A group's precision counts only the proposals for its own pairs. A group with
 no true pairs and precision 0.000 means every proposal there is wrong.
@@ -42,6 +43,9 @@ no true pairs and precision 0.000 means every proposal there is wrong.
 
 - **Near-miss names** (`ledger`/`legend`): each one is proposed. Name
   similarity alone cannot tell them from a rename.
+- **A rename onto another team's name** (`rename-collision`): the pair is
+  proposed, since the names are equal. The teams stay two records until a
+  person accepts the proposal.
 - **Different people with one name** (`person-same-name`): every one is
   proposed. The matcher has no feature that says "same name, different
   email, so probably two people". Proposals wait for review, so this costs
@@ -62,29 +66,59 @@ a key pattern can name exactly, such as the Acme teams.
 
 ## Decay against none
 
-Five scenarios play ten weekly rounds, with the change in round 4: the
-matcher runs after each round's ingest, once with the default half-life and
-once with a half-life of a hundred years ("none"). Stale lag is how long a
-proposal outlived the end of its pair; "stuck" counts proposals still open at
-the end; flaps are proposals that closed and reopened.
+Five scenarios play sixteen weekly rounds, with the change in round 4 (day
+28): the matcher runs after each round's ingest, once with the default
+half-life (30 days) and once with a half-life of a hundred years ("none").
+Stale lag is how long a proposal outlived the end of its pair, to the first
+round without it; "stuck" counts proposals still open at the end; flaps are
+proposals that closed and reopened.
 
-| Scenario | Decay | Pairs ended | Stuck | Flaps | Worst precision |
+| Scenario | Decay | Pairs ended | Mean lag | Max lag | Stuck | Flaps | Worst precision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| stable | default / none | 0 | - | - | 0 / 0 | 0 / 0 | 1.000 / 1.000 |
+| renamed | default / none | 0 | - | - | 0 / 0 | 0 / 0 | 1.000 / 1.000 |
+| membership-ended | default / none | 0 | - | - | 0 / 0 | 0 / 0 | 1.000 / 1.000 |
+| deleted-github | default / none | 3 | 63 days / - | 63 days / - | 0 / 3 | 0 / 0 | 0.000 / 0.000 |
+| deleted-directory | default / none | 3 | 63 days / - | 63 days / - | 0 / 3 | 0 / 0 | 0.000 / 0.000 |
+
+With decay, a proposal whose record was deleted closes about two
+half-lives after the deletion; without it, it never does. (Worst precision
+is 0 in the deleted scenarios because the stale proposals are the only
+open ones until they close.) The test fails if any of them is still open
+at the end with the default half-life.
+
+What makes this work is how a deposit is dated (`pkg/match`, ADR 7: only
+new observations deposit):
+
+- Its time is the newest observation behind the features it scored: the
+  records' own observations for the name, the `member_of` facts for
+  members, the email facts for email.
+- It counts only while both records are current: the pair takes the
+  earlier of the two sides, and a side whose last observation deleted it
+  has none, so a deleted record stops reinforcing at once.
+- A pair gets a new deposit only when that time is newer than its last
+  deposit, and then only if the feature values changed or a half-life has
+  passed. A matcher re-running on the same evidence adds nothing.
+- Ingest's own links (`linked_ids`, `shared_key`) get at most one deposit
+  per source and half-life, not one per sync.
+
+Before this, evidence was dated by the newest fact touching either
+record's cluster, so the surviving record kept every stale proposal alive.
+
+### Hourly syncs
+
+`Hourly` syncs one team in GitHub and the directory every hour for 60
+days; GitHub deletes the team on day 20. The matcher runs daily, with a
+half-life of 7 days for teams so the 40 days after the deletion hold
+several.
+
+| Scenario | Half-life | Pairs ended | Lag | Stuck | Flaps |
 | --- | --- | --- | --- | --- | --- |
-| stable | default / none | 0 | 0 | 0 | 1.000 / 1.000 |
-| renamed | default / none | 0 | 0 | 0 | 1.000 / 1.000 |
-| membership-ended | default / none | 0 | 0 | 0 | 1.000 / 1.000 |
-| deleted-github | default / none | 3 | 3 / 3 | 0 | 0.000 / 0.000 |
-| deleted-directory | default / none | 3 | 3 / 3 | 0 | 0.000 / 0.000 |
+| hourly | 7 days | 1 | 18 days (2.6 half-lives) | 0 | 0 |
 
-What this says: **decay changes nothing in these scenarios.** No flapping, no
-harm (the test only fails if decay makes precision worse), but also no
-benefit. When one side of a pair is deleted, the proposal never closes, with
-or without decay. The likely cause is that evidence is dated by the newest
-fact touching either record's cluster, so the surviving record (and its
-members) keeps refreshing the proposal. A deleted record should stop
-counting as evidence; that is the follow-up this result points to.
-In the renamed scenario the proposals stay open too, which is correct: the
-truth stays "same" while the names stop agreeing.
+The test fails if the proposal outlives the deletion by more than four
+half-lives. Without the once-per-half-life rule, the daily deposits pile up
+and the lag is 40 days (5.7 half-lives).
 
 ## Teams across sources
 
