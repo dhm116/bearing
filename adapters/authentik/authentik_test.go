@@ -153,7 +153,7 @@ func TestSyncFollowsNoRedirectWithTheToken(t *testing.T) {
 	}))
 	t.Cleanup(other.Close)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound) //nolint:gosec // G710: a test server redirecting to another test server
 	}))
 	t.Cleanup(srv.Close)
 	a := authentik.New()

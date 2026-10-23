@@ -33,9 +33,11 @@ func newStub(t *testing.T) (*stub, *httptest.Server) {
 	return s, srv
 }
 
+func uuidOf(pk int) string { return fmt.Sprintf("00000000-0000-0000-0000-%012d", pk) }
+
 func userJSON(pk int) map[string]any {
 	return map[string]any{
-		"pk": pk, "uuid": fmt.Sprintf("00000000-0000-0000-0000-%012d", pk),
+		"pk": pk, "uuid": uuidOf(pk),
 		"username": "user" + strconv.Itoa(pk), "name": "User " + strconv.Itoa(pk),
 		"email": fmt.Sprintf("user%d@acme.example", pk), "attributes": map[string]any{},
 	}

@@ -54,7 +54,7 @@ func TestSyncLosesNoUserWhenOneIsDeletedBetweenPages(t *testing.T) {
 	obs, res := syncTo(t, adapterFor(srv.Client(), canary), authentik.Config{APIURL: srv.URL, PageSize: 2})
 	keys := personKeys(obs)
 	for pk := 2; pk <= 5; pk++ {
-		if !slices.Contains(keys, "authentik:user/"+userJSON(pk)["uuid"].(string)) {
+		if !slices.Contains(keys, "authentik:user/"+uuidOf(pk)) {
 			t.Errorf("user %d was lost; got %v", pk, keys)
 		}
 	}
@@ -117,7 +117,7 @@ func TestSyncSkipsAUserWhoseUUIDDoesNotParse(t *testing.T) {
 	bad["uuid"] = "not-a-uuid-" + canary
 	s.users = []map[string]any{userJSON(1), bad}
 	obs, _ := syncTo(t, adapterFor(srv.Client(), canary), authentik.Config{APIURL: srv.URL})
-	if keys := personKeys(obs); len(keys) != 1 || !strings.HasSuffix(keys[0], userJSON(1)["uuid"].(string)) {
+	if keys := personKeys(obs); len(keys) != 1 || !strings.HasSuffix(keys[0], uuidOf(1)) {
 		t.Fatalf("got %v, want only user 1", keys)
 	}
 	if !strings.Contains(logs.all(), "uuid does not parse pk=2") {

@@ -34,13 +34,18 @@ linters:
         # Denying the whole internal/ tree means a new backend is covered
         # without editing this file, and so is a new non-backend internal
         # package.
+        # internal/githubid is a pure helper (node-ID encoding) shared by the
+        # GitHub adapter, the Authentik adapter and the fakes.
         internal-packages:
+          list-mode: lax
           files:
             - $all
             - "!$test"
             - "!**/internal/*store/**"
             - "!**/internal/testkit/**"
             - "!**/cmd/**"
+          allow:
+            - bearing.example/internal/githubid
           deny:
             - pkg: bearing.example/internal
               desc: depend on pkg/store and pkg/graph; open backends through store.Open
@@ -67,6 +72,7 @@ linters:
           allow:
             - bearing.example/internal/duckstore
             - bearing.example/internal/fakes
+            - bearing.example/internal/githubid
             - bearing.example/internal/testkit
           deny:
             - pkg: bearing.example/internal
