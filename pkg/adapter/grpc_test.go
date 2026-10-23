@@ -88,7 +88,7 @@ func TestGRPCHandleWithoutWebhooksIsNotSupported(t *testing.T) {
 	}
 	_, err = r.Handle(t.Context(), HandleParams{})
 	var e *Error
-	if !errors.As(err, &e) || e.Code != CodeNotSupported {
+	if !errors.As(err, &e) || e.Code != CodeNotSupported || !errors.Is(err, ErrNotSupported) {
 		t.Fatalf("got %v, want CodeNotSupported", err)
 	}
 }

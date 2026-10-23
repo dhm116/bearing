@@ -124,6 +124,13 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
+// Is matches another *Error with the same Code, so errors.Is(err,
+// ErrNotSupported) holds for an error that crossed the wire.
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	return ok && t.Code == e.Code
+}
+
 // ErrorType reports the code as the OpenTelemetry error.type.
 func (e *Error) ErrorType() string { return strconv.Itoa(e.Code) }
 
