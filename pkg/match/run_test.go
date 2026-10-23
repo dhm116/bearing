@@ -172,45 +172,37 @@ func TestRunDepositsOnlyForNewObservationsThatChangeSomethingOrAHalfLifeLater(t 
 func TestRunStaleProposalDecaysBelowFloor(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }}
-	run := func() Result {
-		t.Helper()
-		res, err := Run(t.Context(), g, cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return res
-	}
-	run() // a deposit dated t0
+	mustRun(t, g, cfg) // a deposit dated t0
 	// strength 0.6/1.6 = 0.375; 31 days later 0.29/1.29 = 0.23: still open.
 	now = t0.Add(31 * day)
-	if res := run(); res.Closed != 0 || len(res.Review) != 0 {
+	if res := mustRun(t, g, cfg); res.Closed != 0 || len(res.Review) != 0 {
 		t.Fatalf("got closed %d, review %d after one half-life; want 0, 0", res.Closed, len(res.Review))
 	}
 	// 0.6 x 2^-3 = 0.075; strength 0.07 < 0.1.
 	now = t0.Add(91 * day)
-	if res := run(); res.Closed != 1 || g.links[0].ValidTo.IsZero() {
+	if res := mustRun(t, g, cfg); res.Closed != 1 || g.links[0].ValidTo.IsZero() {
 		t.Fatalf("got closed %d, link %+v; want the proposal closed", res.Closed, g.links[0])
 	}
 	// The same evidence does not bring it back.
 	now = now.Add(day)
-	if res := run(); res.Proposed != 0 || len(g.links) != 1 {
+	if res := mustRun(t, g, cfg); res.Proposed != 0 || len(g.links) != 1 {
 		t.Fatalf("closed proposal came back: %+v", g.links)
 	}
 	// Newer evidence on both sides proposes the pair again, as a new link.
 	g.seen(now, "g-pay", "d-pay")
 	now = now.Add(day)
-	if res := run(); res.Proposed != 1 || res.Reinforced != 0 || len(g.links) != 2 {
+	if res := mustRun(t, g, cfg); res.Proposed != 1 || res.Reinforced != 0 || len(g.links) != 2 {
 		t.Fatalf("got proposed %d, reinforced %d, %d links; want a new proposal (1, 0, 2)", res.Proposed, res.Reinforced, len(g.links))
 	}
 }
 func TestRunHalfLifeByKind(t *testing.T) {
 	g, now := newFake(), t0.Add(2*day)
 	cfg := Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindTeam: 2 * day}}
-	if _, err := Run(context.Background(), g, cfg); err != nil {
+	if _, err := Run(t.Context(), g, cfg); err != nil {
 		t.Fatal(err)
 	}
 	now = t0.Add(day + 10*day) // five short half-lives
-	res, _ := Run(context.Background(), g, cfg)
+	res := mustRun(t, g, cfg)
 	if res.Closed != 1 {
 		t.Fatalf("got closed %d, want 1", res.Closed)
 	}
@@ -227,7 +219,7 @@ func TestRunSkipsDistinctAndJoinedPairs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := newFake()
 			g.links = []graph.Link{tc.link}
-			res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }})
+			res := mustRun(t, g, Config{Now: func() time.Time { return t0.Add(2 * day) }})
 			if res.Proposed != 0 || len(g.links) != 1 {
 				t.Fatalf("got %d proposed, links %+v; want none", res.Proposed, g.links)
 			}
@@ -241,7 +233,7 @@ func TestRunRulesAssertLinks(t *testing.T) {
 		Now:   func() time.Time { return t0.Add(2 * day) },
 		Rules: []KeyRule{{Name: "k8s-team", A: "kubernetes:team/{name}", B: "github:team/acme/{name}"}},
 	}
-	res, err := Run(context.Background(), g, cfg)
+	res, err := Run(t.Context(), g, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,14 +247,14 @@ func TestRunRulesAssertLinks(t *testing.T) {
 		pairOf(found.A, found.B) != pairOf("g-pay", "k-pay") {
 		t.Fatalf("got asserted %d, links %+v", res.Asserted, g.links)
 	}
-	res, _ = Run(context.Background(), g, cfg)
+	res = mustRun(t, g, cfg)
 	if res.Asserted != 0 {
 		t.Fatalf("rerun asserted %d, want 0", res.Asserted)
 	}
 }
 
 func TestRunRejectsBadRule(t *testing.T) {
-	if _, err := Run(context.Background(), newFake(), Config{Rules: []KeyRule{{Name: "bad"}}}); err == nil {
+	if _, err := Run(t.Context(), newFake(), Config{Rules: []KeyRule{{Name: "bad"}}}); err == nil {
 		t.Fatal("bad rule accepted")
 	}
 }
@@ -286,7 +278,7 @@ func TestRunMatchesPeopleByEmailAndMembers(t *testing.T) {
 		graph.Fact{Subject: "gh-jane", Predicate: "member_of", Object: "t1", Sources: []graph.Source{{ObservedAt: t0}}},
 		graph.Fact{Subject: "gh-jane", Predicate: "member_of", Object: "t2", Sources: []graph.Source{{ObservedAt: t0}}})
 
-	res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return t0 }})
+	res := mustRun(t, g, Config{Now: func() time.Time { return t0 }})
 	if res.Proposed != 1 {
 		t.Fatalf("got %d proposed (%+v); want only the people pair", res.Proposed, g.links)
 	}
@@ -307,7 +299,7 @@ func TestRunReviewOrderedStrongestFirst(t *testing.T) {
 		ID: "S", A: "g-sre", B: "k-pay", Kind: graph.SameAs, Status: graph.Proposed,
 		Deposits: []graph.Deposit{{At: now, Weight: 1}, {At: now, Weight: 1}},
 	}}
-	res, _ := Run(context.Background(), g, Config{Now: func() time.Time { return now }})
+	res := mustRun(t, g, Config{Now: func() time.Time { return now }})
 	if len(res.Review) != 2 || res.Review[0].Link.ID != "S" ||
 		res.Review[0].Score.Strength <= res.Review[1].Score.Strength {
 		t.Fatalf("got %+v", res.Review)
@@ -338,7 +330,7 @@ func TestRunUsesTheConfiguredMatchers(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g := newFake()
-			res, err := Run(context.Background(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }, Matchers: []Matcher{stubMatcher{tt.score}}})
+			res, err := Run(t.Context(), g, Config{Now: func() time.Time { return t0.Add(2 * day) }, Matchers: []Matcher{stubMatcher{tt.score}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -352,4 +344,14 @@ func TestRunUsesTheConfiguredMatchers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mustRun runs Run and fails the test on an error.
+func mustRun(t *testing.T, g IdentityGraph, cfg Config) Result {
+	t.Helper()
+	res, err := Run(t.Context(), g, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
 }
