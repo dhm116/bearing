@@ -53,25 +53,51 @@ func precisionOverTime(sc Scenario, snaps []Snapshot) []float64 {
 	return out
 }
 
+// defaultHalfLife is match's default, the one the weekly scenarios use.
+const defaultHalfLife = 30 * 24 * time.Hour
+
+// TestEvalDecayAgainstNone plays each weekly scenario with the default
+// half-life and with none. With decay, a proposal whose record was deleted
+// must close before the timeline ends.
 func TestEvalDecayAgainstNone(t *testing.T) {
-	t.Logf("%-18s %-8s %5s %10s %10s %6s %6s %7s", "scenario", "decay", "pairs", "mean lag", "max lag", "stuck", "flaps", "min.prec")
+	t.Parallel()
 	for _, sc := range Scenarios(t0) {
-		var minPrec [2]float64
-		for i, v := range []struct {
+		for _, v := range []struct {
 			name string
 			h    time.Duration
-		}{{"default", 30 * 24 * time.Hour}, {"none", noDecay}} {
-			snaps := runTimeline(t, sc, v.h)
-			lag := StaleLag(sc.Pairs, snaps)
-			flaps, opened := Flapping(snaps)
-			minPrec[i] = 1
-			for _, p := range precisionOverTime(sc, snaps) {
-				minPrec[i] = min(minPrec[i], p)
-			}
-			t.Logf("%-18s %-8s %5d %10s %10s %6d %3d/%-2d %7.3f", sc.Name, v.name, lag.Pairs, lag.Mean, lag.Max, lag.Unresolved, flaps, opened, minPrec[i])
+		}{{"default", defaultHalfLife}, {"none", noDecay}} {
+			t.Run(sc.Name+"/"+v.name, func(t *testing.T) {
+				t.Parallel()
+				snaps := runTimeline(t, sc, v.h)
+				lag := StaleLag(sc.Pairs, snaps)
+				flaps, opened := Flapping(snaps)
+				minPrec := 1.0
+				for _, p := range precisionOverTime(sc, snaps) {
+					minPrec = min(minPrec, p)
+				}
+				t.Logf("pairs ended %d, mean lag %s, max lag %s, stuck %d, flaps %d/%d, worst precision %.3f",
+					lag.Pairs, lag.Mean, lag.Max, lag.Unresolved, flaps, opened, minPrec)
+				if v.h == defaultHalfLife && lag.Unresolved != 0 {
+					t.Errorf("%d stale proposals still open at the end, want 0", lag.Unresolved)
+				}
+			})
 		}
-		if minPrec[0] < minPrec[1] {
-			t.Errorf("%s: decay lowered the worst precision to %.3f from %.3f without it", sc.Name, minPrec[0], minPrec[1])
-		}
+	}
+}
+
+// TestEvalHourlyStaleProposalClosesWithinFourHalfLives syncs both sides every
+// hour, so a matcher that reinforced unchanged evidence, or dated it by the
+// side still observed, would keep the proposal alive long after GitHub
+// deleted its team.
+func TestEvalHourlyStaleProposalClosesWithinFourHalfLives(t *testing.T) {
+	t.Parallel()
+	const halfLife = 7 * 24 * time.Hour // a week, so the 40 days after the deletion hold several
+	sc := Hourly(t0)
+	snaps := runTimeline(t, sc, halfLife)
+	lag := StaleLag(sc.Pairs, snaps)
+	flaps, opened := Flapping(snaps)
+	t.Logf("pairs ended %d, lag %s, stuck %d, flaps %d/%d", lag.Pairs, lag.Max, lag.Unresolved, flaps, opened)
+	if lag.Pairs != 1 || lag.Unresolved != 0 || lag.Max > 4*halfLife {
+		t.Fatalf("got %+v, want the one stale proposal closed within %s", lag, 4*halfLife)
 	}
 }

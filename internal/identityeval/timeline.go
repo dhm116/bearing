@@ -3,6 +3,8 @@ package identityeval
 import (
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
@@ -10,7 +12,7 @@ import (
 
 // Timeline shape: weekly rounds, the change in round [ChangeRound].
 const (
-	Rounds      = 10
+	Rounds      = 16
 	ChangeRound = 4
 	RoundEvery  = 7 * 24 * time.Hour
 )
@@ -134,4 +136,46 @@ func Scenarios(start time.Time) []Scenario {
 			return gh, dir
 		}, true),
 	}
+}
+
+// Hourly timeline shape: syncs every hour for HourlyDays days; GitHub deletes
+// its team at the start of day HourlyStop.
+const (
+	HourlyDays = 60
+	HourlyStop = 20
+)
+
+// Hourly is one team in GitHub and the directory, each synced every hour:
+// the cadence at which unchanged evidence must not pile up. GitHub deletes
+// the team on day [HourlyStop] and stops observing it; the directory keeps
+// it. Each Round holds one day of hourly syncs, so the matcher runs daily.
+// Observations carry only the team's name, to keep 2,000 syncs fast.
+func Hourly(start time.Time) Scenario {
+	gh, _ := ghTeam("hourly-T_payments", "payments")
+	dir, _ := dirTeam("hourly-g-payments", "payments")
+	until := start.Add(HourlyStop * 24 * time.Hour)
+	sc := Scenario{Name: "hourly", Pairs: []TimedPair{{A: gh, B: dir, Until: until}}}
+	team := func(key model.Key, name string) *modelv1alpha1.ObservationData {
+		e := &modelv1alpha1.Entity{Kind: string(model.KindTeam), Key: string(key), Deleted: name == ""}
+		if name != "" {
+			e.Attributes = map[string]*structpb.Value{"name": str(name)}
+		}
+		return &modelv1alpha1.ObservationData{Entity: e}
+	}
+	for d := range HourlyDays {
+		var r Round
+		for h := range 24 {
+			at := start.Add(time.Duration(d*24+h) * time.Hour)
+			switch {
+			case at.Before(until):
+				r.Observations = append(r.Observations, model.NewObservation(SourceGitHub, at, team(gh, "Payments")))
+			case at.Equal(until):
+				r.Observations = append(r.Observations, model.NewObservation(SourceGitHub, at, team(gh, ""))) // deleted
+			}
+			r.Observations = append(r.Observations, model.NewObservation(SourceDirectory, at, team(dir, "payments")))
+			r.At = at
+		}
+		sc.Rounds = append(sc.Rounds, r)
+	}
+	return sc
 }

@@ -91,7 +91,7 @@ var overlaps = []float64{0, 0.25, 0.5, 0.75, 1}
 
 // renames are teams that changed names: the pair is one team.
 var renames = [][2]string{
-	{"sre", "reliability"},
+	{"oncall", "reliability"},
 	{"infra", "infrastructure"},
 	{"devex", "developer-experience"},
 	{"data", "analytics"},

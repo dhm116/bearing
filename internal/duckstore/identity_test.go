@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -466,4 +468,47 @@ func TestIngestNeverRelinksAPairKeptApartByDistinctFrom(t *testing.T) {
 		t.Fatalf("got %+v, want no open same_as", ls)
 	}
 	wantClusters(t, s, map[string]graph.EntityID{"gh:repo/api": "id-1", "bs:comp/api": "id-2"})
+}
+
+func TestIngestDepositsOnALinkOncePerSourceAndHalfLife(t *testing.T) {
+	s := ingestStore(t)
+	sync := func(id string, n int) {
+		ingestOK(t, s, "dir", obs(id, n, "Person", "dir:user/jane", linked("gh:user/jane")))
+	}
+	for h := range 3 {
+		sync(fmt.Sprintf("o%d", h), h*60) // hourly
+	}
+	deposits := func() int {
+		ls := links(t, s, graph.LinkFilter{Entity: "dir:user/jane"})
+		if len(ls) != 1 {
+			t.Fatalf("got links %+v, want one", ls)
+		}
+		return len(ls[0].Deposits)
+	}
+	if n := deposits(); n != 1 {
+		t.Fatalf("got %d deposits after three hourly syncs, want 1", n)
+	}
+	sync("o-later", int(linkHalfLife/time.Minute)+60)
+	if n := deposits(); n != 2 {
+		t.Fatalf("got %d deposits a half-life later, want 2", n)
+	}
+}
+
+func TestRecordsLastSeenIsTheNewestObservationUntilADeletion(t *testing.T) {
+	s := ingestStore(t)
+	seen := func() time.Time {
+		rs, err := s.Records(t.Context(), "Team")
+		if err != nil || len(rs) != 1 {
+			t.Fatalf("got %+v, %v, want one record", rs, err)
+		}
+		return rs[0].LastSeen
+	}
+	ingestOK(t, s, "gh", obs("o1", 0, "Team", "k:team/pay"), obs("o2", 5, "Team", "k:team/pay"))
+	if got := seen(); !got.Equal(at(5)) {
+		t.Fatalf("got %v, want %v", got, at(5))
+	}
+	ingestOK(t, s, "gh", obs("o3", 7, "Team", "k:team/pay", deleted))
+	if got := seen(); !got.IsZero() {
+		t.Fatalf("got %v after a deletion, want zero", got)
+	}
 }

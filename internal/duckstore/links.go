@@ -373,3 +373,8 @@ const (
 	ruleSharedKey = "shared_key"
 	ruleLinkedIDs = "linked_ids"
 )
+
+// linkHalfLife spaces Ingest's deposits on one link from one source.
+// shortcut: fixed at pkg/match's default half-life; take it from the
+// matching settings if a kind's half-life is ever set much shorter.
+const linkHalfLife = 30 * 24 * time.Hour

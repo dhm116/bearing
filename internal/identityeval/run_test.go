@@ -119,6 +119,7 @@ func candidatePairs(ctx context.Context, t testing.TB, g graph.Graph, cases []Ca
 }
 
 func TestEvalGeneratedSet(t *testing.T) {
+	t.Parallel()
 	set := Generate(1, t0)
 	g := openGraph(t, func() time.Time { return t0 })
 	ingest(t, g, set.Observations)

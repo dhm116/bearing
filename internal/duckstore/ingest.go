@@ -336,6 +336,17 @@ func (g *ingest) link(ctx context.Context, a, b string, status graph.Status, rul
 	if err != nil || apart > 0 {
 		return err
 	}
+	// One deposit per source and pair per half-life: a source naming the same
+	// key every hour is one piece of evidence, not 720. A deposit that
+	// promotes a proposal still goes in.
+	said, err := g.count(ctx, `SELECT count(*) FROM identity_link l JOIN link_deposit d ON d.link_id = l.id
+		JOIN observation o ON o.id = d.observation_id
+		WHERE l.a = ? AND l.b = ? AND l.kind = 'same_as' AND l.valid_to IS NULL AND o.source = ?
+		AND d.deposited_at > ? AND (l.status = 'asserted' OR ? = 'proposed')`,
+		a, b, g.source, g.observed.Add(-linkHalfLife), string(status))
+	if err != nil || said > 0 {
+		return err
+	}
 	_, changed, err := g.s.upsertLink(ctx, g.tx, graph.Proposal{
 		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: status, Rule: rule,
 		Deposit: graph.Deposit{At: g.observed, Weight: 1, ObservationID: g.obsID},

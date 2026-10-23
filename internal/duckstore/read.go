@@ -108,16 +108,22 @@ func (s *Store) entities(ctx context.Context, clusters []string) (map[string]gra
 // first, with their sorted keys and the sources that observed them.
 func (s *Store) records(ctx context.Context, where string, args ...any) ([]graph.Record, error) {
 	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
-	rows, err := s.db.QueryContext(ctx, `SELECT e.id, e.cluster_id, e.kind, e.name FROM entity e
-		WHERE `+where+` ORDER BY e.created_at, e.id`, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT e.id, e.cluster_id, e.kind, e.name,
+		(SELECT CASE WHEN arg_max(coalesce(o.payload->>'$.entity.deleted', 'false'), o.observed_at) = 'true' THEN NULL ELSE max(o.observed_at) END
+		 FROM alias a JOIN observation o ON o.key = a.key WHERE a.entity_id = e.id)
+		FROM entity e WHERE `+where+` ORDER BY e.created_at, e.id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("records: %w", err)
 	}
 	recs, err := collect(rows, func(sc scanner) (graph.Record, error) {
 		var r graph.Record
 		var kind string
-		err := sc.Scan(&r.ID, &r.Cluster, &kind, &r.Name)
+		var seen sql.NullTime
+		err := sc.Scan(&r.ID, &r.Cluster, &kind, &r.Name, &seen)
 		r.Kind = model.Kind(kind)
+		if seen.Valid {
+			r.LastSeen = seen.Time.UTC()
+		}
 		return r, err
 	})
 	if err != nil || len(recs) == 0 {

@@ -111,6 +111,10 @@ type Record struct {
 	Keys    []model.Key
 	// Sources are the configured sources that observed the record.
 	Sources []string
+	// LastSeen is when a source last observed the record itself; zero when
+	// none has, or when that observation deleted it. Matchers date their
+	// evidence by it.
+	LastSeen time.Time
 }
 
 // Match is one Find result.

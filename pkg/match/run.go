@@ -3,6 +3,7 @@ package match
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -115,9 +116,10 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("match: links: %w", err)
 	}
 
-	// joined: pairs not worth a new link; lastAt: newest same_as deposit per pair.
+	// joined: pairs not worth a new link; last: newest same_as deposit per pair,
+	// open or closed, so a closed proposal stays closed on the same evidence.
 	joined, known := map[pair]bool{}, map[pair]bool{}
-	lastAt := map[pair]time.Time{}
+	last := map[pair]graph.Deposit{}
 	for _, l := range links {
 		p := pairOf(l.A, l.B)
 		open := l.ValidTo.IsZero()
@@ -130,8 +132,8 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 			joined[p] = true
 		}
 		for _, d := range l.Deposits {
-			if l.Kind == graph.SameAs && d.At.After(lastAt[p]) {
-				lastAt[p] = d.At
+			if l.Kind == graph.SameAs && d.At.After(last[p].At) {
+				last[p] = d
 			}
 		}
 	}
@@ -164,13 +166,17 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 		}
 		for _, j := range js {
 			c := j.Candidate
-			at := laterOf(ev.Newest[c.A.Cluster], ev.Newest[c.B.Cluster])
-			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(lastAt[pairOf(c.A.ID, c.B.ID)]) {
-				continue
-			}
 			f := map[string]float64{"score": j.Score}
 			for k, v := range j.Features {
 				f[k] = v
+			}
+			// A deposit needs observations newer than the pair's last one, and
+			// then either changed features or a half-life since: a matcher never
+			// reinforces its own unchanged judgement.
+			at, prev := dated(j, ev), last[pairOf(c.A.ID, c.B.ID)]
+			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(prev.At) ||
+				maps.Equal(f, prev.Features) && at.Sub(prev.At) < cfg.halfLife(c.A.Kind) {
+				continue
 			}
 			ps = append(ps, graph.Proposal{
 				A: c.A.ID, B: c.B.ID, Kind: graph.SameAs, Status: graph.Proposed,
