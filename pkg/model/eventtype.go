@@ -18,13 +18,7 @@ import (
 // ObservationsEmitted. A new event message is added here, and a test fails
 // until it is.
 var eventMessages = []protoreflect.Name{
-	"SyncRequested", "WebhookReceived", "ObservationsEmitted",
-	"MergeRequested", "UnmergeRequested", "DistinctFromSet", "DistinctFromCleared",
-	"ClaimWithdrawn", "OverrideSet", "OverrideCleared",
-	"ValidTimeBoundaryReached", "SubjectDeletionDerived",
-	"ConflictOpened", "ConflictResolved", "OverrideStale",
-	"CompactionRequested", "DeclarationChanged", "ConfigApplied",
-	"EventDeadLettered",
+	"SyncRequested", "WebhookReceived", "ObservationsEmitted", "EventDeadLettered",
 }
 
 // EventType returns the CloudEvents type of an event message:

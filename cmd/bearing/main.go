@@ -157,19 +157,20 @@ func openAdapter(ctx context.Context, env queryEnv, fs *flag.FlagSet, args []str
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs, cmd = args[:i], args[i+1:]
 		if len(cmd) == 0 {
-			return nil, nil, errors.New("missing adapter command after --")
+			return nil, nil, fmt.Errorf("missing adapter command after --: %w", errUsage)
 		}
 	}
+	fs.SetOutput(io.Discard)
 	address := fs.String("address", "", "reach the running adapter at https://host:port instead of starting a command")
 	tokenEnv := fs.String("token-env", adapter.EnvToken, "the variable that holds the adapter's bearer token, for --address")
 	if err := fs.Parse(flagArgs); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: %w", err, errUsage)
 	}
 	switch {
 	case fs.NArg() > 0:
-		return nil, nil, errors.New("put the adapter command after --")
+		return nil, nil, fmt.Errorf("put the adapter command after --: %w", errUsage)
 	case *address != "" && cmd != nil:
-		return nil, nil, errors.New("give --address or an adapter command after --, not both")
+		return nil, nil, fmt.Errorf("give --address or an adapter command after --, not both: %w", errUsage)
 	case *address != "":
 		token := env.Getenv(*tokenEnv)
 		if token == "" && strings.HasPrefix(*address, "https:") {
@@ -181,7 +182,7 @@ func openAdapter(ctx context.Context, env queryEnv, fs *flag.FlagSet, args []str
 		}
 		return r, func() error { return nil }, nil
 	case cmd == nil:
-		return nil, nil, errors.New("put the adapter command after --, or give --address")
+		return nil, nil, fmt.Errorf("put the adapter command after --, or give --address: %w", errUsage)
 	}
 	dir, err := os.MkdirTemp("", "bearing-")
 	if err != nil {

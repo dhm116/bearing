@@ -151,7 +151,7 @@ const (
 	MergeRule_MERGE_RULE_AUTHORITATIVE MergeRule = 3
 	// same_as confidence reached the kind's threshold under the score policy.
 	MergeRule_MERGE_RULE_SCORE MergeRule = 4
-	// A MergeRequested event.
+	// Reserved for manual merges, an operation to come.
 	MergeRule_MERGE_RULE_MANUAL MergeRule = 5
 )
 
@@ -371,7 +371,7 @@ const (
 	MergePolicy_MERGE_POLICY_AUTHORITATIVE MergePolicy = 1
 	// As authoritative, or same_as confidence at or above the policy threshold.
 	MergePolicy_MERGE_POLICY_SCORE MergePolicy = 2
-	// Only MergeRequested.
+	// Only manual merges, an operation to come.
 	MergePolicy_MERGE_POLICY_MANUAL MergePolicy = 3
 )
 
@@ -722,7 +722,7 @@ const (
 	SupportReason_SUPPORT_REASON_SNAPSHOT SupportReason = 3
 	// entity.deleted or a derived deletion.
 	SupportReason_SUPPORT_REASON_DELETED SupportReason = 4
-	// A ClaimWithdrawn event.
+	// Reserved for manual withdrawal of a claim, an operation to come.
 	SupportReason_SUPPORT_REASON_WITHDRAWN SupportReason = 5
 	// A merge re-pointed the support.
 	SupportReason_SUPPORT_REASON_MERGE SupportReason = 6

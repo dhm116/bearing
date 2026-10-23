@@ -264,6 +264,14 @@ func (h *harness) append(partition, id string, msg proto.Message) store.Entry {
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	return h.appendRaw(partition, id, typ, data)
+}
+
+// futureType is the type of an event the server has no handler for.
+const futureType = "dev.bearing.future_thing.v1"
+
+func (h *harness) appendRaw(partition, id, typ string, data []byte) store.Entry {
+	h.t.Helper()
 	got, err := h.mem.Append(h.t.Context(), []store.Event{{
 		ID: partition + "/" + id, Partition: store.Partition(partition), Type: typ, Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: data,
 		Retain: partition == "manual" || strings.HasPrefix(partition, "core/dead_letter"),
@@ -497,7 +505,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 
 func TestServerSkipsEventsItDoesNotHandleYet(t *testing.T) {
 	h := newHarness(t)
-	h.append(testSource, "o1", &eventv1alpha1.OverrideSet{})
+	h.appendRaw(testSource, "o1", futureType, []byte(`{}`))
 	h.emitted(testSource, "a", 1)
 	h.start()
 	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
@@ -511,7 +519,7 @@ func TestServerSkipsEventsItDoesNotHandleYet(t *testing.T) {
 
 func TestServerDeadLettersAManualRequestNothingCanCarryOut(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	op := h.append("manual", "m1", &eventv1alpha1.OverrideSet{})
+	op := h.appendRaw("manual", "m1", futureType, []byte(`{}`))
 	h.start()
 	waitFor(t, "the manual partition to be committed", func() bool { return h.drained("manual") })
 	dl := h.entries("core/dead_letter")

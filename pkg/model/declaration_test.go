@@ -5,11 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
-	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
@@ -86,70 +81,6 @@ func TestValidateDeclarationRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			wantCode(t, ValidateDeclaration(tt.d), tt.want)
 		})
-	}
-}
-
-func TestValidateManualEvent(t *testing.T) {
-	const a, b = "0192b1c4-5e10-7a3c-9d2e-6f1a2b3c4d5e", "0192b1c4-5e11-7b4d-8e3f-7a2b3c4d5e6f"
-	actor := &eventv1alpha1.Actor{Subject: "oidc|jdoe"}
-	ok := []proto.Message{
-		&eventv1alpha1.MergeRequested{Actor: actor, Reason: "same team", SubjectIds: []string{a, b}},
-		&eventv1alpha1.UnmergeRequested{Actor: actor, Reason: "wrong merge", SubjectId: a, Aliases: []string{"github:user/jdoe"}},
-		&eventv1alpha1.DistinctFromSet{Actor: actor, Reason: "r", SubjectIds: []string{a, b}},
-		&eventv1alpha1.DistinctFromCleared{Actor: actor, Reason: "r", SubjectIds: []string{a, b}},
-		&eventv1alpha1.ClaimWithdrawn{
-			Actor: actor, Reason: "r", Source: "github-acme", SubjectId: a, Predicate: "owned_by",
-			Object: &modelv1alpha1.FactObject{SubjectId: b},
-		},
-		&eventv1alpha1.OverrideSet{
-			Actor: actor, Reason: "r", SubjectId: a, Predicate: "github.codeowners_rules",
-			Objects: []*modelv1alpha1.FactObject{{Type: modelv1alpha1.ValueType_VALUE_TYPE_FLOAT, Value: structpb.NewNumberValue(1)}},
-		},
-		&eventv1alpha1.OverrideCleared{Actor: actor, Reason: "r", SubjectId: a, Predicate: "owned_by"},
-	}
-	for _, m := range ok {
-		if err := ValidateManualEvent(m); err != nil {
-			t.Errorf("%T: %v", m, err)
-		}
-	}
-
-	at := timestamppb.Now()
-	bad := []struct {
-		m    proto.Message
-		want modelv1alpha1.RejectionCode
-	}{
-		{&eventv1alpha1.MergeRequested{Reason: "r", SubjectIds: []string{a, b}}, codeMalformed},
-		{&eventv1alpha1.MergeRequested{Actor: actor, SubjectIds: []string{a, b}}, codeMalformed},
-		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: "r", SubjectIds: []string{a}}, codeMalformed},
-		{&eventv1alpha1.MergeRequested{Actor: &eventv1alpha1.Actor{Subject: strings.Repeat("a", MaxActorBytes+1)}, Reason: "r", SubjectIds: []string{a, b}}, codeMalformed},
-		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: strings.Repeat("a", MaxReasonBytes+1), SubjectIds: []string{a, b}}, codeMalformed},
-		{&eventv1alpha1.MergeRequested{Actor: actor, Reason: "r", SubjectIds: []string{a, a}}, codeInvalidOperation},
-		{&eventv1alpha1.DistinctFromSet{Actor: actor, Reason: "r", SubjectIds: []string{a, "0192B1C4-5E11-7B4D-8E3F-7A2B3C4D5E6F"}}, codeMalformed},
-		{&eventv1alpha1.UnmergeRequested{Actor: actor, Reason: "r", SubjectId: a}, codeInvalidOperation},
-		{&eventv1alpha1.UnmergeRequested{Actor: actor, Reason: "r", SubjectId: a, Aliases: []string{"github:user/x", "github:user/x"}}, codeMalformed},
-		{&eventv1alpha1.ClaimWithdrawn{Actor: actor, Reason: "r", SubjectId: a, Predicate: "owned_by", Object: &modelv1alpha1.FactObject{SubjectId: b}}, codeMalformed},
-		{&eventv1alpha1.ClaimWithdrawn{Actor: actor, Reason: "r", Source: "s", SubjectId: a, Predicate: "owned_by"}, codeMalformed},
-		{&eventv1alpha1.OverrideSet{Actor: actor, Reason: "r", SubjectId: a, Predicate: "Owned By"}, codeMalformed},
-		{&eventv1alpha1.OverrideSet{
-			Actor: actor, Reason: "r", SubjectId: a, Predicate: "owned_by",
-			Objects: []*modelv1alpha1.FactObject{{SubjectId: b, Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING}},
-		}, codeMalformed},
-		{&eventv1alpha1.OverrideSet{
-			Actor: actor, Reason: "r", SubjectId: a, Predicate: "name",
-			Objects: []*modelv1alpha1.FactObject{{Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Value: structpb.NewBoolValue(true)}},
-		}, codeTypeMismatch},
-		{&eventv1alpha1.OverrideSet{Actor: actor, Reason: "r", SubjectId: a, Predicate: "name", ValidFrom: at, ValidTo: at}, codeInvalidInterval},
-		{&eventv1alpha1.OverrideCleared{Actor: actor, Reason: "r", Predicate: "name"}, codeMalformed},
-		{&eventv1alpha1.OverrideCleared{Actor: actor, Reason: "r", SubjectId: a, Predicate: "codeowners_rules"}, codeMalformed},
-		{&eventv1alpha1.ClaimWithdrawn{
-			Actor: actor, Reason: "r", Source: "s", SubjectId: a, Predicate: "owned_by",
-			Object: &modelv1alpha1.FactObject{Type: modelv1alpha1.ValueType(42), Value: structpb.NewBoolValue(true)},
-		}, codeMalformed},
-		{&eventv1alpha1.SyncRequested{}, codeMalformed},
-		{nil, codeMalformed},
-	}
-	for _, tt := range bad {
-		wantCode(t, ValidateManualEvent(tt.m), tt.want)
 	}
 }
 

@@ -289,6 +289,8 @@ func (q *Querier) Find(ctx context.Context, text, kind string, limit int) ([]Mat
 		return nil, fmt.Errorf("%w: a query is required", ErrInvalidRequest)
 	case limit < 0 || limit > MaxFindLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxFindLimit)
+	case kind != "" && !model.Kind(kind).Valid():
+		return nil, fmt.Errorf("%w: kind %q is not a kind", ErrInvalidRequest, model.Clip(kind))
 	}
 	ms, err := q.Graph.Find(ctx, text, model.Kind(kind), limit)
 	if err != nil {

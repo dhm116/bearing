@@ -322,3 +322,71 @@ func TestSettingsRefuseAnAuthorityForAnUnknownSource(t *testing.T) {
 		t.Errorf("got %v, want a refusal naming the unknown source", err)
 	}
 }
+
+// A token pasted into auth.token_env must not come back in the error.
+func TestSettingsRefuseATokenWhereTheVariableNameGoes(t *testing.T) {
+	t.Parallel()
+	const pasted = "ghp_canaryToken-with-dash!"
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "`+pasted+`"}, "store": {`, 1)))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "auth.token_env") || strings.Contains(err.Error(), pasted) {
+		t.Fatalf("got %v, want an auth.token_env error without %q", err, pasted)
+	}
+}
+
+func TestSettingsKeepTheServersSecretsFromAdapters(t *testing.T) {
+	t.Parallel()
+	const second = `, {"name": "other", "address": "https://other.example:8443", "token_env": "BEARING_SECRET_OTHER_TOKEN", "declaration": "/etc/bearing/other.json"}]`
+	withAuth := strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "BEARING_SECRET_API"}, "store": {`, 1)
+	withOther := strings.Replace(withAuth, `"env": ["HTTPS_PROXY"]}]`, `"env": ["HTTPS_PROXY"]}`+second, 1)
+	for _, tt := range []struct {
+		name, from, to string
+		text           string
+	}{
+		{"env naming the API token", `"HTTPS_PROXY"`, `"BEARING_SECRET_API"`, withAuth},
+		{"env naming a webhook secret", `"HTTPS_PROXY"`, `"BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+		{"env naming another adapter's token", `"HTTPS_PROXY"`, `"BEARING_SECRET_OTHER_TOKEN"`, withOther},
+		{"a secret naming the API token", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_API"`, withAuth},
+		{"a secret naming a webhook secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+		{"a secret naming another adapter's token", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_OTHER_TOKEN"`, withOther},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, err := Parse([]byte(strings.Replace(tt.text, tt.from, tt.to, 1)))
+			if err == nil {
+				err = s.Validate()
+			}
+			if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+				t.Fatalf("got %v, want a refusal to share the server's secret", err)
+			}
+		})
+	}
+	s, err := Parse([]byte(withOther))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err != nil {
+		t.Fatalf("the untouched settings: got %v, want them valid", err)
+	}
+}
+
+// An adapter's env must not name a secret another adapter's source holds.
+func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, `"env": ["HTTPS_PROXY"]}]`, `"env": ["BEARING_SECRET_GITLAB_TOKEN"]},
+    {"name": "gitlab", "command": "/usr/local/bin/bearing-adapter-gitlab", "declaration": "/etc/bearing/gitlab.json"}]`, 1)
+	text = strings.Replace(text, `}]
+}`, `},
+  {"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "gitlab-acme"},
+    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"token": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
+}`, 1)
+	s, err := Parse([]byte(text))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+		t.Fatalf("got %v, want a refusal to share another adapter's secret", err)
+	}
+}

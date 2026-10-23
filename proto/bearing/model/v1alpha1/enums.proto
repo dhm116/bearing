@@ -44,7 +44,7 @@ enum MergeRule {
   MERGE_RULE_AUTHORITATIVE = 3;
   // same_as confidence reached the kind's threshold under the score policy.
   MERGE_RULE_SCORE = 4;
-  // A MergeRequested event.
+  // Reserved for manual merges, an operation to come.
   MERGE_RULE_MANUAL = 5;
 }
 
@@ -86,7 +86,7 @@ enum MergePolicy {
   MERGE_POLICY_AUTHORITATIVE = 1;
   // As authoritative, or same_as confidence at or above the policy threshold.
   MERGE_POLICY_SCORE = 2;
-  // Only MergeRequested.
+  // Only manual merges, an operation to come.
   MERGE_POLICY_MANUAL = 3;
 }
 
@@ -165,7 +165,7 @@ enum SupportReason {
   SUPPORT_REASON_SNAPSHOT = 3;
   // entity.deleted or a derived deletion.
   SUPPORT_REASON_DELETED = 4;
-  // A ClaimWithdrawn event.
+  // Reserved for manual withdrawal of a claim, an operation to come.
   SUPPORT_REASON_WITHDRAWN = 5;
   // A merge re-pointed the support.
   SUPPORT_REASON_MERGE = 6;
