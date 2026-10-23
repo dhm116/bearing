@@ -400,11 +400,18 @@ func (s *Store) attachSources(ctx context.Context, facts []*graph.Fact) error {
 		}
 		idx[f.ID] = append(idx[f.ID], i)
 	}
+	// Every sync adds a fact_source row; only each source's first and latest
+	// observation are returned, with the total count.
 	//nolint:gosec // only fixed fragments and "?" lists are joined; values are bound
 	rows, err := s.db.QueryContext(ctx, `
-SELECT fs.fact_id, o.id, o.source, o.observed_at, o.url
-FROM fact_source fs JOIN observation o ON o.id = fs.observation_id
-WHERE fs.fact_id IN (`+placeholders(len(ids))+`) ORDER BY o.observed_at, o.id`, anySlice(ids)...)
+SELECT fact_id, id, source, observed_at, url, n FROM (
+  SELECT fs.fact_id, o.id, o.source, o.observed_at, o.url,
+    row_number() OVER (PARTITION BY fs.fact_id, o.source ORDER BY o.observed_at, o.id) AS first,
+    row_number() OVER (PARTITION BY fs.fact_id, o.source ORDER BY o.observed_at DESC, o.id DESC) AS last,
+    count(*) OVER (PARTITION BY fs.fact_id) AS n
+  FROM fact_source fs JOIN observation o ON o.id = fs.observation_id
+  WHERE fs.fact_id IN (`+placeholders(len(ids))+`)
+) WHERE first = 1 OR last = 1 ORDER BY observed_at, id`, anySlice(ids)...)
 	if err != nil {
 		return fmt.Errorf("load sources: %w", err)
 	}
@@ -413,13 +420,15 @@ WHERE fs.fact_id IN (`+placeholders(len(ids))+`) ORDER BY o.observed_at, o.id`, 
 		var factID string
 		var src graph.Source
 		var url sql.NullString
-		if err := rows.Scan(&factID, &src.ObservationID, &src.Source, &src.ObservedAt, &url); err != nil {
+		var n int
+		if err := rows.Scan(&factID, &src.ObservationID, &src.Source, &src.ObservedAt, &url, &n); err != nil {
 			return fmt.Errorf("load sources: %w", err)
 		}
 		src.ObservedAt = src.ObservedAt.UTC()
 		src.URL = url.String
 		for _, i := range idx[factID] {
 			facts[i].Sources = append(facts[i].Sources, src)
+			facts[i].SourceCount = n
 		}
 	}
 	return rows.Err()

@@ -90,8 +90,10 @@ type Fact struct {
 	Confidence float64    `json:"confidence"`
 	ValidFrom  time.Time  `json:"valid_from"`
 	ValidTo    *time.Time `json:"valid_to,omitempty"`
-	// Sources are oldest first.
-	Sources []Source `json:"sources"`
+	// Sources are oldest first: per source, the first and the latest
+	// observation. SourceCount is how many observations there are in all.
+	Sources     []Source `json:"sources"`
+	SourceCount int      `json:"source_count"`
 }
 
 // Entity is the answer to Get: the entity, its keys and the facts it is the
@@ -359,7 +361,7 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	}
 	out := Fact{
 		Subject: sub, Predicate: f.Predicate, Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status),
-		Confidence: f.Confidence, ValidFrom: f.ValidFrom, Sources: make([]Source, len(f.Sources)),
+		Confidence: f.Confidence, ValidFrom: f.ValidFrom, SourceCount: f.SourceCount, Sources: make([]Source, len(f.Sources)),
 	}
 	if f.Object != "" {
 		obj, err := l.ref(ctx, f.Object)
@@ -393,7 +395,7 @@ func (l *labeler) facts(ctx context.Context, fs []graph.Fact) ([]Fact, error) {
 // predicate, object or value and status whose validity overlaps become one,
 // with the earliest ValidFrom, the latest ValidTo (open if any is), the
 // highest confidence, the qualifiers of the most recently observed source
-// and every source, oldest first. Statements keep the
+// and every source, oldest first, their counts summed. Statements keep the
 // order of their first fact.
 func merge(facts []graph.Fact) []graph.Fact {
 	var out []graph.Fact
@@ -418,6 +420,7 @@ func merge(facts []graph.Fact) []graph.Fact {
 			}
 			cur.Confidence = max(cur.Confidence, f.Confidence)
 			cur.Sources = append(cur.Sources, f.Sources...)
+			cur.SourceCount += f.SourceCount
 		}
 		out = append(out, finish(cur))
 	}

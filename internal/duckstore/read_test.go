@@ -2,6 +2,7 @@ package duckstore
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -236,5 +237,23 @@ func TestChangesListsOpenedAndClosedNewestFirst(t *testing.T) {
 	got, _ := s.Changes(t.Context(), graph.ChangesRequest{Subject: "s-api", Since: day(6, 1), Until: day(6, 2)})
 	if len(got) == 0 || len(got[0].Fact.Sources) == 0 {
 		t.Fatalf("got %+v, want changes with sources", got)
+	}
+}
+
+func TestFactsReturnFirstAndLatestSourcePerSourceWithTheCount(t *testing.T) {
+	s := ingestStore(t)
+	for i := range 100 {
+		ingestOK(t, s, "gh", obs(fmt.Sprintf("o%03d", i), i, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
+	}
+	facts, err := s.Facts(t.Context(), graph.FactFilter{Predicate: "depends_on"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("got %d facts, want 1", len(facts))
+	}
+	f := facts[0]
+	if f.SourceCount != 100 || len(f.Sources) != 2 || f.Sources[0].ObservationID != "o000" || f.Sources[1].ObservationID != "o099" {
+		t.Fatalf("got count %d, sources %+v; want 100, o000 then o099", f.SourceCount, f.Sources)
 	}
 }

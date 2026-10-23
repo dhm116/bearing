@@ -119,6 +119,9 @@ func TestGetAnswersTheEntityWithOneFactPerStatement(t *testing.T) {
 	if len(f.Sources) != 2 || f.Sources[0].ObservationID != "g3" || f.Sources[1].ObservationID != "c1" {
 		t.Errorf("got sources %+v, want GitHub's then the catalog's, oldest first", f.Sources)
 	}
+	if f.SourceCount != 2 {
+		t.Errorf("got source_count %d, want 2: one observation from each source", f.SourceCount)
+	}
 	if !f.ValidFrom.Equal(at(1)) || f.ValidTo != nil {
 		t.Errorf("got valid %v to %v, want from minute 1 and open (the catalog still says so)", f.ValidFrom, f.ValidTo)
 	}

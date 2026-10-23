@@ -138,8 +138,11 @@ type Fact struct {
 	// ValidFrom is when a source first observed the fact; ValidTo when it was
 	// observed absent, or zero while it holds.
 	ValidFrom, ValidTo time.Time
-	// Sources are the observations behind the fact, oldest first.
-	Sources []Source
+	// Sources are the observations behind the fact, oldest first: per
+	// source, the first and the latest, so a fact synced every hour stays
+	// small. SourceCount is how many observations there are in all.
+	Sources     []Source
+	SourceCount int
 }
 
 // Source is one observation behind a fact: the provenance an answer shows.
