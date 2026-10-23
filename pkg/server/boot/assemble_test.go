@@ -300,10 +300,15 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		{"a secret outside the allowlist", func(s *Settings, _ *world) {
 			s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:HOME", 1))
 		}, "allowlist"},
+		{"a token pasted as the variable name, unset", func(s *Settings, _ *world) { s.Auth.TokenEnv = "ghpCanaryPastedToken123" }, "the variable auth.token_env names is empty or unset"},
+		{"a token pasted as the variable name, bad value", func(s *Settings, w *world) {
+			s.Auth.TokenEnv = "ghpCanaryPastedToken123"
+			w.env["ghpCanaryPastedToken123"] = "short"
+		}, "the variable auth.token_env names holds a token shorter"},
 		{"a TCP listener with no token setting", func(s *Settings, _ *world) { s.Auth = AuthSettings{} }, "listen.addr needs auth.token_env"},
-		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "BEARING_API_TOKEN is empty or unset"},
-		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "BEARING_API_TOKEN is empty or unset"},
-		{"an API token that is too short", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-short" }, "BEARING_API_TOKEN holds a token shorter than 32 bytes"},
+		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "the variable auth.token_env names is empty or unset"},
+		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "the variable auth.token_env names is empty or unset"},
+		{"an API token that is too short", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-short" }, "the variable auth.token_env names holds a token shorter than 32 bytes"},
 		{"an API token with whitespace", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-token-0123456789-abcdef ghij" }, "whitespace or control"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
@@ -316,7 +321,7 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
-			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token-0123456789-abcdefghij", "canary-api-short", "abcdef ghij"} {
+			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token-0123456789-abcdefghij", "canary-api-short", "abcdef ghij", "ghpCanaryPastedToken123"} {
 				if err != nil && strings.Contains(err.Error(), secret) {
 					t.Errorf("the error names a secret value: %v", err)
 				}

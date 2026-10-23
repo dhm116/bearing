@@ -104,10 +104,10 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if s.Listen.Addr != "" {
 		token := env.Getenv(s.Auth.TokenEnv)
 		if token == "" {
-			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s is empty or unset: listen.addr needs an API token", s.Auth.TokenEnv)
+			return nil, errors.New("boot: settings: auth.token_env: the variable auth.token_env names is empty or unset: listen.addr needs an API token")
 		}
 		if err := checkAPIToken(token); err != nil {
-			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable %s %w", s.Auth.TokenEnv, err)
+			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable auth.token_env names %w", err)
 		}
 		l.Authenticator = server.TokenAuthenticator{Token: token}
 	}
