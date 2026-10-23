@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/telemetry"
 )
@@ -609,6 +610,9 @@ func (a *API) find(w http.ResponseWriter, r *http.Request, _ Caller) {
 	text, kind, limit := p.text("q", maxRefBytes), p.text("kind", maxPredicateBytes), p.number("limit", query.MaxFindLimit)
 	if text == "" && p.err == "" {
 		p.err = "parameter q is required"
+	}
+	if kind != "" && p.err == "" && !model.Kind(kind).Valid() {
+		p.err = "parameter kind is not a kind"
 	}
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)

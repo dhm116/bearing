@@ -365,6 +365,18 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 	}
 }
 
+func TestAPIFindRefusesAnUnknownKind(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	rec := w.do("reader", http.MethodGet, "/v1/find?q=billing&kind=Repo")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if e := decodeError(t, rec); e.Code != "invalid_request" || !strings.Contains(e.Message, "kind") {
+		t.Errorf("got %+v, want invalid_request naming kind", e)
+	}
+}
+
 func syncRequests(t *testing.T, w *apiWorld) []*eventv1alpha1.SyncRequested {
 	t.Helper()
 	var out []*eventv1alpha1.SyncRequested
