@@ -282,7 +282,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
 			}
 			r, err := adapter.Dial(name, adapter.DialConfig{
-				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName,
+				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName, PeerID: ad.TLS.PeerID,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)

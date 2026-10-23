@@ -170,6 +170,25 @@ func TestRemoteAdapterRefusesAServerWithACertificateFromAnotherCA(t *testing.T) 
 	}
 }
 
+// tls.peer_id reaches the dial: the adapter's SVID-style certificate, with no
+// host name, is accepted for the right ID and refused for another.
+func TestRemoteAdapterIsCheckedByItsPeerID(t *testing.T) {
+	t.Parallel()
+	const id = "spiffe://acme.test/adapter/github"
+	f := testkit.NewTLSFilesWith(t, testkit.TLSOptions{ServerURIs: []string{id}})
+	for _, tt := range []struct {
+		peerID string
+		ok     bool
+	}{{id, true}, {"spiffe://acme.test/adapter/gitlab", false}} {
+		w := remoteWorld(t, f)
+		w.settings.Adapters[0].TLS.PeerID = tt.peerID
+		_, err := mustPlans(t, w)[0].remote.Describe(t.Context())
+		if (err == nil) != tt.ok {
+			t.Errorf("peer_id %s: got %v, want success %v", tt.peerID, err, tt.ok)
+		}
+	}
+}
+
 func mustPlans(t *testing.T, w *world) []sourcePlan {
 	t.Helper()
 	plans, err := plans(w)

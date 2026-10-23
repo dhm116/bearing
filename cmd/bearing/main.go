@@ -54,8 +54,8 @@ import (
 )
 
 const usage = `usage:
-  bearing adapter describe [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME] | -- <adapter command> [args]]
-  bearing adapter sync [--config cfg.json] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME] | -- <adapter command> [args]]
+  bearing adapter describe [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
+  bearing adapter sync [--config cfg.json] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
   bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
@@ -166,6 +166,7 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 	fs.StringVar(&dc.CertFile, "tls-cert", "", "for --address: the client certificate to present")
 	fs.StringVar(&dc.KeyFile, "tls-key", "", "for --address: the client certificate's key, readable by its owner only")
 	fs.StringVar(&dc.ServerName, "tls-server-name", "", "for --address: the name the adapter's certificate must hold (default the address's host)")
+	fs.StringVar(&dc.PeerID, "tls-peer-id", "", "for --address: the SPIFFE ID the adapter's certificate must hold, checked in place of a host name")
 	if err := fs.Parse(flagArgs); err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", err, errUsage)
 	}

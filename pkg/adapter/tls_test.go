@@ -24,8 +24,14 @@ func tlsEnv(f testkit.TLSFiles) map[string]string {
 // returns that address.
 func serveMTLS(t *testing.T, f testkit.TLSFiles) string {
 	t.Helper()
-	env := tlsEnv(f)
-	lis, err := Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+	return serveTLS(t, tlsEnv(f), time.Now)
+}
+
+// serveTLS serves pager on a loopback tcp address with the environment env
+// and the clock now, and returns that address.
+func serveTLS(t *testing.T, env map[string]string, now func() time.Time) string {
+	t.Helper()
+	lis, err := listen("tcp://127.0.0.1:0", func(k string) string { return env[k] }, now)
 	if err != nil {
 		t.Fatal(err)
 	}
