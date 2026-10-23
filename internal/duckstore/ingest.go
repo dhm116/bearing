@@ -324,8 +324,18 @@ func (g *ingest) sharedKeyStatus(ctx context.Context, keys []string, boundTo map
 	return graph.Proposed, nil
 }
 
-// link opens or reinforces a same_as link with this observation as evidence.
+// link opens or reinforces a same_as link with this observation as evidence,
+// unless an asserted distinct_from keeps the pair apart: that is how a join
+// is undone for good.
 func (g *ingest) link(ctx context.Context, a, b string, status graph.Status, rule string) error {
+	if b < a {
+		a, b = b, a
+	}
+	apart, err := g.count(ctx, `SELECT count(*) FROM identity_link WHERE a = ? AND b = ? AND kind = 'distinct_from'
+		AND status = 'asserted' AND valid_to IS NULL`, a, b)
+	if err != nil || apart > 0 {
+		return err
+	}
 	_, changed, err := g.s.upsertLink(ctx, g.tx, graph.Proposal{
 		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: status, Rule: rule,
 		Deposit: graph.Deposit{At: g.observed, Weight: 1, ObservationID: g.obsID},

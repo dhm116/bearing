@@ -448,3 +448,22 @@ func TestReadsHideARelationWhoseEndsJoinedIntoOneCluster(t *testing.T) {
 		t.Errorf("got %d facts as of before the join, want 1", len(past))
 	}
 }
+
+func TestIngestNeverRelinksAPairKeptApartByDistinctFrom(t *testing.T) {
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api"))                         // id-1
+	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", aliases("gh:repo/api"))) // id-2, linked
+	ls := links(t, s, graph.LinkFilter{Entity: "id-2"})
+	if len(ls) != 1 {
+		t.Fatalf("got %+v, want the shared_key link", ls)
+	}
+	if err := s.CloseLink(t.Context(), ls[0].ID, at(2)); err != nil {
+		t.Fatal(err)
+	}
+	link(t, s, graph.Proposal{A: "id-1", B: "id-2", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: "person"})
+	ingestOK(t, s, "bs", obs("o3", 3, "Component", "bs:comp/api", aliases("gh:repo/api")))
+	if ls := links(t, s, graph.LinkFilter{Entity: "id-2", Kind: graph.SameAs}); len(ls) != 0 {
+		t.Fatalf("got %+v, want no open same_as", ls)
+	}
+	wantClusters(t, s, map[string]graph.EntityID{"gh:repo/api": "id-1", "bs:comp/api": "id-2"})
+}

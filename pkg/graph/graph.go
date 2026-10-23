@@ -71,7 +71,8 @@ type Graph interface {
 	// recomputed for the records an asserted link touches.
 	Link(ctx context.Context, ps []Proposal) (LinkResult, error)
 	// CloseLink ends a link at a time; a closed asserted same_as splits its
-	// cluster.
+	// cluster. Closing a link Ingest made lasts only until the source says it
+	// again; to keep two records apart for good, assert a distinct_from.
 	CloseLink(ctx context.Context, id string, at time.Time) error
 }
 
@@ -246,7 +247,9 @@ type LinkKind string
 const (
 	// SameAs says two records describe one thing.
 	SameAs LinkKind = "same_as"
-	// DistinctFrom says they don't, and keeps a matcher from proposing it.
+	// DistinctFrom says they don't. Asserted, it keeps a matcher from
+	// proposing the pair and Ingest from linking it: undoing a join for good
+	// is closing the same_as and asserting a distinct_from.
 	DistinctFrom LinkKind = "distinct_from"
 )
 
