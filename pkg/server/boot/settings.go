@@ -362,7 +362,7 @@ func (s *Settings) checkSecretIsolation(c *checked) error {
 			return false
 		}
 		for _, n := range a.Env {
-			if held(n) {
+			if held(n) || secretOfOtherAdapter(c, a.Name, n) {
 				return fmt.Errorf("boot: settings: adapters[%d]: env %q is a secret of the server or of another adapter", i, n)
 			}
 		}
@@ -378,6 +378,22 @@ func (s *Settings) checkSecretIsolation(c *checked) error {
 		}
 	}
 	return nil
+}
+
+// secretOfOtherAdapter reports whether n is a spec.secrets variable of a
+// source that runs an adapter other than name.
+func secretOfOtherAdapter(c *checked, name, n string) bool {
+	for _, src := range c.sources {
+		if src.GetSpec().GetAdapter() == name {
+			continue
+		}
+		for _, ref := range src.GetSpec().GetSecrets() {
+			if strings.TrimPrefix(ref, "env:") == n {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Settings) checkListen() error {

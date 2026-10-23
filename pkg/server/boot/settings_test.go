@@ -371,3 +371,22 @@ func TestSettingsKeepTheServersSecretsFromAdapters(t *testing.T) {
 		t.Fatalf("the untouched settings: got %v, want them valid", err)
 	}
 }
+
+// An adapter's env must not name a secret another adapter's source holds.
+func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, `"env": ["HTTPS_PROXY"]}]`, `"env": ["BEARING_SECRET_GITLAB_TOKEN"]},
+    {"name": "gitlab", "command": "/usr/local/bin/bearing-adapter-gitlab", "declaration": "/etc/bearing/gitlab.json"}]`, 1)
+	text = strings.Replace(text, `}]
+}`, `},
+  {"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "gitlab-acme"},
+    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"token": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
+}`, 1)
+	s, err := Parse([]byte(text))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+		t.Fatalf("got %v, want a refusal to share another adapter's secret", err)
+	}
+}
