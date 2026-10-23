@@ -154,10 +154,10 @@ var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 // CheckEnvName refuses a config setting (field, such as "token_env") that
 // names a variable outside the source's own: anything not shaped like a
-// variable name, and Bearing's own variables (the adapter's listen token, a
-// store password), which a config pointing at another host could otherwise
-// send there. BEARING_SECRET_ names are the secrets the core hands an
-// adapter, so they are allowed.
+// variable name, and Bearing's own variables (a store password), which a
+// config pointing at another host could otherwise send there.
+// BEARING_SECRET_ names are the secrets the core hands an adapter, so they
+// are allowed.
 func CheckEnvName(field, name string) error {
 	if !envNamePattern.MatchString(name) || (strings.HasPrefix(name, "BEARING_") && !strings.HasPrefix(name, "BEARING_SECRET_")) {
 		return &Error{Code: CodeInvalidParams, Message: "config: " + field + " must be an upper-case variable name not starting with BEARING_ (BEARING_SECRET_ excepted)"}

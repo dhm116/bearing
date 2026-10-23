@@ -2,11 +2,8 @@ package adapter
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +15,7 @@ import (
 )
 
 // serveGRPC serves a on a Unix socket for the test and returns its address.
-func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
+func serveGRPC(t *testing.T, a Adapter) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ad") // short: socket paths are limited to about 100 bytes
 	if err != nil {
@@ -32,7 +29,7 @@ func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, a, lis, c) }()
+	go func() { done <- Serve(ctx, a, lis) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -43,7 +40,7 @@ func serveGRPC(t *testing.T, a Adapter, c ServeConfig) string {
 }
 
 func TestGRPCCarriesDescribeAndSyncPages(t *testing.T) {
-	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 2}, ServeConfig{})})
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 2})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,28 +66,8 @@ func TestGRPCCarriesDescribeAndSyncPages(t *testing.T) {
 	}
 }
 
-func TestGRPCRefusesCallsWithoutTheToken(t *testing.T) {
-	addr := serveGRPC(t, pager{n: 1}, ServeConfig{Token: "s3cret"})
-	for _, tok := range []string{"", "wrong"} {
-		r, err := Dial("pager", DialConfig{Address: addr, Token: tok})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := r.Describe(t.Context()); err == nil {
-			t.Errorf("token %q: got a description, want a refusal", tok)
-		}
-	}
-	r, err := Dial("pager", DialConfig{Address: addr, Token: "s3cret"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Describe(t.Context()); err != nil {
-		t.Fatalf("got %v with the right token", err)
-	}
-}
-
 func TestGRPCHandleWithoutWebhooksIsNotSupported(t *testing.T) {
-	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 1}, ServeConfig{})})
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, pager{n: 1})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +81,7 @@ func TestGRPCHandleWithoutWebhooksIsNotSupported(t *testing.T) {
 func TestDialRefusesUnsafeAddresses(t *testing.T) {
 	for _, c := range []DialConfig{
 		{Address: "http://10.0.0.1:9000"},
+		{Address: "http://127.0.0.1:9000"},
 		{Address: "https://adapter.example:443"},
 		{Address: "unix://relative.sock"},
 		{Address: "ftp://x"},
@@ -163,52 +141,5 @@ func TestServeRefusesARequestOverTheMessageLimit(t *testing.T) {
 	}
 	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
 		t.Fatalf("a small request: got %v", err)
-	}
-}
-
-// A remote adapter is reached over https with a token: Serve behind a TLS
-// listener speaking HTTP/2, Dial trusting that server's certificate.
-func TestGRPCReachesARemoteAdapterOverTLSWithAToken(t *testing.T) {
-	t.Parallel()
-	ts := httptest.NewUnstartedServer(http.NotFoundHandler()) // only for its certificate and TLS config
-	ts.EnableHTTP2 = true
-	ts.StartTLS()
-	t.Cleanup(ts.Close)
-	raw, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Serve(ctx, pager{n: 1}, tls.NewListener(raw, ts.TLS.Clone()), ServeConfig{Token: "s3cret"})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	})
-	tr, ok := ts.Client().Transport.(*http.Transport)
-	if !ok {
-		t.Fatal("httptest client has no *http.Transport")
-	}
-	clientTLS := tr.TLSClientConfig
-	addr := "https://" + raw.Addr().String()
-	for _, tt := range []struct {
-		token string
-		ok    bool
-	}{{"s3cret", true}, {"wrong", false}} {
-		r, err := Dial("remote", DialConfig{Address: addr, Token: tt.token, TLS: clientTLS})
-		if err != nil {
-			t.Fatal(err)
-		}
-		d, err := r.Describe(t.Context())
-		if tt.ok && (err != nil || d.Name != "pager") {
-			t.Fatalf("token %q: got %+v, %v, want pager", tt.token, d, err)
-		}
-		if !tt.ok && connect.CodeOf(err) != connect.CodeUnauthenticated {
-			t.Fatalf("token %q: got %v, want it refused as unauthenticated", tt.token, err)
-		}
 	}
 }

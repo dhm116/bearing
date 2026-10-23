@@ -3,8 +3,8 @@ package boot
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,40 +74,59 @@ func TestLocalAdapterSyncsSurvivesARestartAndStopsWithTheServer(t *testing.T) {
 	}
 }
 
-// remoteWorld is newWorld with its adapter served in this process on a
-// loopback listener that wants token, and the source's process secrets gone.
-func remoteWorld(t *testing.T, token string) *world {
+// remoteWorld is newWorld with its adapter served in this process over
+// mutual TLS on a loopback listener (pkg/adapter's Listen with f's server
+// certificate), reached with f's client certificate, and the source's process
+// secrets gone.
+func remoteWorld(t *testing.T, f testkit.TLSFiles) *world {
 	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	env := map[string]string{adapter.EnvTLSCert: f.ServerCert, adapter.EnvTLSKey: f.ServerKey, adapter.EnvTLSClientCA: f.CA}
+	lis, err := adapter.Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- adapter.Serve(ctx, stubAdapter{}, lis, adapter.ServeConfig{Token: token}) }()
+	go func() { done <- adapter.Serve(ctx, stubAdapter{}, lis) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
 			t.Error(err)
 		}
 	})
-	w := newWorld(t, func(s *Settings) {
+	return newWorld(t, func(s *Settings) {
 		s.Adapters[0] = AdapterSettings{
-			Name: "github", Address: "http://" + lis.Addr().String(),
-			TokenEnv: "BEARING_SECRET_ADAPTER_TOKEN", Declaration: s.Adapters[0].Declaration,
+			Name: "github", Address: "https://" + lis.Addr().String(),
+			TLS:         &AdapterTLS{CAFile: f.CA, CertFile: f.ClientCert, KeyFile: f.ClientKey},
+			Declaration: s.Adapters[0].Declaration,
 		}
 		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1))
 	})
-	w.env["BEARING_SECRET_ADAPTER_TOKEN"] = token
-	return w
 }
 
-// A remote adapter is reached at its address with its token; nothing is
-// started, and the token is in no log line or span.
-func TestRemoteAdapterIsReachedWithItsTokenAndNeverLogged(t *testing.T) {
+// keyBody is the base64 body of a PEM key file, the part that must never be
+// logged.
+func keyBody(t *testing.T, file string) []string {
+	t.Helper()
+	b, err := os.ReadFile(file) //nolint:gosec // G304: a test file
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body []string
+	for line := range strings.Lines(string(b)) {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "-----") {
+			body = append(body, line)
+		}
+	}
+	return body
+}
+
+// A remote adapter is reached at its address over mutual TLS; nothing is
+// started, and no key is in a log line or span.
+func TestRemoteAdapterIsReachedOverMutualTLSAndNoKeyIsLogged(t *testing.T) {
 	installCapture()
-	const token = "canary-adapter-token" //nolint:gosec // G101: a canary, not a credential
-	w := remoteWorld(t, token)
+	f := testkit.NewTLSFiles(t)
+	w := remoteWorld(t, f)
 	t.Setenv(stubMarkEnv, w.mark) // the stub runs in this process
 	r := w.assemble(t)
 	stop := run(t, r)
@@ -118,56 +137,88 @@ func TestRemoteAdapterIsReachedWithItsTokenAndNeverLogged(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatalf("Run returned %v after a stop", err)
 	}
-	if strings.Contains(logs.all(), token) {
-		t.Error("a log line holds the adapter token")
-	}
+	var text strings.Builder
+	text.WriteString(logs.all())
 	for _, s := range spanLog.Ended() {
-		text := s.Name()
+		text.WriteString(s.Name())
 		for _, a := range s.Attributes() {
-			text += " " + a.Value.String()
+			text.WriteString(" " + a.Value.String())
 		}
 		for _, e := range s.Events() {
-			text += " " + e.Name
+			text.WriteString(" " + e.Name)
 			for _, a := range e.Attributes {
-				text += " " + a.Value.String()
+				text.WriteString(" " + a.Value.String())
 			}
 		}
-		if strings.Contains(text, token) {
-			t.Fatalf("span %q holds the adapter token", s.Name())
+	}
+	for _, key := range []string{f.ClientKey, f.ServerKey} {
+		for _, line := range keyBody(t, key) {
+			if strings.Contains(text.String(), line) {
+				t.Fatalf("a log line or span holds key material from %s", key)
+			}
 		}
 	}
 }
 
-func TestRemoteAdapterWithTheWrongTokenIsRefused(t *testing.T) {
-	w := remoteWorld(t, "the-adapter-token")
-	w.env["BEARING_SECRET_ADAPTER_TOKEN"] = "canary-wrong-token"
-	if _, err := mustPlans(t, w)[0].remote.Describe(t.Context()); err == nil || strings.Contains(err.Error(), "canary-wrong-token") {
-		t.Fatalf("got %v, want a refusal that does not name the token", err)
+func TestRemoteAdapterRefusesAServerWithACertificateFromAnotherCA(t *testing.T) {
+	t.Parallel()
+	other := testkit.NewTLSFiles(t)
+	w := remoteWorld(t, testkit.NewTLSFiles(t))
+	w.settings.Adapters[0].TLS.CertFile, w.settings.Adapters[0].TLS.KeyFile = other.ClientCert, other.ClientKey
+	if _, err := mustPlans(t, w)[0].remote.Describe(t.Context()); err == nil {
+		t.Fatal("got a description with a client certificate the adapter does not trust, want a refusal")
 	}
 }
 
 func mustPlans(t *testing.T, w *world) []sourcePlan {
 	t.Helper()
-	c, err := w.settings.check()
-	if err != nil {
-		t.Fatal(err)
-	}
-	decls, err := loadDeclarations(w.settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plans, err := planSources(w.settings, c, decls, w.getenv)
+	plans, err := plans(w)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return plans
 }
 
-func TestAssembleRefusesARemoteAdapterWithoutItsToken(t *testing.T) {
-	w := remoteWorld(t, "x")
-	delete(w.env, "BEARING_SECRET_ADAPTER_TOKEN")
-	_, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
-	if err == nil || !strings.Contains(err.Error(), "BEARING_SECRET_ADAPTER_TOKEN is not set") {
-		t.Fatalf("got %v, want the unset token refused", err)
+func plans(w *world) ([]sourcePlan, error) {
+	c, err := w.settings.check()
+	if err != nil {
+		return nil, err
+	}
+	decls, err := loadDeclarations(w.settings)
+	if err != nil {
+		return nil, err
+	}
+	return planSources(w.settings, c, decls, w.getenv)
+}
+
+// The server refuses TLS files others could change or read, and says which
+// setting is wrong without quoting a file's contents.
+func TestAssembleRefusesUnsafeTLSFiles(t *testing.T) {
+	t.Parallel()
+	const canary = "canary-key-material"
+	for _, tt := range []struct {
+		name string
+		edit func(a *AdapterTLS) error
+		want string
+	}{
+		{"a key others can read", func(a *AdapterTLS) error { return os.Chmod(a.KeyFile, 0o640) }, "must not be readable"}, //nolint:gosec // G302: the unsafe mode under test
+		{"a CA others can write", func(a *AdapterTLS) error { return os.Chmod(a.CAFile, 0o666) }, "tls.ca_file"},           //nolint:gosec // G302: the unsafe mode under test
+		{"a missing certificate", func(a *AdapterTLS) error { return os.Remove(a.CertFile) }, "tls.cert_file"},
+		{"a directory for a CA", func(a *AdapterTLS) error { a.CAFile = filepath.Dir(a.CAFile); return nil }, "not a regular file"},
+		{"a key that does not parse", func(a *AdapterTLS) error {
+			return os.WriteFile(a.KeyFile, []byte("-----BEGIN PRIVATE KEY-----\n"+canary+"\n-----END PRIVATE KEY-----\n"), 0o600)
+		}, "key"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := remoteWorld(t, testkit.NewTLSFiles(t))
+			if err := tt.edit(w.settings.Adapters[0].TLS); err != nil {
+				t.Fatal(err)
+			}
+			_, err := plans(w)
+			if err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), canary) {
+				t.Fatalf("got %v, want a refusal containing %q and no file contents", err, tt.want)
+			}
+		})
 	}
 }

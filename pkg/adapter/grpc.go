@@ -2,11 +2,10 @@ package adapter
 
 import (
 	"context"
-	"crypto/subtle"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,21 +25,14 @@ import (
 	"bearing.example/pkg/telemetry"
 )
 
-// ServeConfig configures Serve.
-type ServeConfig struct {
-	// Token, if set, is the bearer token every call must carry. An adapter
-	// the core starts on a private Unix socket needs none; a remote one does.
-	Token string
-}
-
 // Serve answers the adapter service (ADR 4) for a on lis until ctx ends. It
 // speaks gRPC, gRPC-Web and Connect, over HTTP/2 without TLS (the core's
-// Unix socket) or whatever lis provides. A remote adapter needs both a
-// token (c.Token; Listen refuses a tcp address without one) and TLS,
-// terminated in lis or in front of it: without TLS the token crosses the
-// network in the clear.
-func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) error {
-	// The only caller that gets past the token is the core, so its spans parent
+// private Unix socket) or over the mutual TLS of the listener Listen opens
+// for a tcp address. Serve itself checks no caller: lis must admit only the
+// core.
+func Serve(ctx context.Context, a Adapter, lis net.Listener) error {
+	// Only the core reaches the adapter (on its private socket, or with a
+	// client certificate from the CA the adapter trusts), so its spans parent
 	// the adapter's, and one trace covers a sync on both sides.
 	otel, err := otelconnect.NewInterceptor(otelconnect.WithTrustRemote())
 	if err != nil {
@@ -48,7 +40,7 @@ func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) erro
 	}
 	path, h := adapterv1alpha1connect.NewAdapterServiceHandler(grpcServer{a: a}, connect.WithInterceptors(otel), connect.WithReadMaxBytes(maxMessage))
 	mux := http.NewServeMux()
-	mux.Handle(path, requireToken(c.Token, h))
+	mux.Handle(path, h)
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
 	protocols.SetHTTP2(true)
@@ -56,6 +48,9 @@ func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) erro
 	srv := &http.Server{
 		Handler: mux, Protocols: &protocols,
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
+		// A refused handshake (a caller without a trusted certificate) is
+		// logged here, through telemetry rather than the standard log.
+		ErrorLog: slog.NewLogLogger(telemetry.Logger(pkgName).Handler(), slog.LevelWarn),
 	}
 	done := make(chan struct{})
 	go func() {
@@ -73,22 +68,6 @@ func Serve(ctx context.Context, a Adapter, lis net.Listener, c ServeConfig) erro
 		return nil
 	}
 	return err
-}
-
-// requireToken refuses calls without the bearer token; an empty token lets
-// every call through.
-func requireToken(token string, next http.Handler) http.Handler {
-	if token == "" {
-		return next
-	}
-	want := []byte("Bearer " + token)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // grpcServer adapts an Adapter to the generated service.
@@ -226,13 +205,17 @@ func describeFromProto(d *adapterv1alpha1.DescribeResponse) DescribeResult {
 // DialConfig says where an adapter is and how to reach it.
 type DialConfig struct {
 	// Address is unix:///absolute/path.sock for an adapter the core started,
-	// or https://host:port for a remote one. http://host:port is accepted
-	// for a loopback address only.
+	// or https://host:port for a remote one, reached over mutual TLS.
 	Address string
-	// Token is sent as a bearer token on every call; required for https.
-	Token string
-	// TLS configures https; nil means the system's roots.
-	TLS *tls.Config
+	// CAFile is the CA that signed the adapter's certificate, the only one
+	// trusted for it: the system roots are not. Required for https.
+	CAFile string
+	// CertFile and KeyFile are the client certificate the core presents.
+	// Required for https; the key must be readable by its owner only.
+	CertFile, KeyFile string
+	// ServerName is the name the adapter's certificate must hold; empty
+	// means the address's host.
+	ServerName string
 }
 
 // Remote is an Adapter reached over the adapter service.
@@ -250,7 +233,7 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("adapter: address: %w", err)
 	}
-	tr := &http.Transport{TLSClientConfig: c.TLS}
+	tr := &http.Transport{}
 	var protocols http.Protocols
 	base := c.Address
 	switch u.Scheme {
@@ -264,14 +247,9 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 		}
 		protocols.SetUnencryptedHTTP2(true)
 		base = "http://adapter"
-	case "http":
-		if ip := net.ParseIP(u.Hostname()); ip == nil || !ip.IsLoopback() {
-			return nil, errors.New("adapter: plain http is for a loopback address only; use https")
-		}
-		protocols.SetUnencryptedHTTP2(true)
 	case "https":
-		if c.Token == "" {
-			return nil, errors.New("adapter: a remote adapter needs a token")
+		if tr.TLSClientConfig, err = clientTLS(c); err != nil {
+			return nil, err
 		}
 		protocols.SetHTTP2(true)
 	default:
@@ -283,29 +261,8 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 		return nil, fmt.Errorf("adapter: telemetry: %w", err)
 	}
 	opts := []connect.ClientOption{connect.WithGRPC(), connect.WithInterceptors(otel), connect.WithReadMaxBytes(maxMessage)}
-	if c.Token != "" {
-		opts = append(opts, connect.WithInterceptors(bearer(c.Token)))
-	}
 	hc := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &Remote{name: name, client: adapterv1alpha1connect.NewAdapterServiceClient(hc, base, opts...)}, nil
-}
-
-// bearer adds the token to every call.
-type bearer string
-
-func (b bearer) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		req.Header().Set("Authorization", "Bearer "+string(b))
-		return next(ctx, req)
-	}
-}
-
-func (b bearer) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (b bearer) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return next
 }
 
 // Name is the adapter's configured name, for telemetry and errors.

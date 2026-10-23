@@ -244,7 +244,7 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 		"HTTPS_PROXY=http://proxy.example:3128",
 		"PATH=" + childPath,
 	}
-	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"), adapter.EnvToken+"=")
+	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"))
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
