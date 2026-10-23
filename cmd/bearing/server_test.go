@@ -40,7 +40,7 @@ func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation, s
 func (w *world) api() *server.API {
 	w.t.Helper()
 	s, err := server.New(server.Config{
-		Log: w.store, Applier: nopApplier{}, Clock: w.clock,
+		Log: w.store, Applier: nopApplier{}, Links: w.store, Clock: w.clock,
 		Sources: []server.Source{{Name: githubSource, Adapter: w.adapter, Config: w.cfg}},
 	})
 	if err != nil {

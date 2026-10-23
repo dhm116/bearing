@@ -22,6 +22,17 @@
 //
 //	bearing source sync github-acme --server /run/bearing/api.sock
 //
+// lists the identity links that wait for review, and records a person's
+// decision on one through a running server (never a store, since decisions go
+// through the server's event log):
+//
+//	bearing links --proposed
+//	bearing link accept <link ID> --reason "same service" --server /run/bearing/api.sock
+//	bearing link reject <link ID>
+//	bearing link join <ref> <ref>
+//	bearing link split <ref> <ref>
+//	bearing link undo <link ID>
+//
 // The queries take --store (or $BEARING_STORE) to read a store, or --server (or
 // $BEARING_SERVER) to ask a running server, which answers the same questions
 // the same way: its Unix socket, which needs no token, or https://host:port with
@@ -61,6 +72,9 @@ const usage = `usage:
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing changes [--since T] [<ref>] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing find <name> [--kind K] [--limit N] [--store URL | --server ADDR] [--json]
+  bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
+  bearing link accept|reject|undo <link ID> [--reason TEXT] --server ADDR [--json]
+  bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
@@ -110,7 +124,7 @@ var errUsage = errors.New("see usage below")
 // its subcommand. Arguments such as a subject never go in it.
 func spanName(args []string) string {
 	switch {
-	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source"):
+	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source" || args[0] == "link"):
 		return "bearing " + args[0] + " " + args[1]
 	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server"):
 		return "bearing " + args[0]
@@ -134,6 +148,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return serverCmd(ctx, args[1:], stdout)
 	case "source":
 		return sourceCmd(ctx, env, args[1:], stdout)
+	case "link":
+		return linkCmd(ctx, env, args[1:], stdout)
 	case "adapter":
 		if len(args) < 2 {
 			return errUsage

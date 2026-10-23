@@ -40,10 +40,11 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    (people joined by authoritative links, Tom Becker kept apart, the
    payments teams joined across systems, deleted repositories and teams
    closed when a full sync no longer lists them, ingest's `CompleteSync`).
+   A person reviews links: `bearing links --proposed` lists the queue
+   (strongest first, with the evidence), and `bearing link accept`, `reject`,
+   `join`, `split` and `undo` record a decision through the server's event
+   log (`core/identity`), applied in order and once (`graph.Decide`).
    Still needed:
-   - A person promoting or rejecting a proposal. The graph can open and
-     close links (`Link`, `CloseLink`), but nothing in the server or the CLI
-     calls them for a person yet.
    - The model-backed matcher (ADR 7, "Proving it out" step 3) is not built;
      it would merge only through a later ADR.
 5. **Queries.** CLI, REST and MCP over one query layer, plus a

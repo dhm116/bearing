@@ -64,6 +64,7 @@ type answerer interface {
 	Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error)
 	Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error)
 	Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error)
+	Links(ctx context.Context, req query.LinksRequest) ([]query.Link, error)
 }
 
 var (
@@ -75,7 +76,7 @@ var (
 // store.
 func isQueryCommand(name string) bool {
 	switch name {
-	case "get", "owner", "related", "changes", "find":
+	case "get", "owner", "related", "changes", "find", "links":
 		return true
 	}
 	return false
@@ -108,7 +109,7 @@ func (q *queryFlags) register(fs *flag.FlagSet, name string) {
 	switch name {
 	case "changes":
 		fs.StringVar(&q.asOf, "as-of", "", "end of the window: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)")
-	case "find":
+	case "find", "links":
 	default:
 		fs.StringVar(&q.asOf, "as-of", "", "answer as the world was at this time: RFC 3339, a date, or a duration back from now such as 72h or 7d (default now)")
 	}
@@ -120,8 +121,9 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var qf queryFlags
 	qf.register(fs, name)
-	var namespace, predicate, direction, since, kind string
+	var namespace, predicate, direction, since, kind, entity string
 	var limit, depth int
+	var proposed bool
 	switch name {
 	case "owner":
 		fs.StringVar(&namespace, "namespace", "github", "namespace of a repository given as <org>/<name>")
@@ -132,6 +134,10 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	case "changes":
 		fs.StringVar(&since, "since", "", "start of the window: RFC 3339, a date, or a duration back from now (default 24h before the end)")
 		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many changes, newest first, 1 to %d (default the store's)", query.MaxChangesLimit))
+	case "links":
+		fs.BoolVar(&proposed, "proposed", false, "only proposed links: the review queue (default every open link)")
+		fs.StringVar(&entity, "entity", "", "only links touching this entity, record or key")
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many links, strongest first, 1 to %d (default %d)", query.MaxLinksLimit, query.DefaultLinksLimit))
 	case "find":
 		fs.StringVar(&kind, "kind", "", "only entities of this kind, for example Repository")
 		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many matches, 1 to %d (default the store's)", query.MaxFindLimit))
@@ -150,6 +156,10 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	switch {
+	case name == "links" && len(pos) > 0:
+		return fmt.Errorf("links takes no arguments: %w", errUsage)
+	case name == "links" && (limit < 0 || limit > query.MaxLinksLimit || set["limit"] && limit == 0):
+		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxLinksLimit, errUsage)
 	case name == "changes" && len(pos) > 1:
 		return fmt.Errorf("changes takes at most one ref: %w", errUsage)
 	case name == "changes" && (limit < 0 || limit > query.MaxChangesLimit || set["limit"] && limit == 0):
@@ -214,6 +224,15 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		if ms, err = q.Find(ctx, pos[0], kind, limit); err == nil {
 			answer, render = findAnswer{Matches: ms}, func(w io.Writer) error { return renderMatches(w, ms) }
 		}
+	case "links":
+		req := query.LinksRequest{Entity: entity, Limit: limit}
+		if proposed {
+			req.Status = string(graph.Proposed)
+		}
+		var ls []query.Link
+		if ls, err = q.Links(ctx, req); err == nil {
+			answer, render = linksAnswer{Links: ls}, func(w io.Writer) error { return renderLinks(w, ls, proposed) }
+		}
 	}
 	if err != nil {
 		return qf.explain(q, err)
@@ -230,6 +249,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 // findAnswer is find's JSON, the same object the server's /v1/find answers.
 type findAnswer struct {
 	Matches []query.Match `json:"matches"`
+}
+
+// linksAnswer is links' JSON, the same object the server's /v1/links answers.
+type linksAnswer struct {
+	Links []query.Link `json:"links"`
 }
 
 // answerer connects to where the answers come from: the server that --server or

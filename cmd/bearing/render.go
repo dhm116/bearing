@@ -209,3 +209,63 @@ func renderMatches(w io.Writer, ms []query.Match) error {
 	}
 	return o.flush(w)
 }
+
+// renderLinks writes the identity links of `bearing links`, strongest first.
+func renderLinks(w io.Writer, ls []query.Link, proposed bool) error {
+	var o out
+	what := "open identity links"
+	if proposed {
+		what = "proposed identity links"
+	}
+	if len(ls) == 0 {
+		o.line(0, "no %s", what)
+		return o.flush(w)
+	}
+	o.line(0, "%d %s, strongest first", len(ls), what)
+	for _, l := range ls {
+		o.line(0, "")
+		o.line(1, "%s  %s %s by %s  strength %s, certainty %s", l.ID, l.Kind, l.Status, l.Rule, percent(l.Score.Strength), percent(l.Score.Certainty))
+		for _, end := range []struct {
+			label string
+			r     query.LinkRecord
+		}{{"a", l.A}, {"b", l.B}} {
+			o.line(2, "%s: %s", end.label, linkRecordText(end.r))
+		}
+		for _, d := range l.Deposits {
+			o.line(2, "%s", depositText(d))
+		}
+	}
+	return o.flush(w)
+}
+
+// linkRecordText renders a record as `payments [Team id] key (source, source)`.
+func linkRecordText(r query.LinkRecord) string {
+	s := refText(query.Ref{ID: r.ID, Kind: r.Kind, Name: r.Name, Key: r.Key})
+	if len(r.Sources) > 0 {
+		s += " (" + strings.Join(r.Sources, ", ") + ")"
+	}
+	return s
+}
+
+// depositText renders one piece of evidence on one line.
+func depositText(d query.LinkDeposit) string {
+	var b strings.Builder
+	side := "for"
+	if d.Against {
+		side = "against"
+	}
+	fmt.Fprintf(&b, "evidence %s %s weight %.2f", stamp(d.At), side, d.Weight)
+	for _, k := range slices.Sorted(maps.Keys(d.Features)) {
+		fmt.Fprintf(&b, " %s=%.2f", k, d.Features[k])
+	}
+	if d.ObservationID != "" {
+		b.WriteString(" observation " + d.ObservationID)
+	}
+	if d.Actor != "" {
+		b.WriteString(" decided by " + d.Actor)
+	}
+	if d.Reason != "" {
+		b.WriteString(": " + strconv.Quote(d.Reason))
+	}
+	return b.String()
+}

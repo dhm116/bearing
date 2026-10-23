@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -590,5 +591,59 @@ func TestOverSocketSaysWhichKindOfServerItTalksTo(t *testing.T) {
 		if got := c.OverSocket(); got != want {
 			t.Errorf("%s: got %v, want %v", server, got, want)
 		}
+	}
+}
+
+func TestLinksAsksForTheQueueAndDecodesIt(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{h: jsonAnswer(map[string]any{"links": []query.Link{{ID: "l1", Kind: "same_as", Status: "proposed", Score: query.LinkScore{Strength: 0.7}}}})}
+	srv := httptest.NewServer(rec)
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := c.Links(t.Context(), query.LinksRequest{Status: "proposed", Entity: "github:team/acme/x", Limit: 5})
+	if err != nil || len(ls) != 1 || ls[0].ID != "l1" || ls[0].Score.Strength != 0.7 {
+		t.Fatalf("got %+v, %v, want the one link", ls, err)
+	}
+	q := rec.last(t).URL.Query()
+	if rec.last(t).URL.Path != "/v1/links" || q.Get("status") != "proposed" || q.Get("entity") != "github:team/acme/x" || q.Get("limit") != "5" || q.Has("kind") {
+		t.Errorf("got %s, want the filters as parameters and no empty ones", rec.last(t).URL)
+	}
+}
+
+func TestDecidePostsTheDecisionAsJSONAndMapsNotFound(t *testing.T) {
+	t.Parallel()
+	var body string
+	rec := &recorder{h: func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		if strings.Contains(body, "nope") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"not_found","message":"no such link","request_id":"r1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"event_id":"core/identity/abc","offset":3}`))
+	}}
+	srv := httptest.NewServer(rec)
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, err := c.Decide(t.Context(), Decision{Decision: "join", A: "a:x/1", B: "b:y/2", Reason: "same"})
+	if err != nil || acc.EventID != "core/identity/abc" || acc.Offset != 3 {
+		t.Fatalf("got %+v, %v, want the accepted decision", acc, err)
+	}
+	req := rec.last(t)
+	if req.Method != http.MethodPost || req.URL.Path != "/v1/links/decisions" || req.Header.Get("Content-Type") != "application/json" ||
+		body != `{"decision":"join","a":"a:x/1","b":"b:y/2","reason":"same"}` {
+		t.Errorf("got %s %s %q with %q, want the decision as JSON", req.Method, req.URL.Path, req.Header.Get("Content-Type"), body)
+	}
+	_, err = c.Decide(t.Context(), Decision{Decision: "accept", LinkID: "nope"})
+	if !errors.Is(err, query.ErrNotFound) || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("got %v, want a not-found that names the link", err)
 	}
 }

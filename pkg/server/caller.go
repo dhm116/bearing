@@ -37,7 +37,10 @@ type Caller struct {
 	Local bool
 	// Agent is set by an authenticator that can tell the caller is an agent
 	// (software acting for a person) and not a person. Agents read but do not
-	// decide identity links. No authenticator sets it yet: the API token and
-	// the socket's UID are people by definition (docs/spec/api.md).
+	// decide identity links.
+	//
+	// shortcut: no authenticator sets it yet, so the API token and the
+	// socket's UID count as people (docs/spec/api.md, "Link decisions");
+	// upgrade when an OIDC authenticator can read an agent claim.
 	Agent bool
 }

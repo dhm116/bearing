@@ -52,6 +52,16 @@ A `distinct_from` link keeps a pair apart for good: no `same_as` link is
 opened for it. Closing a link splits the entity again, and nothing is lost.
 Records of different kinds never join.
 
+**Who can assert a link.** A source whose declaration vouches for a key, a
+rule the settings name, or a person. A matcher only proposes. A person
+decides through the API or `bearing link`, always as a decision that is
+logged and applied in order ([API](api.md), "Link decisions"): accept a
+proposal (it becomes asserted), reject one (it closes and a `distinct_from`
+keeps the pair from being proposed again), join two records, split two joined
+records (a `distinct_from` again), or undo a `distinct_from`. Each decision
+leaves a deposit on the link with who decided, when and why, so the evidence
+shows it. Only a person decides: a caller known to be an agent is refused.
+
 ## Fact
 
 A **fact** is one statement about an entity over a span of time:

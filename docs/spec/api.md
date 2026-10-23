@@ -193,6 +193,15 @@ the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`
 makes the sync request and prints the request's event ID and offset (or them as
 JSON); the sync itself runs later.
 
+`bearing links [--proposed] [--entity REF] [--limit N]` lists the open identity
+links, strongest first (`--proposed` is the review queue), from `--store` or
+`--server`, with the same answer from both. `bearing link accept|reject|undo
+<link ID>` and `bearing link join|split <ref> <ref>`, each with `--reason`,
+send a decision and print the event ID and offset; they need `--server` (or
+`$BEARING_SERVER`), since decisions go through the server's event log, and
+`--store` is a usage error. The decision is applied a moment later, so
+`bearing links` straight after may not show it yet.
+
 `--json` through `--server` prints the body the server sent, indented and with
 no field dropped, so a field a newer server adds shows at once; the text
 output shows the fields the client knows. In every `--json` output of the
