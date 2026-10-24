@@ -12,10 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"bearing.example/pkg/clock"
-	"bearing.example/pkg/telemetry"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"bearing.example/pkg/clock"
+	"bearing.example/pkg/telemetry"
 )
 
 const (
