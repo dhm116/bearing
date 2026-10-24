@@ -286,7 +286,22 @@ func (q *Querier) Changes(ctx context.Context, ref string, since, until time.Tim
 		}
 		out.Changes = append(out.Changes, Change{Kind: string(c.Kind), At: c.At, Fact: f})
 	}
+	// The store breaks ties at one instant on random IDs; order them by what
+	// they say so the same history always reads the same.
+	slices.SortStableFunc(out.Changes, func(a, b Change) int {
+		return cmp.Or(b.At.Compare(a.At), cmp.Compare(a.Kind, b.Kind),
+			cmp.Compare(a.Fact.Subject.Key, b.Fact.Subject.Key), cmp.Compare(a.Fact.Predicate, b.Fact.Predicate),
+			cmp.Compare(objectText(a.Fact), objectText(b.Fact)))
+	})
 	return out, nil
+}
+
+// objectText is what a fact says about its subject, for ordering.
+func objectText(f Fact) string {
+	if f.Object != nil {
+		return f.Object.Key
+	}
+	return fmt.Sprint(f.Value)
 }
 
 // Find returns the entities whose name or keys resemble text, best first.

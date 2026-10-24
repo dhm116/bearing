@@ -53,6 +53,7 @@ link or to request a sync: only a person decides links
 | `changes(ref?, since, until?, limit?)` | What changed in a window? |
 | `depends_on(ref, depth?, as_of?)` | What does it depend on, and how? |
 | `depended_on_by(ref, depth?, as_of?)` | What depends on it, and how? |
+| `runtimes(language, below?, kind?, limit?, as_of?)` | Which services declare a language version below this one? |
 | `review_queue(limit?)` | Which identity links wait for a person? |
 
 A ref is an entity ID or a key such as `github:repo/acme/payments-api`; times

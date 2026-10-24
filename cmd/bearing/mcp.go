@@ -193,6 +193,44 @@ var mcpTools = []mcpTool{
 	dependencyTool("depends_on", "out", "What an entity depends on, directly or through other dependencies, and how (the qualifiers say protocol, port and so on), with the evidence."),
 	dependencyTool("depended_on_by", "in", "What depends on an entity, directly or through other dependencies, and how, with the evidence."),
 	{
+		Name:        "runtimes",
+		Out:         query.Runtimes{},
+		Slow:        true,
+		Description: "Which repositories or services declare a language version, from their manifests (go.mod, package.json, .nvmrc and so on). With below, for example language go and below 1.22, it lists those whose declared version is older, separately lists those whose version could not be read, and counts the rest. Without below it lists every declaration." + dataNote,
+		Schema: schema([]string{"language"}, map[string]any{
+			"language": strProp("the language, for example go or node (golang and nodejs are accepted)"),
+			"below":    strProp("a plain dotted version such as 1.22; ranges like >=1.22 are refused"),
+			"kind":     strProp("only entities of this kind, for example Repository"),
+			"limit":    intProp("at most this many entities in each list", 1, query.MaxRuntimesLimit),
+			"as_of":    asOfProp,
+		}),
+		Call: func(ctx context.Context, c mcpCall, raw json.RawMessage) (any, string, error) {
+			var a struct {
+				Language string `json:"language"`
+				Below    string `json:"below"`
+				Kind     string `json:"kind"`
+				Limit    *int   `json:"limit"`
+				AsOf     string `json:"as_of"`
+			}
+			if err := decodeArgs(raw, &a); err != nil {
+				return nil, "", err
+			}
+			limit, err := boundedArg("limit", a.Limit, query.MaxRuntimesLimit)
+			if err != nil {
+				return nil, "", err
+			}
+			at, err := mcpTime("as_of", a.AsOf, c.Now)
+			if err != nil {
+				return nil, "", err
+			}
+			r, err := c.A.Runtimes(ctx, query.RuntimesRequest{Language: a.Language, Below: a.Below, Kind: a.Kind, At: at, Limit: limit})
+			if err != nil {
+				return nil, "", err
+			}
+			return r, fmt.Sprintf("%d declaring entity(ies)", len(r.Entities)+len(r.Below)+len(r.Unknown)), nil
+		},
+	},
+	{
 		Name:        "review_queue",
 		Out:         linksAnswer{},
 		Slow:        true,
@@ -310,7 +348,7 @@ func outputSchema(v any) map[string]any {
 				continue
 			}
 			props[name] = map[string]any{"type": jsonType(f.Type)}
-			if !strings.Contains(opts, "omitempty") {
+			if !strings.Contains(opts, "omitempty") && !strings.Contains(opts, "omitzero") {
 				required = append(required, name)
 			}
 		}

@@ -55,7 +55,7 @@ keeps the adapters that fetch it small.
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
 | [`internal/duckstore`](internal/duckstore) | The DuckDB store: observations, entities, facts and the event log; registers `mem://` and `duckdb://` |
-| [`internal/e2e`](internal/e2e) | End-to-end tests on the fictional Acme org |
+| [`internal/e2e`](internal/e2e) | End-to-end tests on the fictional Acme org; [`testdata/questions/`](internal/e2e/testdata/questions) holds one golden answer, evidence included, for each of the five MVP questions |
 | [`internal/identityeval`](internal/identityeval) | A labelled set of record pairs from the Acme org, and tests that score the matcher's precision and recall on it |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
