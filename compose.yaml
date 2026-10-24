@@ -8,8 +8,9 @@ name: bearing-demo
 
 services:
   fakes:
-    build: {context: ., dockerfile: demo/Dockerfile}
+    # Built by the bearing service below; one image for both.
     image: bearing-demo
+    pull_policy: never
     command: ["/usr/local/bin/bearing-demo-fakes", "-webhook-url", "https://bearing:8443/webhooks/github-acme"]
     environment:
       BEARING_SECRET_GITHUB_TOKEN: ${BEARING_SECRET_GITHUB_TOKEN:?copy .env.example to .env}
