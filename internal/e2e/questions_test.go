@@ -1,14 +1,10 @@
 package e2e
 
 import (
-	"cmp"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -111,13 +107,6 @@ func checkGolden(t *testing.T, name string, answer any, err error) {
 }
 
 // objectKey is the other end of a fact: the object's key or the value.
-func objectKey(f query.Fact) string {
-	if f.Object != nil {
-		return f.Object.Key
-	}
-	return fmt.Sprint(f.Value)
-}
-
 // TestQuestionWhichTeamOwnsPaymentsAPIBeforeTheCodeownersMove is question 1:
 // CODEOWNERS names the payments team, with the file as evidence.
 func TestQuestionWhichTeamOwnsPaymentsAPIBeforeTheCodeownersMove(t *testing.T) {
@@ -150,15 +139,6 @@ func TestQuestionWhatChangedFromBeforeTheRenameToAfterTheTeamDeletion(t *testing
 	got, err := s.q.Changes(t.Context(), "", fakes.RepoRenamedAt.Add(-time.Hour), fakes.TeamDeletedAt.Add(time.Hour), 0)
 	if err == nil && len(got.Changes) == 0 {
 		t.Fatal("the story changed nothing")
-	}
-	if err == nil {
-		// Changes at one instant come in no fixed order (ties break on the
-		// random entity IDs), so the golden sorts them by what they say.
-		sort.SliceStable(got.Changes, func(i, j int) bool {
-			a, b := got.Changes[i], got.Changes[j]
-			return cmp.Or(b.At.Compare(a.At), strings.Compare(a.Kind, b.Kind), strings.Compare(a.Fact.Subject.Key, b.Fact.Subject.Key),
-				strings.Compare(a.Fact.Predicate, b.Fact.Predicate), strings.Compare(objectKey(a.Fact), objectKey(b.Fact))) < 0
-		})
 	}
 	checkGolden(t, "changes-rename-to-team-deletion", got, err)
 }
