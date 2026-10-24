@@ -36,7 +36,7 @@ const childSocketEnv = "BEARING_TEST_CHILD_SOCKET"
 // the test process itself, not a descendant of itself, is served (C-API-8).
 func TestPeerListenerRefusesARealChildOfTheServer(t *testing.T) {
 	if sock := os.Getenv(childSocketEnv); sock != "" {
-		c, err := net.Dial("unix", sock)
+		c, err := net.Dial("unix", sock) //nolint:gosec // G704: the test's own socket, named by its parent
 		if err != nil {
 			os.Exit(2)
 		}
@@ -69,7 +69,7 @@ func TestPeerListenerRefusesARealChildOfTheServer(t *testing.T) {
 		}
 	}()
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPeerListenerRefusesARealChildOfTheServer$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPeerListenerRefusesARealChildOfTheServer$") //nolint:gosec // G204: re-runs this test binary as the child
 	cmd.Env = append(os.Environ(), childSocketEnv+"="+sock)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("got child %v (%s), want its connection closed", err, out)

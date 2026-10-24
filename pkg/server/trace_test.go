@@ -283,10 +283,9 @@ func TestEventLogCallsAreNeverRootSpansAndIdlePollsMakeNone(t *testing.T) {
 		}
 		return n
 	}
-	// The commit is under worker.process, so it was traced.
-	if eventlogSpans() == 0 {
-		t.Fatal("no eventlog span under worker.process")
-	}
+	// The commit is under worker.process, so it is traced; its span ends
+	// just after the offset is written, so wait for the span, not the offset.
+	waitFor(t, "an eventlog span under worker.process", func() bool { return eventlogSpans() > 0 })
 	before := eventlogSpans()
 	time.Sleep(60 * time.Millisecond) // a dozen idle polls at the harness's 5 ms
 	if after := eventlogSpans(); after != before {
