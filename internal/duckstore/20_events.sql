@@ -29,3 +29,8 @@ CREATE TABLE IF NOT EXISTS event_commit (
     off       BIGINT NOT NULL,
     PRIMARY KEY (grp, partition)
 );
+
+-- The appender's W3C trace context, so the work an event causes can link back
+-- to it. Added after the table first shipped, so older files gain the columns.
+ALTER TABLE event_log ADD COLUMN IF NOT EXISTS traceparent VARCHAR;
+ALTER TABLE event_log ADD COLUMN IF NOT EXISTS tracestate VARCHAR;

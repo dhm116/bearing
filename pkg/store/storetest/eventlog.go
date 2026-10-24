@@ -104,6 +104,22 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (store.EventLog, Clock)) {
 		}
 	})
 
+	t.Run("A well-formed trace context is stored and a malformed one is dropped without refusing the event", func(t *testing.T) {
+		l, _ := fresh(t)
+		const tp = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+		good, bad, orphan := event("github-acme", "good"), event("github-acme", "bad"), event("github-acme", "orphan")
+		good.TraceParent, good.TraceState = tp, "vendor=value"
+		bad.TraceParent, bad.TraceState = "not-a-traceparent", "vendor=value"
+		orphan.TraceState = "vendor=value"
+		_, err := l.Append(ctx, []store.Event{good, bad, orphan})
+		noErr(t, err)
+		es := read(t, l, "github-acme", 0, 10)
+		ensure(t, len(es) == 3, "Read returned %d entries, want 3", len(es))
+		ensure(t, es[0].TraceParent == tp && es[0].TraceState == "vendor=value", "good = %q %q, want the trace context kept", es[0].TraceParent, es[0].TraceState)
+		ensure(t, es[1].TraceParent == "" && es[1].TraceState == "", "bad = %q %q, want both dropped", es[1].TraceParent, es[1].TraceState)
+		ensure(t, es[2].TraceParent == "" && es[2].TraceState == "", "orphan = %q %q, want a tracestate without a traceparent dropped", es[2].TraceParent, es[2].TraceState)
+	})
+
 	t.Run("Offsets are per partition, in the order given within a call", func(t *testing.T) {
 		l, _ := fresh(t)
 		got, err := l.Append(ctx, []store.Event{
