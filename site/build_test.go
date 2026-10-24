@@ -54,6 +54,10 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	if !strings.Contains(string(home), `href="/bearing/spec/concepts/"`) {
 		t.Error("got home links without the /bearing/ base")
 	}
+	// The spec README's entry for concepts.md wraps onto a second line.
+	if want := "Observations, keys, entities, facts and their provenance."; !strings.Contains(string(home), want) {
+		t.Errorf("got home without the whole concepts summary %q", want)
+	}
 }
 
 // The hand-written pages are for readers new to Bearing. They describe the

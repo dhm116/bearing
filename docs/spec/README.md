@@ -5,7 +5,8 @@ a smaller scope (see the [roadmap](../../ROADMAP.md)), so this section is
 being rewritten as each part lands.
 
 1. [Concepts](concepts.md): observations, keys, entities, facts and their
-   provenance.2. [Server API](api.md): the routes a running server offers and their
+   provenance.
+2. [Server API](api.md): the routes a running server offers and their
    limits.
 
 The adapter service is `proto/bearing/adapter/v1alpha1/adapter.proto`
