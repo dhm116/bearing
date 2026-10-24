@@ -79,14 +79,22 @@ credentials; the server never sends it any.
 **Remote adapters**
 
 - **C-ADAPTER-1** With a peer ID set, a certificate must hold exactly one URI
-  SAN equal to it. The core verifies the adapter's chain against its CA
+  SAN, equal to it byte for byte as written in the certificate (so `#`, `?`
+  or user info that parsing would drop is refused). Neither side accepts a
+  peer certificate marked as a CA. The core verifies the adapter's chain against its CA
   (intermediates from the handshake, server-auth usage, the current time)
   before the ID, since it turns off crypto/tls's host name check. A peer ID
   that is not a SPIFFE ID, or one given with a server name, stops the start
   without echoing the value.
 - **C-ADAPTER-2** TLS files are re-read when their inode, size or modification
-  time changes, with the same path, mode and size checks as at start; a
-  failed reload keeps the last good files.
+  time changes. At start and on every reload, in the core and in the
+  adapter, each file is opened without blocking and checked on the open
+  descriptor: a regular file, not writable by group or others, a key not
+  readable by them, at most 1 MiB, and owned by the process's user or root.
+  A failed reload keeps the last good files, is retried, and is logged once
+  per change of the files; other handshakes go on with the last good files
+  while one reloads. The adapter issues no session tickets, so a session
+  from before a CA rotation cannot be resumed after it.
 
 **API**
 
@@ -171,8 +179,7 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
 - **No roles or per-caller identity.** Every authenticated API caller may call
   every route, and every holder of the API token is the same caller.
 - **The API's TLS material is read once.** A renewed API certificate needs a
-  restart. A remote adapter's files are reloaded, but their owner is checked
-  only at start, by path.
+  restart. (A remote adapter's files are reloaded.)
 - **Secret volumes.** A Kubernetes Secret mounted with the default mode 0644 is
   refused until `defaultMode` is 0400.
 - **Handshake failures are logged at Debug only.** A TLS scan is bounded by the

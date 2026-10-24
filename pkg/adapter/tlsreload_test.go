@@ -1,10 +1,17 @@
 package adapter
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
+	"io"
+	"math/big"
 	"os"
 	"strings"
 	"testing"
@@ -98,7 +105,7 @@ func TestRemoteAdapterAndCoreUseRotatedCertificatesWithoutARestart(t *testing.T)
 	if got, want := presented(t, addr, f).SerialNumber, fileCert(t, f.ServerCert).SerialNumber; got.Cmp(want) != 0 {
 		t.Fatalf("got serial %v after a CA rotation, want %v", got, want)
 	}
-	r.tr.CloseIdleConnections() // an open connection keeps what it agreed
+	r.Close() // an open connection keeps what it agreed
 	if _, err := r.Describe(t.Context()); err != nil {
 		t.Fatalf("Describe after a CA rotation: %v", err)
 	}
@@ -274,5 +281,189 @@ func TestPeerIDSettingsAreRefusedWithoutTheirValue(t *testing.T) {
 	dc.PeerID, dc.ServerName = adapterID, "localhost"
 	if _, err := Dial("x", dc); err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Errorf("Dial with ServerName and PeerID: got %v, want a refusal", err)
+	}
+}
+
+// warnings counts the reload warnings that name path.
+func warnings(path string) int {
+	n := 0
+	for _, l := range strings.Split(logs.all(), "\n") {
+		if strings.Contains(l, "cannot reload the TLS files") && strings.Contains(l, path) {
+			n++
+		}
+	}
+	return n
+}
+
+// A file that stays bad is warned about once, with its error.type, not on
+// every retry; a different bad file is warned about again.
+func TestReloadWarnsOncePerBadFile(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	clk := testkit.NewClock(tlsTestStart)
+	addr := serveTLS(t, tlsEnv(f), clk.Now)
+	half := func(s string) {
+		if err := os.WriteFile(f.ServerKey, []byte("-----BEGIN PRIVATE KEY-----\n"+s+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	half("a")
+	for range 3 {
+		clk.Advance(reloadInterval)
+		presented(t, addr, f)
+	}
+	if got := warnings(f.ServerKey); got != 1 {
+		t.Fatalf("got %d warnings for one bad key, want 1: %q", got, logs.all())
+	}
+	if !strings.Contains(logs.all(), "error.type=") {
+		t.Fatalf("got logs %q, want error.type", logs.all())
+	}
+	half("bb")
+	clk.Advance(reloadInterval)
+	presented(t, addr, f)
+	if got := warnings(f.ServerKey); got != 2 {
+		t.Fatalf("got %d warnings after a second bad key, want 2", got)
+	}
+}
+
+// The core keeps its last good client certificate when its own key is half
+// written, says so, and still reaches the adapter on a new connection.
+func TestCoreKeepsItsLastGoodCertificateWhenItsKeyIsHalfWritten(t *testing.T) {
+	t.Parallel()
+	const canary = "canary-core-half-key"
+	f := testkit.NewTLSFiles(t)
+	clk := testkit.NewClock(tlsTestStart)
+	addr := serveTLS(t, tlsEnv(f), clk.Now)
+	r, err := Dial("remote", DialConfig{Address: "https://" + addr, CAFile: f.CA, CertFile: f.ClientCert, KeyFile: f.ClientKey, Now: clk.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Describe(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.ClientKey, []byte("-----BEGIN PRIVATE KEY-----\n"+canary+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(reloadInterval)
+	r.Close()
+	if _, err := r.Describe(t.Context()); err != nil {
+		t.Fatalf("Describe on a new connection with a half-written key: %v", err)
+	}
+	if warnings(f.ClientKey) != 1 || !strings.Contains(logs.all(), "DialConfig.KeyFile") {
+		t.Fatalf("got logs %q, want one warning naming DialConfig.KeyFile and %s", logs.all(), f.ClientKey)
+	}
+	testkit.AssertNoLeaks(t, logs.all(), canary)
+}
+
+// Neither side accepts a peer whose certificate is a CA: an X.509-SVID is a
+// leaf.
+func TestPeersWithCACertificatesAreRefused(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	ca := testkit.NewTLSFilesWith(t, testkit.TLSOptions{LeavesAreCAs: true})
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		dc   DialConfig
+	}{
+		{"the adapter's", map[string]string{EnvTLSCert: ca.ServerCert, EnvTLSKey: ca.ServerKey, EnvTLSClientCA: f.CA}, DialConfig{CAFile: ca.CA, CertFile: f.ClientCert, KeyFile: f.ClientKey}},
+		{"the core's", map[string]string{EnvTLSCert: f.ServerCert, EnvTLSKey: f.ServerKey, EnvTLSClientCA: ca.CA}, DialConfig{CAFile: f.CA, CertFile: ca.ClientCert, KeyFile: ca.ClientKey}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dc := tt.dc
+			dc.Address = "https://" + serveTLS(t, tt.env, time.Now)
+			r, err := Dial("remote", dc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.Describe(t.Context()); err == nil {
+				t.Fatal("got success, want a CA certificate refused")
+			}
+		})
+	}
+}
+
+// A resumed TLS session would skip the client certificate check, so the
+// adapter never resumes one.
+func TestRemoteAdapterNeverResumesASession(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	addr := serveMTLS(t, f)
+	pair, err := tls.LoadX509KeyPair(f.ClientCert, f.ClientKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &tls.Config{
+		MinVersion: tls.VersionTLS13, RootCAs: certPool(t, f.CA), Certificates: []tls.Certificate{pair},
+		ClientSessionCache: tls.NewLRUClientSessionCache(4), NextProtos: []string{"http/1.1"},
+	}
+	for i := range 2 {
+		conn, err := tls.Dial("tcp", addr, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if conn.ConnectionState().DidResume {
+			t.Fatalf("connection %d resumed a session, want a full handshake", i)
+		}
+		// Reading a response takes in any session ticket sent before it.
+		if _, err := conn.Write([]byte("GET / HTTP/1.1\r\nHost: adapter\r\nConnection: close\r\n\r\n")); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.ReadAll(conn)
+		_ = conn.Close()
+	}
+}
+
+func TestOwnerOKAcceptsOnlyTheProcessUserAndRoot(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		uid  uint32
+		euid int
+		want bool
+	}{
+		{1000, 1000, true}, {0, 1000, true}, {0, 0, true}, {1001, 1000, false}, {1000, 0, false}, {4294967295, -1, false},
+	} {
+		if got := ownerOK(tt.uid, tt.euid); got != tt.want {
+			t.Errorf("ownerOK(%d, %d): got %v, want %v", tt.uid, tt.euid, got, tt.want)
+		}
+	}
+}
+
+// leafWithURISAN is a self-signed certificate whose one URI SAN is raw, as
+// written: x509.CreateCertificate would normalise a url.URL.
+func leafWithURISAN(t *testing.T, raw string) *x509.Certificate {
+	t.Helper()
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	san, err := asn1.Marshal([]asn1.RawValue{{Class: asn1.ClassContextSpecific, Tag: 6, Bytes: []byte(raw)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), ExtraExtensions: []pkix.Extension{{Id: oidSAN, Value: san}}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// The URI SAN is compared as written, so one that parses to the expected
+// ID but holds more ("#", "?", user info) is refused.
+func TestPeerIDIsComparedAsWritten(t *testing.T) {
+	t.Parallel()
+	if err := checkPeerID(leafWithURISAN(t, adapterID), adapterID); err != nil {
+		t.Fatalf("the exact ID: got %v, want it accepted", err)
+	}
+	for _, raw := range []string{adapterID + "#", adapterID + "?", "spiffe://u@acme.test/adapter/github", "spiffe://acme.test/adapter%2Fgithub"} {
+		if err := checkPeerID(leafWithURISAN(t, raw), adapterID); err == nil {
+			t.Errorf("%q: got it accepted as %s, want it refused", raw, adapterID)
+		}
 	}
 }

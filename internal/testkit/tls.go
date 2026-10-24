@@ -37,6 +37,9 @@ type TLSOptions struct {
 	// (SPIFFE IDs), and it then holds no DNS name or IP address, as an
 	// X.509-SVID that SPIRE issues does not.
 	ServerURIs, ClientURIs []string
+	// LeavesAreCAs marks both certificates as CAs (basic constraints CA
+	// true), which an X.509-SVID must not be.
+	LeavesAreCAs bool
 }
 
 // tlsPKI is what Reissue and RotateCA need to sign again.
@@ -56,7 +59,10 @@ var (
 
 // NewTLSFiles writes a new CA, server certificate and client certificate to a
 // private temporary directory (mode 0700, files 0600) removed when t ends.
-func NewTLSFiles(t testing.TB) TLSFiles { t.Helper(); return NewTLSFilesWith(t, TLSOptions{}) }
+func NewTLSFiles(t testing.TB) TLSFiles {
+	t.Helper()
+	return NewTLSFilesWith(t, TLSOptions{})
+}
 
 // NewTLSFilesWith is NewTLSFiles with the certificates opts describes.
 func NewTLSFilesWith(t testing.TB, opts TLSOptions) TLSFiles {
@@ -79,7 +85,7 @@ func NewTLSFilesWith(t testing.TB, opts TLSOptions) TLSFiles {
 // from it, in place.
 func (f TLSFiles) RotateCA(t testing.TB) {
 	t.Helper()
-	p := f.pki
+	p := f.mustPKI(t)
 	p.caKey = newTLSKey(t)
 	p.serial++
 	ca := &x509.Certificate{
@@ -102,7 +108,7 @@ func (f TLSFiles) RotateCA(t testing.TB) {
 // same CA, each file swapped by a rename as a rotating agent would.
 func (f TLSFiles) Reissue(t testing.TB) {
 	t.Helper()
-	p := f.pki
+	p := f.mustPKI(t)
 	server := &x509.Certificate{
 		Subject:     pkix.Name{CommonName: "127.0.0.1"},
 		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}, DNSNames: []string{"localhost"},
@@ -118,6 +124,15 @@ func (f TLSFiles) Reissue(t testing.TB) {
 	}
 	p.newLeaf(t, f.ServerCert, f.ServerKey, server)
 	p.newLeaf(t, f.ClientCert, f.ClientKey, client)
+}
+
+// mustPKI is the CA that NewTLSFiles made for f.
+func (f TLSFiles) mustPKI(t testing.TB) *tlsPKI {
+	t.Helper()
+	if f.pki == nil {
+		t.Fatal("testkit: TLSFiles not from NewTLSFiles or NewTLSFilesWith: there is no CA to sign with")
+	}
+	return f.pki
 }
 
 func parseURIs(t testing.TB, ss []string) []*url.URL {
@@ -150,6 +165,7 @@ func (p *tlsPKI) newLeaf(t testing.TB, certPath, keyPath string, tmpl *x509.Cert
 	p.serial++
 	tmpl.SerialNumber = big.NewInt(p.serial)
 	tmpl.NotBefore, tmpl.NotAfter, tmpl.KeyUsage = certNotBefore, certNotAfter, x509.KeyUsageDigitalSignature
+	tmpl.IsCA, tmpl.BasicConstraintsValid = p.opts.LeavesAreCAs, p.opts.LeavesAreCAs
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, p.ca, &k.PublicKey, p.caKey)
 	if err != nil {
 		t.Fatal(err)

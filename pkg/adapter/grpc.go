@@ -292,6 +292,11 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 // Name is the adapter's configured name, for telemetry and errors.
 func (r *Remote) Name() string { return r.name }
 
+// Close drops the idle connections, so the next call dials again and
+// handshakes with the TLS files as they are now. A call in flight is not
+// interrupted, and the Remote stays usable.
+func (r *Remote) Close() { r.tr.CloseIdleConnections() }
+
 // Describe implements Adapter.
 func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 	start := time.Now()

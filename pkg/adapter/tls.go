@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
@@ -76,15 +77,17 @@ func serverTLS(getenv func(string) string, now func() time.Time) (*tls.Config, e
 			ClientCAs:    pool,
 			NextProtos:   []string{"h2", "http/1.1"},
 			Time:         now,
-		}
-		if peerID != "" {
+			// A resumed session skips the client certificate check, so a
+			// ticket issued before a CA rotation must never let a caller
+			// in after it, whatever crypto/tls does with ticket keys.
+			SessionTicketsDisabled: true,
 			// Runs after crypto/tls has verified the chain against pool.
-			cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+			VerifyConnection: func(cs tls.ConnectionState) error {
 				if len(cs.PeerCertificates) == 0 {
 					return errors.New("the caller presented no certificate")
 				}
-				return checkPeerID(cs.PeerCertificates[0], peerID)
-			}
+				return checkLeaf(cs.PeerCertificates[0], peerID)
+			},
 		}
 		return cfg, nil
 	})
@@ -150,6 +153,11 @@ func clientTLS(c DialConfig, host string) (*reloader, error) {
 			cfg.VerifyConnection = func(cs tls.ConnectionState) error {
 				return verifyServer(cs, pool, now(), c.PeerID)
 			}
+		} else {
+			// Runs after crypto/tls has verified the chain and host name.
+			cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+				return checkLeaf(cs.PeerCertificates[0], "")
+			}
 		}
 		return cfg, nil
 	})
@@ -160,7 +168,7 @@ func clientTLS(c DialConfig, host string) (*reloader, error) {
 }
 
 // verifyServer is what crypto/tls would check of a server's chain, without
-// the host name, followed by the peer ID check.
+// the host name, followed by checkLeaf.
 func verifyServer(cs tls.ConnectionState, roots *x509.CertPool, now time.Time, peerID string) error {
 	if len(cs.PeerCertificates) == 0 {
 		return errors.New("the adapter presented no certificate")
@@ -176,20 +184,68 @@ func verifyServer(cs tls.ConnectionState, roots *x509.CertPool, now time.Time, p
 	}); err != nil {
 		return &tls.CertificateVerificationError{UnverifiedCertificates: cs.PeerCertificates, Err: err}
 	}
+	return checkLeaf(leaf, peerID)
+}
+
+// checkLeaf refuses a peer certificate that is a CA, which an X.509-SVID
+// must not be and no peer needs to be, and, with peerID, one that is not
+// that peer.
+func checkLeaf(leaf *x509.Certificate, peerID string) error {
+	if leaf.IsCA {
+		return errors.New("the peer's certificate is a CA certificate, not a leaf")
+	}
+	if peerID == "" {
+		return nil
+	}
 	return checkPeerID(leaf, peerID)
 }
 
 // checkPeerID requires the certificate to hold exactly one URI SAN, want.
 // More than one would make "which identity is this" ambiguous, which the
-// SPIFFE X.509-SVID spec forbids.
+// SPIFFE X.509-SVID spec forbids. It compares the SAN as written:
+// x509.Certificate.URIs is parsed, and parsing drops what a SPIFFE ID must
+// not hold, such as an empty fragment ("#").
 func checkPeerID(leaf *x509.Certificate, want string) error {
-	if n := len(leaf.URIs); n != 1 {
+	uris, err := uriSANs(leaf)
+	if err != nil {
+		return err
+	}
+	if n := len(uris); n != 1 {
 		return fmt.Errorf("the peer's certificate holds %d URI SANs, want exactly one, %s", n, want)
 	}
-	if got := leaf.URIs[0].String(); got != want {
+	if got := uris[0]; got != want {
 		return fmt.Errorf("the peer is %q, want %s", model.Clip(got), want)
 	}
 	return nil
+}
+
+// oidSAN is the subject alternative name extension.
+var oidSAN = asn1.ObjectIdentifier{2, 5, 29, 17}
+
+// uriSANs are the certificate's URI SANs as its bytes hold them
+// (uniformResourceIdentifier, [6] IA5String, RFC 5280 4.2.1.6).
+func uriSANs(c *x509.Certificate) ([]string, error) {
+	var out []string
+	for _, ext := range c.Extensions {
+		if !ext.Id.Equal(oidSAN) {
+			continue
+		}
+		var seq asn1.RawValue
+		if _, err := asn1.Unmarshal(ext.Value, &seq); err != nil {
+			return nil, fmt.Errorf("the peer's subject alternative names: %w", err)
+		}
+		for rest := seq.Bytes; len(rest) > 0; {
+			var n asn1.RawValue
+			var err error
+			if rest, err = asn1.Unmarshal(rest, &n); err != nil {
+				return nil, fmt.Errorf("the peer's subject alternative names: %w", err)
+			}
+			if n.Class == asn1.ClassContextSpecific && n.Tag == 6 {
+				out = append(out, string(n.Bytes))
+			}
+		}
+	}
+	return out, nil
 }
 
 var (
@@ -225,10 +281,12 @@ type reloader struct {
 	files []tlsFile
 	build func() (*tls.Config, error)
 
-	mu      sync.Mutex
-	cfg     *tls.Config
-	stamps  []os.FileInfo
-	checked time.Time
+	mu        sync.Mutex
+	cfg       *tls.Config
+	stamps    []os.FileInfo // of the files cfg was built from
+	failed    []os.FileInfo // of the files the last failed rebuild read
+	checked   time.Time
+	reloading bool // a handshake is rebuilding; the others use cfg meanwhile
 }
 
 // newReloader builds the first config, whose failure is the caller's.
@@ -243,26 +301,41 @@ func newReloader(now func() time.Time, files []tlsFile, build func() (*tls.Confi
 	return r, nil
 }
 
-// current is the config for a new connection.
+// current is the config for a new connection. A rebuild runs outside the
+// lock, so a file that is slow to read holds up only the handshake that
+// rebuilds, never the others.
 func (r *reloader) current(ctx context.Context) *tls.Config {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	now := r.now()
-	if d := now.Sub(r.checked); d >= 0 && d < reloadInterval {
+	if d := now.Sub(r.checked); r.reloading || (d >= 0 && d < reloadInterval) {
+		defer r.mu.Unlock()
 		return r.cfg
 	}
-	r.checked = now
+	r.checked, r.reloading = now, true
+	good, failed := r.stamps, r.failed
+	r.mu.Unlock()
+
 	stamps := r.stat()
-	if sameFiles(stamps, r.stamps) {
-		return r.cfg
+	var cfg *tls.Config
+	if !sameFiles(stamps, good) {
+		var err error
+		if cfg, err = r.build(); err != nil {
+			// Once per change of the files, not on every retry. The error
+			// names the setting and path, never the contents.
+			if !sameFiles(stamps, failed) {
+				telemetry.Logger("pkg/adapter").WarnContext(ctx, "cannot reload the TLS files; keeping the last good ones",
+					"error", err.Error(), "error.type", telemetry.ErrorType(err))
+			}
+			failed = stamps
+		}
 	}
-	cfg, err := r.build()
-	if err != nil {
-		// The error names the setting and path, never the contents.
-		telemetry.Logger("pkg/adapter").WarnContext(ctx, "cannot reload the TLS files; keeping the last good ones", "error", err.Error())
-		return r.cfg
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reloading, r.failed = false, failed
+	if cfg != nil {
+		r.cfg, r.stamps = cfg, stamps
 	}
-	r.cfg, r.stamps = cfg, stamps
 	return r.cfg
 }
 
@@ -276,8 +349,11 @@ func (r *reloader) stat() []os.FileInfo {
 }
 
 // sameFiles reports whether no file changed: the same inode, size and
-// modification time.
+// modification time. Nil, for no files, matches nothing.
 func sameFiles(a, b []os.FileInfo) bool {
+	if len(a) != len(b) {
+		return false
+	}
 	for i := range a {
 		if a[i] == nil || b[i] == nil || !os.SameFile(a[i], b[i]) ||
 			a[i].Size() != b[i].Size() || !a[i].ModTime().Equal(b[i].ModTime()) {
@@ -285,6 +361,12 @@ func sameFiles(a, b []os.FileInfo) bool {
 		}
 	}
 	return true
+}
+
+// ownerOK reports whether a file owned by uid may be trusted by a process
+// running as euid: its own, or root's.
+func ownerOK(uid uint32, euid int) bool {
+	return uid == 0 || int64(uid) == int64(euid)
 }
 
 // loadKeyPair reads a certificate and its key. Errors name the files, never
@@ -321,9 +403,11 @@ func loadPool(caFile tlsFile) (*x509.CertPool, error) {
 
 // readPEM reads a PEM file. It refuses a value that is not an absolute path
 // (an operator who pasted the PEM itself would otherwise see it in the
-// error), any file its group or others may write, and a private one (a key)
-// its group or others may read; the mode is checked on the open descriptor so
-// the file cannot change between the check and the read. Errors start with
+// error), anything but a regular file, any file its group or others may
+// write or whose owner is neither this process's user nor root (either could
+// swap in a CA of their own), and a private one (a key) its group or others
+// may read. The checks run on the open descriptor, on every reload, so the
+// file cannot change between the check and the read. Errors start with
 // f.label and never hold an unchecked value.
 func readPEM(f tlsFile, private bool) (_ []byte, err error) {
 	defer func() {
@@ -335,7 +419,9 @@ func readPEM(f tlsFile, private bool) (_ []byte, err error) {
 	if !filepath.IsAbs(file) || strings.ContainsAny(file, "\r\n") {
 		return nil, errors.New("must be the absolute path of a PEM file, not its contents")
 	}
-	fd, err := os.Open(file) //nolint:gosec // G304: the operator names the file
+	// openFlags never wait on a FIFO or device: the descriptor check below
+	// then refuses it.
+	fd, err := os.OpenFile(file, openFlags, 0) //nolint:gosec // G304: the operator names the file
 	if err != nil {
 		return nil, err // an *os.PathError: the path and why
 	}
@@ -351,6 +437,9 @@ func readPEM(f tlsFile, private bool) (_ []byte, err error) {
 		return nil, fmt.Errorf("%s must not be writable by its group or by others (mode %04o)", file, fi.Mode().Perm())
 	case private && fi.Mode().Perm()&0o077 != 0:
 		return nil, fmt.Errorf("key %s must not be readable or writable by its group or by others (mode %04o)", file, fi.Mode().Perm())
+	}
+	if err := checkOwner(fi); err != nil {
+		return nil, fmt.Errorf("%s %w", file, err)
 	}
 	b, err := io.ReadAll(io.LimitReader(fd, maxPEMBytes+1))
 	if err != nil {

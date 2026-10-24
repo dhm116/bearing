@@ -106,8 +106,9 @@ the same logger.
 
 A remote adapter, and the core dialling one, log a warning
 (`cannot reload the TLS files; keeping the last good ones`, with `error`
-naming the setting and path) when a changed certificate, key or CA file
-fails to load.
+naming the setting and path, and `error.type`) when a changed certificate,
+key or CA file fails to load: once per change of the files, not on every
+retry.
 
 ## Trying it locally
 
