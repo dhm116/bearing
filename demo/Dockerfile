@@ -15,12 +15,17 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/ \
 # The base image has no shell: make the directories the service user owns here.
 RUN mkdir -p /rootfs/var/lib/bearing /rootfs/run/bearing /rootfs/certs \
  && chmod 0755 /rootfs/var/lib/bearing /rootfs/certs && chmod 0700 /rootfs/run/bearing
+# Settings and declarations, owned by root and not writable by anyone else,
+# as boot.Load requires. Laid out here because COPY --chmod would also set
+# the mode of the directories it creates, leaving them untraversable.
+RUN mkdir -p /etcfs/bearing/declarations \
+ && cp demo/settings.json /etcfs/bearing/settings.json \
+ && cp testdata/declarations/*.json /etcfs/bearing/declarations/ \
+ && find /etcfs -type d -exec chmod 0755 {} + && find /etcfs -type f -exec chmod 0644 {} +
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 COPY --from=build /out/ /usr/local/bin/
-# Owned by root and not writable by anyone else, as boot.Load requires.
-COPY --chmod=0644 demo/settings.json /etc/bearing/settings.json
-COPY --chmod=0755 testdata/declarations/ /etc/bearing/declarations/
+COPY --from=build /etcfs/ /etc/
 # The store, the API socket (private to the service user) and the demo
 # certificates belong to the service user (65532).
 COPY --from=build --chown=65532:65532 /rootfs/var/lib/bearing /var/lib/bearing
