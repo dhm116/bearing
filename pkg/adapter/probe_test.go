@@ -2,13 +2,23 @@ package adapter
 
 import (
 	"context"
+	"errors"
+	"net"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+
+	adapterv1alpha1 "bearing.example/gen/go/bearing/adapter/v1alpha1"
+	"bearing.example/gen/go/bearing/adapter/v1alpha1/adapterv1alpha1connect"
 )
 
 // spansOf returns the ended spans of one trace.
@@ -79,11 +89,90 @@ func TestStartIsOneSpanWithoutErrorsFromItsProbes(t *testing.T) {
 				attempts = a.Value.AsInt64()
 			}
 		}
-		if attempts < 1 {
-			t.Fatalf("got %d attempts, want at least 1", attempts)
+		if attempts == 0 {
+			t.Fatal("got no bearing.adapter.start.attempts attribute")
 		}
 	}
 	if starts != 1 {
 		t.Fatalf("got %d bearing.adapter.start spans, want 1", starts)
+	}
+}
+
+// versionAdapter answers Describe with a protocol version and records the
+// traceparent each call carried.
+type versionAdapter struct {
+	adapterv1alpha1connect.UnimplementedAdapterServiceHandler
+	version uint32
+	parents chan string
+}
+
+func (a versionAdapter) Describe(_ context.Context, req *connect.Request[adapterv1alpha1.DescribeRequest]) (*connect.Response[adapterv1alpha1.DescribeResponse], error) {
+	a.parents <- req.Header().Get("traceparent")
+	return connect.NewResponse(&adapterv1alpha1.DescribeResponse{Name: "v", ProtocolVersion: a.version}), nil
+}
+
+// serveVersion serves versionAdapter on a socket and returns its address.
+func serveVersion(t *testing.T, a versionAdapter) string {
+	t.Helper()
+	path := filepath.Join(socketDir(t), "a.sock")
+	lis, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, h := adapterv1alpha1connect.NewAdapterServiceHandler(a)
+	mux := http.NewServeMux()
+	mux.Handle(route, h)
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	srv := &http.Server{Handler: mux, Protocols: &protocols, ReadHeaderTimeout: time.Second}
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return "unix://" + path
+}
+
+// A probe that reaches the adapter carries the start's trace, though the
+// client instrumentation skips probes.
+func TestAProbeCarriesItsTraceToTheAdapter(t *testing.T) {
+	t.Parallel()
+	a := versionAdapter{version: ProtocolVersion, parents: make(chan string, 1)}
+	r, err := Dial("probe", DialConfig{Address: serveVersion(t, a)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, root := otel.Tracer("test").Start(context.Background(), "test")
+	defer root.End()
+	if _, err := r.Describe(probing(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-a.parents; !strings.Contains(got, root.SpanContext().TraceID().String()) {
+		t.Fatalf("got traceparent %q, want trace %s", got, root.SpanContext().TraceID())
+	}
+}
+
+// A probe the adapter answers with a refusal (another protocol version) is
+// an error span: it is up, and wrong.
+func TestARefusedProbeIsAnErrorSpan(t *testing.T) {
+	t.Parallel()
+	a := versionAdapter{version: 2, parents: make(chan string, 1)}
+	r, err := Dial("refuses", DialConfig{Address: serveVersion(t, a)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, root := otel.Tracer("test").Start(context.Background(), "test")
+	if _, err := r.Describe(probing(ctx)); !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("got %v, want a protocol mismatch", err)
+	}
+	root.End()
+	found := false
+	for _, s := range spansOf(root.SpanContext().TraceID()) {
+		if s.Name() == "bearing.adapter.describe" {
+			found = true
+			if s.Status().Code != codes.Error {
+				t.Fatalf("got describe status %v, want an error", s.Status().Code)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no bearing.adapter.describe span")
 	}
 }

@@ -18,9 +18,11 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -324,7 +326,13 @@ func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 	ctx, span := tracer.Start(ctx, "bearing.adapter.describe", trace.WithAttributes(attrAdapter.String(r.name)))
 	defer span.End()
 	start := time.Now()
-	res, err := r.client.Describe(ctx, connect.NewRequest(&adapterv1alpha1.DescribeRequest{}))
+	req := connect.NewRequest(&adapterv1alpha1.DescribeRequest{})
+	if isProbing(ctx) {
+		// The client instrumentation skips probes, and with it the trace
+		// context; carry it by hand so the adapter's span joins this trace.
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header()))
+	}
+	res, err := r.client.Describe(ctx, req)
 	recordRPC(ctx, rpcClientDuration, "describe", start, err)
 	if err != nil {
 		err = fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))

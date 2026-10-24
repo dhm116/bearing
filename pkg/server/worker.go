@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -174,7 +175,10 @@ func (s *Server) process(ctx context.Context, e store.Entry) error {
 		return err
 	}
 	if err := s.cfg.Log.Commit(ctx, s.cfg.Group, e.Partition, e.Offset); err != nil {
-		return fmt.Errorf("commit %s at %d: %w", e.Partition, e.Offset, err)
+		err = fmt.Errorf("commit %s at %d: %w", e.Partition, e.Offset, err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "commit failed")
+		return err
 	}
 	return nil
 }
