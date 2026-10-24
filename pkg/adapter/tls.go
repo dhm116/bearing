@@ -304,7 +304,7 @@ func newReloader(now func() time.Time, files []tlsFile, build func() (*tls.Confi
 // current is the config for a new connection. A rebuild runs outside the
 // lock, so a file that is slow to read holds up only the handshake that
 // rebuilds, never the others.
-func (r *reloader) current(ctx context.Context) *tls.Config {
+func (r *reloader) current(ctx context.Context) (out *tls.Config) {
 	r.mu.Lock()
 	now := r.now()
 	if d := now.Sub(r.checked); r.reloading || (d >= 0 && d < reloadInterval) {
@@ -317,26 +317,47 @@ func (r *reloader) current(ctx context.Context) *tls.Config {
 
 	stamps := r.stat()
 	var cfg *tls.Config
+	// Deferred so a panic in build still clears reloading: otherwise the
+	// last good config would be kept for good, never reloaded again.
+	defer func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.reloading, r.failed = false, failed
+		if cfg != nil {
+			r.cfg, r.stamps = cfg, stamps
+		}
+		out = r.cfg
+	}()
 	if !sameFiles(stamps, good) {
 		var err error
 		if cfg, err = r.build(); err != nil {
 			// Once per change of the files, not on every retry. The error
 			// names the setting and path, never the contents.
-			if !sameFiles(stamps, failed) {
+			if !sameOrBothMissing(stamps, failed) {
 				telemetry.Logger("pkg/adapter").WarnContext(ctx, "cannot reload the TLS files; keeping the last good ones",
 					"error", err.Error(), "error.type", telemetry.ErrorType(err))
 			}
 			failed = stamps
 		}
 	}
+	return nil // set by the deferred func
+}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.reloading, r.failed = false, failed
-	if cfg != nil {
-		r.cfg, r.stamps = cfg, stamps
+// sameOrBothMissing is sameFiles, except that a file missing from both
+// counts as unchanged: a file that stays missing is warned about once.
+func sameOrBothMissing(a, b []os.FileInfo) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return r.cfg
+	for i := range a {
+		if a[i] == nil && b[i] == nil {
+			continue
+		}
+		if !sameFiles(a[i:i+1], b[i:i+1]) {
+			return false
+		}
+	}
+	return true
 }
 
 // stat is each file's FileInfo, nil for one it cannot stat.
@@ -407,7 +428,9 @@ func loadPool(caFile tlsFile) (*x509.CertPool, error) {
 // write or whose owner is neither this process's user nor root (either could
 // swap in a CA of their own), and a private one (a key) its group or others
 // may read. The checks run on the open descriptor, on every reload, so the
-// file cannot change between the check and the read. Errors start with
+// file cannot change between the check and the read. The directory is not
+// checked: a symlink in one others can write may point at any root-owned
+// file, such as the system trust bundle. Errors start with
 // f.label and never hold an unchecked value.
 func readPEM(f tlsFile, private bool) (_ []byte, err error) {
 	defer func() {

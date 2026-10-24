@@ -324,6 +324,16 @@ func TestReloadWarnsOncePerBadFile(t *testing.T) {
 	if got := warnings(f.ServerKey); got != 2 {
 		t.Fatalf("got %d warnings after a second bad key, want 2", got)
 	}
+	if err := os.Remove(f.ServerKey); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		clk.Advance(reloadInterval)
+		presented(t, addr, f)
+	}
+	if got := warnings(f.ServerKey); got != 3 {
+		t.Fatalf("got %d warnings after the key went missing, want 3 (one more)", got)
+	}
 }
 
 // The core keeps its last good client certificate when its own key is half

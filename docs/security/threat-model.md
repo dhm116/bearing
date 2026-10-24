@@ -95,9 +95,11 @@ credentials; the server never sends it any.
   per change of the files; other handshakes go on with the last good files
   while one reloads. The adapter issues no session tickets, so a session
   from before a CA rotation cannot be resumed after it.
+  The directories holding the files are not checked: they must be writable
+  only by the service user or root, or a symlink there can point at any
+  root-owned file (the system trust bundle, for one).
 
 **API**
-
 - **C-API-1** The socket's directory is mode 0700 and the service user's, the
   socket is 0600, and a peer whose UID is neither the service user's nor
   root's is closed before it sends anything. The caller is recorded as
