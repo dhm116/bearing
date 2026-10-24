@@ -334,6 +334,9 @@ type LinkResult struct {
 	Closed int
 }
 
+// PersonRule is the Rule of the links a person's decision asserts.
+const PersonRule = "person"
+
 // DecisionKind is what a person decided about a link.
 type DecisionKind string
 

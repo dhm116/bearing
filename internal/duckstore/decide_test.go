@@ -177,4 +177,7 @@ func TestDecideRejectBlocksTheMatcherUntilTheDistinctFromIsUndone(t *testing.T) 
 	if r := run(); r.Proposed != 1 {
 		t.Fatalf("got %+v, want the pair proposed again once the distinct_from is undone", r)
 	}
+	if r := run(); r.Proposed != 0 || r.Reinforced != 0 {
+		t.Fatalf("got %+v, want a rerun on the same evidence to add nothing", r)
+	}
 }

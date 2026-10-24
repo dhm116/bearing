@@ -10,9 +10,6 @@ import (
 	"bearing.example/pkg/graph"
 )
 
-// personRule names the links a person's decision makes.
-const personRule = "person"
-
 // Decide implements graph.Graph. It runs in one transaction and notes the
 // decision's ID in it, so a replayed decision finds the note and changes
 // nothing.
@@ -63,7 +60,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 	// assert opens (or reinforces) an asserted link by the person for a pair.
 	assert := func(a, b string, kind graph.LinkKind) error {
 		opened, _, err := s.upsertLink(ctx, tx, graph.Proposal{
-			A: graph.EntityID(a), B: graph.EntityID(b), Kind: kind, Status: graph.Asserted, Rule: personRule, Deposit: dep,
+			A: graph.EntityID(a), B: graph.EntityID(b), Kind: kind, Status: graph.Asserted, Rule: graph.PersonRule, Deposit: dep,
 		})
 		if opened {
 			res.Opened++
