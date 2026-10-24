@@ -408,7 +408,14 @@ kbd {
 .asked__note { font-size: var(--text-sm); color: var(--muted); }
 .pane { display: grid; align-content: start; background: var(--term-bg); color: var(--term-ink); border: var(--rule); border-radius: var(--radius-lg); overflow: hidden; }
 .pane__bar { padding: var(--space-xs) var(--space-lg); border-bottom: 1px solid color-mix(in srgb, var(--term-ink) 14%, transparent); font: 500 var(--text-xs)/1.6 var(--font-mono); color: var(--term-dim); }
-.pane pre { margin: 0; padding: var(--space-md) var(--space-lg); font: 400 var(--text-sm)/1.75 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Each title bar takes a faint wash of its pane's colour, with an icon naming
+ * what the window is: teal for the terminal, green for the agent. */
+.pane__bar { display: flex; align-items: center; gap: var(--space-xs); }
+.pane__bar .icon { width: 0.95rem; height: 0.95rem; }
+.pane__bar--term { background: color-mix(in srgb, var(--term-accent) 12%, transparent); color: var(--term-accent); }
+.pane__bar--agent { background: color-mix(in srgb, var(--term-ok) 12%, transparent); color: var(--term-ok); }
+/* The site-wide code-block style (top rule, grey fill) doesn't belong in a terminal. */
+.pane pre { border: 0; border-radius: 0; background: none; margin: 0; padding: var(--space-md) var(--space-lg); font: 400 var(--text-sm)/1.75 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent { display: grid; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); font-size: var(--text-sm); line-height: 1.6; }
 .agent__you { font-family: var(--font-mono); }
 .agent__tool { justify-self: start; padding: var(--space-2xs) var(--space-sm); border: 1px solid color-mix(in srgb, var(--term-ink) 18%, transparent); border-radius: var(--radius-sm); font: 400 var(--text-xs)/1.6 var(--font-mono); overflow-wrap: anywhere; }
