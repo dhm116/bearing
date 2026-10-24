@@ -327,7 +327,12 @@ kbd {
 .hunt__head h2 { font-size: var(--text-3xl); }
 .hunt__head p { color: var(--muted); max-width: 40rem; }
 .hunt__note { margin-top: calc(var(--space-md) * -1); }
-@media (min-width: 64rem) { .hunt__head { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: end; gap: var(--space-2xl); } }
+/* Heading and description joined by the trail's dashed footstep line. */
+.hunt__link { display: none; }
+@media (min-width: 64rem) {
+  .hunt__head { grid-template-columns: auto minmax(3rem, 1fr) minmax(0, 36rem); align-items: center; gap: var(--space-lg); }
+  .hunt__link { display: block; border-top: 2px dashed var(--soft); }
+}
 /* The two ways, one after the other: Today's trail, then the same question
  * with Bearing. A rule runs from each heading to mark where the way starts. */
 .hunt__step { display: flex; align-items: center; gap: var(--space-md); margin-top: var(--space-md); font-size: var(--text-xl); color: var(--muted); }
