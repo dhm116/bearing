@@ -98,7 +98,7 @@ func mainCode() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	shutdown, err := telemetry.Setup(ctx, telemetry.Config{ServiceName: "bearing-cli", ServiceVersion: version})
+	shutdown, err := telemetry.Setup(ctx, telemetry.Config{ServiceName: "bearing-cli", ServiceVersion: version, Getenv: cliEnv(os.Args[1:], os.Getenv)})
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -116,6 +116,7 @@ func mainCode() int {
 	defer span.End()
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
+		fmt.Fprintln(os.Stderr, "bearing:", err)
 		if errors.Is(err, errUsage) {
 			fmt.Fprint(os.Stderr, usage)
 			return 2
@@ -279,4 +280,18 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 		err = fmt.Errorf("rejected %d observation(s) and %d claim(s); see the log", sum.RejectedObservations, sum.RejectedClaims)
 	}
 	return err
+}
+
+// cliEnv is the environment telemetry reads. A person at a terminal wants a
+// failed command's message, not its log record, so commands other than the
+// server log nowhere unless OTEL_LOGS_EXPORTER or an OTLP endpoint says
+// otherwise.
+func cliEnv(args []string, getenv func(string) string) func(string) string {
+	server := len(args) > 0 && args[0] == "server"
+	return func(k string) string {
+		if k == "OTEL_LOGS_EXPORTER" && !server && getenv(k) == "" && getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
+			return telemetry.ExporterNone
+		}
+		return getenv(k)
+	}
 }
