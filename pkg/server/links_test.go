@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,9 +98,9 @@ func TestAPILinksListsTheQueueStrongestFirstWithItsEvidence(t *testing.T) {
 	if l.Rule != "matcher/transparent" || l.Status != "proposed" || len(l.Deposits) != 1 || l.Deposits[0].Features["name"] != 0.9 {
 		t.Errorf("got %+v, want the matcher's rule and its features as evidence", l)
 	}
-	names := []string{l.A.Name, l.B.Name}
-	if !(l.A.Key != "" && l.B.Key != "" && l.A.Kind == "Repository" && len(l.A.Sources) == 1 && l.A.Sources[0] == "catalog-acme") ||
-		!(names[0] == "billing" && names[1] == "payments" || names[0] == "payments" && names[1] == "billing") {
+	pair := []string{l.A.Name, l.B.Name}
+	slices.Sort(pair)
+	if l.A.Key == "" || l.B.Key == "" || l.A.Kind != "Repository" || !slices.Equal(l.A.Sources, []string{"catalog-acme"}) || !slices.Equal(pair, []string{"billing", "payments"}) {
 		t.Errorf("got %+v and %+v, want both records with kind, name, key and source", l.A, l.B)
 	}
 
