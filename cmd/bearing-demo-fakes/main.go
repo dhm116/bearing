@@ -14,6 +14,9 @@
 //	                                  RFC 3339 time, and send the signed
 //	                                  webhook deliveries to -webhook-url
 //
+// POST /demo/advance needs the header X-Bearing-Demo: 1, and the endpoint
+// refuses any Host but loopback and "fakes" (C-DEMO-1).
+//
 // The fakes accept the tokens the Bearing sources use, read from
 // BEARING_SECRET_GITHUB_TOKEN, BEARING_SECRET_DIRECTORY_TOKEN and
 // BEARING_SECRET_KUBERNETES_TOKEN, and sign deliveries with

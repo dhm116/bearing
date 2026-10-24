@@ -128,6 +128,7 @@ func TestControlEndpointAnswersWithTheRightStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		req.Header.Set("X-Bearing-Demo", "1")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -159,6 +160,24 @@ func TestCertificatesServeBothServiceNames(t *testing.T) {
 	}
 	if again, _ := os.ReadFile(filepath.Join(dir, "ca.pem")); string(again) != string(ca) { //nolint:gosec // G304: a temp directory
 		t.Error("a second start replaced the CA")
+	}
+
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) == 0 {
+		t.Fatalf("got %v, %v, want the certificate files", files, err)
+	}
+	for _, f := range files {
+		info, err := f.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		mode := info.Mode().Perm()
+		if mode&0o022 != 0 {
+			t.Errorf("%s has mode %o, want nothing writable by group or others", f.Name(), mode)
+		}
+		if strings.HasSuffix(f.Name(), "-key.pem") && mode != 0o600 {
+			t.Errorf("%s has mode %o, want 600", f.Name(), mode)
+		}
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -195,6 +214,55 @@ func TestCertificatesServeBothServiceNames(t *testing.T) {
 	}
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "localhost"}); err != nil {
 		t.Errorf("the Bearing certificate for localhost: %v", err)
+	}
+}
+
+func TestControlEndpointRefusesCrossSiteRequests(t *testing.T) {
+	t.Parallel()
+	d := plainDemo(t, nil)
+	srv := httptest.NewServer(d.control())
+	t.Cleanup(srv.Close)
+	for _, tc := range []struct {
+		name, method, path, host, header string
+		want                             int
+	}{
+		{"advance without the header", http.MethodPost, "/demo/advance?to=repo-rename", "", "", http.StatusForbidden},
+		{"advance with another Host", http.MethodPost, "/demo/advance?to=repo-rename", "evil.example:9090", "1", http.StatusForbidden},
+		{"steps with another Host", http.MethodGet, "/demo/steps", "evil.example", "", http.StatusForbidden},
+		{"the in-network name", http.MethodGet, "/demo/steps", "fakes:8080", "", http.StatusOK},
+		{"localhost", http.MethodGet, "/demo/steps", "localhost:9090", "", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), tc.method, srv.URL+tc.path, http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.host != "" {
+				req.Host = tc.host
+			}
+			if tc.header != "" {
+				req.Header.Set("X-Bearing-Demo", tc.header)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Errorf("got %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+	if st := d.status(); func() int {
+		n := 0
+		for _, s := range st.Steps {
+			if s.Applied {
+				n++
+			}
+		}
+		return n
+	}() != 0 {
+		t.Error("a refused request still played a step")
 	}
 }
 

@@ -28,6 +28,8 @@ export BEARING_TOKEN=$(grep '^BEARING_API_TOKEN=' .env | cut -d= -f2-)
 `bearing` (the server) listens on `https://localhost:8443`. The fakes'
 control endpoint, which plays the org's story, is on `http://127.0.0.1:9090`;
 it has no authentication, which is why Compose publishes it on loopback only.
+It also refuses a request without the header `X-Bearing-Demo: 1` and any Host
+but loopback (`C-DEMO-1` in the [threat model](security/threat-model.md)).
 
 Each source syncs once a minute. Ask for the first syncs now rather than
 wait:
@@ -124,7 +126,7 @@ rename that comes first, and sends GitHub's signed webhook deliveries to
 Bearing):
 
 ```sh
-curl -X POST 'http://127.0.0.1:9090/demo/advance?to=codeowners-move'
+curl -X POST -H 'X-Bearing-Demo: 1' 'http://127.0.0.1:9090/demo/advance?to=codeowners-move'
 curl http://127.0.0.1:9090/demo/steps        # every step, and which are played
 bin/bearing source sync github-acme --server-ca demo-ca.pem   # don't wait for the webhook
 ```
@@ -174,33 +176,35 @@ facts.
 ## Review an identity link
 
 When Bearing is not sure that two records are one thing, it proposes a link
-and waits for a person:
+and waits for a person. Where the directory and GitHub agree on a person
+(Jane Doe, Mei Chen) the join is already made, so only the doubtful pair is
+in the queue:
 
 ```sh
 bin/bearing links --proposed --server-ca demo-ca.pem
 ```
 
 ```
-6 proposed identity links, strongest first
+1 proposed identity links, strongest first
 
   01a1…  same_as proposed by linked_ids  strength 50%, certainty 50%
-    a: jdoe [Person …] github:user/jdoe
-    b: Jane Doe [Person …] authentik:user/7f3c2a9e-… (directory)
+    a: Tom Becker [Person …] authentik:user/6c7d8e9f-… (directory)
+    b: tbecker [Person …] github:user/tbecker
 ```
 
-Jane Doe's GitHub user and directory account are the same person (the
-directory records her GitHub login). Tom Becker's pair is in the queue too,
-and accepting his is the wrong call in this scenario. Only a person decides
+The directory records Tom Becker's GitHub login, but the GitHub user
+`tbecker` is a different person with the same login; the two are not the
+same, so the right call is to reject the proposal. Only a person decides
 links, and only on the server's Unix socket (`api.link_decisions: socket`),
 so run the command inside the container, as the service user:
 
 ```sh
-docker compose exec bearing /usr/local/bin/bearing link accept 01a1… \
-  --reason "same person" --server /run/bearing/api.sock
+docker compose exec bearing /usr/local/bin/bearing link reject 01a1… \
+  --reason "two different people" --server /run/bearing/api.sock
 ```
 
-Use the ID your queue shows. Ask `bearing links --proposed` again: the link
-is decided, and the two records now answer as one entity.
+Use the ID your queue shows. Ask `bearing links --proposed` again: the queue
+is empty, and the two records still answer as two entities.
 
 ## Ask in plain English with Claude Code
 

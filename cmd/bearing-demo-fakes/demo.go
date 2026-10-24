@@ -228,11 +228,20 @@ func (d *demo) deliver(ctx context.Context) (int, error) {
 // control serves the endpoints that play the story:
 //
 //	GET  /demo/steps               the steps and which are played
-//	POST /demo/advance?to=<step|time>
+//	POST /demo/advance?to=<step|time>   needs the header X-Bearing-Demo: 1
+//
+// The endpoint has no authentication, so a web page must not be able to
+// drive it from the user's browser (C-DEMO-1): the custom header forces a
+// CORS preflight that nothing answers, and a Host that is not loopback or
+// this service's name in the Compose network is refused (DNS rebinding).
 func (d *demo) control() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /demo/steps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.status()) })
 	mux.HandleFunc("POST /demo/advance", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(demoHeader) != "1" {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "send the header " + demoHeader + ": 1"})
+			return
+		}
 		res, err := d.advance(r.Context(), r.URL.Query().Get("to"))
 		switch {
 		case errors.Is(err, errUnknownTarget):
@@ -245,7 +254,29 @@ func (d *demo) control() http.Handler {
 			writeJSON(w, http.StatusOK, res)
 		}
 	})
-	return mux
+	return onlyLocalHosts(mux)
+}
+
+// demoHeader must be on every request that changes the story.
+const demoHeader = "X-Bearing-Demo"
+
+// controlHosts are the Host names the control endpoint answers to: loopback
+// (the published port) and the fakes service's name in the Compose network.
+var controlHosts = []string{"127.0.0.1", "localhost", "fakes"}
+
+// onlyLocalHosts refuses a request whose Host is not one of controlHosts.
+func onlyLocalHosts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		if !slices.Contains(controlHosts, host) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "unexpected Host " + r.Host})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

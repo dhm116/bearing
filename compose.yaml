@@ -8,7 +8,7 @@ name: bearing-demo
 
 services:
   fakes:
-    build: .
+    build: {context: ., dockerfile: demo/Dockerfile}
     image: bearing-demo
     command: ["/usr/local/bin/bearing-demo-fakes", "-webhook-url", "https://bearing:8443/webhooks/github-acme"]
     environment:
