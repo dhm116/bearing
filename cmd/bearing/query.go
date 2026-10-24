@@ -28,6 +28,8 @@ type queryEnv struct {
 	Getenv func(string) string
 	// Now is the time durations such as --since 72h count back from.
 	Now func() time.Time
+	// Stdin is what bearing mcp reads requests from.
+	Stdin io.Reader
 }
 
 // defaultQueryEnv reads the real store, environment and clock.
@@ -42,6 +44,7 @@ func defaultQueryEnv() queryEnv {
 		},
 		Getenv: os.Getenv,
 		Now:    time.Now,
+		Stdin:  os.Stdin,
 	}
 }
 

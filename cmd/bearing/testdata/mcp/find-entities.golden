@@ -1,0 +1,23 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "text": "1 match(es)",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "matches": [
+        {
+          "id": "e10",
+          "kind": "Component",
+          "name": "payments",
+          "key": "catalog:component/payments",
+          "score": 1
+        }
+      ]
+    }
+  }
+}
