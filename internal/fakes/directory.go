@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"testing"
 	"time"
 )
 
 // DirectoryOptions configures the directory fake.
 type DirectoryOptions struct {
+	// Listen says where the fake listens; the zero value is a test server.
+	Listen
 	// Token, if set, must be sent as "Authorization: Bearer <Token>";
 	// other requests get Authentik's 403.
 	Token string
@@ -37,7 +38,7 @@ var connectionsCreated = day(2025, 1, 6)
 
 // NewDirectory starts the directory fake for org. It is closed when the
 // test ends.
-func NewDirectory(t testing.TB, org *Org, opts DirectoryOptions) *Directory {
+func NewDirectory(t TB, org *Org, opts DirectoryOptions) *Directory {
 	t.Helper()
 	d := &Directory{server: &server{}, org: org}
 	mux := http.NewServeMux()
@@ -49,7 +50,7 @@ func NewDirectory(t testing.TB, org *Org, opts DirectoryOptions) *Directory {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found."})
 	})
-	d.start(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	d.start(t, opts.Listen, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if opts.Token != "" {
 			// Authentik's replies, both 403 with a detail.
 			switch tok, sent := credential(r, "Bearer"); {

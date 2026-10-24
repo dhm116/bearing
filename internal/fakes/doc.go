@@ -4,7 +4,8 @@
 // ([NewKubernetes]). The first two serve one fictional organization, an
 // [Org], so the two systems can't drift apart; the third serves the
 // company's cluster, a [Cluster]. Tests, golden tests and demos use them;
-// production code never imports them.
+// production code never imports them. The one non-test importer is the demo
+// tool cmd/bearing-demo-fakes, which starts them with a [Listen] of its own.
 //
 // # The fictional org
 //

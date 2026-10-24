@@ -2,16 +2,33 @@ package fakes
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
-	"testing"
 )
+
+// TB is the part of testing.TB the fakes use, so cmd/bearing-demo-fakes can
+// start them without a test.
+type TB interface {
+	Helper()
+	Cleanup(func())
+}
+
+// Listen says where a fake listens. The zero value is a loopback port that
+// the system picks, serving plain HTTP, as httptest does for a test.
+type Listen struct {
+	// Listener, if set, is used instead of a new one.
+	Listener net.Listener
+	// TLS, if set (it must hold a certificate), makes the fake serve HTTPS.
+	TLS *tls.Config
+}
 
 // Request is a request a fake received.
 type Request struct {
@@ -23,16 +40,16 @@ type Request struct {
 }
 
 // server is an httptest.Server that records every request. It is closed
-// when the test ends.
+// when the test ends (or when the demo binary's cleanups run).
 type server struct {
 	*httptest.Server
 	mu   sync.Mutex
 	reqs []Request
 }
 
-func (s *server) start(t testing.TB, h http.Handler) {
+func (s *server) start(t TB, l Listen, h http.Handler) {
 	t.Helper()
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -43,7 +60,18 @@ func (s *server) start(t testing.TB, h http.Handler) {
 		s.mu.Unlock()
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.ServeHTTP(w, r)
-	}))
+	})
+	s.Server = httptest.NewUnstartedServer(handler)
+	if l.Listener != nil {
+		_ = s.Listener.Close() // the unused one NewUnstartedServer opened
+		s.Listener = l.Listener
+	}
+	if l.TLS != nil {
+		s.TLS = l.TLS
+		s.StartTLS()
+	} else {
+		s.Start()
+	}
 	t.Cleanup(s.Close)
 }
 
@@ -83,4 +111,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // baseURL is the server's own URL as the client reached it.
-func baseURL(r *http.Request) string { return "http://" + r.Host }
+func baseURL(r *http.Request) string {
+	if r.TLS != nil {
+		return "https://" + r.Host
+	}
+	return "http://" + r.Host
+}

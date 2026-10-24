@@ -30,6 +30,14 @@ the code already uses.
 | Remote adapter | A process on another host | Mutual TLS 1.3, each side's certificate from a CA it trusts and, optionally, holding the SPIFFE ID it expects (below) |
 | Settings file and adapter commands | An operator | File ownership and mode checks at start (C-OPS-3) |
 
+The Docker Compose demo (`compose.yaml`, `demo/settings.json`,
+`cmd/bearing-demo-fakes`, [`docs/demo.md`](../demo.md)) is for demos only.
+Its CA and certificates are generated into a shared volume by the fakes, its
+tokens are the made-up values of `.env.example`, the fakes' control endpoint
+has no authentication (Compose publishes it on loopback only; C-DEMO-1
+below), and the adapters trust the demo CA through `SSL_CERT_FILE`. Do not point it at a real
+source system, and do not reuse any of it in a deployment.
+
 Adapter output is untrusted even from first-party adapters: the server
 validates every observation with `pkg/model` before it is stored.
 
@@ -212,6 +220,16 @@ credentials; the server never sends it any.
 - **C-STORE-11** Trim removes only events that are not marked to keep and that
   every required group has applied, so a stopped worker never loses work. The
   `bearing.worker.oldest_unapplied.age` metric shows it falling behind.
+
+**Demo**
+
+- **C-DEMO-1** The fakes' control endpoint (`POST /demo/advance`) refuses a
+  request without the header `X-Bearing-Demo: 1`, which a web page cannot
+  send cross-site without a CORS preflight that nothing answers, and any
+  request whose Host is not `127.0.0.1`, `localhost` or `fakes` (the service
+  name in the Compose network), which stops DNS rebinding. Neither is
+  authentication: anything that can reach the loopback port can still play
+  the story, which is why Compose publishes it on loopback only.
 
 **Secrets never appear in** config values, URLs, logs, span attributes, metric
 labels or error text. Tests plant canary values and scan for them

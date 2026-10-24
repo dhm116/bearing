@@ -1,0 +1,73 @@
+{
+  "store": { "url": "duckdb:///var/lib/bearing/bearing.duckdb" },
+  "listen": {
+    "socket": "/run/bearing/api.sock",
+    "addr": "0.0.0.0:8443",
+    "tls_cert": "/certs/bearing.pem",
+    "tls_key": "/certs/bearing-key.pem"
+  },
+  "auth": { "token_env": "BEARING_API_TOKEN" },
+  "api": { "link_decisions": "socket" },
+  "adapters": [
+    {
+      "name": "github",
+      "command": "/usr/local/bin/bearing-adapter-github",
+      "declaration": "/etc/bearing/declarations/github.json",
+      "env": ["SSL_CERT_FILE"]
+    },
+    {
+      "name": "authentik",
+      "command": "/usr/local/bin/bearing-adapter-authentik",
+      "declaration": "/etc/bearing/declarations/authentik.json",
+      "env": ["SSL_CERT_FILE"]
+    },
+    {
+      "name": "kubernetes",
+      "command": "/usr/local/bin/bearing-adapter-kubernetes",
+      "declaration": "/etc/bearing/declarations/kubernetes.json",
+      "env": ["SSL_CERT_FILE"]
+    }
+  ],
+  "matching": {
+    "rules": [
+      { "name": "directory-group-is-github-team", "a": "authentik:group_name/{name}", "b": "github:team/acme/{name}" },
+      { "name": "kubernetes-team-is-github-team", "a": "kubernetes:team/{name}", "b": "github:team/acme/{name}" }
+    ]
+  },
+  "sources": [
+    {
+      "apiVersion": "bearing/v1alpha1",
+      "kind": "Source",
+      "metadata": { "name": "github-acme" },
+      "spec": {
+        "adapter": "github",
+        "schedule": "PT1M",
+        "secrets": { "GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN" },
+        "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",
+        "settings": { "org": "acme", "api_url": "https://fakes:8441", "token_env": "GITHUB_TOKEN" }
+      }
+    },
+    {
+      "apiVersion": "bearing/v1alpha1",
+      "kind": "Source",
+      "metadata": { "name": "directory" },
+      "spec": {
+        "adapter": "authentik",
+        "schedule": "PT1M",
+        "secrets": { "AUTHENTIK_TOKEN": "env:BEARING_SECRET_DIRECTORY_TOKEN" },
+        "settings": { "api_url": "https://fakes:8442", "token_env": "AUTHENTIK_TOKEN" }
+      }
+    },
+    {
+      "apiVersion": "bearing/v1alpha1",
+      "kind": "Source",
+      "metadata": { "name": "kubernetes-acme" },
+      "spec": {
+        "adapter": "kubernetes",
+        "schedule": "PT1M",
+        "secrets": { "KUBERNETES_TOKEN": "env:BEARING_SECRET_KUBERNETES_TOKEN" },
+        "settings": { "cluster": "k3d-acme", "api_url": "https://fakes:8443", "token_env": "KUBERNETES_TOKEN" }
+      }
+    }
+  ]
+}

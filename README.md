@@ -64,13 +64,19 @@ keeps the adapters that fetch it small.
 | [`adapters/authentik`](adapters/authentik) | The Authentik directory adapter: users, groups, nested groups, time-bounded memberships and GitHub account links |
 | [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related`, `changes`, `find` and `runtimes` from the store or from a running server, asks a server to sync a source, serves the queries to agents as an MCP server (`bearing mcp`), and runs the server (`bearing server --settings`) |
 | [`cmd/bearing-adapter-github`](cmd/bearing-adapter-github), [`cmd/bearing-adapter-kubernetes`](cmd/bearing-adapter-kubernetes), [`cmd/bearing-adapter-authentik`](cmd/bearing-adapter-authentik) | The binaries that serve the GitHub, Kubernetes and Authentik adapters |
+| [`cmd/bearing-demo-fakes`](cmd/bearing-demo-fakes) | A demo tool, not a shipped binary: serves the fakes over HTTPS and plays the Acme story on request, for [`compose.yaml`](compose.yaml) and [`docs/demo.md`](docs/demo.md) |
+| [`compose.yaml`](compose.yaml), [`demo/Dockerfile`](demo/Dockerfile), [`demo/`](demo/) | Docker Compose demo: Bearing and the Acme fakes in one image; `demo/settings.json` is the server's settings file; `.env.example` holds the demo values |
 | [`testdata/`](testdata/) | Example observations, adapter declarations, events and configuration, and the recorded Acme feeds |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
 ## Try it
 
-Requires Go 1.27.3 or later (the `go` command downloads it automatically if needed).
+To see the five questions answered on a fictional company, run the Docker
+Compose demo: `cp .env.example .env && docker compose up -d --build`, then
+follow [`docs/demo.md`](docs/demo.md).
+
+To work on the code, you need Go 1.27.3 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
