@@ -31,7 +31,10 @@ services:
     cap_drop: [ALL]
 
   bearing:
+    build: {context: ., dockerfile: demo/Dockerfile}
     image: bearing-demo
+    # A local image: never look for it on a registry.
+    pull_policy: never
     depends_on:
       fakes:
         condition: service_healthy
