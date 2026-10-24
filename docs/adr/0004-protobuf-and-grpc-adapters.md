@@ -24,6 +24,15 @@ language can generate.
 
 ## Consequences
 
+- The service has one integer protocol version, `DescribeResponse.protocol_version`
+  (`adapter.ProtocolVersion`, now 1), which the adapter library sends in
+  every answer. Additive proto changes (a new field or method) do not bump
+  it; a change an older peer would misread does. The core refuses an adapter
+  on a version it does not support when it first calls `Describe`, and again
+  at the start of each full sync. Absent means 1; once 1 is dropped,
+  adapters that send nothing are refused (amended 2026-10-24; taken from
+  hashicorp/go-plugin).
+
 - An adapter can be written in any language with a gRPC library.
 - Remote adapters use mutual TLS (TLS 1.3): the core and the adapter each
   present a certificate the other checks against a CA it was configured

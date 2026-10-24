@@ -273,5 +273,7 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
   applied again.
 - **A short window** exists between creating an adapter's socket and setting
   its mode (its directory is already private).
-- **Remote adapters** are redialled without a backoff, and the adapter
-  protocol version is not part of the wire exchange.
+- **Remote adapters** are redialled without a backoff. Their protocol
+  version (`Describe` carries it; absent means 1) is checked at boot, on
+  first use of a connection and at each full sync, so a redeploy is caught
+  within one sync interval.

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -26,7 +27,8 @@ const childEnv = "BEARING_ADAPTER_TEST_CHILD"
 // serveChild runs the adapter mode names and returns the exit code:
 // "serve" is pager through Main; "fail" is the same, then exits 1; "env"
 // describes its environment; "hang" never answers Describe; "exit" exits at
-// once; "stubborn" ignores SIGTERM.
+// once; "stubborn" ignores SIGTERM; "proto<N>" answers Describe with
+// protocol version N and nothing else.
 func serveChild(mode string) int {
 	switch mode {
 	case "exit":
@@ -38,6 +40,17 @@ func serveChild(mode string) int {
 			return 1
 		}
 		_ = Serve(context.Background(), pager{n: 1}, lis)
+		return 0
+	}
+	if v, ok := strings.CutPrefix(mode, "proto"); ok { // "proto0", "proto2": answer Describe with that version
+		n, _ := strconv.Atoi(v)
+		lis, err := Listen(os.Getenv(EnvListen), os.Getenv)
+		if err != nil {
+			return 1
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+		defer stop()
+		_ = testkit.ServeAdapterProtocol(ctx, lis, uint32(n)) //nolint:gosec // G115: a small test value
 		return 0
 	}
 	var a Adapter = pager{n: 1}
@@ -242,6 +255,22 @@ func TestStartRefusesAnUnsafeSocketDirectoryOrName(t *testing.T) {
 			_, err := Start(t.Context(), StartConfig{Name: tt.adapter, Command: os.Args[0], SocketDir: tt.dir})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestStartRefusesAnAdapterOnAnotherProtocolVersion(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"2"} {
+		t.Run("version "+v, func(t *testing.T) {
+			_, err := startChild(t, "proto"+v, StartConfig{})
+			var e *Error
+			if !errors.Is(err, ErrProtocolMismatch) || !errors.As(err, &e) || e.Code != CodeNotSupported {
+				t.Fatalf("got %v, want a CodeNotSupported protocol refusal", err)
+			}
+			if !strings.Contains(err.Error(), "child") || !strings.Contains(err.Error(), "[1]") {
+				t.Fatalf("got %q, want the adapter's name and the supported versions", err)
 			}
 		})
 	}

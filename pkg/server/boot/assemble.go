@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -150,6 +151,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
+	if err = checkProtocols(ctx, sources); err != nil {
+		return nil, err
+	}
 	scfg, err := serverConfig(s, st, plans, sources, env.Clock)
 	if err != nil {
 		return nil, err
@@ -181,6 +185,41 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		return nil, err
 	}
 	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
+}
+
+// protocolCheckTimeout bounds the Describe that checks an adapter's protocol
+// version at start. A local adapter is launched by that call (through the
+// lazy managed get), so it is longer than adapter.Start's 10 s wait.
+const protocolCheckTimeout = 15 * time.Second
+
+// checkProtocols asks every adapter to Describe itself, in parallel, and
+// stops the start on one built for another protocol version, naming its
+// source (the first in source order if several). Any other failure (a remote
+// adapter not up yet) is left to the first sync, which describes again
+// before anything else and so refuses it then. Local adapters have already
+// answered a Describe when they started at boot, so this reaches the remote
+// ones in effect.
+func checkProtocols(ctx context.Context, sources []server.Source) error {
+	errs := make([]error, len(sources))
+	var wg sync.WaitGroup
+	for i, src := range sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
+			defer cancel()
+			if _, err := src.Adapter.Describe(cctx); errors.Is(err, adapter.ErrProtocolMismatch) {
+				errs[i] = fmt.Errorf("boot: source %s: %w", src.Name, err)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops

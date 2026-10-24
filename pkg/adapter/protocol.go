@@ -16,10 +16,12 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,14 +30,30 @@ import (
 	"bearing.example/pkg/model"
 )
 
-// ProtocolVersion is the adapter protocol version this package speaks.
-const ProtocolVersion = "0.2"
+// ProtocolVersion is the version of the adapter service this package speaks,
+// sent in every DescribeResponse. Additive changes to the proto (a new field
+// or method) do not change it; a change an older peer would misread does.
+const ProtocolVersion uint32 = 1
+
+var supportedProtocols = []uint32{1}
+
+// SupportedProtocolVersions returns the versions the core accepts from an
+// adapter. An adapter that reports none is taken to speak 1; once 1 is
+// dropped, such adapters are refused.
+func SupportedProtocolVersions() []uint32 { return slices.Clone(supportedProtocols) }
+
+// ErrProtocolMismatch matches the error for an adapter that speaks a
+// protocol version the core does not support.
+var ErrProtocolMismatch = errors.New("adapter protocol version not supported")
 
 // DescribeResult tells the core what an adapter is and what it needs.
 type DescribeResult struct {
-	Name            string          `json:"name"`
-	Version         string          `json:"version"`
-	ProtocolVersion string          `json:"protocol_version"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// ProtocolVersion is filled from the wire on the core's side (Serve
+	// always sends ProtocolVersion, whatever an adapter sets here), so an
+	// adapter leaves it zero.
+	ProtocolVersion uint32          `json:"protocol_version"`
 	Emits           []model.Kind    `json:"emits"`
 	ConfigSchema    json.RawMessage `json:"config_schema,omitempty"`
 	// Access lists the permissions the adapter needs in the source system,

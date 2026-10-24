@@ -38,6 +38,11 @@ settings name the matching `tls.ca_file`, `tls.cert_file` and
 `tls.key_file`. The files are read again when they change, so a rotated
 certificate needs no restart.
 
+The core refuses an adapter built for another protocol version
+(`adapter.ProtocolVersion`, sent by `adapter.Main`; a non-Go adapter sets
+`DescribeResponse.protocol_version`; absent means 1, and once 1 is dropped
+adapters that send nothing are refused): rebuild it from the same release.
+
 Without a peer ID, any certificate from the client CA can call `Sync` and
 `Handle`, so that CA must issue only Bearing core certificates. To share a
 CA (a SPIRE trust domain, say), name the SPIFFE ID each side must present:

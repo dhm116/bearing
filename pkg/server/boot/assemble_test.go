@@ -7,17 +7,22 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/server"
 	"bearing.example/pkg/store"
@@ -27,6 +32,7 @@ const (
 	stubEnv     = "BOOT_STUB"      // set in a child: serve the stub adapter
 	stubMarkEnv = "BOOT_STUB_MARK" // the file the stub writes when it is synced
 	githubEnv   = "BOOT_GITHUB"    // set in a child: serve the real GitHub adapter
+	protoEnv    = "BOOT_PROTO"     // set in a child: answer Describe with this protocol version
 )
 
 // stubAdapter reports the environment it was started with as its name and its
@@ -50,6 +56,17 @@ func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 }
 
 func TestMain(m *testing.M) {
+	if v := os.Getenv(protoEnv); v != "" {
+		n, _ := strconv.Atoi(v)
+		lis, err := adapter.Listen(os.Getenv(adapter.EnvListen), os.Getenv)
+		if err != nil {
+			os.Exit(1)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+		_ = testkit.ServeAdapterProtocol(ctx, lis, uint32(n)) //nolint:gosec // G115: a small test value
+		stop()
+		os.Exit(0)
+	}
 	if os.Getenv(stubEnv) != "" {
 		os.Exit(adapter.Main("stub", "test", stubAdapter{}))
 	}
@@ -598,6 +615,23 @@ func TestAssembledAPITakesDecisionsFromWhomTheSettingsSay(t *testing.T) {
 			_ = resp.Body.Close()
 			if resp.StatusCode != want {
 				t.Errorf("got %d, want %d", resp.StatusCode, want)
+			}
+		})
+	}
+}
+
+func TestAssembleRefusesALocalAdapterOnAnotherProtocolVersion(t *testing.T) {
+	for _, v := range []string{"2"} {
+		t.Run("version "+v, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) { s.Adapters[0].Env = append(s.Adapters[0].Env, protoEnv) })
+			w.env[protoEnv] = v
+			r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+			if err == nil {
+				r.Close()
+				t.Fatal("got a running server, want the start refused")
+			}
+			if !errors.Is(err, adapter.ErrProtocolMismatch) || !strings.Contains(err.Error(), "github-acme") {
+				t.Fatalf("got %v, want a protocol refusal naming the source github-acme", err)
 			}
 		})
 	}

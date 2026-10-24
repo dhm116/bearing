@@ -83,8 +83,13 @@ type DescribeResponse struct {
 	Webhooks bool `protobuf:"varint,6,opt,name=webhooks,proto3" json:"webhooks,omitempty"`
 	// How deliveries are signed; set when webhooks is.
 	WebhookSignature *WebhookSignature `protobuf:"bytes,7,opt,name=webhook_signature,json=webhookSignature,proto3" json:"webhook_signature,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The major version of this service the adapter speaks. The adapter
+	// library fills it in; the core refuses an adapter whose version it does
+	// not support. Absent (0) means 1, the version before this field; once 1
+	// is dropped, an adapter that sends nothing is refused.
+	ProtocolVersion uint32 `protobuf:"varint,8,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DescribeResponse) Reset() {
@@ -164,6 +169,13 @@ func (x *DescribeResponse) GetWebhookSignature() *WebhookSignature {
 		return x.WebhookSignature
 	}
 	return nil
+}
+
+func (x *DescribeResponse) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
 }
 
 // WebhookSignature says how a source signs its webhook deliveries, so the
@@ -521,7 +533,7 @@ var File_bearing_adapter_v1alpha1_adapter_proto protoreflect.FileDescriptor
 const file_bearing_adapter_v1alpha1_adapter_proto_rawDesc = "" +
 	"\n" +
 	"&bearing/adapter/v1alpha1/adapter.proto\x12\x18bearing.adapter.v1alpha1\x1a\"bearing/event/v1alpha1/event.proto\x1a(bearing/model/v1alpha1/observation.proto\"\x11\n" +
-	"\x0fDescribeRequest\"\x88\x02\n" +
+	"\x0fDescribeRequest\"\xb3\x02\n" +
 	"\x10DescribeResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x14\n" +
@@ -529,7 +541,8 @@ const file_bearing_adapter_v1alpha1_adapter_proto_rawDesc = "" +
 	"\rconfig_schema\x18\x04 \x01(\fR\fconfigSchema\x12\x16\n" +
 	"\x06access\x18\x05 \x03(\tR\x06access\x12\x1a\n" +
 	"\bwebhooks\x18\x06 \x01(\bR\bwebhooks\x12W\n" +
-	"\x11webhook_signature\x18\a \x01(\v2*.bearing.adapter.v1alpha1.WebhookSignatureR\x10webhookSignature\"\x80\x01\n" +
+	"\x11webhook_signature\x18\a \x01(\v2*.bearing.adapter.v1alpha1.WebhookSignatureR\x10webhookSignature\x12)\n" +
+	"\x10protocol_version\x18\b \x01(\rR\x0fprotocolVersion\"\x80\x01\n" +
 	"\x10WebhookSignature\x12\x16\n" +
 	"\x06scheme\x18\x01 \x01(\tR\x06scheme\x12)\n" +
 	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +

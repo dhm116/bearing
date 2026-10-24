@@ -70,6 +70,7 @@ type managed struct {
 	proc    Process
 	fails   int
 	retryAt time.Time
+	lastErr error // why the last start failed, shown while the pause lasts
 }
 
 var _ adapter.Adapter = (*managed)(nil)
@@ -90,11 +91,17 @@ func (m *managed) get() (Process, error) {
 		return m.proc, nil
 	}
 	if now := m.clk.Now(); now.Before(m.retryAt) {
-		return nil, fmt.Errorf("adapter for source %s failed and is not started again for %s", m.source, m.retryAt.Sub(now).Round(time.Second))
+		// lastErr is text, so a stale context.DeadlineExceeded cannot match errors.Is on this call; only a protocol refusal is kept.
+		err := fmt.Errorf("adapter for source %s failed and is not started again for %s (last start: %s)", m.source, m.retryAt.Sub(now).Round(time.Second), m.lastErr.Error())
+		if errors.Is(m.lastErr, adapter.ErrProtocolMismatch) {
+			err = fmt.Errorf("%w: %w", adapter.ErrProtocolMismatch, err)
+		}
+		return nil, err
 	}
 	p, err := m.launch(m.ctx)
 	if err != nil {
 		m.failLocked()
+		m.lastErr = err
 		return nil, fmt.Errorf("start the adapter for source %s: %w", m.source, err)
 	}
 	m.proc = p
@@ -119,6 +126,7 @@ func (m *managed) drop(p Process, why error) {
 	m.proc = nil
 	if !errors.Is(why, context.Canceled) { // a caller that walked away, or a stop, is not the adapter's failure
 		m.failLocked()
+		m.lastErr = why
 	}
 	m.reaping.Add(1)
 	m.mu.Unlock()

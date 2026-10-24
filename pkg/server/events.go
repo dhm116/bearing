@@ -108,7 +108,8 @@ func (s *Server) handleWebhook(ctx context.Context, e store.Entry) (string, erro
 		headers[h.GetName()] = append(headers[h.GetName()], h.GetValue())
 	}
 	res, err := adapter.HandleChecked(ctx, src.Adapter, src.Name, adapter.HandleParams{Config: src.Config, Headers: headers, Body: msg.GetBody()})
-	if errors.Is(err, adapter.ErrNotSupported) {
+	// A protocol mismatch carries CodeNotSupported too, but it is a fault to retry, not an adapter without webhooks.
+	if errors.Is(err, adapter.ErrNotSupported) && !errors.Is(err, adapter.ErrProtocolMismatch) {
 		return workerSkipped, nil
 	}
 	if err != nil {

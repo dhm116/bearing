@@ -154,12 +154,11 @@ func New() *Adapter {
 // Describe implements adapter.Adapter.
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 	return adapter.DescribeResult{
-		Name:            "kubernetes",
-		Version:         Version,
-		ProtocolVersion: adapter.ProtocolVersion,
-		Emits:           []model.Kind{model.KindComponent, model.KindEnvironment, model.KindTeam},
-		ConfigSchema:    json.RawMessage(configSchema),
-		Access:          []string{"namespaces, services: list", "apps deployments, statefulsets, daemonsets: list"},
+		Name:         "kubernetes",
+		Version:      Version,
+		Emits:        []model.Kind{model.KindComponent, model.KindEnvironment, model.KindTeam},
+		ConfigSchema: json.RawMessage(configSchema),
+		Access:       []string{"namespaces, services: list", "apps deployments, statefulsets, daemonsets: list"},
 	}, nil
 }
 

@@ -10,15 +10,19 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	adapterv1alpha1 "bearing.example/gen/go/bearing/adapter/v1alpha1"
 	"bearing.example/gen/go/bearing/adapter/v1alpha1/adapterv1alpha1connect"
@@ -180,6 +184,7 @@ func recordRPC(ctx context.Context, h metric.Float64Histogram, method string, st
 func describeToProto(d DescribeResult) *adapterv1alpha1.DescribeResponse {
 	out := &adapterv1alpha1.DescribeResponse{
 		Name: d.Name, Version: d.Version, ConfigSchema: d.ConfigSchema, Access: d.Access, Webhooks: d.Webhooks,
+		ProtocolVersion: ProtocolVersion, // never the adapter's own word for it
 	}
 	for _, k := range d.Emits {
 		out.Emits = append(out.Emits, string(k))
@@ -193,7 +198,7 @@ func describeToProto(d DescribeResult) *adapterv1alpha1.DescribeResponse {
 func describeFromProto(d *adapterv1alpha1.DescribeResponse) DescribeResult {
 	out := DescribeResult{
 		Name: d.GetName(), Version: d.GetVersion(), ConfigSchema: json.RawMessage(d.GetConfigSchema()),
-		Access: d.GetAccess(), Webhooks: d.GetWebhooks(),
+		Access: d.GetAccess(), Webhooks: d.GetWebhooks(), ProtocolVersion: d.GetProtocolVersion(),
 	}
 	for _, k := range d.GetEmits() {
 		out.Emits = append(out.Emits, model.Kind(k))
@@ -231,6 +236,14 @@ type Remote struct {
 	name   string
 	client adapterv1alpha1connect.AdapterServiceClient
 	tr     *http.Transport
+	// checked is set once Describe found the adapter's protocol version
+	// supported on this connection; Sync and Handle describe first while it
+	// is false, and each full sync (empty cursor) describes again. The check
+	// is best effort: a Describe racing a call, or one finishing after Close,
+	// can leave it set or clear wrongly, which the next full sync corrects. A
+	// remote that only takes webhooks is described again in Handle only after
+	// a transport failure or Close.
+	checked atomic.Bool
 }
 
 var _ Adapter = (*Remote)(nil)
@@ -295,26 +308,84 @@ func (r *Remote) Name() string { return r.name }
 // Close drops the idle connections, so the next call dials again and
 // handshakes with the TLS files as they are now. A call in flight is not
 // interrupted, and the Remote stays usable.
-func (r *Remote) Close() { r.tr.CloseIdleConnections() }
+func (r *Remote) Close() {
+	r.checked.Store(false)
+	r.tr.CloseIdleConnections()
+}
 
-// Describe implements Adapter.
+// Describe implements Adapter. It refuses an adapter whose protocol version
+// the core does not support, with an error that matches ErrProtocolMismatch
+// and has code CodeNotSupported, so Start, the server and the CLI all
+// refuse it where they first ask. A version the adapter leaves out means 1,
+// the version before the field existed.
 func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
+	ctx, span := tracer.Start(ctx, "bearing.adapter.describe", trace.WithAttributes(attrAdapter.String(r.name)))
+	defer span.End()
 	start := time.Now()
 	res, err := r.client.Describe(ctx, connect.NewRequest(&adapterv1alpha1.DescribeRequest{}))
 	recordRPC(ctx, rpcClientDuration, "describe", start, err)
 	if err != nil {
-		return DescribeResult{}, fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))
+		err = fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))
+		r.transportFailed(err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "describe failed")
+		return DescribeResult{}, err
 	}
-	return describeFromProto(res.Msg), nil
+	d := describeFromProto(res.Msg)
+	if d.ProtocolVersion == 0 {
+		d.ProtocolVersion = 1
+	}
+	span.SetAttributes(attrProtocol.Int64(int64(d.ProtocolVersion)))
+	if !slices.Contains(supportedProtocols, d.ProtocolVersion) {
+		r.checked.Store(false)
+		err := protocolMismatch(r.name, d.ProtocolVersion)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "protocol version not supported")
+		return DescribeResult{}, err
+	}
+	r.checked.Store(true)
+	return d, nil
+}
+
+// transportFailed forgets that the peer was checked after a failure that did
+// not come from the adapter itself, so the next call asks again.
+func (r *Remote) transportFailed(err error) {
+	var e *Error
+	if !errors.As(err, &e) {
+		r.checked.Store(false)
+	}
+}
+
+// ensureChecked describes the adapter first unless its protocol version was
+// checked on this connection, or force is set.
+func (r *Remote) ensureChecked(ctx context.Context, force bool) error {
+	if !force && r.checked.Load() {
+		return nil
+	}
+	_, err := r.Describe(ctx)
+	return err
+}
+
+// protocolMismatch is the refusal of an adapter on a version the core does
+// not support. It names the adapter and the versions, nothing the adapter
+// said.
+func protocolMismatch(name string, got uint32) error {
+	msg := fmt.Sprintf("adapter %s speaks protocol version %d; this core supports %v: rebuild the adapter from the same release", name, got, supportedProtocols)
+	return fmt.Errorf("%w: %w", &Error{Code: CodeNotSupported, Message: msg}, ErrProtocolMismatch)
 }
 
 // Sync implements Adapter.
 func (r *Remote) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
+	if err := r.ensureChecked(ctx, len(p.Cursor) == 0); err != nil {
+		return SyncResult{}, err
+	}
 	start := time.Now()
 	res, err := r.client.Sync(ctx, connect.NewRequest(&adapterv1alpha1.SyncRequest{Config: p.Config, Cursor: p.Cursor}))
 	recordRPC(ctx, rpcClientDuration, "sync", start, err)
 	if err != nil {
-		return SyncResult{}, fmt.Errorf("adapter %s: sync: %w", r.name, fromConnect(err))
+		err = fmt.Errorf("adapter %s: sync: %w", r.name, fromConnect(err))
+		r.transportFailed(err)
+		return SyncResult{}, err
 	}
 	m := res.Msg
 	return SyncResult{Observations: m.GetObservations(), NextCursor: m.GetNextCursor(), Done: m.GetDone(), CompleteSync: m.GetCompleteSync()}, nil
@@ -323,6 +394,9 @@ func (r *Remote) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
 // Handle implements Adapter. An adapter without webhooks fails with an
 // *Error whose Code is CodeNotSupported.
 func (r *Remote) Handle(ctx context.Context, p HandleParams) (HandleResult, error) {
+	if err := r.ensureChecked(ctx, false); err != nil {
+		return HandleResult{}, err
+	}
 	start := time.Now()
 	headers := make(map[string]*adapterv1alpha1.HeaderValues, len(p.Headers))
 	for k, v := range p.Headers {
@@ -334,7 +408,9 @@ func (r *Remote) Handle(ctx context.Context, p HandleParams) (HandleResult, erro
 		return HandleResult{}, &Error{Code: CodeNotSupported, Message: fmt.Sprintf("adapter %s does not handle webhooks", r.name)}
 	}
 	if err != nil {
-		return HandleResult{}, fmt.Errorf("adapter %s: handle: %w", r.name, fromConnect(err))
+		err = fmt.Errorf("adapter %s: handle: %w", r.name, fromConnect(err))
+		r.transportFailed(err)
+		return HandleResult{}, err
 	}
 	return HandleResult{Observations: res.Msg.GetObservations()}, nil
 }
