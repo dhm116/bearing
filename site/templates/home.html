@@ -15,13 +15,17 @@
     <p class="hero__free"><svg class="icon"><use href="#i-check"/></svg>Free and open source, under the Apache 2.0 license</p>
   </div>
   <figure class="proof">
-    <p class="proof__q"><svg class="icon"><use href="#i-chat"/></svg><span>Who approves changes to payments-api?</span></p>
-    <p class="proof__a"><img class="proof__mark" src="{{static "brand/bearing-mark.svg"}}" alt="" width="28" height="28"><span>The <strong>payments</strong> team.</span></p>
-    <dl class="proof__src">
-      <dt>Source</dt><dd>GitHub</dd>
-      <dt>Evidence</dt><dd><code>.github/CODEOWNERS</code>, line 2</dd>
-      <dt>How sure</dt><dd>Certain</dd>
-    </dl>
+    <p class="chat__bar"><img src="{{static "brand/bearing-mark.svg"}}" alt="" width="20" height="20">Bearing <span>· answers from your tools</span></p>
+    <div class="chat__log">
+      <p class="chat__you">Who approves changes to payments-api?</p>
+      <div class="chat__bearing">
+        <img src="{{static "brand/bearing-mark.svg"}}" alt="Bearing" width="28" height="28">
+        <div class="chat__bubble">
+          <p>The <strong>payments</strong> team approves every change to it.</p>
+          <ul class="chat__cite" aria-label="Sources"><li>GitHub</li><li>.github/CODEOWNERS, line 2</li><li>Certain</li></ul>
+        </div>
+      </div>
+    </div>
     <figcaption>A real answer from Bearing's demo, which runs on a made-up company called Acme.</figcaption>
   </figure>
 </section>

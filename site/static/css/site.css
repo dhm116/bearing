@@ -150,24 +150,31 @@ kbd {
   .hero { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: end; padding-block: var(--space-3xl) var(--space-2xl); }
 }
 
-/* The hero's proof: one real answer, laid out the way Bearing gives it. */
+/* The hero's proof: one real answer as a chat. You ask on the right; Bearing
+ * answers on the left with its sources attached to the message. */
 .proof {
-  margin: 0; display: grid; gap: var(--space-md); padding: var(--space-lg); max-width: 34rem;
+  margin: 0; display: grid; gap: var(--space-md); padding: 0; max-width: 34rem; overflow: hidden;
   background: var(--surface); border: var(--rule); border-radius: var(--radius-lg); box-shadow: 0 12px 32px -16px var(--shadow);
 }
-.proof__q {
-  display: flex; align-items: flex-start; gap: var(--space-sm); justify-self: start;
-  padding: var(--space-sm) var(--space-md); background: var(--accent); color: var(--on-accent);
-  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm); font: 500 var(--text-md)/1.35 var(--font-display);
+.chat__bar { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-sm) var(--space-lg); border-bottom: var(--rule); font: 600 var(--text-sm)/1.4 var(--font-body); }
+.chat__bar img { width: 1.25rem; height: 1.25rem; }
+.chat__bar span { color: var(--muted); font-weight: 400; }
+.chat__log { display: grid; gap: var(--space-md); padding: var(--space-sm) var(--space-lg) 0; }
+.chat__you {
+  justify-self: end; max-width: 85%; padding: var(--space-sm) var(--space-md); background: var(--accent); color: var(--on-accent);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg); font: 500 var(--text-md)/1.4 var(--font-body);
 }
-.proof__q .icon { margin-top: 0.15rem; }
-.proof__a { display: flex; align-items: center; gap: var(--space-sm); font: 700 var(--text-xl)/1.25 var(--font-display); letter-spacing: -0.01em; }
-.proof__a strong { color: var(--accent); }
-.proof__mark { width: 1.75rem; height: 1.75rem; flex: none; }
-.proof__src { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-xs) var(--space-md); margin: 0; padding-top: var(--space-md); border-top: var(--rule); font-size: var(--text-sm); }
-.proof__src dt { font: 500 var(--text-xs)/1.9 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.proof__src dd { margin: 0; overflow-wrap: anywhere; }
-.proof figcaption { font-size: var(--text-sm); color: var(--muted); }
+.chat__bearing { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-sm); align-items: end; max-width: 94%; }
+.chat__bearing > img { width: 1.75rem; height: 1.75rem; }
+.chat__bubble {
+  display: grid; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--sunk); border: var(--rule);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+}
+.chat__bubble p { font-size: var(--text-md); line-height: 1.45; }
+.chat__bubble strong { color: var(--accent); }
+.chat__cite { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.chat__cite li { font: 500 var(--text-xs)/1.5 var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 0.1rem 0.5rem; border-radius: var(--radius-sm); }
+.proof figcaption { padding: 0 var(--space-lg) var(--space-lg); font-size: var(--text-sm); color: var(--muted); }
 
 /* ---------- Home: org map ---------- */
 
