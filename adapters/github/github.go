@@ -123,13 +123,12 @@ func New() *Adapter {
 // emits and the configuration it accepts.
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 	return adapter.DescribeResult{
-		Name:            "github",
-		Version:         Version,
-		ProtocolVersion: adapter.ProtocolVersion,
-		Emits:           []model.Kind{model.KindRepository, model.KindTeam, model.KindPerson},
-		ConfigSchema:    json.RawMessage(configSchema),
-		Access:          []string{"repository metadata: read", "repository contents: read", "organization members: read"},
-		Webhooks:        true,
+		Name:         "github",
+		Version:      Version,
+		Emits:        []model.Kind{model.KindRepository, model.KindTeam, model.KindPerson},
+		ConfigSchema: json.RawMessage(configSchema),
+		Access:       []string{"repository metadata: read", "repository contents: read", "organization members: read"},
+		Webhooks:     true,
 		WebhookSignature: &adapter.WebhookSignature{
 			Scheme:          modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256.String(),
 			SignatureHeader: "X-Hub-Signature-256",

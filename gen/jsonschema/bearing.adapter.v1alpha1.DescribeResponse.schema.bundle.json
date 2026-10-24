@@ -11,6 +11,21 @@
           "pattern": "^[A-Za-z0-9+/]*={0,2}$",
           "type": "string"
         },
+        "^(protocolVersion)$": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The major version of this service the adapter speaks. The adapter\n library fills it in; the core refuses an adapter whose version it does\n not support. 0 (absent) is an adapter built before this field."
+        },
         "^(webhookSignature)$": {
           "$ref": "#/$defs/bearing.adapter.v1alpha1.WebhookSignature.schema.json",
           "description": "How deliveries are signed; set when webhooks is."
@@ -41,6 +56,21 @@
           "default": "",
           "description": "The adapter's name, such as \"github\".",
           "type": "string"
+        },
+        "protocol_version": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          ],
+          "default": 0,
+          "description": "The major version of this service the adapter speaks. The adapter\n library fills it in; the core refuses an adapter whose version it does\n not support. 0 (absent) is an adapter built before this field."
         },
         "version": {
           "default": "",

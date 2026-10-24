@@ -11,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/model"
 )
 
@@ -141,5 +142,63 @@ func TestServeRefusesARequestOverTheMessageLimit(t *testing.T) {
 	}
 	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
 		t.Fatalf("a small request: got %v", err)
+	}
+}
+
+// versioned is pager claiming a protocol version of its own.
+type versioned struct{ pager }
+
+func (versioned) Describe(context.Context) (DescribeResult, error) {
+	return DescribeResult{Name: "pager", Version: "test", ProtocolVersion: 9}, nil
+}
+
+func TestServeAnswersTheProtocolVersionWhateverTheAdapterSays(t *testing.T) {
+	t.Parallel()
+	d, err := dialed(t, versioned{}).Describe(t.Context())
+	if err != nil || d.ProtocolVersion != ProtocolVersion || ProtocolVersion != 1 {
+		t.Fatalf("got %+v, %v, want protocol version 1", d, err)
+	}
+}
+
+// serveProtocol serves an adapter answering Describe with version and
+// returns its address.
+func serveProtocol(t *testing.T, version uint32) string {
+	t.Helper()
+	dir := socketDir(t)
+	lis, err := net.Listen("unix", filepath.Join(dir, "a.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, version) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return "unix://" + filepath.Join(dir, "a.sock")
+}
+
+func TestDialedAdapterOnAnotherProtocolVersionIsRefusedAtDescribe(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		version uint32
+		ok      bool
+	}{{0, false}, {1, true}, {2, false}} {
+		r, err := Dial("old", DialConfig{Address: serveProtocol(t, tt.version)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = r.Describe(t.Context())
+		var e *Error
+		switch {
+		case tt.ok && err != nil:
+			t.Errorf("version %d: got %v, want it accepted", tt.version, err)
+		case !tt.ok && (!errors.Is(err, ErrProtocolMismatch) || !errors.As(err, &e) || e.Code != CodeNotSupported ||
+			!strings.Contains(err.Error(), "old") || !strings.Contains(err.Error(), "[1]")):
+			t.Errorf("version %d: got %v, want a CodeNotSupported refusal naming the adapter and [1]", tt.version, err)
+		}
 	}
 }

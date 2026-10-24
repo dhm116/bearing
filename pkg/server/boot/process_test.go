@@ -3,7 +3,9 @@ package boot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -354,5 +356,36 @@ func TestManagedPassesHandleThrough(t *testing.T) {
 	}
 	if n := l.n.Load(); n != 1 {
 		t.Fatalf("got %d starts, want 1", n)
+	}
+}
+
+// An adapter that comes back from a restart on another protocol version is
+// refused like one that crashes: logged, counted, and not started again until
+// the pause is over.
+func TestManagedBacksOffAnAdapterThatRestartsOnAnotherProtocolVersion(t *testing.T) {
+	installCapture()
+	clk := testkit.NewClock(epoch)
+	var starts atomic.Int32
+	launch := func(context.Context) (Process, error) {
+		if starts.Add(1) == 1 {
+			return newFakeProc(func(context.Context) (adapter.DescribeResult, error) {
+				return adapter.DescribeResult{}, io.ErrClosedPipe
+			}), nil
+		}
+		return nil, fmt.Errorf("adapter s: %w", adapter.ErrProtocolMismatch)
+	}
+	m := newManaged(t.Context(), "versioned-src", launch, clk)
+	if _, err := m.Describe(t.Context()); !errors.Is(err, io.ErrClosedPipe) { // the first process dies
+		t.Fatal(err)
+	}
+	clk.Advance(backoffMax)
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) {
+		t.Fatalf("got %v, want the restart refused for its protocol version", err)
+	}
+	if _, err := m.Describe(t.Context()); err == nil || errors.Is(err, adapter.ErrProtocolMismatch) || starts.Load() != 2 {
+		t.Fatalf("got %v after %d starts, want a pause with no third start", err, starts.Load())
+	}
+	if got := logs.all(); !strings.Contains(got, "another protocol version") || !strings.Contains(got, "versioned-src") {
+		t.Fatalf("the log has no protocol refusal for the source:\n%s", got)
 	}
 }

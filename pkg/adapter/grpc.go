@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	adapterv1alpha1 "bearing.example/gen/go/bearing/adapter/v1alpha1"
 	"bearing.example/gen/go/bearing/adapter/v1alpha1/adapterv1alpha1connect"
@@ -180,6 +182,7 @@ func recordRPC(ctx context.Context, h metric.Float64Histogram, method string, st
 func describeToProto(d DescribeResult) *adapterv1alpha1.DescribeResponse {
 	out := &adapterv1alpha1.DescribeResponse{
 		Name: d.Name, Version: d.Version, ConfigSchema: d.ConfigSchema, Access: d.Access, Webhooks: d.Webhooks,
+		ProtocolVersion: ProtocolVersion, // never the adapter's own word for it
 	}
 	for _, k := range d.Emits {
 		out.Emits = append(out.Emits, string(k))
@@ -193,7 +196,7 @@ func describeToProto(d DescribeResult) *adapterv1alpha1.DescribeResponse {
 func describeFromProto(d *adapterv1alpha1.DescribeResponse) DescribeResult {
 	out := DescribeResult{
 		Name: d.GetName(), Version: d.GetVersion(), ConfigSchema: json.RawMessage(d.GetConfigSchema()),
-		Access: d.GetAccess(), Webhooks: d.GetWebhooks(),
+		Access: d.GetAccess(), Webhooks: d.GetWebhooks(), ProtocolVersion: d.GetProtocolVersion(),
 	}
 	for _, k := range d.GetEmits() {
 		out.Emits = append(out.Emits, model.Kind(k))
@@ -297,15 +300,36 @@ func (r *Remote) Name() string { return r.name }
 // interrupted, and the Remote stays usable.
 func (r *Remote) Close() { r.tr.CloseIdleConnections() }
 
-// Describe implements Adapter.
+// Describe implements Adapter. It refuses an adapter whose protocol version
+// the core does not support, with an error that matches ErrProtocolMismatch
+// and has code CodeNotSupported, so Start, the server and the CLI all
+// refuse it where they first ask.
 func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
+	ctx, span := tracer.Start(ctx, "bearing.adapter.describe", trace.WithAttributes(attrAdapter.String(r.name)))
+	defer span.End()
 	start := time.Now()
 	res, err := r.client.Describe(ctx, connect.NewRequest(&adapterv1alpha1.DescribeRequest{}))
 	recordRPC(ctx, rpcClientDuration, "describe", start, err)
 	if err != nil {
 		return DescribeResult{}, fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))
 	}
-	return describeFromProto(res.Msg), nil
+	d := describeFromProto(res.Msg)
+	span.SetAttributes(attrProtocol.Int64(int64(d.ProtocolVersion)))
+	if !slices.Contains(SupportedProtocolVersions, d.ProtocolVersion) {
+		return DescribeResult{}, protocolMismatch(r.name, d.ProtocolVersion)
+	}
+	return d, nil
+}
+
+// protocolMismatch is the refusal of an adapter on a version the core does
+// not support. It names the adapter and the versions, nothing the adapter
+// said.
+func protocolMismatch(name string, got uint32) error {
+	msg := fmt.Sprintf("adapter %s speaks protocol version %d; this core supports %v: rebuild the adapter from the same release", name, got, SupportedProtocolVersions)
+	if got == 0 {
+		msg = fmt.Sprintf("adapter %s does not report a protocol version; it was built before the handshake (this core supports %v): rebuild it", name, SupportedProtocolVersions)
+	}
+	return fmt.Errorf("%w: %w", &Error{Code: CodeNotSupported, Message: msg}, ErrProtocolMismatch)
 }
 
 // Sync implements Adapter.

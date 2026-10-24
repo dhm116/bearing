@@ -210,6 +210,9 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 		if err != nil {
 			return nil, nil, err
 		}
+		if _, err := r.Describe(ctx); errors.Is(err, adapter.ErrProtocolMismatch) {
+			return nil, nil, err // sync would otherwise run against it unchecked
+		}
 		return r, func() error { return nil }, nil
 	case cmd == nil:
 		return nil, nil, fmt.Errorf("put the adapter command after --, or give --address: %w", errUsage)

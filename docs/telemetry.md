@@ -41,6 +41,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | Span | Kind | Where | Key attributes |
 | --- | --- | --- | --- |
 | `bearing <command>` | internal | CLI, one per invocation | |
+| `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
 | `bearing.adapter.v1alpha1.AdapterService/<Method>` | client | core, per adapter call (otelconnect) | `rpc.system=grpc`, `rpc.service`, `rpc.method`, `rpc.grpc.status_code` |
 | `bearing.adapter.v1alpha1.AdapterService/<Method>` | server | adapter, per call, continuing the core's trace | the same |

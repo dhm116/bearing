@@ -144,11 +144,10 @@ func New() *Adapter {
 // Describe implements adapter.Adapter.
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
 	return adapter.DescribeResult{
-		Name:            "authentik",
-		Version:         Version,
-		ProtocolVersion: adapter.ProtocolVersion,
-		Emits:           []model.Kind{model.KindPerson, model.KindTeam},
-		ConfigSchema:    json.RawMessage(configSchema),
+		Name:         "authentik",
+		Version:      Version,
+		Emits:        []model.Kind{model.KindPerson, model.KindTeam},
+		ConfigSchema: json.RawMessage(configSchema),
 		Access: []string{
 			"authentik_core.view_user", "authentik_core.view_group",
 			"authentik_sources_oauth.view_useroauthsourceconnection",

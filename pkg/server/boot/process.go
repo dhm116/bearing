@@ -94,6 +94,9 @@ func (m *managed) get() (Process, error) {
 	}
 	p, err := m.launch(m.ctx)
 	if err != nil {
+		if errors.Is(err, adapter.ErrProtocolMismatch) {
+			telemetry.Logger(pkgName).Error("an adapter refused: it speaks another protocol version; rebuild it", "bearing.source", m.source, "error", err.Error())
+		}
 		m.failLocked()
 		return nil, fmt.Errorf("start the adapter for source %s: %w", m.source, err)
 	}

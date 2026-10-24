@@ -229,7 +229,7 @@ Each entry:
 
 - **Found in:** security review
 - **Area:** adapters
-- **Example:** (a) a remote adapter in a Kubernetes cluster is trusted through its own CA file only; the cluster CA and service accounts are not used; (b) the adapter protocol version is not part of the gRPC `Describe` answer (the Go constant `adapter.ProtocolVersion` is not sent); (c) there is a short window between creating a local adapter's socket and setting its mode (the directory is already 0700); (d) a webhook is replayed after the log's retention has dropped its first copy; (e) the API is HTTP/1.1 only, and this is not tested against every client.
+- **Example:** (a) a remote adapter in a Kubernetes cluster is trusted through its own CA file only; the cluster CA and service accounts are not used; (b) there is a short window between creating a local adapter's socket and setting its mode (the directory is already 0700); (c) a webhook is replayed after the log's retention has dropped its first copy; (d) the API is HTTP/1.1 only, and this is not tested against every client.
 - **Impact:** (a) operators manage CAs by hand; (b) a core and an adapter that disagree find out at the first bad call; (c) none while the directory stays private; (d) the replay is applied again; (e) unknown.
 - **Proposed fix:** (a) accept the cluster CA; (b) send a version in `Describe` and refuse a mismatch; (c) set the umask around `Listen`; (d) keep delivery IDs longer than events; (e) test the clients that matter.
 

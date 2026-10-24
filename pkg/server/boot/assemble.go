@@ -150,6 +150,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
+	if err = checkProtocols(ctx, sources); err != nil {
+		return nil, err
+	}
 	scfg, err := serverConfig(s, st, plans, sources, env.Clock)
 	if err != nil {
 		return nil, err
@@ -181,6 +184,26 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		return nil, err
 	}
 	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
+}
+
+// protocolCheckTimeout bounds the Describe that checks an adapter's protocol
+// version at start.
+const protocolCheckTimeout = 15 * time.Second
+
+// checkProtocols asks every adapter to Describe itself and stops the start
+// on one built for another protocol version, naming its source. Any other
+// failure (a remote adapter not up yet) is left to the first sync, which
+// retries with backoff.
+func checkProtocols(ctx context.Context, sources []server.Source) error {
+	for _, src := range sources {
+		cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
+		_, err := src.Adapter.Describe(cctx)
+		cancel()
+		if errors.Is(err, adapter.ErrProtocolMismatch) {
+			return fmt.Errorf("boot: source %s: %w", src.Name, err)
+		}
+	}
+	return nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops

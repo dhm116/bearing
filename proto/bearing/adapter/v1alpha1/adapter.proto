@@ -48,6 +48,10 @@ message DescribeResponse {
   bool webhooks = 6;
   // How deliveries are signed; set when webhooks is.
   WebhookSignature webhook_signature = 7;
+  // The major version of this service the adapter speaks. The adapter
+  // library fills it in; the core refuses an adapter whose version it does
+  // not support. 0 (absent) is an adapter built before this field.
+  uint32 protocol_version = 8;
 }
 
 // WebhookSignature says how a source signs its webhook deliveries, so the
