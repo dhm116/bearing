@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T00:00:00Z",
+  "title": "Design System: Bearing",
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Deep Sea Teal", "dark": "#7FC0D6", "tonalRamp": ["oklch(22% 0.04 225)", "oklch(32% 0.06 225)", "oklch(43% 0.075 225)", "oklch(52% 0.08 225)", "oklch(63% 0.075 222)", "oklch(74% 0.06 220)", "oklch(85% 0.035 218)", "oklch(95% 0.012 215)"] },
+      "accent-soft": { "role": "primary", "displayName": "Sea Mist", "dark": "#1B3740" },
+      "ink": { "role": "neutral", "displayName": "Chart Ink", "dark": "#E4ECEA", "tonalRamp": ["oklch(15% 0.015 225)", "oklch(25% 0.02 225)", "oklch(37% 0.02 225)", "oklch(49% 0.018 220)", "oklch(61% 0.015 215)", "oklch(73% 0.012 200)", "oklch(85% 0.008 180)", "oklch(96% 0.004 170)"] },
+      "background": { "role": "neutral", "displayName": "Cool Paper", "dark": "#11191C" },
+      "surface": { "role": "neutral", "displayName": "Clean Sheet", "dark": "#172226" },
+      "sunk": { "role": "neutral", "displayName": "Inset Grey", "dark": "#131C1F" },
+      "muted": { "role": "neutral", "displayName": "Slate Note", "dark": "#98A8AD" },
+      "soft": { "role": "neutral", "displayName": "Soft Slate", "dark": "#7C8F94" },
+      "line": { "role": "neutral", "displayName": "Hairline", "dark": "#2A383D" },
+      "on-accent": { "role": "neutral", "displayName": "On Teal", "dark": "#0C1316" },
+      "good": { "role": "status", "displayName": "Found Green", "dark": "#8DCB9F" },
+      "good-soft": { "role": "status", "displayName": "Found Green Soft", "dark": "#1C3325" },
+      "warn": { "role": "status", "displayName": "Partial Amber", "dark": "#E3A56E" },
+      "warn-soft": { "role": "status", "displayName": "Partial Amber Soft", "dark": "#3A2819" },
+      "bad": { "role": "status", "displayName": "Dead-end Red", "dark": "#E89A9A" },
+      "bad-soft": { "role": "status", "displayName": "Dead-end Red Soft", "dark": "#3B1F1F" },
+      "term-bg": { "role": "terminal", "displayName": "Night Console" },
+      "term-ink": { "role": "terminal", "displayName": "Console Ink" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Home hero and 404 only, max 14ch." },
+      "headline": { "displayName": "Headline", "purpose": "Doc titles and home section titles." },
+      "title": { "displayName": "Title", "purpose": "Prose h2, ruled above." },
+      "lede": { "displayName": "Lede", "purpose": "Muted paragraph under a title, max 40rem." },
+      "body": { "displayName": "Body", "purpose": "Running text at a 46rem measure." },
+      "label": { "displayName": "Label", "purpose": "Mono uppercase eyebrows, docs index heading, table headers." },
+      "code": { "displayName": "Code", "purpose": "Inline code, CLI output, provenance." }
+    },
+    "shadows": [
+      { "name": "menu-lift", "value": "0 12px 32px -16px var(--shadow)", "purpose": "Dropdown menus." },
+      { "name": "dialog-lift", "value": "0 24px 64px -24px var(--shadow)", "purpose": "The search dialog, over the scrim." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default for state transitions and entrances." },
+      { "name": "ease-in", "value": "cubic-bezier(0.7, 0, 0.84, 0)", "purpose": "Exits." },
+      { "name": "ease-in-out", "value": "cubic-bezier(0.65, 0, 0.35, 1)", "purpose": "Moves between states." },
+      { "name": "dur-micro", "value": "120ms", "purpose": "Hover and press on controls." },
+      { "name": "dur-short", "value": "220ms", "purpose": "Dialog entrance, arrow nudge." },
+      { "name": "dur-long", "value": "420ms", "purpose": "Larger panel changes." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "30rem" },
+      { "name": "sm", "value": "40rem" },
+      { "name": "md", "value": "60rem" },
+      { "name": "lg", "value": "64rem" },
+      { "name": "xl", "value": "72rem" },
+      { "name": "docs-rail", "value": "88rem" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Default pill action on a clean sheet.",
+      "html": "<button class=\"ds-btn\">See how it works</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 1.15rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: 500 1rem/1 var(--font-body); cursor: pointer; transition: border-color 120ms cubic-bezier(0.16,1,0.3,1), transform 120ms cubic-bezier(0.16,1,0.3,1); } .ds-btn:hover { border-color: var(--accent); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action on a view.",
+      "html": "<button class=\"ds-btn-primary\">What works today</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 1.15rem; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: var(--on-accent); font: 500 1rem/1 var(--font-body); cursor: pointer; transition: background-color 120ms cubic-bezier(0.16,1,0.3,1), border-color 120ms cubic-bezier(0.16,1,0.3,1), transform 120ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:hover { background: var(--ink); border-color: var(--ink); color: var(--background); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Mono tag for status and metadata.",
+      "html": "<span class=\"ds-chip\">proposed</span> <span class=\"ds-chip ds-chip--good\">accepted</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; padding: 0.15rem 0.55rem; border-radius: 4px; font: 500 0.75rem/1.5 var(--font-mono); letter-spacing: 0.04em; background: var(--sunk); color: var(--muted); border: 1px solid var(--line); } .ds-chip--good { background: var(--good-soft); color: var(--good); border-color: transparent; }"
+    },
+    {
+      "name": "Nav Links",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Pill links in the top bar; current page in sea mist.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav__link\" href=\"#\" aria-current=\"page\">How it works</a><a class=\"ds-nav__link\" href=\"#\">Roadmap</a><a class=\"ds-nav__link\" href=\"#\">Spec</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 0.25rem; padding: 0.5rem; background: var(--background); border-bottom: 1px solid var(--line); } .ds-nav__link { padding: 0.45rem 0.7rem; border-radius: 999px; color: var(--ink); text-decoration: none; font: 500 0.875rem var(--font-body); } .ds-nav__link:hover { background: var(--sunk); } .ds-nav__link[aria-current=\"page\"] { background: var(--accent-soft); color: var(--accent); } .ds-nav__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Search Pill",
+      "kind": "input",
+      "refersTo": "search-pill",
+      "description": "Opens the search dialog; shows the shortcut.",
+      "html": "<button class=\"ds-search\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5\"/></svg><span class=\"ds-search__text\">Search the docs</span><kbd class=\"ds-kbd\">/</kbd></button>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 0.6rem; width: 22rem; height: 2.5rem; padding: 0 0.5rem 0 0.85rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font: 400 0.875rem/1 var(--font-body); cursor: pointer; transition: border-color 120ms cubic-bezier(0.16,1,0.3,1); } .ds-search:hover { border-color: var(--soft); } .ds-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; } .ds-search__text { flex: 1; text-align: left; } .ds-kbd { min-width: 1.4em; padding: 0 0.35em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--muted); font: 500 0.6875rem/1.6 var(--font-mono); }"
+    },
+    {
+      "name": "Verdict Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Signature hop in the home page's hunt: time, tool, finding, verdict.",
+      "html": "<article class=\"ds-hop ds-hop--found\"><span class=\"ds-hop__time\">40 min</span><h3 class=\"ds-hop__tool\">On-call schedule</h3><p class=\"ds-hop__found\"><strong>Priya</strong> is on call today. Found her.</p><span class=\"ds-hop__verdict\">Found</span></article>",
+      "css": ".ds-hop { display: grid; gap: 0.5rem; max-width: 20rem; padding: 1rem 1.5rem; background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--good); border-radius: 8px; } .ds-hop__time { font: 500 0.75rem var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; } .ds-hop__tool { margin: 0; font: 700 1.25rem/1.2 var(--font-display); letter-spacing: -0.01em; color: var(--ink); } .ds-hop__found { margin: 0; color: var(--muted); font: 400 1rem/1.5 var(--font-body); } .ds-hop__found strong { color: var(--ink); font-weight: 600; } .ds-hop__verdict { justify-self: start; padding: 0.15rem 0.6rem; border-radius: 999px; font: 500 0.75rem/1.5 var(--font-mono); background: var(--good-soft); color: var(--good); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Sourced Answer",
+    "overview": "Bearing's surfaces read like a well-kept reference: a plain question, a direct answer, and the citation right beside it. The page is cool paper tinted toward the brand's deep sea teal; ink is near-black with the same lean, so every grey looks deliberate next to the mark. Decoration earns its place only when it carries information: a status colour on a verdict, a dashed line for a footstep, a mono label naming where something came from.\n\nDensity is calm. Running text keeps a reading measure (46rem), headings in Bricolage Grotesque are rare and confident, and IBM Plex carries everything else. Mono is the voice of provenance: times, file names, sources, labels and code. Controls are precise and unhurried: pills and small radii, hairline rules, quick ease-out transitions, nothing that shouts.\n\nThe system follows the reader's light or dark setting everywhere, as the logo and diagrams do. Depth is softly layered: tonal steps between background, surface and sunk do most of the work, hairline rules separate, and gentle ambient shadows lift what floats.",
+    "keyCharacteristics": [
+      "Cool, teal-leaning neutrals; one accent, used sparingly.",
+      "Status colours (good, warn, bad) only for state, never as decoration.",
+      "Mono for provenance and labels; display type only for titles and headings.",
+      "Pills for actions, small radii for data, larger radii for figures and dialogs.",
+      "Light and dark from one token set via `prefers-color-scheme`."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Teal is the only brand colour. It marks what you can act on or where you are; it is never a fill for large areas.", "section": "colors" },
+      { "name": "The State-Only Rule", "body": "Green, amber and red mean a state (found, partial, dead end, accepted, proposed). Never use them for emphasis or decoration.", "section": "colors" },
+      { "name": "The Mark Is Fixed Rule", "body": "Use the SVGs in `docs/brand/`; never recolour the ink parts in the accent, rotate the mark, or add outlines, shadows or gradients. Never below 16px.", "section": "colors" },
+      { "name": "The Sparing Display Rule", "body": "Bricolage Grotesque is for the wordmark, page titles and section headings only. Never for body, buttons or labels.", "section": "typography" },
+      { "name": "The Mono Means Source Rule", "body": "Times, file paths, sources, counts and labels are mono with tabular numerals; prose is never mono.", "section": "typography" },
+      { "name": "The Quiet Lift Rule", "body": "A shadow is never the only edge: pair it with a hairline rule, keep it at or below the menu lift on cards, and never stack shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do take every colour and font from the tokens in `site/static/css/tokens.css`, which mirror `docs/brand/README.md`; change the brand file first.",
+      "Do show where an answer came from, in mono, next to the answer.",
+      "Do keep running text to the 46rem measure and leave tables and code the full column.",
+      "Do design light and dark together; check both.",
+      "Do honour `prefers-reduced-motion`; keep transitions at 120–420ms with the ease-out curve.",
+      "Do keep a visible 2px teal focus ring offset 2px."
+    ],
+    "donts": [
+      "Don't use green, amber or red for anything but state.",
+      "Don't set body, buttons or labels in Bricolage Grotesque.",
+      "Don't redraw, recolour, rotate or decorate the mark, or show it under 16px.",
+      "Don't use the animated mark as a loading spinner or more than once per page.",
+      "Don't fill large areas with the accent.",
+      "Don't rely on a shadow alone for an edge, or stack shadows."
+    ]
+  }
+}
