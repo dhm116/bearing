@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/match"
@@ -29,6 +32,22 @@ func newMCPWorld(t testing.TB) *world {
 	t.Helper()
 	w := newWorld(t)
 	w.ingest(catalogSource, seedAt.Add(2*time.Minute), entity("Person", "catalog:person/jdoe", "Jane Doe"))
+	decl := func(version, file string) *structpb.Value {
+		v, err := structpb.NewValue(map[string]any{"language": "go", "version": version, "file": file})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	runtime := func(vs ...*structpb.Value) func(*modelv1alpha1.ObservationData) {
+		return func(d *modelv1alpha1.ObservationData) {
+			d.Entity.Attributes["runtime"] = structpb.NewListValue(&structpb.ListValue{Values: vs})
+		}
+	}
+	w.ingest(githubSource, seedAt.Add(2*time.Minute),
+		entity("Repository", "github:repo/acme/old-tool", "old-tool", runtime(decl("1.21", "go.mod"))),
+		entity("Repository", "github:repo/acme/new-tool", "new-tool", runtime(decl("1.23", "go.mod"))),
+		entity("Repository", "github:repo/acme/odd-tool", "odd-tool", runtime(decl("tip", "go.mod"))))
 	res, err := match.Run(context.Background(), w.store, match.Config{Now: w.clock.Now})
 	if err != nil || res.Proposed != 1 {
 		t.Fatalf("matcher: got %+v, %v, want one proposal", res, err)
@@ -109,6 +128,7 @@ var mcpCalls = []struct {
 	{"changes", "changes", `{"ref":"github:repo/acme/payments-api","since":"2026-10-01"}`},
 	{"depends-on", "depends_on", `{"ref":"catalog:component/payments","depth":2}`},
 	{"depended-on-by", "depended_on_by", `{"ref":"catalog:component/db","depth":2}`},
+	{"runtimes", "runtimes", `{"language":"golang","below":"1.22"}`},
 	{"review-queue", "review_queue", `{}`},
 }
 
@@ -165,6 +185,7 @@ func TestMCPRefusalsAreToolErrorsOrRPCErrors(t *testing.T) {
 		{"wrong type", callReq(1, "find_entities", `{"text":5}`), `invalid_request`},
 		{"bad time", callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`), `invalid_request: as_of`},
 		{"no since", callReq(1, "changes", `{}`), `invalid_request: since is required`},
+		{"no language", callReq(1, "runtimes", `{}`), `invalid_request`},
 		{"depth out of range", callReq(1, "depends_on", `{"ref":"catalog:component/db","depth":99}`), `invalid_request: depth`},
 		{"not found", callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`), `not_found`},
 		{"unknown tool", callReq(1, "link_accept", `{}`), `"code":-32602`},
@@ -388,6 +409,7 @@ func TestMCPRefusesExplicitZeroCounts(t *testing.T) {
 		{"find_entities", `{"text":"x","limit":0}`},
 		{"changes", `{"since":"72h","limit":0}`},
 		{"review_queue", `{"limit":0}`},
+		{"runtimes", `{"language":"go","limit":0}`},
 		{"depends_on", `{"ref":"catalog:component/db","depth":0}`},
 		{"depended_on_by", `{"ref":"catalog:component/db","depth":0}`},
 	} {
@@ -420,12 +442,13 @@ func TestMCPToolCallsHaveADeadline(t *testing.T) {
 func TestMCPRefusalsAreTheSameFromAStoreAndAServer(t *testing.T) {
 	w := newMCPWorld(t)
 	for name, req := range map[string]string{
-		"not found":  callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`),
-		"owners":     callReq(1, "owners", `{"ref":"github:repo/acme/nope"}`),
-		"bad time":   callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`),
-		"bad kind":   callReq(1, "find_entities", `{"text":"x","kind":"nonsense"}`),
-		"long text":  callReq(1, "find_entities", `{"text":"`+strings.Repeat("a", 257)+`"}`),
-		"bad window": callReq(1, "changes", `{"since":"2026-10-02","until":"2026-10-01"}`),
+		"not found":        callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`),
+		"owners":           callReq(1, "owners", `{"ref":"github:repo/acme/nope"}`),
+		"bad time":         callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`),
+		"bad kind":         callReq(1, "find_entities", `{"text":"x","kind":"nonsense"}`),
+		"long text":        callReq(1, "find_entities", `{"text":"`+strings.Repeat("a", 257)+`"}`),
+		"bad window":       callReq(1, "changes", `{"since":"2026-10-02","until":"2026-10-01"}`),
+		"below is a range": callReq(1, "runtimes", `{"language":"go","below":">=1.22"}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			fromStore := w.mcpRun("", "", req)[0]

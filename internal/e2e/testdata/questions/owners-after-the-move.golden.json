@@ -1,0 +1,45 @@
+{
+  "owners": [
+    {
+      "confidence": 1,
+      "object": {
+        "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
+        "kind": "Team",
+        "name": "platform"
+      },
+      "predicate": "approves_changes",
+      "qualifiers": {
+        "file": ".github/CODEOWNERS",
+        "line": 2,
+        "pattern": "*"
+      },
+      "source_count": 3,
+      "sources": [
+        {
+          "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-02T08:30:00.000000Z",
+          "observed_at": "2026-10-02T08:30:00Z",
+          "source": "github-acme",
+          "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
+        },
+        {
+          "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-05T15:00:00.000000Z",
+          "observed_at": "2026-10-05T15:00:00Z",
+          "source": "github-acme",
+          "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
+        }
+      ],
+      "status": "asserted",
+      "subject": {
+        "key": "github:repo/acme/payments",
+        "kind": "Repository",
+        "name": "payments"
+      },
+      "valid_from": "2026-10-02T08:30:00Z"
+    }
+  ],
+  "subject": {
+    "key": "github:repo/acme/payments",
+    "kind": "Repository",
+    "name": "payments"
+  }
+}
