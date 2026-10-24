@@ -10,7 +10,7 @@ authenticated caller may call every route except link decisions, which
 
 | Listener | For | Authentication |
 | --- | --- | --- |
-| Unix socket | Callers on the server's host, such as `bearing` on the command line | The kernel's report of the peer's UID: only the service user and root are served, any other peer is closed before it sends anything. The caller is recorded as `local:<uid>`. |
+| Unix socket | Callers on the server's host, such as `bearing` on the command line | The kernel's report of the peer's UID and PID: only the service user and root are served, and not a process the server started (a local adapter) or its child; any other peer is closed before it sends anything. The caller is recorded as `local:<uid>`. |
 | TCP | Everyone else | The API token as a bearer token in the `Authorization` header (never a query parameter), compared in constant time with the value of the environment variable that `auth.token_env` names; except `POST /webhooks/{source}`, which proves itself by its source's signature ([Webhook deliveries](#webhook-deliveries)) |
 
 The socket's directory MUST be mode 0700 exactly and owned by the service
@@ -111,8 +111,9 @@ asserts the proposed link; `reject` closes it and asserts a `distinct_from`, so
 the pair is not proposed again; `join` asserts a `same_as` (and closes a
 `distinct_from` between the pair); `split` closes the `same_as` links between
 the pair and asserts a `distinct_from`; `undo_distinct` closes a
-`distinct_from`. Facts stay on their records, so every decision can be undone
-by another. The server resolves `a` and `b` to record IDs and logs those, so
+`distinct_from`, after which the matcher judges the pair afresh: its next
+deposit for the pair is dated no earlier than the undo. Facts stay on their
+records, so every decision can be undone by another. The server resolves `a` and `b` to record IDs and logs those, so
 the log names exactly the records decided on. Before logging, it answers 400
 for what the store would refuse: rejecting an asserted link (split its
 records instead), `a` and `b` naming one record, joining records of different
@@ -129,7 +130,11 @@ Only a person decides ([ADR 7](../adr/0007-records-identity-links-matchers.md):
 a proposed link becomes asserted only by a person or a rule the settings
 name), and the setting `api.link_decisions` says which callers count:
 `socket` (the default) only callers on the Unix socket, `token` API token
-holders too, `off` no one (C-API-8). An authenticator that knows its caller is
+holders too, `off` no one (C-API-8). The socket trusts every process running
+as the service user (or root): the server refuses a peer it started itself,
+such as a local adapter, or a child of one, but not a process that has left
+the server's process tree, so `socket` is only as safe as the service
+account (see the threat model's known gaps). An authenticator that knows its caller is
 an agent sets `Caller.Agent`, and such a caller reads but always gets a 403 on
 this route. Neither authenticator the server has can tell yet, so with
 `token` a person who hands the token to an agent hands over the right to
@@ -231,8 +236,9 @@ JSON); the sync itself runs later.
 links, strongest first (`--proposed` is the review queue), from `--store` or
 `--server`, with the same answer from both, except that `--store` scores
 links with the default half-lives (30 days) and does not read the server's
-`matching.half_life`. `bearing link accept|reject|undo-distinct <link ID>` and `bearing link join|split <ref> <ref>`, each with `--reason`,
-send a decision and print the event ID and offset; they need `--server` (or
+`matching.half_life`. `bearing link accept|reject|undo-distinct <link ID>`
+and `bearing link join|split <ref> <ref>`, each with `--reason`, send a
+decision and print the event ID and offset; they need `--server` (or
 `$BEARING_SERVER`), since decisions go through the server's event log, and
 `--store` is a usage error. The decision is applied a moment later, so
 `bearing links` straight after may not show it yet.

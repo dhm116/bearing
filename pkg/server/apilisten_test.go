@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -393,12 +394,12 @@ func TestAPIServeFailsOnBadCertificateOrBusyAddress(t *testing.T) {
 	}
 }
 
-func TestPeerUIDRefusesAConnectionThatIsNotLocal(t *testing.T) {
+func TestPeerCredRefusesAConnectionThatIsNotLocal(t *testing.T) {
 	t.Parallel()
 	a, b := net.Pipe()
 	defer func() { _ = a.Close() }()
 	defer func() { _ = b.Close() }()
-	if _, err := peerUID(a); err == nil {
+	if _, _, err := peerCred(a); err == nil {
 		t.Error("got nil, want an error for a connection that is not a Unix socket")
 	}
 }
@@ -499,4 +500,63 @@ func TestAPITCPListenerTakesSignedWebhooksWithoutAToken(t *testing.T) {
 	if n := len(r.logged()); n != 1 {
 		t.Errorf("got %d events logged, want the socket's refusal to store nothing", n)
 	}
+}
+
+// A local adapter runs as the service user, so the socket refuses a peer by
+// its line of parents too: any process the server started, a child of one,
+// and one whose parents cannot be read (C-API-8).
+func TestPeerListenerRefusesProcessesTheServerStarted(t *testing.T) {
+	t.Parallel()
+	self := os.Getpid()
+	parents := map[int]int{
+		10:   self, // an adapter
+		11:   10,   // the adapter's child
+		20:   1,    // a person's shell, started by init
+		21:   20,   // the CLI in that shell
+		self: 1,
+	}
+	parent := func(pid int) (int, error) {
+		pp, ok := parents[pid]
+		if !ok {
+			return 0, errors.New("no such process")
+		}
+		return pp, nil
+	}
+	ln := &chanListener{c: make(chan net.Conn, 8)}
+	pids := map[net.Conn]int{}
+	for _, pid := range []int{10, 11, 99, 21, self} {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+		pids[a] = pid
+		ln.c <- a
+	}
+	close(ln.c)
+	cred := func(c net.Conn) (int, int, error) { return 501, pids[c], nil }
+	pl := &peerListener{Listener: ln, uid: 501, cred: cred, parent: parent}
+	var got []int
+	for {
+		c, err := pl.Accept()
+		if err != nil {
+			break
+		}
+		pc, _ := c.(*peerConn)
+		got = append(got, pids[pc.Conn])
+	}
+	if want := []int{21, self}; !slices.Equal(got, want) {
+		t.Errorf("got peers %v accepted, want %v", got, want)
+	}
+}
+
+// chanListener is a net.Listener that hands out the connections on c.
+type chanListener struct {
+	net.Listener
+	c chan net.Conn
+}
+
+func (l *chanListener) Accept() (net.Conn, error) {
+	c, ok := <-l.c
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return c, nil
 }

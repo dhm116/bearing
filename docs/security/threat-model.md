@@ -22,7 +22,7 @@ the code already uses.
 
 | Boundary | Who is on the other side | What stands between |
 | --- | --- | --- |
-| API Unix socket | A process on the server's host | The kernel's report of the peer's UID: only the service user and root are served (C-API-1) |
+| API Unix socket | A process on the server's host | The kernel's report of the peer's UID: only the service user and root are served (C-API-1), and not a process the server started (C-API-8) |
 | API TCP listener | Anyone who can reach the port | TLS, a bearer token of at least 32 bytes, per-peer connection and request limits before the token is checked (C-API-2, C-API-3, C-API-6) |
 | Webhook route (`POST /webhooks/{source}`) | A source system, or anyone pretending to be one | The source's HMAC signature, checked before the body is parsed or logged (C-INGEST-1, C-INGEST-2) |
 | Local adapter | A process the server starts | A private socket directory (mode 0700) and an environment the server builds (C-SECRET-3) |
@@ -126,7 +126,12 @@ credentials; the server never sends it any.
   `token` from API token holders too, `off` from no one. Anyone else gets a
   403 before the body is read, and a caller marked as an agent never decides.
   A decision is an assertion of identity that ownership answers then rest on,
-  so by default only a person on the server's host makes one. The `reason`
+  so by default only a person on the server's host makes one. In `socket`
+  mode that means any process running as the service user or root: the
+  kernel names the peer's UID, not the person. The local adapters the server
+  starts run as the service user too, so the socket refuses a peer whose
+  line of parents reaches the server (an adapter or its child), and one whose
+  parents it cannot read (Linux, from `/proc`). The `reason`
   that comes with a decision is the caller's own text, which people and agents
   later read in `bearing links`; it is kept as given, never interpreted,
   clipped to 1 KiB, and refused if it holds control characters other than
@@ -197,6 +202,12 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
   is the same caller. With `api.link_decisions: token`, anyone holding the
   token, an agent included, can assert or break an identity link, and the
   decision is attributed to `token`, not to a person.
+- **The socket trusts the service account.** Every process running as the
+  service user is an administrator on the socket and, in `socket` mode, may
+  decide identity links. The server refuses its own descendants, but a local
+  adapter that detaches a process from the server's tree (its parent exits
+  and it is re-parented) is not caught. Running local adapters under their
+  own UID would close this.
 - **The API's TLS material is read once.** A renewed API certificate needs a
   restart. (A remote adapter's files are reloaded.)
 - **Secret volumes.** A Kubernetes Secret mounted with the default mode 0644 is

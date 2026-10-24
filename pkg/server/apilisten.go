@@ -47,7 +47,8 @@ type ListenConfig struct {
 	// Socket is the path of the Unix socket for local callers (C-API-1). Its
 	// directory must be mode 0700 and owned by the service user; the socket
 	// is mode 0600. A peer whose UID is not the service user's or root is
-	// refused. Empty means no socket.
+	// refused, and so is a process this server started (C-API-8). Empty
+	// means no socket.
 	Socket string
 	// UID is the service user's UID; zero means this process's.
 	UID int
@@ -312,10 +313,16 @@ func fileOwner(fi os.FileInfo) (uint32, bool) {
 }
 
 // peerListener accepts only connections whose peer is the service user or
-// root (C-API-1) and tells the connection's requests who it is.
+// root (C-API-1), and not a process this server started, such as a local
+// adapter, which runs as the service user too (C-API-8). It tells the
+// connection's requests who it is.
 type peerListener struct {
 	net.Listener
 	uid int
+	// cred and parent read a peer's UID and PID and a process's parent; nil
+	// means the kernel's (peerCred, procParent).
+	cred   func(net.Conn) (uid, pid int, err error)
+	parent func(pid int) (int, error)
 }
 
 // peerConn is an accepted local connection and the UID that made it.
@@ -327,20 +334,51 @@ type peerConn struct {
 // Accept implements net.Listener. A refused peer is closed and counted, and
 // Accept goes on to the next.
 func (p *peerListener) Accept() (net.Conn, error) {
+	cred, parent := p.cred, p.parent
+	if cred == nil {
+		cred = peerCred
+	}
+	if parent == nil {
+		parent = procParent
+	}
 	for {
 		c, err := p.Listener.Accept()
 		if err != nil {
 			return nil, err
 		}
-		uid, err := peerUID(c)
-		if err != nil || (uid != p.uid && uid != 0) {
+		uid, pid, err := cred(c)
+		why := ""
+		switch {
+		case err != nil || (uid != p.uid && uid != 0):
+			why = "its peer is not the service user or root"
+		case descendant(pid, os.Getpid(), parent):
+			why = "its peer is a process this server started, such as a local adapter"
+		}
+		if why != "" {
 			_ = c.Close()
 			apiPeersRefused.Add(context.Background(), 1)
-			telemetry.Logger(pkgName).Warn("a local API connection was refused: its peer is not the service user or root")
+			telemetry.Logger(pkgName).Warn("a local API connection was refused: " + why)
 			continue
 		}
 		return &peerConn{Conn: c, uid: uid}, nil
 	}
+}
+
+// descendant reports whether pid descends from self, or its line of parents
+// cannot be read, which refuses it rather than trust it. A process that
+// detached from the server (its parent exited) is not caught.
+func descendant(pid, self int, parent func(int) (int, error)) bool {
+	for pid > 1 {
+		pp, err := parent(pid)
+		if err != nil {
+			return true
+		}
+		if pp == self {
+			return true
+		}
+		pid = pp
+	}
+	return false
 }
 
 type peerKey struct{}
