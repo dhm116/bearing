@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -188,19 +189,33 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 
 // protocolCheckTimeout bounds the Describe that checks an adapter's protocol
 // version at start.
-const protocolCheckTimeout = 15 * time.Second
+const protocolCheckTimeout = 5 * time.Second
 
-// checkProtocols asks every adapter to Describe itself and stops the start
-// on one built for another protocol version, naming its source. Any other
-// failure (a remote adapter not up yet) is left to the first sync, which
-// retries with backoff.
+// checkProtocols asks every adapter to Describe itself, in parallel, and
+// stops the start on one built for another protocol version, naming its
+// source (the first in source order if several). Any other failure (a remote
+// adapter not up yet) is left to the first sync, which describes again
+// before anything else and so refuses it then. Local adapters have already
+// answered a Describe when they started at boot, so this reaches the remote
+// ones in effect.
 func checkProtocols(ctx context.Context, sources []server.Source) error {
-	for _, src := range sources {
-		cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
-		_, err := src.Adapter.Describe(cctx)
-		cancel()
-		if errors.Is(err, adapter.ErrProtocolMismatch) {
-			return fmt.Errorf("boot: source %s: %w", src.Name, err)
+	errs := make([]error, len(sources))
+	var wg sync.WaitGroup
+	for i, src := range sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
+			defer cancel()
+			if _, err := src.Adapter.Describe(cctx); errors.Is(err, adapter.ErrProtocolMismatch) {
+				errs[i] = fmt.Errorf("boot: source %s: %w", src.Name, err)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
 		}
 	}
 	return nil

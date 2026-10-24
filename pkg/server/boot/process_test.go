@@ -360,8 +360,8 @@ func TestManagedPassesHandleThrough(t *testing.T) {
 }
 
 // An adapter that comes back from a restart on another protocol version is
-// refused like one that crashes: logged, counted, and not started again until
-// the pause is over.
+// refused like one that crashes: counted, and not started again until the
+// pause is over, which still says why.
 func TestManagedBacksOffAnAdapterThatRestartsOnAnotherProtocolVersion(t *testing.T) {
 	installCapture()
 	clk := testkit.NewClock(epoch)
@@ -382,10 +382,7 @@ func TestManagedBacksOffAnAdapterThatRestartsOnAnotherProtocolVersion(t *testing
 	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) {
 		t.Fatalf("got %v, want the restart refused for its protocol version", err)
 	}
-	if _, err := m.Describe(t.Context()); err == nil || errors.Is(err, adapter.ErrProtocolMismatch) || starts.Load() != 2 {
-		t.Fatalf("got %v after %d starts, want a pause with no third start", err, starts.Load())
-	}
-	if got := logs.all(); !strings.Contains(got, "another protocol version") || !strings.Contains(got, "versioned-src") {
-		t.Fatalf("the log has no protocol refusal for the source:\n%s", got)
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) || !strings.Contains(err.Error(), "not started again") || starts.Load() != 2 {
+		t.Fatalf("got %v after %d starts, want a pause that names the protocol refusal, with no third start", err, starts.Load())
 	}
 }

@@ -85,7 +85,8 @@ type DescribeResponse struct {
 	WebhookSignature *WebhookSignature `protobuf:"bytes,7,opt,name=webhook_signature,json=webhookSignature,proto3" json:"webhook_signature,omitempty"`
 	// The major version of this service the adapter speaks. The adapter
 	// library fills it in; the core refuses an adapter whose version it does
-	// not support. 0 (absent) is an adapter built before this field.
+	// not support. Absent (0) means 1, the version before this field; once 1
+	// is dropped, an adapter that sends nothing is refused.
 	ProtocolVersion uint32 `protobuf:"varint,8,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

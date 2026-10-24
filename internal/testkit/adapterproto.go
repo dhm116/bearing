@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -14,21 +15,32 @@ import (
 )
 
 // protocolAdapter answers Describe with the version it was given, which the
-// real adapter library never does (it always sends its own), and nothing else.
+// real adapter library never does (it always sends its own), and an empty finished Sync, nothing else.
 type protocolAdapter struct {
 	adapterv1alpha1connect.UnimplementedAdapterServiceHandler
-	version uint32
+	version *atomic.Uint32
 }
 
 func (p protocolAdapter) Describe(context.Context, *connect.Request[adapterv1alpha1.DescribeRequest]) (*connect.Response[adapterv1alpha1.DescribeResponse], error) {
-	return connect.NewResponse(&adapterv1alpha1.DescribeResponse{Name: "versioned", Version: "test", ProtocolVersion: p.version}), nil
+	return connect.NewResponse(&adapterv1alpha1.DescribeResponse{Name: "versioned", Version: "test", ProtocolVersion: p.version.Load()}), nil
 }
 
-// ServeAdapterProtocol serves an adapter service on lis (plain HTTP/2, as on
-// the core's private socket) whose Describe reports protocol version
-// version, to test how the core treats an adapter built for another one. It
-// returns when ctx ends.
+func (protocolAdapter) Sync(context.Context, *connect.Request[adapterv1alpha1.SyncRequest]) (*connect.Response[adapterv1alpha1.SyncResponse], error) {
+	return connect.NewResponse(&adapterv1alpha1.SyncResponse{Done: true}), nil
+}
+
+// ServeAdapterProtocol serves an adapter service (HTTP/2, over lis as given,
+// plain or TLS) whose Describe reports protocol version version, to test how
+// the core treats an adapter built for another one. It returns when ctx ends.
 func ServeAdapterProtocol(ctx context.Context, lis net.Listener, version uint32) error {
+	v := &atomic.Uint32{}
+	v.Store(version)
+	return ServeAdapterProtocolVar(ctx, lis, v)
+}
+
+// ServeAdapterProtocolVar is ServeAdapterProtocol with a version the test can
+// change while it serves, to model a peer that is redeployed.
+func ServeAdapterProtocolVar(ctx context.Context, lis net.Listener, version *atomic.Uint32) error {
 	path, h := adapterv1alpha1connect.NewAdapterServiceHandler(protocolAdapter{version: version})
 	mux := http.NewServeMux()
 	mux.Handle(path, h)

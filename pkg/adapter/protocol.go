@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -34,9 +35,12 @@ import (
 // or method) do not change it; a change an older peer would misread does.
 const ProtocolVersion uint32 = 1
 
-// SupportedProtocolVersions are the versions the core accepts from an
-// adapter.
-var SupportedProtocolVersions = []uint32{1}
+var supportedProtocols = []uint32{1}
+
+// SupportedProtocolVersions returns the versions the core accepts from an
+// adapter. An adapter that reports none is taken to speak 1; once 1 is
+// dropped, such adapters are refused.
+func SupportedProtocolVersions() []uint32 { return slices.Clone(supportedProtocols) }
 
 // ErrProtocolMismatch matches the error for an adapter that speaks a
 // protocol version the core does not support.

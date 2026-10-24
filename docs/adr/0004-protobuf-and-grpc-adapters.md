@@ -28,8 +28,9 @@ language can generate.
   (`adapter.ProtocolVersion`, now 1), which the adapter library sends in
   every answer. Additive proto changes (a new field or method) do not bump
   it; a change an older peer would misread does. The core refuses an adapter
-  on a version it does not support, or one that sends none (built before the
-  handshake), when it first calls `Describe` (amended 2026-10-24; taken from
+  on a version it does not support when it first calls `Describe`, and again
+  at the start of each full sync. Absent means 1; once 1 is dropped,
+  adapters that send nothing are refused (amended 2026-10-24; taken from
   hashicorp/go-plugin).
 
 - An adapter can be written in any language with a gRPC library.

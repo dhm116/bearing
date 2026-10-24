@@ -621,7 +621,7 @@ func TestAssembledAPITakesDecisionsFromWhomTheSettingsSay(t *testing.T) {
 }
 
 func TestAssembleRefusesALocalAdapterOnAnotherProtocolVersion(t *testing.T) {
-	for _, v := range []string{"0", "2"} {
+	for _, v := range []string{"2"} {
 		t.Run("version "+v, func(t *testing.T) {
 			w := newWorld(t, func(s *Settings) { s.Adapters[0].Env = append(s.Adapters[0].Env, protoEnv) })
 			w.env[protoEnv] = v

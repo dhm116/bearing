@@ -262,7 +262,7 @@ func TestStartRefusesAnUnsafeSocketDirectoryOrName(t *testing.T) {
 
 func TestStartRefusesAnAdapterOnAnotherProtocolVersion(t *testing.T) {
 	t.Parallel()
-	for _, v := range []string{"0", "2"} {
+	for _, v := range []string{"2"} {
 		t.Run("version "+v, func(t *testing.T) {
 			_, err := startChild(t, "proto"+v, StartConfig{})
 			var e *Error
@@ -271,9 +271,6 @@ func TestStartRefusesAnAdapterOnAnotherProtocolVersion(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "child") || !strings.Contains(err.Error(), "[1]") {
 				t.Fatalf("got %q, want the adapter's name and the supported versions", err)
-			}
-			if v == "0" && !strings.Contains(err.Error(), "rebuild") {
-				t.Fatalf("got %q, want it to say to rebuild an adapter with no version", err)
 			}
 		})
 	}
