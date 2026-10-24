@@ -352,37 +352,31 @@ kbd {
 .hunt__step--bearing::after { border-top-color: var(--accent); }
 .hunt__moral { font: 500 var(--text-xl)/1.3 var(--font-display); letter-spacing: -0.01em; max-width: 36ch; }
 
-.trail { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-md); position: relative; }
-.hop {
-  position: relative; display: grid; grid-template-rows: auto auto 1fr auto; gap: var(--space-xs); padding: var(--space-md) var(--space-lg) var(--space-md);
-  background: var(--surface); border: var(--rule); border-top: 4px solid var(--line); border-radius: var(--radius-md);
-}
-.hop__time { font: 500 var(--text-xs) var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.hop__tool { display: flex; align-items: center; gap: var(--space-xs); font: 700 var(--text-lg)/1.2 var(--font-display); letter-spacing: -0.01em; }
+/* The Today trail, read top to bottom like a log: each stop's time sits on a
+ * dashed rail at the left, with a dot in its verdict's colour. */
+.trail { list-style: none; margin: 0; padding: 0; display: grid; position: relative; border-top: var(--rule); }
+.trail::before { content: ""; position: absolute; left: 0.3rem; top: 0; bottom: 0; border-left: 2px dashed var(--soft); }
+.hop { display: grid; grid-template-columns: 5rem minmax(0, 1fr); column-gap: var(--space-md); row-gap: var(--space-2xs); padding: var(--space-md) 0; border-bottom: var(--rule); }
+.hop > * { grid-column: 2; }
+.hop__time { grid-column: 1; grid-row: 1 / span 3; position: relative; padding-left: 1.25rem; font: 500 var(--text-xs)/1.9 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.hop__time::before { content: ""; position: absolute; left: 0; top: 0.5em; width: 0.75rem; height: 0.75rem; border-radius: 50%; background: var(--background); border: 2px solid var(--soft); }
+.hop__tool { display: flex; align-items: center; gap: var(--space-xs); font: 700 var(--text-md)/1.2 var(--font-display); letter-spacing: -0.01em; }
 .hop__tool .icon { width: 1.25rem; height: 1.25rem; color: var(--muted); }
 .hop__found { color: var(--muted); font-size: var(--text-base); line-height: 1.5; }
 .hop__found strong { color: var(--ink); font-weight: 600; }
 .hop__verdict { display: inline-flex; align-items: center; gap: 0.3rem; justify-self: start; padding: 0.15rem 0.6rem 0.15rem 0.4rem; border-radius: var(--radius-pill); font: 500 var(--text-xs)/1.5 var(--font-mono); }
 .hop__verdict .icon { width: 0.95rem; height: 0.95rem; stroke-width: 2.2; }
-.hop--dead { border-top-color: var(--bad); }
+.hop--dead .hop__time::before { border-color: var(--bad); }
 .hop--dead .hop__verdict { background: var(--bad-soft); color: var(--bad); }
-.hop--partial { border-top-color: var(--warn); }
+.hop--partial .hop__time::before { border-color: var(--warn); }
 .hop--partial .hop__verdict { background: var(--warn-soft); color: var(--warn); }
 .hop--wait .hop__verdict { background: var(--sunk); color: var(--muted); }
-.hop--found { border-top-color: var(--good); }
+.hop--found .hop__time::before { border-color: var(--good); background: var(--good); }
 .hop--found .hop__verdict { background: var(--good-soft); color: var(--good); }
-/* The trail's footsteps: a dashed connector into each hop after the first. */
-.hop + .hop::before { content: ""; position: absolute; left: var(--space-lg); top: calc(var(--space-md) * -1); height: var(--space-md); border-left: 2px dashed var(--soft); }
-@media (min-width: 40rem) {
-  .trail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hop + .hop::before { display: none; }
-}
-@media (min-width: 72rem) {
-  .trail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
-}
-@media (min-width: 96rem) {
-  .trail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-md); }
-  .hop + .hop::before { display: block; left: calc(var(--space-md) * -1); top: 50%; width: var(--space-md); height: 0; border-left: 0; border-top: 2px dashed var(--soft); }
+@media (min-width: 64rem) {
+  .hop { grid-template-columns: 5rem minmax(0, 13rem) minmax(0, 1fr) auto; align-items: baseline; }
+  .hop > * { grid-column: auto; }
+  .hop__time { grid-column: 1; grid-row: auto; }
 }
 
 .ask { display: grid; gap: var(--space-lg); }
