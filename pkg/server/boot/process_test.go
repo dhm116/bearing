@@ -440,7 +440,9 @@ func TestManagedPauseErrorWrapsOnlyAProtocolRefusal(t *testing.T) {
 	m.mu.Lock()
 	m.lastErr = fmt.Errorf("start: %w, %w", context.DeadlineExceeded, realMismatch(t))
 	m.mu.Unlock()
-	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) || errors.Is(err, context.DeadlineExceeded) {
+	// Not ErrNotSupported either: a webhook to a paused adapter must retry,
+	// never be skipped as "no webhooks here".
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, adapter.ErrNotSupported) {
 		t.Fatalf("got %v, want a protocol refusal and no deadline", err)
 	}
 }
