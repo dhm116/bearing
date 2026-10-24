@@ -397,7 +397,8 @@ func (b *Builder) renderDocs() error {
 	return nil
 }
 
-var readmeEntryRE = regexp.MustCompile(`(?m)^\s*(?:\d+\.|[-*])\s+\[[^\]]+\]\(([^)#]+\.md)\):\s*(.+)$`)
+// An entry may wrap onto indented continuation lines.
+var readmeEntryRE = regexp.MustCompile(`(?m)^\s*(?:\d+\.|[-*])\s+\[[^\]]+\]\(([^)#]+\.md)\):\s*(.+(?:\n[ \t]+[^\s\d*-].*)*)$`)
 
 // summarize sets each page's Summary; see DocPage.
 func (b *Builder) summarize(cv *CollectionView) {
@@ -406,7 +407,7 @@ func (b *Builder) summarize(cv *CollectionView) {
 		raw, err := b.readRepo(cv.Index.Source)
 		if err == nil {
 			for _, m := range readmeEntryRE.FindAllSubmatch(raw, -1) {
-				fromReadme[path.Join(cv.Dir, string(m[1]))] = strings.TrimSpace(string(m[2]))
+				fromReadme[path.Join(cv.Dir, string(m[1]))] = strings.Join(strings.Fields(string(m[2])), " ")
 			}
 		}
 	}

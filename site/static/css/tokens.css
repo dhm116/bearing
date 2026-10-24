@@ -62,6 +62,10 @@
   --shadow: rgb(24 36 42 / 0.08);
   --scrim: rgb(17 25 28 / 0.42);
 
+  /* Brand terminal: the same in light and dark */
+  --term-bg: #0F171A;
+  --term-ink: #D6E2E0;
+
   /* Type */
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;

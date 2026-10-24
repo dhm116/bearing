@@ -20,6 +20,22 @@ colors:
   bad-soft: "#F6E3E3"
   term-bg: "#0F171A"
   term-ink: "#D6E2E0"
+  ink-dark: "#E4ECEA"
+  accent-dark: "#7FC0D6"
+  accent-soft-dark: "#1B3740"
+  background-dark: "#11191C"
+  surface-dark: "#172226"
+  sunk-dark: "#131C1F"
+  muted-dark: "#98A8AD"
+  soft-dark: "#7C8F94"
+  line-dark: "#2A383D"
+  on-accent-dark: "#0C1316"
+  good-dark: "#8DCB9F"
+  good-soft-dark: "#1C3325"
+  warn-dark: "#E3A56E"
+  warn-soft-dark: "#3A2819"
+  bad-dark: "#E89A9A"
+  bad-soft-dark: "#3B1F1F"
 typography:
   display:
     fontFamily: "Bricolage Grotesque, Segoe UI, system-ui, sans-serif"
@@ -154,12 +170,14 @@ and gentle ambient shadows lift what floats.
 A restrained, cool palette: one deep sea teal against neutrals that lean
 toward it, with a separate status set.
 
+Every token has a `-dark` twin used under `prefers-color-scheme: dark`.
+
 ### Primary
 - **Deep Sea Teal** (`accent`): links, the primary button, the current nav
-  item, focus rings, the mark's arrow and pin, the dot on the wordmark's i.
-  In dark mode it lightens to a pale harbour teal (#7FC0D6).
+  item, focus rings, source chips, the mark's arrow and pin, the dot on the
+  wordmark's i. In dark mode it lightens to a pale harbour teal.
 - **Sea Mist** (`accent-soft`): selected and current backgrounds (nav,
-  docs index, search results), text selection.
+  docs index, search results), source chip fills, text selection.
 
 ### Neutral
 - **Chart Ink** (`ink`): body text and headings; the mark's bowl and stem.

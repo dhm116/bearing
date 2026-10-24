@@ -30,7 +30,7 @@ h1, h2, h3, h4 {
   overflow-wrap: anywhere;
   min-width: 0;
 }
-p { margin: 0; }
+p { margin: 0; text-wrap: pretty; }
 a { color: var(--accent); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
 a:hover { text-decoration-thickness: 2px; }
 code, kbd, pre { font-family: var(--font-mono); }
@@ -141,38 +141,64 @@ kbd {
 
 /* ---------- Home: hero ---------- */
 
-.hero { display: grid; gap: var(--space-lg); padding-block: var(--space-2xl) var(--space-xl); }
+.hero { display: grid; gap: var(--space-xl); padding-block: var(--space-2xl) var(--space-xl); }
+.hero__main { display: grid; gap: var(--space-lg); align-content: start; }
 .hero__title { font-size: var(--text-display); max-width: 14ch; letter-spacing: -0.035em; line-height: 1.02; }
-.hero__aside { display: grid; gap: var(--space-lg); align-content: end; }
+.hero__free { display: flex; align-items: center; gap: var(--space-xs); font-weight: 500; color: var(--ink); }
+.hero__free .icon { color: var(--good); stroke-width: 2.2; }
 @media (min-width: 60rem) {
-  .hero { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); padding-block: var(--space-3xl) var(--space-2xl); }
+  .hero { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: end; padding-block: var(--space-3xl) var(--space-2xl); }
 }
+
+/* The hero's proof: one real answer, laid out the way Bearing gives it. */
+.proof {
+  margin: 0; display: grid; gap: var(--space-md); padding: var(--space-lg); max-width: 34rem;
+  background: var(--surface); border: var(--rule); border-radius: var(--radius-lg); box-shadow: 0 12px 32px -16px var(--shadow);
+}
+.proof__q {
+  display: flex; align-items: flex-start; gap: var(--space-sm); justify-self: start;
+  padding: var(--space-sm) var(--space-md); background: var(--accent); color: var(--on-accent);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm); font: 500 var(--text-md)/1.35 var(--font-display);
+}
+.proof__q .icon { margin-top: 0.15rem; }
+.proof__a { display: flex; align-items: center; gap: var(--space-sm); font: 700 var(--text-xl)/1.25 var(--font-display); letter-spacing: -0.01em; }
+.proof__a strong { color: var(--accent); }
+.proof__mark { width: 1.75rem; height: 1.75rem; flex: none; }
+.proof__src { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-xs) var(--space-md); margin: 0; padding-top: var(--space-md); border-top: var(--rule); font-size: var(--text-sm); }
+.proof__src dt { font: 500 var(--text-xs)/1.9 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.proof__src dd { margin: 0; overflow-wrap: anywhere; }
+.proof figcaption { font-size: var(--text-sm); color: var(--muted); }
 
 /* ---------- Home: org map ---------- */
 
 .map { padding-bottom: var(--space-3xl); }
 .map__head { display: grid; gap: var(--space-xs); margin-bottom: var(--space-lg); }
 .map__head h2 { font-size: var(--text-2xl); }
-.map__head p { color: var(--muted); }
+.map__head p { color: var(--muted); max-width: 40rem; }
 .map__body { display: grid; gap: var(--space-lg); }
 .map__figure { margin: 0; display: grid; gap: var(--space-sm); }
 .map__figure figcaption { font-size: var(--text-sm); color: var(--muted); }
 .orgmap { display: block; width: 100%; height: auto; background: var(--surface); border: var(--rule); border-radius: var(--radius-lg); }
+/* Two drawings of one map: wide for desktop, tall for phones, where the wide
+ * one would shrink its labels below reading size. Only one is displayed, so
+ * screen readers meet one. */
+.orgmap--tall { display: none; max-width: 26rem; }
+@media (max-width: 47.99rem) { .orgmap--wide { display: none; } .orgmap--tall { display: block; } }
 .orgmap__dot { fill: var(--line); }
-.orgmap__rose circle { fill: none; stroke: var(--line); stroke-width: 1.2; }
-.orgmap__rose circle:last-child { fill: var(--line); stroke: none; }
-.orgmap__rose path { stroke: var(--line); stroke-width: 1.2; fill: none; }
-.orgmap__rose .orgmap__needle { stroke: var(--soft); stroke-width: 1.5; stroke-dasharray: 2 3; }
 .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; transition: stroke var(--dur-short) var(--ease-out), fill var(--dur-short) var(--ease-out); }
-.node__kind { font: 500 9.5px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; fill: var(--muted); }
+.node__kind { font: 500 10.5px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; fill: var(--muted); }
 .node__name { font: 700 17px var(--font-display); letter-spacing: -0.01em; fill: var(--ink); }
-.node__alias { font: 400 10px var(--font-mono); fill: var(--soft); }
+.node__alias { font: 400 12.5px var(--font-mono); fill: var(--muted); }
 .edge { color: var(--soft); transition: color var(--dur-short) var(--ease-out); }
 .edge path { fill: none; stroke: currentColor; stroke-width: 1.6; }
 .edge path.edge__head { fill: currentColor; stroke: none; }
 .edge--derived path:first-child { stroke-dasharray: 5 4; }
-.edge__label { font: 500 11.5px var(--font-mono); fill: currentColor; }
-.edge__meta { font: 400 10px var(--font-mono); fill: var(--muted); }
+.edge__label { font: 500 13px var(--font-mono); fill: currentColor; }
+.edge__meta { font: 400 12px var(--font-mono); fill: var(--muted); }
+.orgmap--tall .node__kind { font-size: 11px; }
+.orgmap--tall .node__name { font-size: 18px; }
+.orgmap--tall .node__alias, .orgmap--tall .edge__meta { font-size: 12.5px; }
+.orgmap--tall .edge__label { font-size: 13.5px; }
 
 .map__body:has(#fact-1:checked) .edge[data-fact="1"],
 .map__body:has(#fact-2:checked) .edge[data-fact="2"],
@@ -278,6 +304,9 @@ kbd {
   .ask--compact .answer li { --lead: 900ms; }
   .ask__q { animation: rise var(--dur-long) var(--ease-out) both; }
   .ask__sources li { animation-name: rise, ping; animation-duration: var(--dur-long), 900ms; }
+  /* On the home page the answer is on screen from the start, below the
+     trail; it must never show as an empty box waiting for its rows. */
+  .hunt .ask__q, .hunt .ask__sources li, .hunt .answer li { animation: none; }
   .plugs__wire { animation: wire 500ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 250ms + 300ms); }
   .plugs__plug { animation: rise var(--dur-long) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 250ms + 700ms); }
   .plugs__tools li { --step: 250ms; }
@@ -299,6 +328,13 @@ kbd {
 .hunt__head p { color: var(--muted); max-width: 40rem; }
 .hunt__note { margin-top: calc(var(--space-md) * -1); }
 @media (min-width: 64rem) { .hunt__head { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: end; gap: var(--space-2xl); } }
+/* The two ways, one after the other: Today's trail, then the same question
+ * with Bearing. A rule runs from each heading to mark where the way starts. */
+.hunt__step { display: flex; align-items: center; gap: var(--space-md); margin-top: var(--space-md); font-size: var(--text-xl); color: var(--muted); }
+.hunt__step::after { content: ""; flex: 1; border-top: var(--rule); }
+.hunt__step--bearing { margin-top: var(--space-xl); color: var(--accent); }
+.hunt__step--bearing::after { border-top-color: var(--accent); }
+.hunt__moral { font: 500 var(--text-xl)/1.3 var(--font-display); letter-spacing: -0.01em; max-width: 36ch; }
 
 .trail { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-md); position: relative; }
 .hop {
@@ -329,7 +365,7 @@ kbd {
   .trail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
 }
 @media (min-width: 96rem) {
-  .trail { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-md); }
+  .trail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-md); }
   .hop + .hop::before { display: block; left: calc(var(--space-md) * -1); top: 50%; width: var(--space-md); height: 0; border-left: 0; border-top: 2px dashed var(--soft); }
 }
 
@@ -349,15 +385,16 @@ kbd {
 .answer li { display: grid; gap: var(--space-2xs) var(--space-lg); padding: var(--space-md) var(--space-lg); border-bottom: var(--rule); }
 .answer li:last-child { border-bottom: 0; }
 .answer p { font-size: var(--text-md); }
-.answer .src { justify-self: start; font: 500 var(--text-xs)/1.5 var(--font-mono); color: var(--good); background: var(--good-soft); padding: 0.1rem 0.55rem; border-radius: var(--radius-sm); }
+/* A source chip: where a fact came from. Teal, not green: green means a state. */
+.src { justify-self: start; font: 500 var(--text-xs)/1.5 var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 0.1rem 0.55rem; border-radius: var(--radius-sm); white-space: nowrap; }
 .answer__warn { background: var(--warn-soft); }
 .answer__warn .src { color: var(--warn); background: var(--surface); }
 @media (min-width: 48rem) {
   .answer li { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
 }
 @media (min-width: 72rem) {
-  .tabs__panel--2 .ask:not(.ask--compact) { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: var(--space-2xl); }
-  .tabs__panel--2 .ask:not(.ask--compact) .ask__a { grid-column: 2; grid-row: 1 / span 2; }
+  .hunt .ask { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: var(--space-2xl); }
+  .hunt .ask .ask__a { grid-column: 2; grid-row: 1 / span 2; }
 }
 
 /* ---------- Home: questions ---------- */
@@ -366,17 +403,24 @@ kbd {
 .asks__head { display: grid; gap: var(--space-sm); }
 .asks__head h2 { font-size: var(--text-3xl); max-width: 16ch; }
 .asks__head p { color: var(--muted); max-width: 40rem; }
-.asks__grid, .tenets__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-md); }
-.asks__grid li, .tenets__list li { display: grid; gap: var(--space-xs); align-content: start; padding: var(--space-lg); background: var(--surface); border: var(--rule); border-radius: var(--radius-lg); }
-.asks__grid .icon, .tenets__list .icon { width: 1.6rem; height: 1.6rem; color: var(--accent); margin-bottom: var(--space-xs); }
-.asks__grid h3 { font-size: var(--text-xl); }
-.asks__grid p, .tenets__list p { color: var(--muted); }
-@media (min-width: 40rem) { .asks__grid, .tenets__list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Each question with its answer from the demo and the answer's source. */
+.asks__list { list-style: none; margin: 0; padding: 0; display: grid; border-top: var(--rule); }
+.asks__list li { display: grid; gap: var(--space-xs); align-content: start; padding-block: var(--space-lg); border-bottom: var(--rule); }
+.asks__list h3 { font-size: var(--text-xl); }
+.asks__list p { max-width: 40rem; }
+@media (min-width: 48rem) {
+  .asks__list li { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: var(--space-xl); }
+  .asks__list h3 { grid-row: span 2; }
+}
+.tenets__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xl); }
+.tenets__list li { display: grid; gap: var(--space-xs); align-content: start; }
+.tenets__list .icon { width: 1.6rem; height: 1.6rem; color: var(--accent); margin-bottom: var(--space-xs); }
+.tenets__list p { color: var(--muted); max-width: 40rem; }
+@media (min-width: 48rem) { .tenets__list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2xl); } }
 @media (min-width: 64rem) {
   .asks { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: start; }
   .asks__head { position: sticky; top: calc(var(--nav-h) + var(--space-xl)); }
 }
-@media (min-width: 80rem) { .asks__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .tenets__list { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
 /* ---------- Home: principles, status, builders ---------- */
 
@@ -399,19 +443,34 @@ kbd {
 .status__tile--available { border-top-color: var(--good); }
 .status__tile--in-progress { border-top-color: var(--accent); }
 @media (max-width: 29.99rem) { .status__tile { padding: var(--space-sm); } .status__tile .dot { display: none; } }
-@media (min-width: 64rem) { .status { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: center; } }
+.status__body { display: grid; gap: var(--space-md); }
+.status__today { max-width: 46rem; }
+.status__stale { padding: var(--space-sm) var(--space-md); background: var(--warn-soft); border-radius: var(--radius-md); font-size: var(--text-sm); }
+@media (min-width: 64rem) { .status { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: start; } }
 
 .builders, .deeper { padding-block: var(--space-2xl) var(--space-3xl); border-top: var(--rule); display: grid; gap: var(--space-lg); }
 .builders__head, .deeper__head { display: grid; gap: var(--space-xs); align-content: start; }
 .builders h2, .deeper h2 { font-size: var(--text-2xl); }
 .builders__head p, .deeper__head p { color: var(--muted); max-width: 40rem; }
-.builders__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); }
-.builders__list a { display: grid; gap: var(--space-2xs); height: 100%; padding: var(--space-md) var(--space-lg); border: var(--rule); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); text-decoration: none; transition: border-color var(--dur-micro) var(--ease-out); }
-.builders__list a:hover { border-color: var(--accent); }
+/* A list, not a grid, so any number of spec pages leaves no holes. */
+.builders__list { list-style: none; margin: 0; padding: 0; display: grid; border-top: var(--rule); }
+.builders__list li { border-bottom: var(--rule); }
+.builders__list a { display: grid; gap: var(--space-2xs) var(--space-lg); padding: var(--space-md) var(--space-xs); color: var(--ink); text-decoration: none; transition: background-color var(--dur-micro) var(--ease-out); }
+.builders__list a:hover { background: var(--sunk); }
 .builders__t { font: 700 var(--text-lg)/1.25 var(--font-display); }
 .builders__s { color: var(--muted); font-size: var(--text-sm); }
-@media (min-width: 48rem) { .builders__list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 48rem) { .builders__list a { grid-template-columns: 12rem minmax(0, 1fr); align-items: baseline; } }
 @media (min-width: 64rem) { .builders { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: start; } }
+
+/* ---------- Home: try the demo ---------- */
+
+.try { padding-block: var(--space-3xl); border-top: var(--rule); display: grid; gap: var(--space-xl); }
+.try__head { display: grid; gap: var(--space-sm); align-content: start; }
+.try__head h2 { font-size: var(--text-3xl); max-width: 16ch; }
+.try__head p { color: var(--muted); max-width: 40rem; }
+.try__body { display: grid; gap: var(--space-lg); align-content: start; }
+.try__cmd { margin: 0; padding: var(--space-md) var(--space-lg); overflow-x: auto; background: var(--term-bg); color: var(--term-ink); border: var(--rule); border-radius: var(--radius-md); font-size: var(--text-sm); line-height: 1.7; }
+@media (min-width: 64rem) { .try { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-2xl); align-items: center; } }
 
 /* ---------- Inner pages ---------- */
 
