@@ -230,13 +230,20 @@ func renderRuntimes(w io.Writer, r *query.Runtimes) error {
 		group("below", r.Below)
 		group("version not readable", r.Unknown)
 		o.line(0, "")
-		o.line(0, "%d at or above", r.AtOrAbove)
+		o.line(0, "%d at or above", ptrOr0(r.AtOrAbove))
 	}
 	if r.Truncated {
 		o.line(0, "")
 		o.line(0, "more than the limit; the lists are cut")
 	}
 	return o.flush(w)
+}
+
+func ptrOr0(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
 }
 
 func renderMatches(w io.Writer, ms []query.Match) error {

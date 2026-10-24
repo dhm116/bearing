@@ -41,7 +41,7 @@ type RuntimesRequest struct {
 	// Below, when set, groups the answer by whether a declared version's
 	// lower bound is under it; it must be a version such as 1.22. Empty lists
 	// every declaration.
-	Below string `json:"below,omitempty"`
+	Below string `json:"below,omitzero"`
 	// Kind limits the answer to entities of this kind.
 	Kind string `json:"kind,omitempty"`
 	// At asks what held then; zero means now.
@@ -59,10 +59,10 @@ type Declaration struct {
 	File string `json:"file,omitempty"`
 	// Lower is the lowest version Version allows; empty when Unknown.
 	Lower string `json:"lower,omitempty"`
-	// Below says Lower is under the request's Below.
-	Below bool `json:"below,omitempty"`
-	// Unknown says Version could not be read as a version or range.
-	Unknown     bool       `json:"unknown,omitempty"`
+	// IsBelow says Lower is under the request's Below.
+	IsBelow bool `json:"is_below"`
+	// IsUnknown says Version could not be read as a version or range.
+	IsUnknown   bool       `json:"is_unknown"`
 	ValidFrom   time.Time  `json:"valid_from"`
 	ValidTo     *time.Time `json:"valid_to,omitempty"`
 	Sources     []Source   `json:"sources"`
@@ -78,15 +78,16 @@ type RuntimeEntity struct {
 // Runtimes is the answer to Runtimes. With Below set, Below lists the
 // entities with a declaration under it, Unknown those with none under it and
 // one that could not be read, and AtOrAbove counts the rest. Without Below,
-// Entities lists every entity and declaration and the others are empty.
+// Entities lists every entity and declaration and the other fields are
+// absent. A list of the mode in use is [] when empty, never absent.
 // Truncated says a list was cut at the limit.
 type Runtimes struct {
 	Language     string          `json:"language"`
 	BelowVersion string          `json:"below_version,omitempty"`
-	Entities     []RuntimeEntity `json:"entities,omitempty"`
-	Below        []RuntimeEntity `json:"below,omitempty"`
-	Unknown      []RuntimeEntity `json:"unknown,omitempty"`
-	AtOrAbove    int             `json:"at_or_above"`
+	Entities     []RuntimeEntity `json:"entities,omitzero"`
+	Below        []RuntimeEntity `json:"below,omitzero"`
+	Unknown      []RuntimeEntity `json:"unknown,omitzero"`
+	AtOrAbove    *int            `json:"at_or_above,omitempty"`
 	Truncated    bool            `json:"truncated,omitempty"`
 }
 
@@ -106,7 +107,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	}
 	if req.Below != "" {
 		var ok bool
-		if below, ok = lowerBound(req.Below); !ok {
+		if below, ok = parseDotted(req.Below); !ok {
 			return nil, fmt.Errorf("%w: below %q is not a version", ErrInvalidRequest, model.Clip(req.Below))
 		}
 	}
@@ -120,9 +121,13 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		return nil, fmt.Errorf("runtime facts: %w", err)
 	}
 	l := q.labeler()
-	out := &Runtimes{Language: lang, BelowVersion: req.Below}
+	out := &Runtimes{Language: lang}
+	atOrAbove := 0
 	if below != nil {
 		out.BelowVersion = below.String()
+		out.Below, out.Unknown, out.AtOrAbove = []RuntimeEntity{}, []RuntimeEntity{}, &atOrAbove
+	} else {
+		out.Entities = []RuntimeEntity{}
 	}
 	// Group by entity, in the order the store returned them.
 	bySubject := map[graph.EntityID][]graph.Fact{}
@@ -153,7 +158,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 			if err != nil {
 				return nil, err
 			}
-			for _, v := range declared(f.Value) {
+			if v, ok := f.Value.(map[string]any); ok {
 				if canonLanguage(str(v["language"])) != lang {
 					continue
 				}
@@ -161,11 +166,11 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 				d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount}
 				if low, ok := lowerBound(text); ok {
 					d.Lower = low.String()
-					d.Below = below != nil && low.compare(below) < 0
+					d.IsBelow = below != nil && low.compare(below) < 0
 				} else {
-					d.Unknown = true
+					d.IsUnknown = true
 				}
-				anyBelow, anyUnknown = anyBelow || d.Below, anyUnknown || d.Unknown
+				anyBelow, anyUnknown = anyBelow || d.IsBelow, anyUnknown || d.IsUnknown
 				ent.Declarations = append(ent.Declarations, d)
 			}
 		}
@@ -190,7 +195,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		case f.anyUnknown:
 			list = &out.Unknown
 		default:
-			out.AtOrAbove++
+			atOrAbove++
 			continue
 		}
 		if len(*list) >= limit {
@@ -200,24 +205,6 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		*list = append(*list, f.ent)
 	}
 	return out, nil
-}
-
-// declared returns the declarations in a runtime fact's value: the GitHub
-// adapter sends the whole list as one value, which the store keeps as one
-// fact (the predicate is not in the core registry, so it is not split).
-func declared(v any) []map[string]any {
-	var out []map[string]any
-	switch v := v.(type) {
-	case map[string]any:
-		out = append(out, v)
-	case []any:
-		for _, x := range v {
-			if m, ok := x.(map[string]any); ok {
-				out = append(out, m)
-			}
-		}
-	}
-	return out
 }
 
 func str(v any) string {

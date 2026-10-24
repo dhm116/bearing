@@ -42,7 +42,7 @@ func TestRuntimesListsEntitiesBelowAVersion(t *testing.T) {
 	}
 	var r query.Runtimes
 	ask(t, w, &r, "runtimes", "--language", "go", "--below", "1.22")
-	if len(r.Below) != 1 || len(r.Unknown) != 1 || r.AtOrAbove != 1 {
+	if len(r.Below) != 1 || len(r.Unknown) != 1 || ptrOr0(r.AtOrAbove) != 1 {
 		t.Errorf("got %+v, want one below, one unknown and one at or above", r)
 	}
 	if _, err := w.cli("runtimes", "--below", "1.22"); !errors.Is(err, errUsage) {

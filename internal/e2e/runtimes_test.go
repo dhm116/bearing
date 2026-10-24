@@ -29,6 +29,7 @@ func redact(r *query.Runtimes) {
 func TestAcmeAnswersWhichServicesUseALanguageBelowAVersion(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
+	beforeSync := w.clock.Now().Add(-time.Hour)
 	w.syncGitHub()
 	q := &query.Querier{Graph: w.store, Now: w.clock.Now}
 	for _, tc := range []struct {
@@ -69,8 +70,12 @@ func TestAcmeAnswersWhichServicesUseALanguageBelowAVersion(t *testing.T) {
 		})
 	}
 	// The thresholds the goldens stand for, read plainly.
-	got, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22", At: time.Time{}})
-	if err != nil || len(got.Below) != 1 || got.Below[0].Subject.Name != "payments-api" || got.AtOrAbove != 1 {
+	// Before the first sync nothing was known.
+	if early, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22", At: beforeSync}); err != nil || len(early.Below)+len(early.Unknown) != 0 || *early.AtOrAbove != 0 {
+		t.Fatalf("before the sync: got %+v, %v, want an empty answer", early, err)
+	}
+	got, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22"})
+	if err != nil || len(got.Below) != 1 || got.Below[0].Subject.Name != "payments-api" || *got.AtOrAbove != 1 {
 		t.Fatalf("got %+v, %v, want payments-api below and sandbox at or above", got, err)
 	}
 }

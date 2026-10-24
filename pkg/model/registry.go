@@ -124,8 +124,8 @@ var relations = []Predicate{
 var kindAttributes = map[Kind][]string{
 	KindPerson:        {"name", "email", "login", "verified_email", "commit_email"},
 	KindTeam:          {"name", "slug", "description"},
-	KindRepository:    {"name", "full_name", "url", "default_branch", "language", "topics", "archived", "description"},
-	KindComponent:     {"type", "tier", "lifecycle"},
+	KindRepository:    {"name", "full_name", "url", "default_branch", "language", "topics", "archived", "description", "runtime"},
+	KindComponent:     {"type", "tier", "lifecycle", "runtime"},
 	KindPackage:       {"ecosystem", "name", "versions"},
 	KindEnvironment:   {"name", "account", "region"},
 	KindCloudResource: {"arn", "type", "tags"},
@@ -145,6 +145,7 @@ var attributeShapes = map[string]Predicate{
 	"verified_email": {Type: tString, Cardinality: many, Conflict: noneC},
 	"commit_email":   {Type: tString, Cardinality: many, Conflict: noneC},
 	"topics":         {Type: tString, Cardinality: many, Conflict: noneC},
+	"runtime":        {Type: tJSON, Cardinality: many, Conflict: noneC},
 	"versions":       {Type: tString, Cardinality: many, Conflict: noneC},
 	"tags":           {Type: tJSON, Cardinality: one, Conflict: noneC},
 	"at":             {Type: tTime, Cardinality: one, Conflict: noneC},

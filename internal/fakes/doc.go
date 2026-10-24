@@ -32,8 +32,10 @@
 //     person; a stale docs/CODEOWNERS that GitHub ignores; a package.json
 //     with engines.node ">=18" and an .nvmrc of "20".
 //   - handbook [public]: docs/CODEOWNERS, only path rules, one naming
-//     @acme/sre.
-//   - sandbox [public]: no CODEOWNERS, default branch "trunk".
+//     @acme/sre; an .nvmrc of "lts/hydrogen" (a Node version that cannot be
+//     compared).
+//   - sandbox [public]: no CODEOWNERS, default branch "trunk"; a go.mod with
+//     "go 1.23.1".
 //
 // Memberships start at their From time. GitHub lists a membership until
 // [Org.EndMembership] removes it, which also sends a membership.removed

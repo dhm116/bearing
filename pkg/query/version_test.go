@@ -35,6 +35,7 @@ func TestLowerBoundReadsEveryManifestShape(t *testing.T) {
 		{"*", ""},
 		{"x", ""},
 		{"", ""},
+		{">=3.8,!=3.9.*", "3.8"},
 		{"<5", ""},
 		{"!=3.9", ""},
 		{"18 || lts/iron", ""},

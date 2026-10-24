@@ -367,6 +367,7 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 		"a find limit too big":         "/v1/find?q=x&limit=101",
 		"runtimes without a language":  "/v1/runtimes?below=1.22",
 		"runtimes below not a version": "/v1/runtimes?language=go&below=lts",
+		"runtimes below a range":       "/v1/runtimes?language=go&below=>=1.22",
 		"a long predicate":             "/v1/related?ref=x&predicate=" + strings.Repeat("p", maxPredicateBytes+1),
 		"a limit of zero":              "/v1/changes?limit=0",
 		"a limit that is text":         "/v1/changes?limit=many",

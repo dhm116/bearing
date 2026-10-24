@@ -14,7 +14,8 @@
           "version": "1.21",
           "file": "go.mod",
           "lower": "1.21",
-          "below": true,
+          "is_below": true,
+          "is_unknown": false,
           "valid_from": "2026-09-28T01:30:00Z",
           "sources": [
             {
@@ -29,5 +30,6 @@
       ]
     }
   ],
+  "unknown": [],
   "at_or_above": 1
 }

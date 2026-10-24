@@ -14,6 +14,8 @@
           "version": "20",
           "file": ".nvmrc",
           "lower": "20",
+          "is_below": false,
+          "is_unknown": false,
           "valid_from": "2026-09-28T01:30:00Z",
           "sources": [
             {
@@ -29,7 +31,8 @@
           "version": "\u003e=18",
           "file": "package.json",
           "lower": "18",
-          "below": true,
+          "is_below": true,
+          "is_unknown": false,
           "valid_from": "2026-09-28T01:30:00Z",
           "sources": [
             {
@@ -56,7 +59,8 @@
         {
           "version": "lts/hydrogen",
           "file": ".nvmrc",
-          "unknown": true,
+          "is_below": false,
+          "is_unknown": true,
           "valid_from": "2026-09-28T01:30:00Z",
           "sources": [
             {

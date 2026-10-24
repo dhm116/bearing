@@ -15,7 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/query"
@@ -99,9 +102,17 @@ func TestServerAnswersTheWayTheStoreDoes(t *testing.T) {
 		{"changes", "--since", "2026-09-01", "--as-of", "2026-09-02"},
 		{"find", "ledger", "--json"},
 		{"get", "github:user/jdoe", "--json"},
+		{"runtimes", "--language", "go", "--below", "1.22"},
+		{"runtimes", "--language", "node", "--json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			w := newWorld(t)
+			if args[0] == "runtimes" { // seeded here so the other answers stay as they are
+				w.ingest(githubSource, seedAt,
+					entity("Repository", "github:repo/acme/old", "old", runtimeAttr(t, [][3]string{{"go", "1.21", "go.mod"}, {"node", ">=18", "package.json"}})),
+					entity("Repository", "github:repo/acme/odd", "odd", runtimeAttr(t, [][3]string{{"go", "tip", "go.mod"}, {"node", "lts/hydrogen", ".nvmrc"}})),
+				)
+			}
 			want, err := w.cli(args...)
 			if err != nil {
 				t.Fatalf("bearing %s: %v", strings.Join(args, " "), err)
@@ -295,5 +306,21 @@ func TestServerOverTheLocalSocketNeedsNoToken(t *testing.T) {
 	}
 	if got, err := w.cliWith(nil, append(args, "--server", "unix://"+sock)...); err != nil || got != want {
 		t.Fatalf("got %q, %v, want the unix:// form to work too", got, err)
+	}
+}
+
+// runtimeAttr declares runtimes as {language, version, file} triples.
+func runtimeAttr(t *testing.T, decls [][3]string) func(*modelv1alpha1.ObservationData) {
+	t.Helper()
+	l := make([]any, len(decls))
+	for i, d := range decls {
+		l[i] = map[string]any{"language": d[0], "version": d[1], "file": d[2]}
+	}
+	v, err := structpb.NewList(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(d *modelv1alpha1.ObservationData) {
+		d.Entity.Attributes["runtime"] = structpb.NewListValue(v)
 	}
 }

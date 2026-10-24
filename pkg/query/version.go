@@ -69,10 +69,10 @@ func rangeLowerBound(s string) (version, bool) {
 	for tok := range strings.FieldsSeq(strings.ReplaceAll(afterOperator.ReplaceAllString(s, "$1"), ",", " ")) {
 		op, rest := splitOperator(tok)
 		switch op {
-		case "<", "<=":
+		case "<", "<=", "!=": // no lower bound
 			continue
 		case "", ">", ">=", "=", "==", "^", "~", "~=":
-		default: // "!=" and the like
+		default:
 			return nil, false
 		}
 		v, ok := parseDotted(rest)
