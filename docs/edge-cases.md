@@ -111,6 +111,23 @@ Each entry:
 - **Example:** `go 1.22rc1`; `project.requires-python` as a dotted key outside `[project]`; manifests in a monorepo's subdirectories; a push that only changes a manifest.
 - **Impact:** pre-releases order wrongly, the dotted key and subdirectories are missed, and `runtime` refreshes only at the next sync.
 - **Proposed fix:** `golang.org/x/mod/semver`, a TOML parser, reading known subdirectories, and refreshing on pushes that touch manifests.
+- **Also:** the query layer reads Go pre-releases such as `1.22rc1` as unknown (listed under `unknown`, never guessed), so a service on a release candidate is not reported as below 1.22 even when it is.
+
+## Stores synced before per-declaration runtime facts
+
+- **Found in:** q2 runtimes (`internal/duckstore`)
+- **Area:** store
+- **Example:** a store synced before this change holds one list-valued `runtime` fact per repository.
+- **Impact:** the query skips those facts until the next sync closes them and opens one fact per declaration. No such store exists yet.
+- **Proposed fix:** none needed unless one turns up; a one-off SQL close would also do.
+
+## Runtime declarations cite the wrong evidence URL
+
+- **Found in:** q2 runtimes (`adapters/github/github.go`)
+- **Area:** adapters
+- **Example:** `payments-api` declares Go 1.21 in `go.mod`; the `runtime` fact's source evidence URL is the observation's (the CODEOWNERS file's), not `go.mod`'s.
+- **Impact:** a reader following the evidence of a runtime answer lands on the wrong file. The declaration's `file` field names the manifest, but the link does not.
+- **Proposed fix:** have the GitHub adapter set the evidence URL per manifest (one observation per manifest, or an evidence URL on each declaration).
 
 ## Kubernetes adapter limits
 

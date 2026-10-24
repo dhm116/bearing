@@ -289,6 +289,23 @@ func (c *Client) Find(ctx context.Context, text, kind string, limit int) ([]quer
 	return f.Matches, nil
 }
 
+// Runtimes is query.Querier.Runtimes, asked of the server.
+func (c *Client) Runtimes(ctx context.Context, req query.RuntimesRequest) (*query.Runtimes, error) {
+	v := url.Values{}
+	set(v, "language", req.Language)
+	set(v, "below", req.Below)
+	set(v, "kind", req.Kind)
+	set(v, "at", timeText(req.At))
+	if req.Limit != 0 {
+		v.Set("limit", strconv.Itoa(req.Limit))
+	}
+	var r query.Runtimes
+	if err := c.get(ctx, "/v1/runtimes", v, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // SyncAccepted is the answer to a sync request: the request is on the server's
 // event log.
 type SyncAccepted struct {

@@ -338,3 +338,24 @@ func TestIngestStoresAndRefreshesQualifiersWithoutANewFact(t *testing.T) {
 		t.Errorf("got %v, want none after a refresh without qualifiers", facts[0].Qualifiers)
 	}
 }
+
+// A store synced before runtime became one fact per declaration holds one
+// list-valued fact; the next sync closes it and opens the declarations.
+func TestIngestClosesAnOldListValuedFactOnTheNextDeclarationSync(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Repository", "k:repo/api", attrs("language", "Go")))
+	if _, err := s.db.ExecContext(context.Background(), `
+		INSERT INTO fact (id, subject_id, predicate, value, status, confidence, valid_from, source)
+		SELECT 'old', id, 'runtime', '[{"language":"go","version":"1.21","file":"go.mod"}]', 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', 'gh' FROM entity`); err != nil {
+		t.Fatal(err)
+	}
+	ingestOK(t, s, "gh", obs("o2", 5, "Repository", "k:repo/api", attrs("runtime", []any{
+		map[string]any{"language": "go", "version": "1.21", "file": "go.mod"},
+	})))
+	wantFacts(t, s,
+		`api language "Go" [0,open) x1`,
+		`api runtime [{"language":"go","version":"1.21","file":"go.mod"}] [0,5) x0`,
+		`api runtime {"file":"go.mod","language":"go","version":"1.21"} [5,open) x1`,
+	)
+}

@@ -53,7 +53,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |
 | `retention.trim` | internal | core, one per trim of the event log | |
 | `match.run` | internal | core, one per matching run after a sync's last page | `bearing.source` |
-| `api.request` | server | core, one per API request, whatever its answer | `bearing.request.id`, `bearing.authz.method`, `bearing.result`. Never the caller or the request's parameters |
+| `api.request` | server | core, one per API request, whatever its answer | `bearing.request.id`, `bearing.authz.method` (including `query.runtimes`), `bearing.result`. Never the caller or the request's parameters |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `HTTP GET`, `HTTP POST` | client | `bearing` command line, per request to a server (otelhttp, `pkg/apiclient`) | `http.response.status_code`, `url.full`. The question is in the URL's query; the bearer token never is |

@@ -82,6 +82,17 @@ time the source reports it again, and **closes** when the source says it
 is gone: the relation is marked absent, a full listing no longer includes
 it, the attribute has a new value, or the thing was deleted.
 
+### The runtime attribute
+
+A `Repository` or `Component` carries `runtime`, the language versions its
+manifests declare. Its value is a list of `{language, version, file}`:
+`language` is lower case (`go`, `node`, `python`; names from `.tool-versions`
+are kept as given), `version` is the text the manifest declares (`1.22`,
+`>=18`) and `file` is the manifest. The list in `entity.attributes` is the
+complete set from that source: a declaration missing from it closes, and an
+empty list closes them all. Each declaration is its own fact, so a bump in
+one file does not touch the others.
+
 ## Provenance
 
 Every fact keeps the observations behind it. An answer such as "the

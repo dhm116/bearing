@@ -77,6 +77,7 @@ const usage = `usage:
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing changes [--since T] [<ref>] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing find <name> [--kind K] [--limit N] [--store URL | --server ADDR] [--json]
+  bearing runtimes --language L [--below V] [--kind K] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
   bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]

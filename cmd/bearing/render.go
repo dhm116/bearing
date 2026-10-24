@@ -199,6 +199,53 @@ func renderChanges(w io.Writer, c *query.Changes, ref string) error {
 	return o.flush(w)
 }
 
+// renderRuntimes writes one line per entity with its declared versions and
+// files; with --below, those below first, then the ones that could not be
+// read, then a count of the rest.
+func renderRuntimes(w io.Writer, r *query.Runtimes) error {
+	var o out
+	group := func(title string, es []query.RuntimeEntity) {
+		if len(es) == 0 {
+			return
+		}
+		o.line(0, "")
+		o.line(0, "%s", title)
+		for _, e := range es {
+			decl := make([]string, len(e.Declarations))
+			for i, d := range e.Declarations {
+				decl[i] = d.Version + " (" + d.File + ")"
+			}
+			o.line(1, "%s: %s", refText(e.Subject), strings.Join(decl, ", "))
+		}
+	}
+	if r.BelowVersion == "" {
+		o.line(0, "%s declarations", r.Language)
+		if len(r.Entities) == 0 {
+			o.line(0, "")
+			o.line(0, "none")
+		}
+		group("declared", r.Entities)
+	} else {
+		o.line(0, "%s below %s", r.Language, r.BelowVersion)
+		group("below", r.Below)
+		group("version not readable", r.Unknown)
+		o.line(0, "")
+		o.line(0, "%d at or above", ptrOr0(r.AtOrAbove))
+	}
+	if r.Truncated {
+		o.line(0, "")
+		o.line(0, "more than the limit; the lists are cut")
+	}
+	return o.flush(w)
+}
+
+func ptrOr0(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
 func renderMatches(w io.Writer, ms []query.Match) error {
 	var o out
 	if len(ms) == 0 {

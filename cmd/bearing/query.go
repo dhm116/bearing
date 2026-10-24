@@ -68,6 +68,7 @@ type answerer interface {
 	Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error)
 	Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error)
 	Links(ctx context.Context, req query.LinksRequest) ([]query.Link, error)
+	Runtimes(ctx context.Context, req query.RuntimesRequest) (*query.Runtimes, error)
 }
 
 var (
@@ -79,7 +80,7 @@ var (
 // store.
 func isQueryCommand(name string) bool {
 	switch name {
-	case "get", "owner", "related", "changes", "find", "links":
+	case "get", "owner", "related", "changes", "find", "links", "runtimes":
 		return true
 	}
 	return false
@@ -124,7 +125,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var qf queryFlags
 	qf.register(fs, name)
-	var namespace, predicate, direction, since, kind, entity string
+	var namespace, predicate, direction, since, kind, entity, language, below string
 	var limit, depth int
 	var proposed bool
 	switch name {
@@ -141,6 +142,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		fs.BoolVar(&proposed, "proposed", false, "only proposed links: the review queue (default every open link)")
 		fs.StringVar(&entity, "entity", "", "only links touching this entity, record or key")
 		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many links, strongest first, 1 to %d (default %d)", query.MaxLinksLimit, query.DefaultLinksLimit))
+	case "runtimes":
+		fs.StringVar(&language, "language", "", "the language, for example go or node (required)")
+		fs.StringVar(&below, "below", "", "only entities declaring a version below this one, for example 1.22 (default every declaration)")
+		fs.StringVar(&kind, "kind", "", "only entities of this kind, for example Repository")
+		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many entities per list, 1 to %d (default %d)", query.MaxRuntimesLimit, query.MaxRuntimesLimit))
 	case "find":
 		fs.StringVar(&kind, "kind", "", "only entities of this kind, for example Repository")
 		fs.IntVar(&limit, "limit", 0, fmt.Sprintf("at most this many matches, 1 to %d (default the store's)", query.MaxFindLimit))
@@ -167,6 +173,12 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		return fmt.Errorf("changes takes at most one ref: %w", errUsage)
 	case name == "changes" && (limit < 0 || limit > query.MaxChangesLimit || set["limit"] && limit == 0):
 		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxChangesLimit, errUsage)
+	case name == "runtimes" && len(pos) > 0:
+		return fmt.Errorf("runtimes takes no arguments: %w", errUsage)
+	case name == "runtimes" && language == "":
+		return fmt.Errorf("runtimes needs --language: %w", errUsage)
+	case name == "runtimes" && (limit < 0 || limit > query.MaxRuntimesLimit || set["limit"] && limit == 0):
+		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxRuntimesLimit, errUsage)
 	case name == "find" && (limit < 0 || limit > query.MaxFindLimit || set["limit"] && limit == 0):
 		return fmt.Errorf("--limit %d: want 1 to %d: %w", limit, query.MaxFindLimit, errUsage)
 	case name == "related" && (depth < 1 || depth > query.MaxDepth):
@@ -226,6 +238,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		var ms []query.Match
 		if ms, err = q.Find(ctx, pos[0], kind, limit); err == nil {
 			answer, render = findAnswer{Matches: ms}, func(w io.Writer) error { return renderMatches(w, ms) }
+		}
+	case "runtimes":
+		var r *query.Runtimes
+		if r, err = q.Runtimes(ctx, query.RuntimesRequest{Language: language, Below: below, Kind: kind, At: at, Limit: limit}); err == nil {
+			answer, render = r, func(w io.Writer) error { return renderRuntimes(w, r) }
 		}
 	case "links":
 		req := query.LinksRequest{Entity: entity, Limit: limit}

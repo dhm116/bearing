@@ -46,7 +46,7 @@ first failure is the answer:
 4. The caller's rate limit, and for a decision the caller's decision rate
    (else 429 `rate_limited`).
 5. For a sync request, that the source exists (else 404 `unknown_source`).
-6. For a slow read (`changes`, `find`, `links`, and `related` with `depth`
+6. For a slow read (`changes`, `find`, `links`, `runtimes`, and `related` with `depth`
    above 1), the caller's slow reads in flight (else 429 `too_many_reads`).
 7. The parameters or, for a decision, the caller (one that
    `api.link_decisions` does not allow, or an agent, is a 403 `forbidden`),
@@ -55,7 +55,7 @@ first failure is the answer:
 
 Parameters go in the query string. A name the route does not define, a name
 given twice, text with control characters and anything over its length limit
-is a 400. Times are RFC 3339. `find` with a `kind` that is not a kind is a 400.
+is a 400. Times are RFC 3339. `find` and `runtimes` with a `kind` that is not a kind are a 400.
 
 ## Routes
 
@@ -66,6 +66,7 @@ is a 400. Times are RFC 3339. `find` with a `kind` that is not a kind is a 400.
 | `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
 | `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
 | `GET /v1/find` | `query.find` | `q` (required, at most 256 bytes), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
+| `GET /v1/runtimes` | `query.runtimes` | `language` (required; `golang` means `go`, `nodejs` means `node`), `below` (a version such as `1.22`), `kind`, `at`, `limit` (1 to 1,000 entities per list, default 1,000) | Which entities declare a version of the language (`runtime` facts from manifests). With `below`: `below` lists entities with a declaration whose lowest allowed version is under it (a range such as `>=18` or `^20` counts as its lower bound), `unknown` those with none below and one that cannot be read (`lts/hydrogen`, `*`; never guessed), and `at_or_above` counts the rest; every entity shows all its declarations (`version`, `file`, `lower`, `is_below`, `is_unknown`, `sources`; see [Runtimes answer](#runtimes-answer)). Without `below`, `entities` lists every declaration. `truncated` says a list was cut at `limit`. 400 for a missing `language`, a `below` that is not a plain version, a `kind` that is not a kind, or a `limit` out of range |
 | `GET /v1/links` | `links.list` | `status` (`proposed` or `asserted`), `kind` (`same_as` or `distinct_from`), `entity` (an entity ID, record ID or key; 404 when nothing has it), `limit` (1 to 1,000, default 100) | `{"links": [...]}`: the open identity links, strongest first (below). This is the review queue when `status=proposed` |
 | `POST /v1/links/decisions` | `links.decide` | JSON body (below) | 202 `{"event_id", "offset"}`, only after the decision is on the event log (partition `core/identity`); the worker applies it in order, once. 400 for a malformed decision or one the store would refuse, 404 for a link or record that does not exist, 403 for a caller `api.link_decisions` does not allow or an agent, 415 for a body that is not `application/json`, 501 when the server takes no decisions |
 | `POST /v1/sources/{source}/sync` | `sync.request` | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log. The pending request may already be running, in which case a change made after it started is seen by the next sync, not by this one |
@@ -146,6 +147,40 @@ decide too, and the decision is attributed to `token`. Telling an agent from a
 person needs an identity provider that marks agents (OIDC); until then, keep
 the default or hold the token as you would a password.
 
+### Runtimes answer
+
+`GET /v1/runtimes` answers one object. Lists of the mode in use are `[]` when
+empty, never absent; fields of the other mode are absent.
+
+| Field | Meaning |
+| --- | --- |
+| `language` | The language asked for, lower case, aliases resolved |
+| `below_version` | The `below` parameter as parsed (only with `below`) |
+| `entities` | Without `below`: every entity that declares the language |
+| `below` | With `below`: entities with a declaration under it |
+| `unknown` | With `below`: entities with none under it and one that cannot be read |
+| `at_or_above` | With `below`: how many entities are in neither list (a number, 0 when none) |
+| `truncated` | `true` when a list was cut at `limit` (absent otherwise) |
+
+Each entity in a list is `{subject, declarations}`; `subject` is the same
+reference other answers use. Each declaration has:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | The declared text, such as `>=18` |
+| `file` | The manifest it came from |
+| `lower` | The lowest version it allows (absent when `is_unknown`) |
+| `is_below` | `lower` is under `below` (always `false` without `below`) |
+| `is_unknown` | `version` cannot be read as a version or range; never guessed |
+| `valid_from`, `valid_to` | When the fact held; `valid_to` is absent while it holds |
+| `sources`, `source_count` | The observations behind it, as in every answer |
+
+`below` must be digits and dots, such as `1.22` (`^[0-9]+(\.[0-9]+)*$`); a
+range, operator, `v` prefix or wildcard (`>=1.22`, `v1.22`, `1.x`) is a 400. A
+`!=` comparator in a declared range sets no lower bound and is skipped. A
+declared version with a pre-release (`20.0.0-rc.1`, Go's `1.22rc1`) is
+unknown, not its release; a `+build` suffix is ignored.
+
 ## Limits
 
 Before any of the checks above, the TCP listener limits each remote peer (an
@@ -158,7 +193,7 @@ see [Webhook deliveries](#webhook-deliveries)), and the socket has no such
 limit. Each caller has a request rate (default 600 a minute), a decision rate
 on top of it (30 a minute, burst 3), at most two slow
 reads in flight, and a deadline per request (30 seconds; 15 for a slow read).
-The slow reads are `changes`, `find`, `links` and `related` with `depth` above 1: they
+The slow reads are `changes`, `find`, `links`, `runtimes` and `related` with `depth` above 1: they
 scan or walk many rows, so they share one cap and the shorter deadline. A
 caller is its token subject at a peer address (an IPv6 peer is its /64), or
 `local:<uid>` on the socket, so one remote client cannot use up another's
@@ -211,7 +246,7 @@ carries `Retry-After`, in seconds.
 
 ## The command line
 
-`bearing get`, `owner`, `related`, `changes` and `find` take `--server` (or
+`bearing get`, `owner`, `related`, `changes`, `find` and `runtimes` take `--server` (or
 `$BEARING_SERVER`) instead of `--store`, and print what they print from a
 store: the same answers, and errors of the same kinds: not found and invalid
 request match `query`'s with `errors.Is`, and the exit codes
@@ -230,6 +265,12 @@ Plain `http://` is accepted for a literal loopback address only (`127.0.0.1`,
 `[::1]`; not a name such as `localhost`), the token is never sent anywhere
 else in clear, and a redirect is not followed. A flag beats a variable,
 the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`.
+
+`bearing runtimes --language L [--below V] [--kind K] [--limit N] [--as-of T] [--json]`
+answers "which services use language L below version V" from `--store` or
+`--server`: one line per entity with its declared versions and files, those
+below first, then the ones whose version cannot be read, then a count of the
+rest.
 
 `bearing source sync <source> [--server ADDR] [--json]` takes the same
 `--server`, `--token-env` and `--server-ca` flags and `$BEARING_SERVER`. It
