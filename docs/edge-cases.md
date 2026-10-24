@@ -255,8 +255,8 @@ Each entry:
 - **Found in:** link review, round 2 (`internal/duckstore/links.go`, `recluster`)
 - **Area:** identity
 - **Example:** a person joins A and B, then splits B from C. A key rule later asserts A ~ C with evidence older than the join. Clustering takes links oldest first, so A ~ C wins, and A ~ B is then blocked by B's `distinct_from` against C: B leaves A's cluster.
-- **Impact:** B's answers change and nothing records why; the person's join is still open but no longer holds. A person's join or accept is refused when it would do this, but `Link` and `Ingest` are not.
-- **Proposed fix:** have `Link` and `Ingest` compare cluster membership before and after, as `Decide` does, and put a link that would push a record out on the review queue instead of asserting it; or order clustering by when a link became asserted rather than when it opened.
+- **Impact:** B's answers change and nothing records why; the person's join is still open but no longer holds. A person's join, accept or undo of a `distinct_from` is refused when it would do this, but `Link`, `CloseLink` and `Ingest` are not: closing a link can change which of the remaining links wins, as undoing a `distinct_from` can.
+- **Proposed fix:** have `Link`, `CloseLink` and `Ingest` compare cluster membership before and after, as `Decide` does, and put a link that would push a record out on the review queue instead of asserting it; or order clustering by when a link became asserted rather than when it opened.
 
 ## Processes running as the service user can decide links
 

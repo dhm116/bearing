@@ -355,3 +355,66 @@ func TestDecideSplitAgainClosesANewerProposal(t *testing.T) {
 		t.Errorf("got %+v, want no open same_as", open)
 	}
 }
+
+// A person joins id-1 and id-2 at 100 and splits id-3 from both; a rule then
+// asserts id-2 ~ id-3 with evidence from minute 50. Undoing id-2's
+// distinct_from would let that older link take id-2 and push id-1 out.
+func TestDecideUndoDistinctThatWouldPushARecordOutIsRefused(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1..3
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-1", B: "id-2", At: at(100)})
+	decide(t, s, graph.Decision{ID: "e2", Kind: graph.Split, A: "id-1", B: "id-3", At: at(200)})
+	decide(t, s, graph.Decision{ID: "e3", Kind: graph.Split, A: "id-2", B: "id-3", At: at(210)})
+	rule := sameAs("id-2", "id-3", graph.Asserted, "rule/x")
+	rule.Deposit.At = at(50)
+	link(t, s, rule)
+	var undo string
+	for _, l := range links(t, s, graph.LinkFilter{Kind: graph.DistinctFrom, Entity: "id-2"}) {
+		undo = l.ID
+	}
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e4", Kind: graph.UndoDistinct, LinkID: undo}, "id-1",
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-1", "id-3": "id-3"})
+}
+
+// id-3's stored cluster is stale (id-2 ~ id-3 is asserted, but it sits
+// alone): joining id-1 and id-2 would move id-3, a record of neither cluster.
+func TestDecideJoinThatWouldMoveARecordOfAnotherClusterIsRefused(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1..3
+	link(t, s, sameAs("id-2", "id-3", graph.Asserted, "rule/x"))
+	if _, err := s.db.ExecContext(t.Context(), `UPDATE entity SET cluster_id = id WHERE id = 'id-3'`); err != nil {
+		t.Fatal(err)
+	}
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-1", B: "id-2"}, "would move id-3",
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2", "id-3": "id-3"})
+}
+
+// A kindless record in a Person's cluster cannot be joined to a Team, and
+// the refusal names both kinds.
+func TestDecideJoinAcrossClusterKindsNamesBothKinds(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "src",
+		obs("o1", 0, "Person", "p:a/1"),
+		obs("o2", 1, "Team", "t:a/1"),
+		obs("o3", 2, "Person", "p:b/1", rel("member_of", "x:kindless/1", false))) // id-1, id-2, id-3, kindless id-4
+	link(t, s, sameAs("id-1", "id-4", graph.Asserted, "rule/x"))
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-2", B: "id-4"}, "id-2 is in a Team cluster and id-4 in a Person cluster",
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2", "id-4": "id-1"})
+}
+
+// A rule's asserted same_as for a pair a person split stays apart; accepting
+// it says which distinct_from holds it and that a join overrides it.
+func TestDecideAcceptOfAnAssertedLinkSplitByDistinctFromSaysJoinOverrides(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1")
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Split, A: "id-1", B: "id-2", At: at(100)})
+	link(t, s, sameAs("id-1", "id-2", graph.Asserted, "rule/x"))
+	distinct := links(t, s, graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
+	asserted := links(t, s, graph.LinkFilter{Kind: graph.SameAs, Status: graph.Asserted})[0].ID
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e2", Kind: graph.Accept, LinkID: asserted}, "split by distinct_from "+distinct+"; join to override",
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2"})
+}

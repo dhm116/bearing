@@ -1,10 +1,12 @@
 package duckstore
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -88,7 +90,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 	// distinct_from keeps their clusters apart, and (after) when the join
 	// left them apart or moved a record of another cluster, or pushed one out.
 	join := func(a, b string) error {
-		members, err := clusterMembers(ctx, tx, a, b)
+		before, err := membership(ctx, tx, a, b)
 		if err != nil {
 			return err
 		}
@@ -108,7 +110,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 		if err := checkJoined(ctx, tx, a, b); err != nil {
 			return err
 		}
-		return checkNoneLeft(ctx, tx, a, b, members, moved)
+		return checkNoneLeft(ctx, tx, "joining "+a+" and "+b, a, b, before, moved)
 	}
 
 	switch d.Kind {
@@ -130,6 +132,10 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 				return res, nil // closed: nothing to accept
 			}
 			if l.status == string(graph.Asserted) {
+				if id, err := pairDistinct(ctx, tx, l.a, l.b); err != nil || id != "" {
+					return res, cmp.Or(err, fmt.Errorf("link %s: %w: %s and %s are split by distinct_from %s; join to override",
+						d.LinkID, graph.ErrInvalidDecision, l.a, l.b, id))
+				}
 				return res, checkJoined(ctx, tx, l.a, l.b)
 			}
 			return res, join(l.a, l.b)
@@ -150,9 +156,18 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 			if !l.open {
 				return res, nil
 			}
+			before, err := membership(ctx, tx, l.a, l.b)
+			if err != nil {
+				return res, err
+			}
 			if err := closeOpen(l.a, l.b, graph.DistinctFrom); err != nil {
 				return res, err
 			}
+			moved, err := recluster(ctx, tx, []string{l.a, l.b})
+			if err != nil {
+				return res, err
+			}
+			return res, checkNoneLeft(ctx, tx, "undoing distinct_from "+d.LinkID, l.a, l.b, before, moved)
 		}
 		_, err = recluster(ctx, tx, []string{l.a, l.b})
 		return res, err
@@ -223,17 +238,33 @@ func recordOf(ctx context.Context, tx *sql.Tx, ref string) (string, error) {
 	return id, wrapErr("record "+ref, err)
 }
 
-// checkSameKind refuses a join of two records of different kinds, which
-// clusters never hold; a kindless record joins any.
+// checkSameKind refuses a join of two records whose clusters are of
+// different kinds, which clusters never hold; a kindless cluster joins any.
+// A kindless record takes its cluster's kind.
 func checkSameKind(ctx context.Context, tx *sql.Tx, a, b string) error {
-	var ka, kb string
-	if err := tx.QueryRowContext(ctx, `SELECT (SELECT kind FROM entity WHERE id = ?), (SELECT kind FROM entity WHERE id = ?)`, a, b).Scan(&ka, &kb); err != nil {
-		return err
+	const kindOf = `(SELECT max(kind) FILTER (WHERE kind <> '') FROM entity WHERE cluster_id = (SELECT cluster_id FROM entity WHERE id = ?))`
+	var ka, kb sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT `+kindOf+`, `+kindOf, a, b).Scan(&ka, &kb); err != nil {
+		return wrapErr("kind", err)
 	}
-	if ka != "" && kb != "" && ka != kb {
-		return fmt.Errorf("%w: %s is a %s and %s a %s", graph.ErrInvalidDecision, a, ka, b, kb)
+	if ka.Valid && kb.Valid && ka.String != kb.String {
+		return fmt.Errorf("%w: %s is in a %s cluster and %s in a %s cluster", graph.ErrInvalidDecision, a, ka.String, b, kb.String)
 	}
 	return nil
+}
+
+// pairDistinct returns the open distinct_from between a and b, or "".
+func pairDistinct(ctx context.Context, tx *sql.Tx, a, b string) (string, error) {
+	if b < a {
+		a, b = b, a
+	}
+	var id string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM identity_link WHERE a = ? AND b = ? AND kind = 'distinct_from' AND valid_to IS NULL
+		ORDER BY id LIMIT 1`, a, b).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, wrapErr("distinct_from", err)
 }
 
 // openKinds says whether the pair has an open asserted same_as and an open
@@ -303,41 +334,45 @@ func checkJoined(ctx context.Context, tx *sql.Tx, a, b string) error {
 	return fmt.Errorf("%w: %s and %s stay apart", graph.ErrInvalidDecision, a, b)
 }
 
-// clusterMembers returns the records of a's and b's clusters.
-func clusterMembers(ctx context.Context, tx *sql.Tx, a, b string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM entity WHERE cluster_id IN
-		(SELECT cluster_id FROM entity WHERE id IN (?, ?)) ORDER BY id`, a, b)
-	if err != nil {
-		return nil, wrapErr("cluster", err)
+// membership returns the cluster of each record in a's and b's clusters.
+func membership(ctx context.Context, tx *sql.Tx, a, b string) (map[string]string, error) {
+	pairs, err := txPairs(ctx, tx, `SELECT id, cluster_id FROM entity WHERE cluster_id IN
+		(SELECT cluster_id FROM entity WHERE id IN (?, ?))`, a, b)
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		m[p[0]] = p[1]
 	}
-	ids, err := collect(rows, func(sc scanner) (string, error) {
-		var id string
-		return id, sc.Scan(&id)
-	})
-	return ids, wrapErr("cluster", err)
+	return m, wrapErr("cluster", err)
 }
 
-// checkNoneLeft refuses a join after which a member of a's or b's cluster
-// is not in a's cluster, or a record of another cluster moved: the join
-// pushed a record out rather than only merging the two clusters.
-func checkNoneLeft(ctx context.Context, tx *sql.Tx, a, b string, members, moved []string) error {
+// checkNoneLeft refuses a decision (what) after which a record of another
+// cluster moved, or two records that shared a's or b's cluster before
+// (membership) no longer share one: it pushed a record out rather than only
+// merging or keeping the two clusters. A join has already checked that a
+// and b are together, so there every record must be in a's cluster.
+func checkNoneLeft(ctx context.Context, tx *sql.Tx, what, a, b string, before map[string]string, moved []string) error {
 	for _, id := range moved {
-		if !slices.Contains(members, id) {
-			return fmt.Errorf("%w: joining %s and %s would move %s out of its cluster", graph.ErrInvalidDecision, a, b, id)
+		if _, ok := before[id]; !ok {
+			return fmt.Errorf("%w: %s would move %s out of its cluster", graph.ErrInvalidDecision, what, id)
 		}
 	}
-	ca, _, err := clusters(ctx, tx, a, b)
-	if err != nil {
-		return err
-	}
-	var out sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT min(id) FROM entity WHERE cluster_id <> ? AND id IN (`+placeholders(len(members))+`)`,
-		append([]any{ca}, anySlice(members)...)...).Scan(&out)
+	ids := slices.Sorted(maps.Keys(before))
+	pairs, err := txPairs(ctx, tx, `SELECT id, cluster_id FROM entity WHERE id IN (`+placeholders(len(ids))+`)`, anySlice(ids)...)
 	if err != nil {
 		return wrapErr("cluster", err)
 	}
-	if out.Valid {
-		return fmt.Errorf("%w: joining %s and %s would push %s out of its cluster", graph.ErrInvalidDecision, a, b, out.String)
+	after := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		after[p[0]] = p[1]
+	}
+	for _, id := range ids {
+		anchor := a
+		if before[id] != before[a] {
+			anchor = b
+		}
+		if after[id] != after[anchor] {
+			return fmt.Errorf("%w: %s would push %s out of %s's cluster", graph.ErrInvalidDecision, what, id, anchor)
+		}
 	}
 	return nil
 }
