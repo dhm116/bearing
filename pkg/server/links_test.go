@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
@@ -217,6 +218,10 @@ func TestAPIDecisionRefusalsLogNothing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	team := model.NewObservation("adapter/catalog-acme", w.clk.Now(), &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{Kind: "Team", Key: "catalog:team/platform"}})
+	if _, err := w.mem.Ingest(t.Context(), graph.IngestRequest{Source: "catalog-acme", Observations: []*eventv1alpha1.Observation{team}}); err != nil {
+		t.Fatal(err)
+	}
 	asserted := w.links(graph.LinkFilter{Kind: graph.SameAs, Status: graph.Asserted})[0].ID
 	blocker := w.links(graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
 	for _, tt := range []struct {
@@ -242,6 +247,7 @@ func TestAPIDecisionRefusalsLogNothing(t *testing.T) {
 		{"a reject of an asserted link", "admin", `{"decision":"reject","link_id":"` + asserted + `"}`, http.StatusBadRequest, "invalid_request"},
 		{"a key and the ID of one record", "admin", `{"decision":"split","a":"catalog:repo/payments","b":"` + string(payments) + `"}`, http.StatusBadRequest, "invalid_request"},
 		{"a join another record's distinct_from blocks", "admin", `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/search"}`, http.StatusBadRequest, "invalid_request"},
+		{"a join of records of different kinds", "admin", `{"decision":"join","a":"catalog:repo/payments","b":"catalog:team/platform"}`, http.StatusBadRequest, "invalid_request"},
 		{"a field twice", "admin", `{"decision":"accept","link_id":"` + id + `","link_id":"` + id + `"}`, http.StatusBadRequest, "invalid_request"},
 		{"a field in another case", "admin", `{"Decision":"accept","link_id":"` + id + `"}`, http.StatusBadRequest, "invalid_request"},
 		{"a field that is not a string", "admin", `{"decision":"accept","link_id":"` + id + `","reason":null}`, http.StatusBadRequest, "invalid_request"},
@@ -340,6 +346,11 @@ func TestAPIDecisionsHaveTheirOwnRateLimit(t *testing.T) {
 	}
 	if rec := w.do("admin", http.MethodGet, "/v1/links"); rec.Code != http.StatusOK {
 		t.Errorf("a read after it: got %d, want 200", rec.Code)
+	}
+	// The limit is each caller's: another person still decides.
+	w.authn.callers["admin2"] = Caller{Subject: "dave", Local: true}
+	if rec := w.decide("admin2", body); rec.Code != http.StatusAccepted {
+		t.Errorf("another caller's decision: got %d %s, want 202", rec.Code, rec.Body.String())
 	}
 }
 

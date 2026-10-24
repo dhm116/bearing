@@ -158,7 +158,7 @@ func (s *Store) Link(ctx context.Context, ps []graph.Proposal) (graph.LinkResult
 			dirty = append(dirty, string(p.A), string(p.B))
 		}
 	}
-	if err := recluster(ctx, tx, dirty); err != nil {
+	if _, err := recluster(ctx, tx, dirty); err != nil {
 		return graph.LinkResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -255,7 +255,7 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 		WHERE id = ? AND valid_to IS NULL`, at.UTC().Truncate(time.Microsecond), id); err != nil {
 		return fmt.Errorf("link %s: close: %w", id, err)
 	}
-	if err := recluster(ctx, tx, []string{a, b}); err != nil {
+	if _, err := recluster(ctx, tx, []string{a, b}); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -269,10 +269,11 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 // (valid_from, then ID); one that would join two kinds, or two records with
 // an open asserted distinct_from between them, is skipped. Each cluster's ID
 // is its oldest record's (created_at, then ID), so the result depends only
-// on the links, not on the order they were written in.
-func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
+// on the links, not on the order they were written in. It returns the
+// records whose cluster changed.
+func recluster(ctx context.Context, tx *sql.Tx, seeds []string) (moved []string, err error) {
 	if len(seeds) == 0 {
-		return nil
+		return nil, nil
 	}
 	const sameAs = `kind = 'same_as' AND status = 'asserted' AND valid_to IS NULL`
 	comp := map[string]bool{}
@@ -286,7 +287,7 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
 		pairs, err := txPairs(ctx, tx, `SELECT a, b FROM identity_link WHERE `+sameAs+
 			` AND (a IN (`+in+`) OR b IN (`+in+`))`, args...)
 		if err != nil {
-			return fmt.Errorf("cluster: %w", err)
+			return nil, fmt.Errorf("cluster: %w", err)
 		}
 		frontier = nil
 		for _, p := range pairs {
@@ -313,7 +314,7 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
 	//nolint:gosec // only "?" lists are joined; values are bound
 	rows, err := tx.QueryContext(ctx, `SELECT id, kind, cluster_id FROM entity WHERE id IN (`+in+`) ORDER BY created_at, id`, args...)
 	if err != nil {
-		return fmt.Errorf("cluster: %w", err)
+		return nil, fmt.Errorf("cluster: %w", err)
 	}
 	_, err = collect(rows, func(sc scanner) (struct{}, error) {
 		var id, kind string
@@ -324,7 +325,7 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
 		return struct{}{}, err
 	})
 	if err != nil {
-		return fmt.Errorf("cluster: %w", err)
+		return nil, fmt.Errorf("cluster: %w", err)
 	}
 	rank := make(map[string]int, len(order))
 	for i, id := range order {
@@ -334,12 +335,12 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
 	links, err := txPairs(ctx, tx, `SELECT a, b FROM identity_link WHERE `+sameAs+
 		` AND a IN (`+in+`) AND b IN (`+in+`) ORDER BY valid_from, id`, both...)
 	if err != nil {
-		return fmt.Errorf("cluster: %w", err)
+		return nil, fmt.Errorf("cluster: %w", err)
 	}
 	apart, err := txPairs(ctx, tx, `SELECT a, b FROM identity_link WHERE kind = 'distinct_from' AND status = 'asserted'
 		AND valid_to IS NULL AND a IN (`+in+`) AND b IN (`+in+`)`, both...)
 	if err != nil {
-		return fmt.Errorf("cluster: %w", err)
+		return nil, fmt.Errorf("cluster: %w", err)
 	}
 
 	// Union-find whose root is always the set's oldest record.
@@ -375,11 +376,12 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) error {
 	for _, id := range order {
 		if c := find(id); c != recs[id].cluster {
 			if _, err := tx.ExecContext(ctx, `UPDATE entity SET cluster_id = ? WHERE id = ?`, c, id); err != nil {
-				return fmt.Errorf("cluster %s: %w", id, err)
+				return nil, fmt.Errorf("cluster %s: %w", id, err)
 			}
+			moved = append(moved, id)
 		}
 	}
-	return nil
+	return moved, nil
 }
 
 // txPairs runs a query that returns two string columns.

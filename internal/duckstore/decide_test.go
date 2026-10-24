@@ -262,3 +262,96 @@ func TestLinksWithALimitReturnsTheNewestEvidenceFirstAndRecordsByID(t *testing.T
 		t.Errorf("got %+v, %v, want id-1 and id-3 with their keys", recs, err)
 	}
 }
+
+// pushOutScenario: the matcher proposes id-1 ~ id-3 at minute 50, a person
+// joins id-1 and id-2 at 100 and splits id-2 from id-3 at 200. Promoting the
+// older proposal would join id-1 and id-3 first and push id-2 out.
+func pushOutScenario(t *testing.T) (s *Store, proposal, blocker string) {
+	t.Helper()
+	s = ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1..3
+	link(t, s, sameAs("id-1", "id-3", graph.Proposed, "matcher/transparent"))
+	proposal = links(t, s, graph.LinkFilter{Status: graph.Proposed})[0].ID
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-1", B: "id-2", At: at(100)})
+	decide(t, s, graph.Decision{ID: "e2", Kind: graph.Split, A: "id-2", B: "id-3", At: at(200)})
+	return s, proposal, links(t, s, graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
+}
+
+func wantRefusedAndUntouched(t *testing.T, s *Store, d graph.Decision, naming string, clusters map[string]graph.EntityID) {
+	t.Helper()
+	before := links(t, s, graph.LinkFilter{WithClosed: true})
+	d.Actor = "local:501"
+	_, err := s.Decide(t.Context(), d)
+	if !errors.Is(err, graph.ErrInvalidDecision) || !strings.Contains(err.Error(), naming) {
+		t.Errorf("got %v, want an invalid decision naming %s", err, naming)
+	}
+	if after := links(t, s, graph.LinkFilter{WithClosed: true}); fmt.Sprint(after) != fmt.Sprint(before) {
+		t.Errorf("got links %+v, want %+v", after, before)
+	}
+	wantClusters(t, s, clusters)
+}
+
+func TestDecideAcceptOfAnOlderProposalThatWouldPushARecordOutIsRefused(t *testing.T) {
+	t.Parallel()
+	s, proposal, blocker := pushOutScenario(t)
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e3", Kind: graph.Accept, LinkID: proposal, At: at(300)}, blocker,
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-1", "id-3": "id-3"})
+}
+
+func TestDecideJoinOverAnOlderProposalThatWouldPushARecordOutIsRefused(t *testing.T) {
+	t.Parallel()
+	s, _, blocker := pushOutScenario(t)
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e3", Kind: graph.Join, A: "id-1", B: "id-3", At: at(300)}, blocker,
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-1", "id-3": "id-3"})
+}
+
+// A pair already joined by an asserted same_as that a distinct_from keeps
+// apart is not "already joined": a join or accept of it is refused.
+func TestDecideJoinOrAcceptOfAnAssertedPairLeftApartIsRefused(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1..3
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-1", B: "id-2", At: at(100)})
+	decide(t, s, graph.Decision{ID: "e2", Kind: graph.Split, A: "id-2", B: "id-3", At: at(200)})
+	blocker := links(t, s, graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
+	rule := sameAs("id-1", "id-3", graph.Asserted, "rule/x")
+	rule.Deposit.At = at(300)
+	link(t, s, rule)
+	asserted := links(t, s, graph.LinkFilter{Kind: graph.SameAs, Status: graph.Asserted, Entity: "id-3"})[0].ID
+	clusters := map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-1", "id-3": "id-3"}
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e3", Kind: graph.Join, A: "id-1", B: "id-3"}, blocker, clusters)
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e4", Kind: graph.Accept, LinkID: asserted}, blocker, clusters)
+}
+
+// No distinct_from is involved here: accepting an older proposal joins a
+// kindless record to a Team, and the Person it was joined to drops out.
+func TestDecideAcceptThatWouldPushARecordOutOfAnotherKindIsRefused(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "src",
+		obs("o1", 0, "Person", "p:a/1"),
+		obs("o2", 1, "Team", "t:a/1"),
+		obs("o3", 2, "Person", "p:b/1", rel("member_of", "x:kindless/1", false))) // id-1, id-2, id-3, kindless id-4
+	proposal := sameAs("id-2", "id-4", graph.Proposed, "matcher/transparent") // at minute 50
+	joined := sameAs("id-1", "id-4", graph.Asserted, "rule/x")
+	joined.Deposit.At = at(100)
+	link(t, s, proposal, joined)
+	id := links(t, s, graph.LinkFilter{Status: graph.Proposed})[0].ID
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e1", Kind: graph.Accept, LinkID: id}, "id-1",
+		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2", "id-4": "id-1"})
+}
+
+// A split of a pair already split still closes a proposal opened since.
+func TestDecideSplitAgainClosesANewerProposal(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1")
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Split, A: "id-1", B: "id-2"})
+	link(t, s, sameAs("id-1", "id-2", graph.Proposed, "matcher/transparent"))
+	if r := decide(t, s, graph.Decision{ID: "e2", Kind: graph.Split, A: "id-1", B: "id-2"}); r.Closed != 1 {
+		t.Errorf("got %+v, want the proposal closed", r)
+	}
+	if open := links(t, s, graph.LinkFilter{Kind: graph.SameAs}); len(open) != 0 {
+		t.Errorf("got %+v, want no open same_as", open)
+	}
+}
