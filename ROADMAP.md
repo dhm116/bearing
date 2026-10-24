@@ -48,7 +48,9 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    - The model-backed matcher (ADR 7, "Proving it out" step 3) is not built;
      it would merge only through a later ADR.
 5. **Queries.** CLI, REST and MCP over one query layer, plus a
-   `find_entities` lookup for names.
+   `find_entities` lookup for names. `bearing mcp` (stdio, read-only tools,
+   [docs/mcp.md](docs/mcp.md)) is built; the `runtimes` tool (question 2)
+   joins when that query lands, and an HTTP MCP endpoint on the server is later.
 6. **Config.** One server file plus one block per adapter, loaded at start.
 7. **Run it.** Docker Compose with the fakes; end-to-end tests for each
    question.

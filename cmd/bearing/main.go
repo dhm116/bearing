@@ -18,6 +18,11 @@
 //	bearing changes [--since <time>] [<ref>]
 //	bearing find <name>
 //
+// serves the read-only queries to an agent as an MCP server on stdin and
+// stdout (see docs/mcp.md):
+//
+//	bearing mcp --server /run/bearing/api.sock
+//
 // and asks a running server to sync a source now:
 //
 //	bearing source sync github-acme --server /run/bearing/api.sock
@@ -75,6 +80,7 @@ const usage = `usage:
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
   bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
+  bearing mcp [--store URL | --server ADDR]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
@@ -126,7 +132,7 @@ func spanName(args []string) string {
 	switch {
 	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source" || args[0] == "link"):
 		return "bearing " + args[0] + " " + args[1]
-	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server"):
+	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server" || args[0] == "mcp"):
 		return "bearing " + args[0]
 	}
 	return "bearing"
@@ -148,6 +154,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return serverCmd(ctx, args[1:], stdout)
 	case "source":
 		return sourceCmd(ctx, env, args[1:], stdout)
+	case "mcp":
+		return mcpCmd(ctx, env, args[1:], stdout)
 	case "link":
 		return linkCmd(ctx, env, args[1:], stdout)
 	case "adapter":
