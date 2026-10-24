@@ -7,12 +7,34 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/match"
+	"bearing.example/pkg/query"
 )
+
+const initReq = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q}}`
+
+func initAt(version string) string { return fmt.Sprintf(initReq, version) }
+
+// newMCPWorld is the Acme world plus a second record of Jane Doe from the
+// catalog, which the matcher proposes to link with the GitHub one, so the
+// review queue has something in it.
+func newMCPWorld(t testing.TB) *world {
+	t.Helper()
+	w := newWorld(t)
+	w.ingest(catalogSource, seedAt.Add(2*time.Minute), entity("Person", "catalog:person/jdoe", "Jane Doe"))
+	res, err := match.Run(context.Background(), w.store, match.Config{Now: w.clock.Now})
+	if err != nil || res.Proposed != 1 {
+		t.Fatalf("matcher: got %+v, %v, want one proposal", res, err)
+	}
+	return w
+}
 
 // mcpRun feeds requests to `bearing mcp` over the world's store, or over its
 // API when addr is set, and returns the response lines.
@@ -91,9 +113,9 @@ var mcpCalls = []struct {
 }
 
 func TestMCPInitializeAndToolsListMatchGolden(t *testing.T) {
-	w := newWorld(t)
+	w := newMCPWorld(t)
 	got := w.mcpRun("", "",
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`,
+		initAt("2025-03-26"),
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":2,"method":"ping"}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
@@ -102,15 +124,19 @@ func TestMCPInitializeAndToolsListMatchGolden(t *testing.T) {
 	}
 	checkMCPGolden(t, "initialize", pretty(t, got[0]))
 	checkMCPGolden(t, "tools-list", pretty(t, got[2]))
+
+	// Only 2025-06-18 clients get output schemas.
+	got = w.mcpRun("", "", initAt("2025-06-18"), `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
+	checkMCPGolden(t, "tools-list-2025-06-18", pretty(t, got[1]))
 }
 
 func TestMCPToolsAnswerTheSameFromAStoreAndAServer(t *testing.T) {
 	for _, tt := range mcpCalls {
 		t.Run(tt.name, func(t *testing.T) {
-			w := newWorld(t)
-			req := callReq(1, tt.tool, tt.args)
-			fromStore := w.mcpRun("", "", req)[0]
-			fromServer := w.mcpRun(w.serve(), apiToken, req)[0]
+			w := newMCPWorld(t)
+			init, req := initAt("2025-06-18"), callReq(1, tt.tool, tt.args)
+			fromStore := w.mcpRun("", "", init, req)[1]
+			fromServer := w.mcpRun(w.serve(), apiToken, init, req)[1]
 			// The API answers JSON that the client decodes into the same types.
 			if fromStore != fromServer {
 				t.Errorf("the server's answer differs from the store's:\n--- server\n%s\n--- store\n%s", fromServer, fromStore)
@@ -170,5 +196,221 @@ func TestMCPNeverSpeaksOfTheToken(t *testing.T) {
 	testkit.AssertNoLeaks(t, out, wrong, apiToken)
 	if !strings.Contains(out, "unauthenticated") || !strings.Contains(out, "BEARING_TOKEN") {
 		t.Errorf("want an unauthenticated error with a hint, got %s", out)
+	}
+}
+
+// result decodes the result of a response line.
+func result(t *testing.T, line string) map[string]any {
+	t.Helper()
+	var r struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(line), &r); err != nil || r.Result == nil {
+		t.Fatalf("not a result: %s (%v)", line, err)
+	}
+	return r.Result
+}
+
+func TestMCPOlderProtocolsGetTheAnswerAsText(t *testing.T) {
+	w := newMCPWorld(t)
+	call := callReq(1, "owners", `{"ref":"github:repo/acme/payments-api"}`)
+	// The golden is the 2025-06-18 answer, whose structuredContent is the data.
+	golden := result(t, strings.TrimSpace(readGolden(t, "owners")))["structuredContent"]
+	for _, v := range []string{"2024-11-05", "2025-03-26"} {
+		t.Run(v, func(t *testing.T) {
+			res := result(t, w.mcpRun("", "", initAt(v), call)[1])
+			if _, has := res["structuredContent"]; has {
+				t.Errorf("structuredContent sent to a %s client", v)
+			}
+			content := res["content"].([]any)
+			if len(content) != 2 {
+				t.Fatalf("got %d content blocks, want the answer and a summary", len(content))
+			}
+			var got any
+			if err := json.Unmarshal([]byte(content[0].(map[string]any)["text"].(string)), &got); err != nil {
+				t.Fatalf("content[0] is not the JSON answer: %v", err)
+			}
+			if !reflect.DeepEqual(got, golden) {
+				t.Errorf("got %v, want %v", got, golden)
+			}
+		})
+	}
+}
+
+func readGolden(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "mcp", name+".golden")) //nolint:gosec // G304: golden files under testdata
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// conforms checks the top level of v against a schema outputSchema made.
+func conforms(t *testing.T, schema, v map[string]any) {
+	t.Helper()
+	props := schema["properties"].(map[string]any)
+	for _, r := range schema["required"].([]any) {
+		if _, ok := v[r.(string)]; !ok {
+			t.Errorf("required field %s is missing", r)
+		}
+	}
+	for k, val := range v {
+		p, ok := props[k].(map[string]any)
+		if !ok {
+			t.Errorf("field %s is not in the schema", k)
+			continue
+		}
+		var got string
+		switch x := val.(type) {
+		case string:
+			got = "string"
+		case bool:
+			got = "boolean"
+		case float64:
+			got = "number"
+			if x == float64(int64(x)) && p["type"] == "integer" {
+				got = "integer"
+			}
+		case []any:
+			got = "array"
+		case map[string]any:
+			got = "object"
+		default:
+			got = fmt.Sprintf("%T", val)
+		}
+		if got != p["type"] {
+			t.Errorf("field %s is %s, the schema says %v", k, got, p["type"])
+		}
+	}
+}
+
+func TestMCPStructuredContentConformsToTheOutputSchema(t *testing.T) {
+	w := newMCPWorld(t)
+	list := result(t, w.mcpRun("", "", initAt("2025-06-18"), `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)[1])
+	schemas := map[string]map[string]any{}
+	for _, tl := range list["tools"].([]any) {
+		m := tl.(map[string]any)
+		schemas[m["name"].(string)] = m["outputSchema"].(map[string]any)
+	}
+	for _, c := range mcpCalls {
+		t.Run(c.name, func(t *testing.T) {
+			res := result(t, w.mcpRun("", "", initAt("2025-06-18"), callReq(1, c.tool, c.args))[1])
+			conforms(t, schemas[c.tool], res["structuredContent"].(map[string]any))
+		})
+	}
+}
+
+func TestMCPBatches(t *testing.T) {
+	w := newMCPWorld(t)
+	batch := `[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":"b","method":"ping"}]`
+	got := w.mcpRun("", "", initAt("2025-03-26"), batch, `[{"jsonrpc":"2.0","method":"notifications/initialized"}]`, `{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	if len(got) != 3 { // the batch of notifications gets no answer
+		t.Fatalf("got %d lines, want 3: %q", len(got), got)
+	}
+	var rs []struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(got[1]), &rs); err != nil || len(rs) != 2 || string(rs[0].ID) != "1" || string(rs[1].ID) != `"b"` {
+		t.Errorf("got %s, want an array of the two non-notification responses", got[1])
+	}
+	for _, v := range []string{"2024-11-05", "2025-06-18"} {
+		got := w.mcpRun("", "", initAt(v), batch)
+		if !strings.Contains(got[1], `"code":-32600`) || !strings.Contains(got[1], "batches are not supported") {
+			t.Errorf("%s: got %s, want batches refused", v, got[1])
+		}
+	}
+}
+
+func TestMCPRefusesIDsThatAreNotStringsOrNumbers(t *testing.T) {
+	w := newMCPWorld(t)
+	for _, id := range []string{`null`, `{}`, `[1]`, `true`} {
+		got := w.mcpRun("", "", fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"method":"ping"}`, id))
+		if len(got) != 1 || !strings.Contains(got[0], `"code":-32600`) || !strings.Contains(got[0], `"id":null`) {
+			t.Errorf("id %s: got %q, want -32600 with a null id", id, got)
+		}
+	}
+}
+
+func TestMCPToolsListRefusesACursor(t *testing.T) {
+	w := newMCPWorld(t)
+	got := w.mcpRun("", "", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"cursor":"page2"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"cursor":""}}`)
+	if !strings.Contains(got[0], `"code":-32602`) || !strings.Contains(got[0], "unknown cursor") {
+		t.Errorf("got %s, want unknown cursor", got[0])
+	}
+	if !strings.Contains(got[1], `"tools"`) {
+		t.Errorf("an empty cursor is no cursor: %s", got[1])
+	}
+}
+
+func TestMCPRefusesOversizedRequest(t *testing.T) {
+	w := newMCPWorld(t)
+	big := `{"jsonrpc":"2.0","id":1,"method":"ping","params":"` + strings.Repeat("a", maxMCPLine) + `"}`
+	got := w.mcpRun("", "", big, `{"jsonrpc":"2.0","id":2,"method":"ping"}`)
+	if len(got) != 2 || !strings.Contains(got[0], `"code":-32600`) || !strings.Contains(got[0], "too large") {
+		t.Fatalf("got %q, want a refusal of the long line", got)
+	}
+	if !strings.Contains(got[1], `"id":2`) || !strings.Contains(got[1], `"result"`) {
+		t.Errorf("the server did not go on: %s", got[1])
+	}
+}
+
+func TestMCPRefusesExplicitZeroCounts(t *testing.T) {
+	w := newMCPWorld(t)
+	for _, c := range []struct{ tool, args string }{
+		{"find_entities", `{"text":"x","limit":0}`},
+		{"changes", `{"since":"72h","limit":0}`},
+		{"review_queue", `{"limit":0}`},
+		{"depends_on", `{"ref":"catalog:component/db","depth":0}`},
+		{"depended_on_by", `{"ref":"catalog:component/db","depth":0}`},
+	} {
+		got := w.mcpRun("", "", callReq(1, c.tool, c.args))[0]
+		if !strings.Contains(got, `"isError":true`) || !strings.Contains(got, "invalid_request: ") || !strings.Contains(got, "must be from 1 to") {
+			t.Errorf("%s %s: got %s, want a refusal", c.tool, c.args, got)
+		}
+	}
+}
+
+// blockedFind waits for its deadline.
+type blockedFind struct{ answerer }
+
+func (blockedFind) Find(ctx context.Context, _, _ string, _ int) ([]query.Match, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestMCPToolCallsHaveADeadline(t *testing.T) {
+	s := &mcpServer{call: mcpCall{A: blockedFind{}}, slowTimeout: 20 * time.Millisecond}
+	var out bytes.Buffer
+	if err := s.serve(context.Background(), strings.NewReader(callReq(1, "find_entities", `{"text":"x"}`)+"\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "timeout: the question took too long") {
+		t.Errorf("got %s, want a timeout", out.String())
+	}
+}
+
+func TestMCPRefusalsAreTheSameFromAStoreAndAServer(t *testing.T) {
+	w := newMCPWorld(t)
+	for name, req := range map[string]string{
+		"not found":    callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`),
+		"owners":       callReq(1, "owners", `{"ref":"github:repo/acme/nope"}`),
+		"bad time":     callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`),
+		"bad kind":     callReq(1, "find_entities", `{"text":"x","kind":"nonsense"}`),
+		"long text":    callReq(1, "find_entities", `{"text":"`+strings.Repeat("a", 257)+`"}`),
+		"bad window":   callReq(1, "changes", `{"since":"2026-10-02","until":"2026-10-01"}`),
+		"bad relation": callReq(1, "depends_on", `{"ref":""}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			fromStore := w.mcpRun("", "", req)[0]
+			fromServer := w.mcpRun(w.serve(), apiToken, req)[0]
+			if !strings.Contains(fromStore, `"isError":true`) {
+				t.Fatalf("not refused: %s", fromStore)
+			}
+			if fromStore != fromServer {
+				t.Errorf("the server's refusal differs from the store's:\n--- server\n%s\n--- store\n%s", fromServer, fromStore)
+			}
+		})
 	}
 }

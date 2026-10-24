@@ -19,7 +19,7 @@
               "type": "integer"
             },
             "text": {
-              "description": "part of the name to look for",
+              "description": "part of the name to look for, at most 256 bytes",
               "type": "string"
             }
           },

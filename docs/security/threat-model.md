@@ -25,6 +25,7 @@ the code already uses.
 | API Unix socket | A process on the server's host | The kernel's report of the peer's UID: only the service user and root are served (C-API-1), and not a process the server started (C-API-8) |
 | API TCP listener | Anyone who can reach the port | TLS, a bearer token of at least 32 bytes, per-peer connection and request limits before the token is checked (C-API-2, C-API-3, C-API-6) |
 | Webhook route (`POST /webhooks/{source}`) | A source system, or anyone pretending to be one | The source's HMAC signature, checked before the body is parsed or logged (C-INGEST-1, C-INGEST-2) |
+| `bearing mcp` (stdin and stdout) | The agent that launched it, and the model behind it | The launcher's own rights: the same socket or token as any `bearing` command, and no write tools (C-MCP-1) |
 | Local adapter | A process the server starts | A private socket directory (mode 0700) and an environment the server builds (C-SECRET-3) |
 | Remote adapter | A process on another host | Mutual TLS 1.3, each side's certificate from a CA it trusts and, optionally, holding the SPIFFE ID it expects (below) |
 | Settings file and adapter commands | An operator | File ownership and mode checks at start (C-OPS-3) |
@@ -179,6 +180,19 @@ credentials; the server never sends it any.
   adapter running as the same user can neither ptrace it nor read its
   `/proc/<pid>/environ`.
 
+**MCP**
+- **C-MCP-1** `bearing mcp` has no authority of its own: its caller is whoever
+  launched it, with that user's rights on the socket or token it is given.
+  A request line is at most 1 MiB (a longer one is dropped), a JSON-RPC
+  batch is accepted only under protocol 2025-03-26, arguments are decoded
+  strictly and bounded (unknown fields, a zero count, `find_entities` text
+  over 256 bytes and ids that are not strings or numbers are refused), and
+  each call runs under the server's request deadline. There are no write
+  tools: no link decision and no sync request. Stored text (names,
+  attributes, link reasons) is returned as data, never as instructions, and
+  errors carry a code and one fixed message. The token comes from a variable
+  the host sets, never from the client's configuration.
+
 **Operations and store**
 
 - **C-OPS-3** The settings file and each adapter command must be owned by the
@@ -202,6 +216,12 @@ labels or error text. Tests plant canary values and scan for them
 ## Known gaps
 
 Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
+
+- **Agents are not marked.** MCP calls look like the launching user's own, so
+  only the absence of write tools keeps an agent from deciding identity links
+  (C-MCP-1). An agent run on the API socket as the service user, or holding a
+  token while `api.link_decisions` is `token`, can decide links by running
+  `bearing link` itself.
 
 - **No roles or per-caller identity.** Every authenticated API caller may call
   every route but link decisions (C-API-8), and every holder of the API token

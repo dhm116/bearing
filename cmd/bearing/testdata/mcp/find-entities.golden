@@ -4,6 +4,10 @@
   "result": {
     "content": [
       {
+        "text": "{\"matches\":[{\"id\":\"e10\",\"kind\":\"Component\",\"name\":\"payments\",\"key\":\"catalog:component/payments\",\"score\":1}]}",
+        "type": "text"
+      },
+      {
         "text": "1 match(es)",
         "type": "text"
       }

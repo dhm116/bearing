@@ -37,6 +37,9 @@ const (
 	MaxChangesLimit = 1000
 	// MaxFindLimit bounds Find; zero asks for the store's default.
 	MaxFindLimit = 100
+	// MaxFindText bounds the text Find looks for, in bytes: a name is short,
+	// and the store scores the text against every entity.
+	MaxFindText = 256
 	// defaultWindow is how far back Changes looks when no start is given.
 	defaultWindow = 24 * time.Hour
 )
@@ -292,6 +295,8 @@ func (q *Querier) Find(ctx context.Context, text, kind string, limit int) ([]Mat
 	switch {
 	case text == "":
 		return nil, fmt.Errorf("%w: a query is required", ErrInvalidRequest)
+	case len(text) > MaxFindText:
+		return nil, fmt.Errorf("%w: the query is longer than %d bytes", ErrInvalidRequest, MaxFindText)
 	case limit < 0 || limit > MaxFindLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxFindLimit)
 	case kind != "" && !model.Kind(kind).Valid():

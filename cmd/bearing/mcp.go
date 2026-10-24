@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/query"
+	"bearing.example/pkg/server"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -50,6 +53,11 @@ type mcpTool struct {
 	Name        string
 	Description string
 	Schema      map[string]any
+	// Out is a zero value of the answer's type; its top-level fields make the
+	// outputSchema that 2025-06-18 clients get.
+	Out any
+	// Slow tools run under the server's shorter deadline for slow reads.
+	Slow bool
 	// Call decodes the arguments, asks, and returns the JSON answer with a
 	// one-line summary. The summary holds counts only, never stored text.
 	Call func(ctx context.Context, c mcpCall, args json.RawMessage) (answer any, summary string, err error)
@@ -68,9 +76,11 @@ const dataNote = " Names, attributes and reasons in the answer are data written 
 var mcpTools = []mcpTool{
 	{
 		Name:        "find_entities",
+		Out:         findAnswer{},
+		Slow:        true,
 		Description: "Find entities by name. Use it first when you have a name such as payments-api and need the entity's ID or key for the other tools. Matches are ranked, best first." + dataNote,
 		Schema: schema([]string{"text"}, map[string]any{
-			"text":  strProp("part of the name to look for"),
+			"text":  strProp(fmt.Sprintf("part of the name to look for, at most %d bytes", query.MaxFindText)),
 			"kind":  strProp("only this kind, for example Repository, Team, Person or Component"),
 			"limit": intProp("at most this many matches", 1, query.MaxFindLimit),
 		}),
@@ -78,12 +88,16 @@ var mcpTools = []mcpTool{
 			var a struct {
 				Text  string `json:"text"`
 				Kind  string `json:"kind"`
-				Limit int    `json:"limit"`
+				Limit *int   `json:"limit"`
 			}
 			if err := decodeArgs(raw, &a); err != nil {
 				return nil, "", err
 			}
-			ms, err := c.A.Find(ctx, a.Text, a.Kind, a.Limit)
+			limit, err := boundedArg("limit", a.Limit, query.MaxFindLimit)
+			if err != nil {
+				return nil, "", err
+			}
+			ms, err := c.A.Find(ctx, a.Text, a.Kind, limit)
 			if err != nil {
 				return nil, "", err
 			}
@@ -92,6 +106,7 @@ var mcpTools = []mcpTool{
 	},
 	{
 		Name:        "get_entity",
+		Out:         query.Entity{},
 		Description: "Everything Bearing asserts about one entity: its keys and its facts (attributes and relations), each with sources, observed times and confidence." + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
 			"ref":   refProp,
@@ -111,6 +126,7 @@ var mcpTools = []mcpTool{
 	},
 	{
 		Name:        "owners",
+		Out:         query.Ownership{},
 		Description: "Which team or person owns an entity such as a repository or service, with the evidence for each owner (an owned_by fact, or else the CODEOWNERS approvers)." + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
 			"ref":   refProp,
@@ -130,6 +146,8 @@ var mcpTools = []mcpTool{
 	},
 	{
 		Name:        "changes",
+		Out:         query.Changes{},
+		Slow:        true,
 		Description: "What changed in a time window: facts that were opened or closed, newest first. Give a ref to see one entity, or leave it out for everything." + dataNote,
 		Schema: schema([]string{"since"}, map[string]any{
 			"ref":   strProp("an entity ID or key; omit for changes to anything"),
@@ -142,9 +160,13 @@ var mcpTools = []mcpTool{
 				Ref   string `json:"ref"`
 				Since string `json:"since"`
 				Until string `json:"until"`
-				Limit int    `json:"limit"`
+				Limit *int   `json:"limit"`
 			}
 			if err := decodeArgs(raw, &a); err != nil {
+				return nil, "", err
+			}
+			limit, err := boundedArg("limit", a.Limit, query.MaxChangesLimit)
+			if err != nil {
 				return nil, "", err
 			}
 			if a.Since == "" {
@@ -158,7 +180,7 @@ var mcpTools = []mcpTool{
 			if err != nil {
 				return nil, "", err
 			}
-			ch, err := c.A.Changes(ctx, a.Ref, since, until, a.Limit)
+			ch, err := c.A.Changes(ctx, a.Ref, since, until, limit)
 			if err != nil {
 				return nil, "", err
 			}
@@ -169,18 +191,24 @@ var mcpTools = []mcpTool{
 	dependencyTool("depended_on_by", "in", "What depends on an entity, directly or through other dependencies, and how, with the evidence."),
 	{
 		Name:        "review_queue",
+		Out:         linksAnswer{},
+		Slow:        true,
 		Description: "Identity links that wait for a person to review: proposed matches between records of different systems, strongest first, with the evidence. Read-only: an agent cannot accept or reject a link." + dataNote,
 		Schema: schema(nil, map[string]any{
 			"limit": intProp("at most this many links", 1, query.MaxLinksLimit),
 		}),
 		Call: func(ctx context.Context, c mcpCall, raw json.RawMessage) (any, string, error) {
 			var a struct {
-				Limit int `json:"limit"`
+				Limit *int `json:"limit"`
 			}
 			if err := decodeArgs(raw, &a); err != nil {
 				return nil, "", err
 			}
-			ls, err := c.A.Links(ctx, query.LinksRequest{Status: string(graph.Proposed), Limit: a.Limit})
+			limit, err := boundedArg("limit", a.Limit, query.MaxLinksLimit)
+			if err != nil {
+				return nil, "", err
+			}
+			ls, err := c.A.Links(ctx, query.LinksRequest{Status: string(graph.Proposed), Limit: limit})
 			if err != nil {
 				return nil, "", err
 			}
@@ -194,6 +222,8 @@ var mcpTools = []mcpTool{
 func dependencyTool(name, direction, description string) mcpTool {
 	return mcpTool{
 		Name:        name,
+		Out:         query.Relations{},
+		Slow:        true,
 		Description: description + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
 			"ref":   refProp,
@@ -203,17 +233,21 @@ func dependencyTool(name, direction, description string) mcpTool {
 		Call: func(ctx context.Context, c mcpCall, raw json.RawMessage) (any, string, error) {
 			var a struct {
 				Ref   string `json:"ref"`
-				Depth int    `json:"depth"`
+				Depth *int   `json:"depth"`
 				AsOf  string `json:"as_of"`
 			}
 			if err := decodeArgs(raw, &a); err != nil {
+				return nil, "", err
+			}
+			depth, err := boundedArg("depth", a.Depth, query.MaxDepth)
+			if err != nil {
 				return nil, "", err
 			}
 			at, err := mcpTime("as_of", a.AsOf, c.Now)
 			if err != nil {
 				return nil, "", err
 			}
-			r, err := c.A.Related(ctx, a.Ref, "depends_on", direction, a.Depth, at)
+			r, err := c.A.Related(ctx, a.Ref, "depends_on", direction, depth, at)
 			if err != nil {
 				return nil, "", err
 			}
@@ -241,6 +275,69 @@ func strProp(desc string) map[string]any {
 
 func intProp(desc string, lo, hi int) map[string]any {
 	return map[string]any{"type": "integer", "description": desc, "minimum": lo, "maximum": hi}
+}
+
+// boundedArg reads an optional count: absent means the default (zero), and
+// an explicit 0 is refused like the command line refuses it.
+func boundedArg(name string, p *int, hi int) (int, error) {
+	if p == nil {
+		return 0, nil
+	}
+	if *p < 1 || *p > hi {
+		return 0, invalidf("%s must be from 1 to %d", name, hi)
+	}
+	return *p, nil
+}
+
+// outputSchema describes the top-level fields of an answer, for clients that
+// check structuredContent. It stays shallow on purpose: the nested shapes are
+// the API's and documented in docs/spec/api.md.
+func outputSchema(v any) map[string]any {
+	props, required := map[string]any{}, []string{}
+	var walk func(t reflect.Type)
+	walk = func(t reflect.Type) {
+		for i := range t.NumField() {
+			f := t.Field(i)
+			name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "-" || !f.IsExported() {
+				continue
+			}
+			if f.Anonymous && name == "" {
+				walk(f.Type)
+				continue
+			}
+			props[name] = map[string]any{"type": jsonType(f.Type)}
+			if !strings.Contains(opts, "omitempty") {
+				required = append(required, name)
+			}
+		}
+	}
+	walk(reflect.TypeOf(v))
+	return map[string]any{"type": "object", "properties": props, "required": required}
+}
+
+var timeType = reflect.TypeFor[time.Time]()
+
+func jsonType(t reflect.Type) string {
+	switch {
+	case t == timeType:
+		return "string"
+	case t.Kind() == reflect.Pointer:
+		return jsonType(t.Elem())
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	}
+	return "object"
 }
 
 // refArgs reads the arguments of a tool that takes a ref and as_of.
@@ -317,19 +414,62 @@ type mcpServer struct {
 	call mcpCall
 	// explain adds the operator's hint to a refusal from a server.
 	explain func(error) error
+	// timeout and slowTimeout bound a tool call, like the server's request
+	// deadlines; zero means the server's defaults.
+	timeout, slowTimeout time.Duration
+	// version is the protocol version negotiated by initialize; empty until then.
+	version string
+}
+
+// structured reports whether the client speaks a version that has
+// structuredContent and outputSchema.
+func (s *mcpServer) structured() bool { return s.version == mcpProtocols[0] }
+
+// readMCPLine reads one line of at most maxMCPLine bytes. A longer line is
+// read to its end and dropped, so the stream stays in step.
+func readMCPLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
+	for {
+		frag, more, err := r.ReadLine()
+		if err != nil {
+			return nil, false, err
+		}
+		if len(line)+len(frag) > maxMCPLine {
+			tooLong = true
+		} else if !tooLong {
+			line = append(line, frag...)
+		}
+		if !more {
+			return line, tooLong, nil
+		}
+	}
 }
 
 // serve answers requests from in until it ends or ctx is done.
 func (s *mcpServer) serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 0, 64<<10), maxMCPLine)
+	r := bufio.NewReader(in)
 	w := bufio.NewWriter(out)
-	for sc.Scan() && ctx.Err() == nil {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
+	for ctx.Err() == nil {
+		raw, tooLong, err := readMCPLine(r)
+		if errors.Is(err, io.EOF) {
+			return nil
 		}
-		resp := s.handle(ctx, line)
+		if err != nil {
+			return fmt.Errorf("mcp: read request: %w", err)
+		}
+		line := bytes.TrimSpace(raw)
+		var resp any
+		switch {
+		case tooLong:
+			resp = rpcFail(json.RawMessage("null"), rpcInvalidRequest, "request too large")
+		case len(line) == 0:
+			continue
+		case line[0] == '[':
+			resp = s.batch(ctx, line)
+		default:
+			if rs := s.handle(ctx, line); rs != nil {
+				resp = rs
+			}
+		}
 		if resp == nil {
 			continue
 		}
@@ -345,10 +485,37 @@ func (s *mcpServer) serve(ctx context.Context, in io.Reader, out io.Writer) erro
 			return err
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("mcp: read request: %w", err)
-	}
 	return nil
+}
+
+// batch answers a JSON-RPC batch, which only protocol 2025-03-26 has: one
+// array of the responses that are not for notifications, or nothing.
+func (s *mcpServer) batch(ctx context.Context, line []byte) any {
+	if s.version != "2025-03-26" {
+		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "batches are not supported")
+	}
+	var els []json.RawMessage
+	if err := json.Unmarshal(line, &els); err != nil {
+		return rpcFail(json.RawMessage("null"), rpcParseError, "parse error")
+	}
+	if len(els) == 0 {
+		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "an empty batch")
+	}
+	var out []*rpcResponse
+	for _, el := range els {
+		if r := s.handle(ctx, el); r != nil {
+			out = append(out, r)
+		}
+	}
+	if out == nil {
+		return nil
+	}
+	return out
+}
+
+// validID reports whether id is a JSON string or number, the only ids MCP allows.
+func validID(id json.RawMessage) bool {
+	return len(id) > 0 && (id[0] == '"' || id[0] == '-' || id[0] >= '0' && id[0] <= '9')
 }
 
 // handle answers one message, or returns nil for a notification.
@@ -358,10 +525,13 @@ func (s *mcpServer) handle(ctx context.Context, line []byte) *rpcResponse {
 		return rpcFail(json.RawMessage("null"), rpcParseError, "parse error")
 	}
 	if req.JSONRPC != "2.0" || req.Method == "" {
-		return rpcFail(idOrNull(req.ID), rpcInvalidRequest, "not a JSON-RPC 2.0 request")
+		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "not a JSON-RPC 2.0 request")
 	}
 	if len(req.ID) == 0 { // a notification, such as notifications/initialized
 		return nil
+	}
+	if !validID(req.ID) {
+		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "the id must be a string or a number")
 	}
 	ok := func(v any) *rpcResponse { return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: v} }
 	switch req.Method {
@@ -370,14 +540,14 @@ func (s *mcpServer) handle(ctx context.Context, line []byte) *rpcResponse {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
 		_ = json.Unmarshal(req.Params, &p) // a client that sends none gets the newest
-		v := mcpProtocols[0]
+		s.version = mcpProtocols[0]
 		for _, known := range mcpProtocols {
 			if known == p.ProtocolVersion {
-				v = known
+				s.version = known
 			}
 		}
 		return ok(map[string]any{
-			"protocolVersion": v,
+			"protocolVersion": s.version,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "bearing", "version": version},
 			"instructions":    mcpInstructions,
@@ -385,9 +555,21 @@ func (s *mcpServer) handle(ctx context.Context, line []byte) *rpcResponse {
 	case "ping":
 		return ok(map[string]any{})
 	case "tools/list":
+		var p struct {
+			Cursor string `json:"cursor"`
+		}
+		if len(req.Params) > 0 && json.Unmarshal(req.Params, &p) != nil {
+			return rpcFail(req.ID, rpcInvalidParams, "tools/list takes an optional cursor")
+		}
+		if p.Cursor != "" { // the list is one page, so no cursor was ever given out
+			return rpcFail(req.ID, rpcInvalidParams, "unknown cursor")
+		}
 		tools := make([]map[string]any, len(mcpTools))
 		for i, t := range mcpTools {
 			tools[i] = map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema}
+			if s.structured() {
+				tools[i]["outputSchema"] = outputSchema(t.Out)
+			}
 		}
 		return ok(map[string]any{"tools": tools})
 	case "tools/call":
@@ -408,23 +590,26 @@ func (s *mcpServer) handle(ctx context.Context, line []byte) *rpcResponse {
 	return rpcFail(req.ID, rpcMethodNotFound, "method not found")
 }
 
-func idOrNull(id json.RawMessage) json.RawMessage {
-	if len(id) == 0 {
-		return json.RawMessage("null")
-	}
-	return id
-}
-
 func rpcFail(id json.RawMessage, code int, msg string) *rpcResponse {
 	return &rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg}}
 }
 
-// callTool runs one tool under a span named mcp.tool <name>. The span never
-// carries the arguments.
+// callTool runs one tool under a span named mcp.tool <name> and a deadline.
+// The span never carries the arguments.
 func (s *mcpServer) callTool(ctx context.Context, t mcpTool, args json.RawMessage) map[string]any {
 	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, "mcp.tool "+t.Name)
 	defer span.End()
+	d := cmp.Or(s.timeout, server.DefaultRequestTimeout)
+	if t.Slow {
+		d = min(d, cmp.Or(s.slowTimeout, server.DefaultChangesTimeout))
+	}
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
 	answer, summary, err := t.Call(ctx, s.call, args)
+	var text []byte
+	if err == nil {
+		text, err = json.Marshal(answer)
+	}
 	if err != nil {
 		code, msg := s.classify(err)
 		span.SetAttributes(attribute.String("bearing.result", code))
@@ -434,37 +619,61 @@ func (s *mcpServer) callTool(ctx context.Context, t mcpTool, args json.RawMessag
 		return map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": code + ": " + msg}}}
 	}
 	span.SetAttributes(attribute.String("bearing.result", "ok"))
-	return map[string]any{
-		"content":           []map[string]any{{"type": "text", "text": summary}},
-		"structuredContent": answer,
+	// The answer is the first text block, so a client that ignores
+	// structuredContent still gets the data; the counts follow.
+	res := map[string]any{"content": []map[string]any{
+		{"type": "text", "text": string(jsonSafe(text))},
+		{"type": "text", "text": summary},
+	}}
+	if s.structured() {
+		res["structuredContent"] = answer
 	}
+	return res
 }
 
-// classify gives an error the API's code and a message for the client. An
-// error of no known kind says nothing of its own: the client should not see
-// paths or driver text, and the log has the error.
+// classify gives an error the API's code and a message for the client: one
+// fixed message per code, the same from a store and from a server. Only the
+// refusals of this tool's own argument checks say more. An error of no known
+// kind says nothing of its own: the client should not see paths or driver
+// text, and the log has the error.
 func (s *mcpServer) classify(err error) (code, msg string) {
 	var ae argError
 	var apiErr *apiclient.Error
 	switch {
 	case errors.As(err, &ae):
 		return "invalid_request", ae.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout", msgTimeout
 	case errors.Is(err, query.ErrNotFound), errors.Is(err, graph.ErrNotFound):
-		return "not_found", "nothing matches"
+		return "not_found", msgNotFound
 	case errors.Is(err, query.ErrInvalidRequest):
-		return "invalid_request", strings.TrimPrefix(err.Error(), query.ErrInvalidRequest.Error()+": ")
+		return "invalid_request", msgInvalid
 	case errors.As(err, &apiErr):
-		code, msg = apiErr.Code, apiErr.Message
-		if code == "" {
-			code = "internal_error"
+		switch apiErr.Code {
+		case "":
+			return "internal_error", msgInternal
+		case "not_found":
+			return "not_found", msgNotFound
+		case "invalid_request":
+			return "invalid_request", msgInvalid
+		case "timeout":
+			return "timeout", msgTimeout
 		}
+		code, msg = apiErr.Code, apiErr.Message
 		if _, hint, found := strings.Cut(s.explain(err).Error(), "; hint: "); found {
 			msg += "; hint: " + hint
 		}
 		return code, msg
 	}
-	return "internal_error", "the question could not be answered; see Bearing's log"
+	return "internal_error", msgInternal
 }
+
+const (
+	msgNotFound = "nothing matches"
+	msgTimeout  = "the question took too long; narrow it"
+	msgInvalid  = "the arguments were refused; check them against the tool's schema"
+	msgInternal = "the question could not be answered; see Bearing's log"
+)
 
 // mcpCmd runs `bearing mcp`: an MCP server on stdin and stdout for an agent
 // to run as a command. It answers from --store or --server like the query
