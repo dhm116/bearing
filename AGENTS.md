@@ -37,7 +37,7 @@ tagged [`pre-pivot`](https://github.com/dhm116/bearing/tree/pre-pivot).
 
 ## Commands
 
-Go 1.27.2 or later; the `go` command downloads the toolchain if needed. A C
+Go 1.27.3 or later; the `go` command downloads the toolchain if needed. A C
 compiler is required (DuckDB needs CGO).
 
 | Command | What it does |
