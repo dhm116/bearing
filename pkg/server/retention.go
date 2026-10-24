@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
@@ -28,7 +30,7 @@ func (s *Server) runRetention(ctx context.Context) error {
 }
 
 func (s *Server) trim(ctx context.Context) {
-	ctx, span := tracer.Start(ctx, "retention.trim")
+	ctx, span := tracer.Start(ctx, "retention.trim", trace.WithNewRoot())
 	defer span.End()
 	n, err := s.cfg.Log.Trim(ctx, s.clk.Now().Add(-s.cfg.Retention), []string{s.cfg.Group})
 	if err != nil {

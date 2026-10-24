@@ -38,9 +38,33 @@ Trace context crosses the adapter service: each gRPC call carries W3C
 span continues that trace. One `bearing adapter sync` shows
 up as a single trace spanning both processes and every GitHub API call.
 
+**Each unit of work is its own trace.** `bearing server` has no span around
+its run (that would be the parent of everything it ever does, one trace that
+never ends); it has only a short `server.start` span around loading the
+settings and assembling the server, which ends before it serves. The spans for
+background work (`worker.process`, `scheduler.sync`, `match.run`,
+`retention.trim`) are roots (`trace.WithNewRoot`) and never chain to one
+another or to whatever span their context carried.
+
+Causes are connected by span links, not parents:
+
+- The appender's W3C trace context (`traceparent`, and `tracestate` if present,
+  the CloudEvents distributed tracing extension) is stored with the event by
+  everything that appends one: `ingest.webhook`, the API's sync request, the
+  scheduler, a person's link decision, the worker when it appends a page of
+  observations or a dead letter. A value that is not a valid traceparent is
+  dropped, never a reason to refuse the event.
+- `worker.process` links to the stored span context of the event it handles, so
+  a page of observations links to the sync that produced it, and that sync's
+  `worker.process` links to the `ingest.webhook`, `api.request` or
+  `scheduler.sync` that asked for it.
+- `match.run` links to the `worker.process` span of each sync whose last page
+  woke it (at most 16; runs coalesce).
+
 | Span | Kind | Where | Key attributes |
 | --- | --- | --- | --- |
-| `bearing <command>` | internal | CLI, one per invocation | |
+| `bearing <command>` | internal | CLI, one per invocation (none for `bearing server`) | |
+| `server.start` | internal | `bearing server`, around loading the settings and assembling the server; ends before the server serves | |
 | `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
 | `bearing.adapter.v1alpha1.AdapterService/<Method>` | client | core, per adapter call (otelconnect) | `rpc.system=grpc`, `rpc.service`, `rpc.method`, `rpc.grpc.status_code` |
@@ -50,10 +74,10 @@ up as a single trace spanning both processes and every GitHub API call.
 | `authentik.sync <phase>` | internal | Authentik adapter, per list page (phases `connections`, `users`, `index`, `groups`) | `bearing.authentik.sync.phase` |
 | `mcp.tool <name>` | internal | `bearing mcp`, one per tool call | `bearing.result` (`ok`, or the error code such as `not_found`). Never the arguments |
 | `ingest.webhook` | server | core, one per webhook delivery, whatever its result | `bearing.source` (the configured source; absent for an unknown route), `bearing.result` |
-| `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up |
-| `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |
-| `retention.trim` | internal | core, one per trim of the event log | |
-| `match.run` | internal | core, one per matching run after a sync's last page | `bearing.source` |
+| `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.event.id`, `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up. A new root, with a link to the span that appended the event |
+| `scheduler.sync` | internal | core (a new root), one per scheduled sync tick | `bearing.source` |
+| `retention.trim` | internal | core (a new root), one per trim of the event log | |
+| `match.run` | internal | core (a new root, linked to the `worker.process` spans of the syncs that woke it), one per matching run after a sync's last page | `bearing.source` |
 | `api.request` | server | core, one per API request, whatever its answer | `bearing.request.id`, `bearing.authz.method` (including `query.runtimes`), `bearing.result`. Never the caller or the request's parameters |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |

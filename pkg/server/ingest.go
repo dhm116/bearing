@@ -279,6 +279,7 @@ func (in *Ingest) serve(ctx context.Context, span trace.Span, r *http.Request) (
 		_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "webhook event not built", err, attrSourceName.String(source))
 		return source, http.StatusServiceUnavailable, resultUnavailable
 	}
+	stamp(ctx, &ev)
 	got, err := in.log.Append(ctx, []store.Event{ev})
 	if err != nil || len(got) != 1 {
 		if err == nil {

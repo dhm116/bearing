@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/telemetry"
@@ -30,8 +31,18 @@ func (s *Server) runMatching(ctx context.Context) error {
 	}
 }
 
+// maxMatchLinks caps the syncs a matching run links to when many woke it.
+const maxMatchLinks = 16
+
 // signalMatching asks runMatching to run; a run already asked for covers it.
-func (s *Server) signalMatching() {
+func (s *Server) signalMatching(ctx context.Context) {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		s.matchMu.Lock()
+		if len(s.matchWakers) < maxMatchLinks {
+			s.matchWakers = append(s.matchWakers, trace.Link{SpanContext: sc})
+		}
+		s.matchMu.Unlock()
+	}
 	select {
 	case s.matchWake <- struct{}{}:
 	default:
@@ -42,7 +53,11 @@ func (s *Server) matchOnce(ctx context.Context) {
 	s.identityMu.Lock()
 	defer s.identityMu.Unlock()
 	m := s.cfg.Matching
-	ctx, span := tracer.Start(ctx, "match.run")
+	s.matchMu.Lock()
+	wakers := s.matchWakers
+	s.matchWakers = nil
+	s.matchMu.Unlock()
+	ctx, span := tracer.Start(ctx, "match.run", trace.WithNewRoot(), trace.WithLinks(wakers...))
 	defer span.End()
 	log := telemetry.Logger(pkgName)
 	cfg := m.Config

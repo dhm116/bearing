@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
 	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
 	"bearing.example/internal/testkit"
@@ -634,5 +636,43 @@ func TestAssembleRefusesALocalAdapterOnAnotherProtocolVersion(t *testing.T) {
 				t.Fatalf("got %v, want a protocol refusal naming the source github-acme", err)
 			}
 		})
+	}
+}
+
+// Start opens a short server.start span that has ended before the server
+// runs, and nothing started afterwards is its child.
+func TestStartEndsItsSpanBeforeTheServerRuns(t *testing.T) {
+	installCapture()
+	w := newWorld(t, nil)
+	b, err := json.Marshal(w.settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(w.dir, "settings.json")
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Start(t.Context(), file, Env{Getenv: w.getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := run(t, r)
+	time.Sleep(50 * time.Millisecond) // let the server start work
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	var start sdktrace.ReadOnlySpan
+	for _, sp := range spanLog.Ended() {
+		if sp.Name() == "server.start" && !sp.Parent().IsValid() {
+			start = sp
+		}
+	}
+	if start == nil {
+		t.Fatal("no ended server.start root span before the server ran")
+	}
+	for _, sp := range spanLog.Ended() {
+		if sp.Parent().SpanID() == start.SpanContext().SpanID() && sp.StartTime().After(start.EndTime()) {
+			t.Errorf("span %q started after server.start ended and is its child", sp.Name())
+		}
 	}
 }

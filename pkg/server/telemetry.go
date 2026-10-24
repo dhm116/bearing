@@ -5,7 +5,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -28,6 +30,21 @@ const (
 var deliveries = must(meter.Int64Counter("bearing.ingest.deliveries",
 	metric.WithDescription("Webhook deliveries by configured source and result: accepted, duplicate, unauthorized, too_large, rate_limited, busy (over the limit on deliveries in flight), unavailable or bad_request. A rise in unauthorized for one source is a wrong or leaked key; unavailable means the event log refused and senders will retry."),
 	metric.WithUnit("{delivery}")))
+
+// stamp records ctx's span on e, so the work the event causes can link back
+// to it (store.Event.TraceParent).
+func stamp(ctx context.Context, e *store.Event) {
+	e.TraceParent, e.TraceState = store.TraceOf(ctx)
+}
+
+// linkTo returns the span link for the span that appended e, or none when e
+// carries no valid trace context.
+func linkTo(e *store.Event) []trace.Link {
+	if sc := store.SpanContextOf(e.TraceParent, e.TraceState); sc.IsValid() {
+		return []trace.Link{{SpanContext: sc}}
+	}
+	return nil
+}
 
 func deliveryAttrs(source, result string) metric.AddOption {
 	if source == "" {

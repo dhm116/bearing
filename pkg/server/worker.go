@@ -166,10 +166,11 @@ func (s *Server) drain(ctx context.Context, p store.Partition) error {
 // or given up on, and an error only when the caller should stop: the context
 // ended or the log or store would not take the dead letter.
 func (s *Server) process(ctx context.Context, e store.Entry) error {
-	ctx, span := tracer.Start(ctx, "worker.process")
+	// Each event is its own trace, linked to the span that appended it.
+	ctx, span := tracer.Start(ctx, "worker.process", trace.WithNewRoot(), trace.WithLinks(linkTo(&e.Event)...),
+		trace.WithAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
+			attribute.String("bearing.event.id", e.ID), attribute.Int64("bearing.eventlog.offset", int64(e.Offset))))
 	defer span.End()
-	span.SetAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
-		attribute.Int64("bearing.eventlog.offset", int64(e.Offset)))
 	log := telemetry.Logger(pkgName)
 
 	attempts := 0
@@ -305,10 +306,12 @@ func (s *Server) deadLetter(ctx context.Context, span trace.Span, e store.Entry,
 		return fmt.Errorf("encode dead letter: %w", err)
 	}
 	// 1. The record, kept until someone releases it.
-	got, err := s.cfg.Log.Append(ctx, []store.Event{{
+	dl := store.Event{
 		ID: string(deadLetterPartition) + "/" + hexSHA256(e.ID), Partition: deadLetterPartition,
 		Type: typ, Time: s.clk.Now().UTC(), Data: data, Retain: true,
-	}})
+	}
+	stamp(ctx, &dl)
+	got, err := s.cfg.Log.Append(ctx, []store.Event{dl})
 	if err != nil {
 		return fmt.Errorf("append dead letter: %w", err)
 	}

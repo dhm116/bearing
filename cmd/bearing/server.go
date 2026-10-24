@@ -31,13 +31,9 @@ func serverCmd(ctx context.Context, args []string, _ io.Writer) error {
 	if *file == "" || fs.NArg() != 0 {
 		return errors.Join(errors.New("bearing server needs --settings FILE"), errUsage)
 	}
-	s, err := boot.Load(*file)
-	if err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM)
 	defer stop()
-	r, err := boot.Assemble(ctx, s, boot.Env{})
+	r, err := boot.Start(ctx, *file, boot.Env{})
 	if err != nil {
 		return err
 	}

@@ -62,6 +62,8 @@ import (
 	"slices"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	_ "bearing.example/internal/duckstore" // registers the mem and duckdb store schemes
 	"bearing.example/pkg/adapter"
@@ -111,8 +113,7 @@ func mainCode() int {
 		return 1
 	}
 
-	// One span per invocation, named after the subcommand, e.g. "bearing adapter sync".
-	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, spanName(os.Args[1:]))
+	ctx, span := startInvocation(ctx, os.Args[1:])
 	defer span.End()
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		telemetry.Fail(ctx, span, telemetry.Logger("cmd/bearing"), "command failed", err)
@@ -127,6 +128,18 @@ func mainCode() int {
 }
 
 var errUsage = errors.New("see usage below")
+
+// startInvocation starts the one span per invocation, named after the
+// subcommand, e.g. "bearing adapter sync". `bearing server` gets none: it runs
+// for the life of the process, and a span around it would be the parent of
+// every unit of work and one trace that never ends (boot opens a short
+// server.start span instead).
+func startInvocation(ctx context.Context, args []string) (context.Context, trace.Span) {
+	if len(args) >= 1 && args[0] == "server" {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+	return telemetry.Tracer("cmd/bearing").Start(ctx, spanName(args))
+}
 
 // spanName names the span of an invocation: the command and, for adapter,
 // its subcommand. Arguments such as a subject never go in it.

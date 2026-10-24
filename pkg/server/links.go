@@ -143,6 +143,7 @@ func (s *Server) DecideLink(ctx context.Context, d LinkDecision, actor *eventv1a
 		ID: string(identityPartition) + "/" + s.cfg.NewID(), Partition: identityPartition,
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
 	}
+	stamp(ctx, &ev)
 	got, err := s.cfg.Log.Append(ctx, []store.Event{ev})
 	if err != nil {
 		return Logged{}, fmt.Errorf("append decision: %w", err)

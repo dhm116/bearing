@@ -141,10 +141,12 @@ func (s *Server) appendObservations(ctx context.Context, source, trigger string,
 	if len(data) > store.MaxEventBytes {
 		return false, fmt.Errorf("page %d of %s is %d bytes, over the event limit of %d", page, source, len(data), store.MaxEventBytes)
 	}
-	got, err := s.cfg.Log.Append(ctx, []store.Event{{
+	ev := store.Event{
 		ID: pageEventID(source, trigger, page), Partition: store.Partition(source),
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
-	}})
+	}
+	stamp(ctx, &ev)
+	got, err := s.cfg.Log.Append(ctx, []store.Event{ev})
 	if err != nil {
 		return false, fmt.Errorf("append page %d: %w", page, err)
 	}
@@ -173,7 +175,7 @@ func (s *Server) handleObservations(ctx context.Context, e store.Entry) error {
 		return fmt.Errorf("event %s: %w", e.ID, err)
 	}
 	if msg.GetDone() && msg.GetSyncStarted() != nil && s.cfg.Matching != nil {
-		s.signalMatching()
+		s.signalMatching(ctx)
 	}
 	return nil
 }

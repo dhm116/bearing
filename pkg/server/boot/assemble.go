@@ -15,6 +15,8 @@ import (
 	"time"
 	"unicode"
 
+	"go.opentelemetry.io/otel/trace"
+
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
@@ -55,6 +57,19 @@ type Running struct {
 	// sockets is the private directory of the local adapters' sockets.
 	sockets string
 	cancel  context.CancelFunc // ends the adapter processes
+}
+
+// Start loads the settings file and assembles the server under a short
+// server.start span that ends before the server runs, so that nothing the
+// server does later is a child of it.
+func Start(ctx context.Context, file string, env Env) (*Running, error) {
+	ctx, span := tracer.Start(ctx, "server.start", trace.WithNewRoot())
+	defer span.End()
+	s, err := Load(file)
+	if err != nil {
+		return nil, err
+	}
+	return Assemble(ctx, s, env)
 }
 
 // Assemble checks s and builds the server it describes. It refuses to start
@@ -120,7 +135,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
-	procCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	procCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})) // no span: adapters outlive server.start
 	var procs []*managed
 	var remotes []*adapter.Remote
 	var sockets string
