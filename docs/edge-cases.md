@@ -113,6 +113,14 @@ Each entry:
 - **Proposed fix:** `golang.org/x/mod/semver`, a TOML parser, reading known subdirectories, and refreshing on pushes that touch manifests.
 - **Also:** the query layer reads Go pre-releases such as `1.22rc1` as unknown (listed under `unknown`, never guessed), so a service on a release candidate is not reported as below 1.22 even when it is.
 
+## Stores synced before per-declaration runtime facts
+
+- **Found in:** q2 runtimes (`internal/duckstore`)
+- **Area:** store
+- **Example:** a store synced before this change holds one list-valued `runtime` fact per repository.
+- **Impact:** the query skips those facts until the next sync closes them and opens one fact per declaration. No such store exists yet.
+- **Proposed fix:** none needed unless one turns up; a one-off SQL close would also do.
+
 ## Runtime declarations cite the wrong evidence URL
 
 - **Found in:** q2 runtimes (`adapters/github/github.go`)

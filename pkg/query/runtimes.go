@@ -107,7 +107,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	}
 	if req.Below != "" {
 		var ok bool
-		if below, ok = parseDotted(req.Below); !ok {
+		if below, ok = parseDotted(req.Below); !ok || !plainVersion.MatchString(req.Below) {
 			return nil, fmt.Errorf("%w: below %q is not a version", ErrInvalidRequest, model.Clip(req.Below))
 		}
 	}
@@ -154,25 +154,24 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		ent := RuntimeEntity{Subject: ref}
 		var anyBelow, anyUnknown bool
 		for _, f := range bySubject[id] {
+			v, ok := f.Value.(map[string]any)
+			if !ok || canonLanguage(str(v["language"])) != lang {
+				continue
+			}
 			lf, err := l.fact(ctx, f)
 			if err != nil {
 				return nil, err
 			}
-			if v, ok := f.Value.(map[string]any); ok {
-				if canonLanguage(str(v["language"])) != lang {
-					continue
-				}
-				text := str(v["version"])
-				d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount}
-				if low, ok := lowerBound(text); ok {
-					d.Lower = low.String()
-					d.IsBelow = below != nil && low.compare(below) < 0
-				} else {
-					d.IsUnknown = true
-				}
-				anyBelow, anyUnknown = anyBelow || d.IsBelow, anyUnknown || d.IsUnknown
-				ent.Declarations = append(ent.Declarations, d)
+			text := str(v["version"])
+			d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount}
+			if low, ok := lowerBound(text); ok {
+				d.Lower = low.String()
+				d.IsBelow = below != nil && low.compare(below) < 0
+			} else {
+				d.IsUnknown = true
 			}
+			anyBelow, anyUnknown = anyBelow || d.IsBelow, anyUnknown || d.IsUnknown
+			ent.Declarations = append(ent.Declarations, d)
 		}
 		if len(ent.Declarations) == 0 {
 			continue

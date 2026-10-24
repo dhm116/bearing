@@ -103,7 +103,7 @@ func rel(name RelationType, domain, rng []Kind, card modelv1alpha1.Cardinality, 
 	return Predicate{Name: string(name), Relation: true, Domain: domain, Range: rng, Cardinality: card, Conflict: conflict}
 }
 
-// relations is the spec's relation table.
+// relations lists the relation types.
 var relations = []Predicate{
 	rel(RelMemberOf, []Kind{KindPerson, KindTeam}, []Kind{KindTeam}, many, noneC),
 	rel(RelOwnedBy, nil, []Kind{KindTeam, KindPerson}, many, setC),
@@ -120,7 +120,7 @@ var relations = []Predicate{
 	rel(RelDefinedIn, []Kind{KindComponent, KindDocument}, []Kind{KindRepository}, one, oneC),
 }
 
-// kindAttributes is the spec's "Registered attributes" column.
+// kindAttributes lists the registered attributes of each kind.
 var kindAttributes = map[Kind][]string{
 	KindPerson:        {"name", "email", "login", "verified_email", "commit_email"},
 	KindTeam:          {"name", "slug", "description"},
@@ -135,7 +135,8 @@ var kindAttributes = map[Kind][]string{
 	KindDocument:      {"title", "url", "doc_type"},
 }
 
-// attributeShapes is the spec's attribute table; every other registered
+// attributeShapes gives the shape of the attributes that are not plain
+// strings; every other registered
 // attribute is a string of cardinality one with conflict none.
 var attributeShapes = map[string]Predicate{
 	PredicateExists:  {Type: tBool, Cardinality: one, Conflict: noneC},

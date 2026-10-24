@@ -174,6 +174,9 @@ func TestRuntimesRefusesMalformedRequests(t *testing.T) {
 		"no language":         {},
 		"below not a version": {Language: "go", Below: "lts/hydrogen"},
 		"below a range":       {Language: "go", Below: ">=1.22"},
+		"below a wildcard":    {Language: "go", Below: "1.x"},
+		"below with a v":      {Language: "go", Below: "v1.22"},
+		"below a pre-release": {Language: "go", Below: "1.22-rc1"},
 		"limit too large":     {Language: "go", Limit: query.MaxRuntimesLimit + 1},
 		"kind not a kind":     {Language: "go", Kind: "not a kind"},
 	} {

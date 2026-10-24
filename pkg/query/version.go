@@ -94,12 +94,15 @@ func splitOperator(tok string) (op, rest string) {
 	return tok[:i], tok[i:]
 }
 
-// parseDotted reads "v1.22.3", "20.x" or "3.11-rc1+b2": numeric parts, a
-// wildcard part ending the version, anything after - or + ignored.
+// plainVersion is what a request's below may be: digits and dots only.
+var plainVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+
+// parseDotted reads "v1.22.3", "20.x" or "3.11+b2": numeric parts, a wildcard
+// part ending the version, a +build suffix ignored. A pre-release ("-rc1")
+// is not its release, so it is not a version.
 func parseDotted(s string) (version, bool) {
 	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
 	core, _, _ := strings.Cut(s, "+")
-	core, _, _ = strings.Cut(core, "-")
 	var v version
 	for part := range strings.SplitSeq(core, ".") {
 		if part == "x" || part == "X" || part == "*" {

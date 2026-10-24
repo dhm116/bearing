@@ -732,6 +732,10 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 		}
 	case *structpb.Value_ListValue:
 		switch {
+		case name == "runtime":
+			for i, e := range k.ListValue.GetValues() {
+				c.runtimeDeclaration(fmt.Sprintf("%s[%d]", path, i), e)
+			}
 		case reg.Type == tJSON:
 		case !list && reg.Cardinality == many:
 			c.add(codeCardinality, path, "each claim is one value; send one claim per value of %q", clip(name))
@@ -743,7 +747,30 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 			}
 		}
 	default:
+		if name == "runtime" {
+			c.runtimeDeclaration(path, v)
+			return
+		}
 		c.typedValue(path, reg.Type, v)
+	}
+}
+
+// runtimeDeclaration checks one element of a runtime value: an object with
+// string language and version, and an optional string file.
+func (c *checker) runtimeDeclaration(path string, v *structpb.Value) {
+	o := v.GetStructValue()
+	if o == nil {
+		c.add(codeTypeMismatch, path, "want an object {language, version, file}")
+		return
+	}
+	for _, f := range []string{"language", "version", "file"} {
+		x, ok := o.GetFields()[f]
+		if !ok && f == "file" {
+			continue
+		}
+		if _, isStr := x.GetKind().(*structpb.Value_StringValue); !isStr {
+			c.add(codeTypeMismatch, path+"."+f, "want a string")
+		}
 	}
 }
 
