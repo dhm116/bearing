@@ -137,6 +137,16 @@ func (g *graphStore) Records(ctx context.Context, kind model.Kind) (out []graph.
 	return out, err
 }
 
+// RecordsByID implements graph.Graph.
+func (g *graphStore) RecordsByID(ctx context.Context, ids []graph.EntityID) (out []graph.Record, err error) {
+	err = g.observe(ctx, "records_by_id", func(ctx context.Context) error {
+		out, err = g.next.RecordsByID(ctx, ids)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
 // Links implements graph.Graph.
 func (g *graphStore) Links(ctx context.Context, f graph.LinkFilter) (out []graph.Link, err error) {
 	err = g.observe(ctx, "links", func(ctx context.Context) error {

@@ -3,6 +3,7 @@ package duckstore
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +180,85 @@ func TestDecideRejectBlocksTheMatcherUntilTheDistinctFromIsUndone(t *testing.T) 
 	}
 	if r := run(); r.Proposed != 0 || r.Reinforced != 0 {
 		t.Fatalf("got %+v, want a rerun on the same evidence to add nothing", r)
+	}
+}
+
+func TestDecideRejectOfAClosedLinkLeavesANewerProposalOpen(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1")
+	link(t, s, sameAs("id-1", "id-2", graph.Proposed, "matcher/transparent"))
+	old := links(t, s, graph.LinkFilter{})[0]
+	if err := s.CloseLink(t.Context(), old.ID, at(60)); err != nil {
+		t.Fatal(err)
+	}
+	link(t, s, sameAs("id-1", "id-2", graph.Proposed, "matcher/transparent"))
+	if r := decide(t, s, graph.Decision{ID: "e1", Kind: graph.Reject, LinkID: old.ID}); r != (graph.LinkResult{}) {
+		t.Errorf("got %+v, want rejecting a closed link to do nothing", r)
+	}
+	if open := links(t, s, graph.LinkFilter{}); len(open) != 1 || open[0].ID == old.ID || open[0].Kind != graph.SameAs {
+		t.Errorf("got %+v, want the newer proposal open and no distinct_from", open)
+	}
+}
+
+func TestDecideJoinAndSplitOfAPairAlreadyThatWayChangeNothing(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1")
+	for _, k := range []graph.DecisionKind{graph.Join, graph.Split} {
+		decide(t, s, graph.Decision{ID: string(k) + "-1", Kind: k, A: "id-1", B: "id-2"})
+		before := links(t, s, graph.LinkFilter{WithClosed: true})
+		if r := decide(t, s, graph.Decision{ID: string(k) + "-2", Kind: k, A: "id-1", B: "id-2"}); r != (graph.LinkResult{}) {
+			t.Errorf("%s again: got %+v, want nothing", k, r)
+		}
+		if after := links(t, s, graph.LinkFilter{WithClosed: true}); fmt.Sprint(after) != fmt.Sprint(before) {
+			t.Errorf("%s again: got links %+v, want %+v", k, after, before)
+		}
+	}
+}
+
+// A join or accept that a distinct_from held by another record of either
+// cluster would leave apart is refused, naming that link, and writes nothing.
+func TestDecideJoinBlockedByAnotherRecordsDistinctFromIsRefused(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1") // id-1..3
+	decide(t, s, graph.Decision{ID: "e1", Kind: graph.Join, A: "id-1", B: "id-3"})
+	decide(t, s, graph.Decision{ID: "e2", Kind: graph.Split, A: "id-3", B: "id-2"})
+	blocker := links(t, s, graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
+	later := sameAs("id-1", "id-2", graph.Proposed, "matcher/transparent")
+	later.Deposit.At = at(2000) // after the join of id-1 and id-3, which clustering takes first
+	link(t, s, later)
+	proposal := links(t, s, graph.LinkFilter{Status: graph.Proposed})[0].ID
+	before := links(t, s, graph.LinkFilter{WithClosed: true})
+	for _, d := range []graph.Decision{
+		{ID: "e3", Kind: graph.Join, A: "id-1", B: "id-2", Actor: "local:501"},
+		{ID: "e4", Kind: graph.Accept, LinkID: proposal, Actor: "local:501"},
+	} {
+		_, err := s.Decide(t.Context(), d)
+		if !errors.Is(err, graph.ErrInvalidDecision) || !strings.Contains(err.Error(), blocker) {
+			t.Errorf("%s: got %v, want an invalid decision naming %s", d.Kind, err, blocker)
+		}
+	}
+	if after := links(t, s, graph.LinkFilter{WithClosed: true}); fmt.Sprint(after) != fmt.Sprint(before) {
+		t.Errorf("got links %+v, want them untouched", after)
+	}
+	wantClusters(t, s, map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2", "id-3": "id-1"})
+}
+
+func TestLinksWithALimitReturnsTheNewestEvidenceFirstAndRecordsByID(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1", "p:c/1")
+	old, newer := sameAs("id-1", "id-2", graph.Proposed, "m"), sameAs("id-2", "id-3", graph.Proposed, "m")
+	newer.Deposit.At = at(70)
+	link(t, s, old, newer)
+	got := links(t, s, graph.LinkFilter{Limit: 1})
+	if len(got) != 1 || got[0].A != "id-2" || len(got[0].Deposits) != 1 {
+		t.Errorf("got %+v, want only the link with the newer deposit, with its deposit", got)
+	}
+	recs, err := s.RecordsByID(t.Context(), []graph.EntityID{"id-3", "nope", "id-1"})
+	if err != nil || len(recs) != 2 || recs[0].ID != "id-1" || recs[1].ID != "id-3" || len(recs[0].Keys) != 1 {
+		t.Errorf("got %+v, %v, want id-1 and id-3 with their keys", recs, err)
 	}
 }

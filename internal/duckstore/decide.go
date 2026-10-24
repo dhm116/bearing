@@ -108,8 +108,15 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 			if err := assert(l.a, l.b, graph.SameAs); err != nil {
 				return res, err
 			}
+			if err := recluster(ctx, tx, []string{l.a, l.b}); err != nil {
+				return res, err
+			}
+			return res, checkJoined(ctx, tx, l.a, l.b)
 		case graph.Reject:
-			if l.open && l.status == string(graph.Asserted) {
+			if !l.open {
+				return res, nil // closed: a newer link for the pair is not this one
+			}
+			if l.status == string(graph.Asserted) {
 				return res, fmt.Errorf("link %s: %w: it is asserted; split its records instead", d.LinkID, graph.ErrInvalidDecision)
 			}
 			if err := closeOpen(l.a, l.b, graph.SameAs); err != nil {
@@ -139,21 +146,35 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 		if a == b {
 			return res, fmt.Errorf("%w: %s and %s are one record", graph.ErrInvalidDecision, d.A, d.B)
 		}
+		sameAs, distinct, err := openKinds(ctx, tx, a, b)
+		if err != nil {
+			return res, err
+		}
 		if d.Kind == graph.Join {
+			if sameAs && !distinct {
+				return res, nil // already joined by an asserted same_as
+			}
 			if err := checkSameKind(ctx, tx, a, b); err != nil {
 				return res, err
 			}
 			if err := closeOpen(a, b, graph.DistinctFrom); err != nil {
 				return res, err
 			}
-			err = assert(a, b, graph.SameAs)
-		} else {
-			if err := closeOpen(a, b, graph.SameAs); err != nil {
+			if err := assert(a, b, graph.SameAs); err != nil {
 				return res, err
 			}
-			err = assert(a, b, graph.DistinctFrom)
+			if err := recluster(ctx, tx, []string{a, b}); err != nil {
+				return res, err
+			}
+			return res, checkJoined(ctx, tx, a, b)
 		}
-		if err != nil {
+		if distinct && !sameAs {
+			return res, nil // already split
+		}
+		if err := closeOpen(a, b, graph.SameAs); err != nil {
+			return res, err
+		}
+		if err := assert(a, b, graph.DistinctFrom); err != nil {
 			return res, err
 		}
 		return res, recluster(ctx, tx, []string{a, b})
@@ -197,4 +218,42 @@ func checkSameKind(ctx context.Context, tx *sql.Tx, a, b string) error {
 		return fmt.Errorf("%w: %s is a %s and %s a %s", graph.ErrInvalidDecision, a, ka, b, kb)
 	}
 	return nil
+}
+
+// openKinds says whether the pair has an open asserted same_as and an open
+// distinct_from.
+func openKinds(ctx context.Context, tx *sql.Tx, a, b string) (sameAs, distinct bool, err error) {
+	if b < a {
+		a, b = b, a
+	}
+	err = tx.QueryRowContext(ctx, `SELECT
+		count(*) FILTER (WHERE kind = 'same_as' AND status = 'asserted') > 0,
+		count(*) FILTER (WHERE kind = 'distinct_from') > 0
+		FROM identity_link WHERE a = ? AND b = ? AND valid_to IS NULL`, a, b).Scan(&sameAs, &distinct)
+	return sameAs, distinct, wrapErr("pair", err)
+}
+
+// checkJoined refuses a join that left a and b apart: another record of one
+// cluster holds a distinct_from against the other's, which the person must
+// undo or split first. It names that link.
+func checkJoined(ctx context.Context, tx *sql.Tx, a, b string) error {
+	var ca, cb string
+	if err := tx.QueryRowContext(ctx, `SELECT (SELECT cluster_id FROM entity WHERE id = ?), (SELECT cluster_id FROM entity WHERE id = ?)`, a, b).Scan(&ca, &cb); err != nil {
+		return wrapErr("cluster", err)
+	}
+	if ca == cb {
+		return nil
+	}
+	var id string
+	err := tx.QueryRowContext(ctx, `SELECT l.id FROM identity_link l JOIN entity x ON x.id = l.a JOIN entity y ON y.id = l.b
+		WHERE l.kind = 'distinct_from' AND l.status = 'asserted' AND l.valid_to IS NULL
+		AND ((x.cluster_id = ? AND y.cluster_id = ?) OR (x.cluster_id = ? AND y.cluster_id = ?))
+		ORDER BY l.id LIMIT 1`, ca, cb, cb, ca).Scan(&id)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("%w: %s and %s stay apart", graph.ErrInvalidDecision, a, b)
+	case err != nil:
+		return wrapErr("distinct_from", err)
+	}
+	return fmt.Errorf("%w: %s and %s stay apart: distinct_from link %s keeps their clusters apart; undo it first", graph.ErrInvalidDecision, a, b, id)
 }

@@ -21,7 +21,22 @@ func (s *Store) Records(ctx context.Context, kind model.Kind) ([]graph.Record, e
 	})
 }
 
-// Links implements graph.Graph, oldest first.
+// RecordsByID implements graph.Graph.
+func (s *Store) RecordsByID(ctx context.Context, ids []graph.EntityID) ([]graph.Record, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return read(ctx, s, func(db querier) ([]graph.Record, error) {
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = string(id)
+		}
+		//nolint:gosec // only "?" lists are joined; values are bound
+		return records(ctx, db, `e.id IN (`+placeholders(len(ids))+`)`, args...)
+	})
+}
+
+// Links implements graph.Graph.
 func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, error) {
 	return read(ctx, s, func(db querier) ([]graph.Link, error) {
 		where, args := `TRUE`, []any(nil)
@@ -48,8 +63,13 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		if !f.WithClosed {
 			where += ` AND l.valid_to IS NULL`
 		}
+		order := ` ORDER BY l.valid_from, l.id`
+		if f.Limit > 0 {
+			order = ` ORDER BY (SELECT max(d.deposited_at) FROM link_deposit d WHERE d.link_id = l.id) DESC NULLS LAST, l.id LIMIT ?`
+			args = append(args, f.Limit)
+		}
 		rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to
-		FROM identity_link l WHERE `+where+` ORDER BY l.valid_from, l.id`, args...)
+		FROM identity_link l WHERE `+where+order, args...)
 		if err != nil {
 			return nil, fmt.Errorf("links: %w", err)
 		}
@@ -67,12 +87,14 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 			return nil, wrapErr("links", err)
 		}
 		idx := make(map[string]int, len(links))
+		ids := make([]any, len(links))
 		for i, l := range links {
-			idx[l.ID] = i
+			idx[l.ID], ids[i] = i, l.ID
 		}
+		//nolint:gosec // only "?" lists are joined; values are bound
 		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR), d.actor, d.reason
-		FROM link_deposit d WHERE d.link_id IN (SELECT l.id FROM identity_link l WHERE `+where+`)
-		ORDER BY d.deposited_at, d.observation_id`, args...)
+		FROM link_deposit d WHERE d.link_id IN (`+placeholders(len(ids))+`)
+		ORDER BY d.deposited_at, d.observation_id`, ids...)
 		if err != nil {
 			return nil, fmt.Errorf("links: deposits: %w", err)
 		}

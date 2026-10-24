@@ -70,6 +70,9 @@ type Graph interface {
 	// Records returns the records of one kind (every kind when empty), for
 	// matchers to find candidate pairs in.
 	Records(ctx context.Context, kind model.Kind) ([]Record, error)
+	// RecordsByID returns the records with these IDs, oldest first; an ID
+	// that names no record is left out.
+	RecordsByID(ctx context.Context, ids []EntityID) ([]Record, error)
 	// Links returns the identity links matching f.
 	Links(ctx context.Context, f LinkFilter) ([]Link, error)
 	// Link records proposals, and assertions from rules the settings name: a
@@ -315,6 +318,9 @@ type LinkFilter struct {
 	Kind       LinkKind
 	Status     Status
 	WithClosed bool
+	// Limit, when positive, returns at most that many links, those with the
+	// newest deposit first; zero returns every match, oldest first.
+	Limit int
 }
 
 // Proposal is one link a matcher or rule writes.
