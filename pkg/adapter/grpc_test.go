@@ -254,6 +254,57 @@ func TestSyncRefusesAPeerRedeployedOnAnotherVersionAtTheNextFullSync(t *testing.
 	}
 }
 
+func TestCloseMakesTheNextMidSyncPageCheckTheVersionAgain(t *testing.T) {
+	t.Parallel()
+	v := &atomic.Uint32{}
+	v.Store(1)
+	r, err := Dial("moving", DialConfig{Address: serveProtocolVar(t, v)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	v.Store(2)
+	r.Close()
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`), Cursor: "p"}); !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("got %v, want a protocol refusal after Close", err)
+	}
+}
+
+func TestATransportFailureMakesTheNextCallCheckTheVersionAgain(t *testing.T) {
+	t.Parallel()
+	dir := socketDir(t)
+	sock := filepath.Join(dir, "a.sock")
+	serve := func(version uint32) (stop func()) {
+		lis, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, version) }()
+		return func() { cancel(); <-done }
+	}
+	stop := serve(1)
+	r, err := Dial("flaky", DialConfig{Address: "unix://" + sock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`), Cursor: "p"}); err == nil || errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("got %v, want a transport failure", err)
+	}
+	stop = serve(2)
+	defer stop()
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`), Cursor: "p"}); !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("got %v, want a protocol refusal after the failure", err)
+	}
+}
+
 func TestSupportedProtocolVersionsCannotBeChangedByACaller(t *testing.T) {
 	t.Parallel()
 	SupportedProtocolVersions()[0] = 99

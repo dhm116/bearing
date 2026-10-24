@@ -238,7 +238,11 @@ type Remote struct {
 	tr     *http.Transport
 	// checked is set once Describe found the adapter's protocol version
 	// supported on this connection; Sync and Handle describe first while it
-	// is false, and each full sync (empty cursor) describes again.
+	// is false, and each full sync (empty cursor) describes again. The check
+	// is best effort: a Describe racing a call, or one finishing after Close,
+	// can leave it set or clear wrongly, which the next full sync corrects. A
+	// remote that only takes webhooks is described again in Handle only after
+	// a transport failure or Close.
 	checked atomic.Bool
 }
 
