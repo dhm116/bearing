@@ -18,6 +18,7 @@ var (
 const (
 	attrAdapter  = attribute.Key("bearing.adapter.name")
 	attrProtocol = attribute.Key("bearing.adapter.protocol_version")
+	attrAttempts = attribute.Key("bearing.adapter.start.attempts")
 	attrKind     = attribute.Key("bearing.entity.kind")
 	attrPages    = attribute.Key("bearing.sync.pages")
 	attrCount    = attribute.Key("bearing.observations.count")

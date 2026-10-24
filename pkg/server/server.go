@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
@@ -150,6 +152,10 @@ type Server struct {
 	wake   chan struct{}
 	// matchWake tells the matching goroutine that a sync finished.
 	matchWake chan struct{}
+	// matchWakers are the spans of the syncs that woke the next matching run
+	// (at most maxMatchLinks), which that run links to.
+	matchMu     sync.Mutex
+	matchWakers []trace.Link
 	// identityMu orders a matching run against a person's decision.
 	identityMu sync.Mutex
 
@@ -327,6 +333,7 @@ func (s *Server) RequestSync(ctx context.Context, source string, actor *eventv1a
 		ID: source + "/" + s.cfg.NewID(), Partition: store.Partition(source),
 		Type: typ, Time: s.clk.Now().UTC(), Data: data,
 	}
+	stamp(ctx, &ev)
 	got, err := s.cfg.Log.Append(ctx, []store.Event{ev})
 	if err != nil {
 		return SyncRequest{}, fmt.Errorf("append sync request: %w", err)

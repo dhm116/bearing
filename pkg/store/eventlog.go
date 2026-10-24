@@ -9,6 +9,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+
 	"bearing.example/pkg/model"
 )
 
@@ -90,6 +93,13 @@ type Event struct {
 	// the manual partition must set it: they are kept as long as their
 	// effects are live.
 	Retain bool
+	// TraceParent and TraceState are the W3C trace context of whoever
+	// appended the event (the CloudEvents distributed tracing extension), so
+	// the work the event causes can link back to it. Both are optional
+	// telemetry: a value that is not a valid traceparent (or a tracestate
+	// beside none) is dropped on Append, never a reason to refuse the event.
+	TraceParent string
+	TraceState  string
 }
 
 // Entry is an Event as stored: where it sits in its partition, and when the
@@ -379,4 +389,44 @@ func quote(s string) string {
 		s = strings.ToValidUTF8(s[:64], "") + "…"
 	}
 	return fmt.Sprintf("%q", s)
+}
+
+// TraceOf returns the W3C trace context of ctx's span, for Event.TraceParent
+// and Event.TraceState; both are empty when ctx has no valid span.
+func TraceOf(ctx context.Context) (parent, state string) {
+	c := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, c)
+	return c.Get("traceparent"), c.Get("tracestate")
+}
+
+// maxTraceState is the longest tracestate kept (the W3C limit is 512).
+const maxTraceState = 512
+
+// SpanContextOf parses a stored TraceParent and TraceState, for a span link.
+// It returns an invalid span context for a traceparent that is not well
+// formed; an oversized or malformed tracestate is dropped and the traceparent
+// kept. Only version-00 traceparents (55 characters) are accepted, which is
+// all that TraceOf and the OpenTelemetry propagator produce.
+func SpanContextOf(parent, state string) trace.SpanContext {
+	if len(parent) != 55 {
+		return trace.SpanContext{}
+	}
+	if len(state) > maxTraceState {
+		state = ""
+	}
+	c := propagation.MapCarrier{"traceparent": parent, "tracestate": state}
+	return trace.SpanContextFromContext(propagation.TraceContext{}.Extract(context.Background(), c))
+}
+
+// CleanTrace returns the trace context to store for parent and state: both
+// when well formed, only the traceparent when the tracestate is not, and empty
+// strings when the traceparent is not (a backend stores what it returns).
+func CleanTrace(parent, state string) (string, string) {
+	if !SpanContextOf(parent, "").IsValid() {
+		return "", ""
+	}
+	if _, err := trace.ParseTraceState(state); err != nil || len(state) > maxTraceState {
+		return parent, ""
+	}
+	return parent, state
 }

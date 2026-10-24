@@ -58,9 +58,10 @@ func (s *Store) Append(ctx context.Context, events []store.Event) ([]store.Appen
 			}
 			head++
 			heads[e.Partition] = head
+			parent, state := store.CleanTrace(e.TraceParent, e.TraceState)
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO event_log (partition, off, id, type, time, data, retain, appended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				string(e.Partition), int64(head), e.ID, e.Type, e.Time.UTC().Truncate(time.Microsecond), e.Data, e.Retain, at); err != nil {
+				`INSERT INTO event_log (partition, off, id, type, time, data, retain, appended_at, traceparent, tracestate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+				string(e.Partition), int64(head), e.ID, e.Type, e.Time.UTC().Truncate(time.Microsecond), e.Data, e.Retain, at, parent, state); err != nil {
 				return fmt.Errorf("insert event %s: %w", e.ID, err)
 			}
 			out[i] = store.Appended{Partition: e.Partition, Offset: head}
@@ -91,7 +92,7 @@ func (s *Store) Read(ctx context.Context, partition store.Partition, after store
 	// The window keeps entries while the running total of Data stays within
 	// MaxReadBytes, and always the first.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, type, time, data, retain, off, appended_at FROM (
+		SELECT id, type, time, data, retain, off, appended_at, coalesce(traceparent, ''), coalesce(tracestate, '') FROM (
 			SELECT *, sum(octet_length(data)) OVER (ORDER BY off) AS cum, row_number() OVER (ORDER BY off) AS rn
 			FROM (SELECT * FROM event_log WHERE partition = ? AND off > ? ORDER BY off LIMIT ?)
 		) WHERE rn = 1 OR cum <= ? ORDER BY off`,
@@ -104,7 +105,7 @@ func (s *Store) Read(ctx context.Context, partition store.Partition, after store
 	for rows.Next() {
 		e := store.Entry{Event: store.Event{Partition: partition}}
 		var off int64
-		if err := rows.Scan(&e.ID, &e.Type, &e.Time, &e.Data, &e.Retain, &off, &e.AppendedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &e.Time, &e.Data, &e.Retain, &off, &e.AppendedAt, &e.TraceParent, &e.TraceState); err != nil {
 			return nil, fmt.Errorf("read partition %s: %w", partition, err)
 		}
 		e.Offset = store.Offset(off)

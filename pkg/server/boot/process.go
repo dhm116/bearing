@@ -17,6 +17,8 @@ import (
 
 const pkgName = "pkg/server/boot"
 
+var tracer = telemetry.Tracer(pkgName)
+
 var adapterRestarts = must(telemetry.Meter(pkgName).Int64Counter("bearing.adapter.restarts",
 	metric.WithDescription("Adapter processes the server had to drop after a failed call or start. A source that keeps failing is retried with a growing pause."),
 	metric.WithUnit("{restart}")))

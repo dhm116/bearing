@@ -2,7 +2,9 @@ package duckstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,5 +33,39 @@ func TestEventLogRefusesACancelledContext(t *testing.T) {
 	}
 	if ps, err := s.Partitions(context.Background()); err != nil || len(ps) != 0 {
 		t.Fatalf("got %v, %v, want an empty log", ps, err)
+	}
+}
+
+// A file written before the trace columns existed opens, and its events read
+// back without a trace context.
+func TestEventLogOpensAFileWithoutTraceColumns(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "old.duckdb")
+	ctx := context.Background()
+	db, err := sql.Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`CREATE TABLE event_head (partition VARCHAR PRIMARY KEY, head BIGINT NOT NULL, trimmed BIGINT NOT NULL)`,
+		`CREATE TABLE event_log (partition VARCHAR NOT NULL, off BIGINT NOT NULL, id VARCHAR NOT NULL UNIQUE, type VARCHAR NOT NULL, time TIMESTAMPTZ NOT NULL, data BLOB NOT NULL, retain BOOLEAN NOT NULL, appended_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (partition, off))`,
+		`INSERT INTO event_head VALUES ('github-acme', 1, 0)`,
+		`INSERT INTO event_log VALUES ('github-acme', 1, 'github-acme/d1', 't', now(), '{}'::BLOB, false, now())`,
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, Config{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	es, err := s.Read(ctx, "github-acme", 0, 10)
+	if err != nil || len(es) != 1 || es[0].TraceParent != "" || es[0].TraceState != "" {
+		t.Fatalf("got %+v, %v, want the old event with no trace context", es, err)
 	}
 }

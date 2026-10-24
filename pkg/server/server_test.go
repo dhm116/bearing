@@ -187,9 +187,12 @@ func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 }
 
 // start runs the server until the test ends.
-func (h *harness) start() {
+func (h *harness) start() { h.t.Helper(); h.startOn(context.Background()) }
+
+// startOn is start on a context the server's work inherits from.
+func (h *harness) startOn(parent context.Context) {
 	h.t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	done := make(chan error, 1)
 	go func() { done <- h.s.Run(ctx) }()
 	h.t.Cleanup(func() {

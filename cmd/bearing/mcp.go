@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/graph"
@@ -653,7 +654,7 @@ func rpcFail(id json.RawMessage, code int, msg string) *rpcResponse {
 // callTool runs one tool under a span named mcp.tool <name> and a deadline.
 // The span never carries the arguments.
 func (s *mcpServer) callTool(ctx context.Context, t mcpTool, args json.RawMessage) map[string]any {
-	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, "mcp.tool "+t.Name)
+	ctx, span := telemetry.Tracer("cmd/bearing").Start(ctx, "mcp.tool "+t.Name, trace.WithNewRoot())
 	defer span.End()
 	d := cmp.Or(s.timeout, server.DefaultRequestTimeout)
 	if t.Slow {
