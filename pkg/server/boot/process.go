@@ -91,7 +91,12 @@ func (m *managed) get() (Process, error) {
 		return m.proc, nil
 	}
 	if now := m.clk.Now(); now.Before(m.retryAt) {
-		return nil, fmt.Errorf("adapter for source %s failed and is not started again for %s (last start: %w)", m.source, m.retryAt.Sub(now).Round(time.Second), m.lastErr)
+		// lastErr is text, so a stale context.DeadlineExceeded cannot match errors.Is on this call; only a protocol refusal is kept.
+		err := fmt.Errorf("adapter for source %s failed and is not started again for %s (last start: %v)", m.source, m.retryAt.Sub(now).Round(time.Second), m.lastErr)
+		if errors.Is(m.lastErr, adapter.ErrProtocolMismatch) {
+			err = fmt.Errorf("%w: %w", adapter.ErrProtocolMismatch, err)
+		}
+		return nil, err
 	}
 	p, err := m.launch(m.ctx)
 	if err != nil {

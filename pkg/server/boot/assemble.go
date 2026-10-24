@@ -188,8 +188,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 }
 
 // protocolCheckTimeout bounds the Describe that checks an adapter's protocol
-// version at start.
-const protocolCheckTimeout = 5 * time.Second
+// version at start. A local adapter is launched by that call (through the
+// lazy managed get), so it is longer than adapter.Start's 10 s wait.
+const protocolCheckTimeout = 15 * time.Second
 
 // checkProtocols asks every adapter to Describe itself, in parallel, and
 // stops the start on one built for another protocol version, naming its
