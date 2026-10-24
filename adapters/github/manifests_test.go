@@ -68,9 +68,9 @@ func TestSyncEmitsRuntimeClaims(t *testing.T) {
 	want := map[string][]string{
 		"github:repo/acme/payments-api": {"go 1.21 go.mod"},
 		"github:repo/acme/web":          {"node >=18 package.json", "node 20 .nvmrc"},
-		"github:repo/acme/handbook":     nil, // an empty set, so a removed file closes its fact
-		"github:repo/acme/ops-scripts":  nil,
-		"github:repo/acme/sandbox":      nil,
+		"github:repo/acme/handbook":     {"node lts/hydrogen .nvmrc"},
+		"github:repo/acme/ops-scripts":  nil, // an empty set, so a removed file closes its fact
+		"github:repo/acme/sandbox":      {"go 1.23.1 go.mod"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

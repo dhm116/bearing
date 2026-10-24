@@ -1,0 +1,75 @@
+{
+  "language": "node",
+  "below_version": "20",
+  "below": [
+    {
+      "subject": {
+        "id": "",
+        "kind": "Repository",
+        "name": "web",
+        "key": "github:repo/acme/web"
+      },
+      "declarations": [
+        {
+          "version": "20",
+          "file": ".nvmrc",
+          "lower": "20",
+          "valid_from": "2026-09-28T01:30:00Z",
+          "sources": [
+            {
+              "source": "github-acme",
+              "observation_id": "github:repo_node/R_kgDOH1a2dg@2026-09-28T01:30:00.000000Z",
+              "url": "https://github.com/acme/web/blob/main/CODEOWNERS",
+              "observed_at": "2026-09-28T01:30:00Z"
+            }
+          ],
+          "source_count": 1
+        },
+        {
+          "version": "\u003e=18",
+          "file": "package.json",
+          "lower": "18",
+          "below": true,
+          "valid_from": "2026-09-28T01:30:00Z",
+          "sources": [
+            {
+              "source": "github-acme",
+              "observation_id": "github:repo_node/R_kgDOH1a2dg@2026-09-28T01:30:00.000000Z",
+              "url": "https://github.com/acme/web/blob/main/CODEOWNERS",
+              "observed_at": "2026-09-28T01:30:00Z"
+            }
+          ],
+          "source_count": 1
+        }
+      ]
+    }
+  ],
+  "unknown": [
+    {
+      "subject": {
+        "id": "",
+        "kind": "Repository",
+        "name": "handbook",
+        "key": "github:repo/acme/handbook"
+      },
+      "declarations": [
+        {
+          "version": "lts/hydrogen",
+          "file": ".nvmrc",
+          "unknown": true,
+          "valid_from": "2026-09-28T01:30:00Z",
+          "sources": [
+            {
+              "source": "github-acme",
+              "observation_id": "github:repo_node/R_kgDOH1a2fg@2026-09-28T01:30:00.000000Z",
+              "url": "https://github.com/acme/handbook/blob/main/docs/CODEOWNERS",
+              "observed_at": "2026-09-28T01:30:00Z"
+            }
+          ],
+          "source_count": 1
+        }
+      ]
+    }
+  ],
+  "at_or_above": 0
+}

@@ -47,8 +47,11 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    Still needed:
    - The model-backed matcher (ADR 7, "Proving it out" step 3) is not built;
      it would merge only through a later ADR.
-5. **Queries.** CLI, REST and MCP over one query layer, plus a
-   `find_entities` lookup for names.
+5. **Queries.** Question 2 is answered: `bearing runtimes --language go
+   --below 1.22` and `GET /v1/runtimes` list the entities whose manifests
+   declare an older version, with the unreadable ones apart.
+   CLI and REST over one query layer exist; MCP and a `find_entities` lookup
+   for names are still to do.
 6. **Config.** One server file plus one block per adapter, loaded at start.
 7. **Run it.** Docker Compose with the fakes; end-to-end tests for each
    question.

@@ -156,12 +156,15 @@ func seedRepos() []*Repo {
 			DatabaseID: 525776510, Name: "handbook", Description: "Engineering handbook",
 			DefaultBranch: "main", Visibility: "public",
 			CreatedAt: day(2023, 2, 1), UpdatedAt: day(2026, 8, 14), PushedAt: day(2026, 8, 14),
-			Files: map[string]string{"docs/CODEOWNERS": "/guides/ @acme/platform\n/runbooks/ @acme/sre\n"},
+			Files: map[string]string{
+				"docs/CODEOWNERS": "/guides/ @acme/platform\n/runbooks/ @acme/sre\n",
+				".nvmrc":          "lts/hydrogen\n", // a version no one can compare
+			},
 		},
 		{
 			DatabaseID: 601233458, Name: "sandbox", DefaultBranch: "trunk", Visibility: "public",
 			CreatedAt: day(2025, 7, 1), UpdatedAt: day(2025, 7, 1), PushedAt: day(2025, 7, 1),
-			Files: map[string]string{"README.md": "# sandbox\n"},
+			Files: map[string]string{"README.md": "# sandbox\n", "go.mod": "module acme.example/sandbox\n\ngo 1.23.1\n"},
 		},
 	}
 }

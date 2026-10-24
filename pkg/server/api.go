@@ -152,6 +152,7 @@ var routes = []route{
 	{pattern: "GET /v1/related", method: MethodRelated, handle: (*API).related},
 	{pattern: "GET /v1/changes", method: MethodChanges, handle: (*API).changes},
 	{pattern: "GET /v1/find", method: MethodFind, handle: (*API).find},
+	{pattern: "GET /v1/runtimes", method: MethodRuntimes, handle: (*API).runtimes},
 	{pattern: "GET /v1/links", method: MethodLinks, handle: (*API).links},
 	{pattern: "POST /v1/links/decisions", method: MethodDecide, write: true, body: true, handle: (*API).decide},
 	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
@@ -349,7 +350,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 // share a per-caller cap and a shorter deadline (C-STORE-9).
 func slowRead(m Method, r *http.Request) bool {
 	switch m {
-	case MethodChanges, MethodFind, MethodLinks:
+	case MethodChanges, MethodFind, MethodLinks, MethodRuntimes:
 		return true
 	case MethodRelated:
 		d, err := strconv.Atoi(r.URL.Query().Get("depth"))
@@ -651,6 +652,23 @@ func (a *API) find(w http.ResponseWriter, r *http.Request, _ Caller) {
 	}
 	ms, err := a.cfg.Query.Find(r.Context(), text, kind, limit)
 	a.answer(w, r, findAnswer{Matches: ms}, err)
+}
+
+func (a *API) runtimes(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "language", "below", "kind", "limit", "at")
+	req := query.RuntimesRequest{
+		Language: p.text("language", maxPredicateBytes), Below: p.text("below", maxPredicateBytes),
+		Kind: p.text("kind", maxPredicateBytes), At: p.when("at"), Limit: p.number("limit", query.MaxRuntimesLimit),
+	}
+	if req.Language == "" && p.err == "" {
+		p.err = "parameter language is required"
+	}
+	if p.err != "" {
+		badRequest(w, r, "invalid_request", p.err)
+		return
+	}
+	rt, err := a.cfg.Query.Runtimes(r.Context(), req)
+	a.answer(w, r, rt, err)
 }
 
 // syncAccepted is the answer to a sync request.

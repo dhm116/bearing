@@ -15,6 +15,9 @@ const (
 	MethodChanges Method = "query.changes"
 	// MethodFind is "what matches this name": bearing find.
 	MethodFind Method = "query.find"
+	// MethodRuntimes is "which entities declare this language below this
+	// version": bearing runtimes.
+	MethodRuntimes Method = "query.runtimes"
 	// MethodLinks is "which identity links are waiting for review": bearing
 	// links.
 	MethodLinks Method = "links.list"
