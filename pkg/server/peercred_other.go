@@ -14,7 +14,10 @@ func peerCred(net.Conn) (uid, pid int, err error) {
 	return 0, 0, errors.New("peer credentials are not supported on this system")
 }
 
-// procParent is never reached off Linux: peerCred refuses first.
-func procParent(int) (int, error) {
-	return 0, errors.New("process parents are not supported on this system")
+// procStatus is never reached off Linux: peerCred refuses first.
+func procStatus(int) (uid, ppid int, err error) {
+	return 0, 0, errors.New("process status is not supported on this system")
 }
+
+// Undumpable does nothing off Linux.
+func Undumpable() error { return nil }

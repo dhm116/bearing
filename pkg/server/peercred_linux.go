@@ -35,17 +35,44 @@ func peerCred(c net.Conn) (uid, pid int, err error) {
 	return int(cred.Uid), int(cred.Pid), nil
 }
 
-// procParent returns the parent PID of pid from /proc/<pid>/stat, whose
-// fourth field follows the command name in parentheses.
-func procParent(pid int) (int, error) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+// procStatus returns the real UID and the parent PID of pid from
+// /proc/<pid>/status. The status file names the real owner even of a
+// non-dumpable process, whose /proc entries the kernel gives to root.
+func procStatus(pid int) (uid, ppid int, err error) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	s := string(b)
-	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
-	if len(f) < 2 {
-		return 0, fmt.Errorf("process %d: malformed stat", pid)
+	uid, ppid = -1, -1
+	for line := range strings.Lines(string(b)) {
+		k, v, _ := strings.Cut(line, ":")
+		f := strings.Fields(v)
+		if len(f) == 0 {
+			continue
+		}
+		switch k {
+		case "Uid":
+			uid, err = strconv.Atoi(f[0])
+		case "PPid":
+			ppid, err = strconv.Atoi(f[0])
+		}
+		if err != nil {
+			return 0, 0, fmt.Errorf("process %d: malformed status: %w", pid, err)
+		}
 	}
-	return strconv.Atoi(f[1])
+	if uid < 0 || ppid < 0 {
+		return 0, 0, fmt.Errorf("process %d: malformed status", pid)
+	}
+	return uid, ppid, nil
+}
+
+// Undumpable marks this process non-dumpable, so a process of the same user,
+// such as a local adapter, can neither ptrace it nor read its
+// /proc/<pid>/environ or mem, where the server's secrets are (C-SECRET-3).
+// The adapters it starts are dumpable again: exec resets the flag.
+func Undumpable() error {
+	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_DUMPABLE, 0, 0); errno != 0 {
+		return fmt.Errorf("server: mark the process non-dumpable: %w", errno)
+	}
+	return nil
 }

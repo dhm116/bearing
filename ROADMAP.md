@@ -79,6 +79,10 @@ tag.
 - **Attestation.** Signed or tamper-evident provenance, built on the
   provenance facts already carry. Replaces the dropped audit log if needed.
 - **Automation.** Actions triggered by data type, value or confidence.
+- **Local adapters under their own UID** (`SysProcAttr.Credential`), so the
+  API socket refuses them by UID instead of by their line of parents, which
+  a detached process or a reused PID gets around. Waits on packaging that
+  creates the users.
 - **WASM adapter sandboxing**, with host-held credentials and capabilities.
 - **Authentication** (OIDC) for the API, beyond a static token.
 - **Live config reload**, more formats, and pushing config to adapters.

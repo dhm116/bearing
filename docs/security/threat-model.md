@@ -131,7 +131,10 @@ credentials; the server never sends it any.
   kernel names the peer's UID, not the person. The local adapters the server
   starts run as the service user too, so the socket refuses a peer whose
   line of parents reaches the server (an adapter or its child), and one whose
-  parents it cannot read (Linux, from `/proc`). The `reason`
+  parents it cannot read (Linux, from `/proc/<pid>/status`). The walk stops
+  at the first process owned by another user (the server's adapters run as
+  the service user; a root server walks on), at one it cannot see, and after
+  4,096 steps, which refuses the peer. The `reason`
   that comes with a decision is the caller's own text, which people and agents
   later read in `bearing links`; it is kept as given, never interpreted,
   clipped to 1 KiB, and refused if it holds control characters other than
@@ -171,7 +174,10 @@ credentials; the server never sends it any.
   which cannot cover the server's own variables.
 - **C-SECRET-2** A reference that does not resolve stops the start. The error
   names the field and the variable, never a value.
-- **C-SECRET-3** An adapter gets only the environment described above.
+- **C-SECRET-3** An adapter gets only the environment described above. The
+  server marks itself non-dumpable at start (Linux, `PR_SET_DUMPABLE`), so an
+  adapter running as the same user can neither ptrace it nor read its
+  `/proc/<pid>/environ`.
 
 **Operations and store**
 
@@ -206,8 +212,11 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
   service user is an administrator on the socket and, in `socket` mode, may
   decide identity links. The server refuses its own descendants, but a local
   adapter that detaches a process from the server's tree (its parent exits
-  and it is re-parented) is not caught. Running local adapters under their
-  own UID would close this.
+  and it is re-parented) is not caught. Nor is a reused PID: a descendant can
+  pass its connection to another process over `SCM_RIGHTS` and exit, and the
+  kernel still names the connecting PID, which may later belong to someone
+  else. Both come from adapters running as the service user; the real fix is
+  to run them under their own UID.
 - **The API's TLS material is read once.** A renewed API certificate needs a
   restart. (A remote adapter's files are reloaded.)
 - **Secret volumes.** A Kubernetes Secret mounted with the default mode 0644 is

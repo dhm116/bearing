@@ -16,6 +16,10 @@ authenticated caller may call every route except link decisions, which
 The socket's directory MUST be mode 0700 exactly and owned by the service
 user, and the socket is mode 0600; the server refuses to start otherwise. It is
 available on Linux only for now, and elsewhere it refuses every connection.
+The server reads each caller's line of parents from `/proc`, so it must see
+the processes there that the service user owns: with `hidepid` or systemd's
+`ProtectProc=invisible`, processes of other users (such as `sudo`) may be
+hidden, but the service user's own may not.
 The TCP listener is off unless `auth.token_env` is set. The server refuses to
 start if that variable is empty, holds fewer than 32 bytes, or holds
 whitespace or control characters. The listener uses TLS 1.2 or later;
