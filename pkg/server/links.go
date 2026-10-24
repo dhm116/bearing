@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
@@ -20,6 +21,49 @@ const identityPartition store.Partition = "core/identity"
 
 // maxReasonBytes bounds the free text that comes with a decision.
 const maxReasonBytes = 1024
+
+// LinkDecisions says which callers may decide identity links (the setting
+// api.link_decisions).
+type LinkDecisions string
+
+// The values of LinkDecisions.
+const (
+	// LinkDecisionsOff refuses every decision.
+	LinkDecisionsOff LinkDecisions = "off"
+	// LinkDecisionsSocket takes decisions only from callers on the Unix
+	// socket: a person on the server's host. It is the default.
+	LinkDecisionsSocket LinkDecisions = "socket"
+	// LinkDecisionsToken also takes them from holders of the API token.
+	LinkDecisionsToken LinkDecisions = "token"
+)
+
+// Valid reports whether m is one of the values above or empty (the default).
+func (m LinkDecisions) Valid() bool {
+	switch m {
+	case "", LinkDecisionsOff, LinkDecisionsSocket, LinkDecisionsToken:
+		return true
+	}
+	return false
+}
+
+// allows reports whether a caller may decide under m. An agent never may.
+func (m LinkDecisions) allows(c Caller) bool {
+	switch {
+	case c.Agent:
+		return false
+	case m == LinkDecisionsToken:
+		return true
+	case m == "" || m == LinkDecisionsSocket:
+		return c.Local
+	}
+	return false
+}
+
+// permanentError marks a failure that trying again cannot fix, so the worker
+// dead-letters the event at once.
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
 
 // ErrNoLinkDecider means the server was not given a LinkDecider.
 var ErrNoLinkDecider = errors.New("server: link decisions are not configured")
@@ -42,7 +86,7 @@ type LinkDecision struct {
 // not a decision: an unknown kind, or the wrong fields for its kind.
 func (d LinkDecision) Validate() error {
 	if _, ok := decisionEnums[d.Kind]; !ok {
-		return fmt.Errorf("%w: unknown decision %q", graph.ErrInvalidDecision, model.Clip(string(d.Kind)))
+		return fmt.Errorf("%w: decision must be accept, reject, join, split or undo_distinct", graph.ErrInvalidDecision)
 	}
 	if d.byLink() && (d.LinkID == "" || d.A != "" || d.B != "") {
 		return fmt.Errorf("%w: %s takes a link ID alone", graph.ErrInvalidDecision, d.Kind)
@@ -110,9 +154,16 @@ func (s *Server) DecideLink(ctx context.Context, d LinkDecision, actor *eventv1a
 	return Logged{ID: ev.ID, Offset: got[0].Offset}, nil
 }
 
-// clipReason cuts a reason to maxReasonBytes of valid UTF-8.
+// clipReason cuts a reason to maxReasonBytes of valid UTF-8, without control
+// characters other than newline and tab.
 func clipReason(s string) string {
 	s = strings.ToValidUTF8(s, "�")
+	s = strings.Map(func(r rune) rune {
+		if badReasonRune(r) {
+			return -1
+		}
+		return r
+	}, s)
 	if len(s) <= maxReasonBytes {
 		return s
 	}
@@ -123,22 +174,28 @@ func clipReason(s string) string {
 	return s[:cut]
 }
 
+// badReasonRune reports a control character a reason may not hold: people
+// and agents read reasons, so nothing in one may move a cursor or hide text.
+func badReasonRune(r rune) bool {
+	return r != '\n' && r != '\t' && (unicode.IsControl(r) || r == '\u2028' || r == '\u2029')
+}
+
 // handleLinkDecided applies one decision. It holds identityMu, so a matching
 // run never reads the links half way through a decision, nor writes proposals
 // from a view that a decision has since changed.
 func (s *Server) handleLinkDecided(ctx context.Context, e store.Entry) error {
 	msg := &eventv1alpha1.LinkDecided{}
 	if err := model.DecodeJSON(e.Data, msg); err != nil {
-		return fmt.Errorf("event %s: %w", e.ID, err)
+		return permanentError{fmt.Errorf("event %s: %w", e.ID, err)}
 	}
 	if e.Partition != identityPartition {
-		return fmt.Errorf("event %s is in partition %q, not %q", e.ID, e.Partition, identityPartition)
+		return permanentError{fmt.Errorf("event %s is in partition %q, not %q", e.ID, e.Partition, identityPartition)}
 	}
 	if s.cfg.Links == nil {
 		return fmt.Errorf("event %s: %w", e.ID, ErrNoLinkDecider)
 	}
 	if msg.GetActor().GetSubject() == "" || msg.GetActor().GetAgent() {
-		return fmt.Errorf("event %s: not decided by a person", e.ID)
+		return permanentError{fmt.Errorf("event %s: not decided by a person", e.ID)}
 	}
 	var kind graph.DecisionKind
 	for k, v := range decisionEnums {
@@ -152,6 +209,9 @@ func (s *Server) handleLinkDecided(ctx context.Context, e store.Entry) error {
 		ID: e.ID, Kind: kind, LinkID: msg.GetLinkId(), A: msg.GetA(), B: msg.GetB(),
 		Actor: msg.GetActor().GetSubject(), Reason: clipReason(msg.GetReason()), At: e.Time,
 	})
+	if errors.Is(err, graph.ErrInvalidDecision) || errors.Is(err, graph.ErrNotFound) {
+		return permanentError{fmt.Errorf("event %s: %w", e.ID, err)}
+	}
 	if err != nil {
 		return fmt.Errorf("event %s: %w", e.ID, err)
 	}

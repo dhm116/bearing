@@ -241,8 +241,10 @@ func TestRunProposesOnceAfterAPersonUndoesADistinctFrom(t *testing.T) {
 		t.Run(tc.rule, func(t *testing.T) {
 			g := newFake()
 			g.links = []graph.Link{
-				{ID: "P", A: "d-pay", B: "g-pay", Kind: graph.SameAs, Status: graph.Proposed, Rule: TransparentRule, ValidTo: t0.Add(day),
-					Deposits: []graph.Deposit{{At: t0.Add(day), Weight: 0.6, Features: map[string]float64{"name": 1, "score": 0.6}}}},
+				{
+					ID: "P", A: "d-pay", B: "g-pay", Kind: graph.SameAs, Status: graph.Proposed, Rule: TransparentRule, ValidTo: t0.Add(day),
+					Deposits: []graph.Deposit{{At: t0.Add(day), Weight: 0.6, Features: map[string]float64{"name": 1, "score": 0.6}}},
+				},
 				{ID: "D", A: "d-pay", B: "g-pay", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: tc.rule, ValidTo: undo},
 			}
 			cfg := Config{Now: func() time.Time { return t0.Add(2 * day) }}

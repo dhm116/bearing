@@ -78,10 +78,23 @@ credentials; the server never sends it any.
   literal loopback IP and follows no redirect.
 - **C-API-6** Limits before and after authentication: connection caps per peer
   and in all (closed before the TLS handshake), a per-peer request rate, a
-  per-caller rate, a cap on requests in flight, a deadline per request, and
-  header and body limits. See [the API spec](../spec/api.md#limits).
+  per-caller rate, a lower per-caller rate for link decisions (30 a minute),
+  a cap on requests in flight, a deadline per request, and header and body
+  limits: no route takes a body except a link decision, at most 8 KiB, read
+  strictly (`application/json`, known keys once each). See
+  [the API spec](../spec/api.md#limits).
 - **C-API-7** Errors carry a code, a generic message and a request ID. Details
   go to the logs, never the answer.
+- **C-API-8** Who may decide identity links is `api.link_decisions`: `socket`
+  (the default) takes decisions only from callers on the Unix socket,
+  `token` from API token holders too, `off` from no one. Anyone else gets a
+  403 before the body is read, and a caller marked as an agent never decides.
+  A decision is an assertion of identity that ownership answers then rest on,
+  so by default only a person on the server's host makes one. The `reason`
+  that comes with a decision is the caller's own text, which people and agents
+  later read in `bearing links`; it is kept as given, never interpreted,
+  clipped to 1 KiB, and refused if it holds control characters other than
+  newline and tab.
 
 **Ingest**
 
@@ -127,9 +140,10 @@ credentials; the server never sends it any.
   repeat it.
 - **C-OPS-5** An adapter that fails to start or answer is restarted with a pause
   that doubles from one second to one minute, so a broken adapter cannot spin.
-- **C-STORE-9** Reads that scan or walk many rows (`changes`, `find`, and
-  `related` deeper than one hop) share a per-caller cap and a shorter
-  deadline.
+- **C-STORE-9** Reads that scan or walk many rows (`changes`, `find`,
+  `links`, and `related` deeper than one hop) share a per-caller cap and a
+  shorter deadline. `links` scores at most the 5,000 links with the newest
+  evidence.
 - **C-STORE-11** Trim removes only events that are not marked to keep and that
   every required group has applied, so a stopped worker never loses work. The
   `bearing.worker.oldest_unapplied.age` metric shows it falling behind.
@@ -143,7 +157,10 @@ labels or error text. Tests plant canary values and scan for them
 Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
 
 - **No roles or per-caller identity.** Every authenticated API caller may call
-  every route, and every holder of the API token is the same caller.
+  every route but link decisions (C-API-8), and every holder of the API token
+  is the same caller. With `api.link_decisions: token`, anyone holding the
+  token, an agent included, can assert or break an identity link, and the
+  decision is attributed to `token`, not to a person.
 - **TLS material is read once.** A renewed certificate needs a restart, and a
   CA or key file is checked by path before it is read, so a swap in between
   is not caught.

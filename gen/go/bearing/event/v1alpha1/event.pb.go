@@ -494,8 +494,10 @@ func (x *ObservationsEmitted) GetSyncStarted() *timestamppb.Timestamp {
 // appended to the core/identity partition and applied in order, once.
 type LinkDecided struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// For JOIN and SPLIT, the two records, each an entity ID, a record ID or
-	// a key; the store resolves them to records. Unused by the others.
+	// For JOIN and SPLIT, the two records. The API logs the record IDs that
+	// the caller's references resolved to, so the log names exactly the
+	// records decided on; the store also takes an entity ID or a key. Unused
+	// by the others.
 	A string `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
 	// The second record, as a.
 	B string `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty"`
@@ -503,7 +505,8 @@ type LinkDecided struct {
 	Decision LinkDecided_Decision `protobuf:"varint,3,opt,name=decision,proto3,enum=bearing.event.v1alpha1.LinkDecided_Decision" json:"decision,omitempty"`
 	// The link ACCEPT, REJECT and UNDO_DISTINCT act on.
 	LinkId string `protobuf:"bytes,4,opt,name=link_id,json=linkId,proto3" json:"link_id,omitempty"`
-	// Why, as free text. Optional, never interpreted, clipped to 1 KiB.
+	// Why, as free text. Optional, never interpreted, clipped to 1 KiB, with
+	// no control characters other than newline and tab.
 	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
 	// Who decided: what the authenticator proved. Never an agent.
 	Actor         *Actor `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`

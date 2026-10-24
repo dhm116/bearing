@@ -31,7 +31,7 @@
 //	bearing link reject <link ID>
 //	bearing link join <ref> <ref>
 //	bearing link split <ref> <ref>
-//	bearing link undo <link ID>
+//	bearing link undo-distinct <link ID>
 //
 // The queries take --store (or $BEARING_STORE) to read a store, or --server (or
 // $BEARING_SERVER) to ask a running server, which answers the same questions
@@ -73,7 +73,7 @@ const usage = `usage:
   bearing changes [--since T] [<ref>] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing find <name> [--kind K] [--limit N] [--store URL | --server ADDR] [--json]
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
-  bearing link accept|reject|undo <link ID> [--reason TEXT] --server ADDR [--json]
+  bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]

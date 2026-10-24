@@ -33,7 +33,7 @@
       "properties": {
         "a": {
           "default": "",
-          "description": "For JOIN and SPLIT, the two records, each an entity ID, a record ID or\n a key; the store resolves them to records. Unused by the others.",
+          "description": "For JOIN and SPLIT, the two records. The API logs the record IDs that\n the caller's references resolved to, so the log names exactly the\n records decided on; the store also takes an entity ID or a key. Unused\n by the others.",
           "type": "string"
         },
         "actor": {
@@ -78,7 +78,7 @@
         },
         "reason": {
           "default": "",
-          "description": "Why, as free text. Optional, never interpreted, clipped to 1 KiB.",
+          "description": "Why, as free text. Optional, never interpreted, clipped to 1 KiB, with\n no control characters other than newline and tab.",
           "type": "string"
         }
       },

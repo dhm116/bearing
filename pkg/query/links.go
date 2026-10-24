@@ -3,7 +3,6 @@ package query
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -20,6 +19,12 @@ const (
 	// DefaultLinksLimit is the number of links Links returns when asked for
 	// none in particular.
 	DefaultLinksLimit = 100
+	// linksScanCap bounds the links Links scores, those with the newest
+	// evidence; the strongest are among them, since evidence decays.
+	//
+	// shortcut: a stale strong link past the cap is left out; push the score
+	// into the store if a queue ever holds that many.
+	linksScanCap = 5 * MaxLinksLimit
 )
 
 // LinksRequest selects the identity links Links returns. Empty fields match
@@ -100,7 +105,12 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 	case req.Limit < 0 || req.Limit > MaxLinksLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxLinksLimit)
 	}
-	f.Entity = graph.EntityID(req.Entity)
+	if req.Entity != "" {
+		if _, err := q.entity(ctx, req.Entity); err != nil {
+			return nil, err
+		}
+	}
+	f.Entity, f.Limit = graph.EntityID(req.Entity), linksScanCap
 	ls, err := q.Graph.Links(ctx, f)
 	if err != nil {
 		return nil, fmt.Errorf("links: %w", err)
@@ -114,40 +124,32 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 		halfLife = match.Config{}.HalfLifeOf
 	}
 	at := now()
+	var ids []graph.EntityID
+	for _, l := range ls {
+		ids = append(ids, l.A, l.B)
+	}
+	slices.Sort(ids)
+	got, err := q.Graph.RecordsByID(ctx, slices.Compact(ids))
+	if err != nil {
+		return nil, fmt.Errorf("links: records: %w", err)
+	}
 	recs := map[graph.EntityID]LinkRecord{}
-	record := func(id graph.EntityID) (LinkRecord, error) {
+	for _, x := range got {
+		r := LinkRecord{ID: string(x.ID), Kind: string(x.Kind), Name: x.Name, Sources: x.Sources}
+		if len(x.Keys) > 0 {
+			r.Key = string(x.Keys[0])
+		}
+		recs[x.ID] = r
+	}
+	record := func(id graph.EntityID) LinkRecord {
 		if r, ok := recs[id]; ok {
-			return r, nil
+			return r
 		}
-		r := LinkRecord{ID: string(id)}
-		e, err := q.Graph.Entity(ctx, string(id))
-		switch {
-		case errors.Is(err, graph.ErrNotFound):
-		case err != nil:
-			return r, fmt.Errorf("entity %s: %w", id, err)
-		default:
-			for _, x := range e.Records {
-				if x.ID == id {
-					r.Kind, r.Name, r.Sources = string(x.Kind), x.Name, x.Sources
-					if len(x.Keys) > 0 {
-						r.Key = string(x.Keys[0])
-					}
-				}
-			}
-		}
-		recs[id] = r
-		return r, nil
+		return LinkRecord{ID: string(id)}
 	}
 	out := make([]Link, 0, len(ls))
 	for _, l := range ls {
-		a, err := record(l.A)
-		if err != nil {
-			return nil, err
-		}
-		b, err := record(l.B)
-		if err != nil {
-			return nil, err
-		}
+		a, b := record(l.A), record(l.B)
 		s := match.ScoreOf(l.Deposits, at, halfLife(model.Kind(a.Kind)))
 		o := Link{
 			ID: l.ID, Kind: string(l.Kind), Status: string(l.Status), Rule: l.Rule, A: a, B: b, ValidFrom: l.ValidFrom,

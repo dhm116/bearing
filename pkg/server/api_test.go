@@ -106,7 +106,7 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 
 	var err error
 	w.graph = &apiGraph{Graph: h.mem}
-	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}}
+	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}, DecideRate: RateLimit{PerMinute: -1}}
 	for _, m := range mod {
 		m(&cfg)
 	}
@@ -116,7 +116,7 @@ func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	w.authn = fakeAuthn{callers: map[string]Caller{
 		"reader":  {Subject: "alice"},
 		"reader2": {Subject: "bob"},
-		"admin":   {Subject: "carol"},
+		"admin":   {Subject: "carol", Local: true},
 		"bot":     {Subject: "bot"},
 	}}
 	w.h = w.api.Handler(w.authn)
@@ -157,6 +157,9 @@ func (w *apiWorld) doBody(token, method, target, body string) *httptest.Response
 		rd = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, rd)
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

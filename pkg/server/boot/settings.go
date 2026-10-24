@@ -23,6 +23,7 @@ import (
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/server"
 )
 
 // maxSettingsBytes bounds the settings file.
@@ -39,6 +40,7 @@ type Settings struct {
 	Store    StoreSettings     `json:"store"`
 	Listen   ListenSettings    `json:"listen"`
 	Auth     AuthSettings      `json:"auth"`
+	API      APISettings       `json:"api"`
 	Webhooks WebhookSettings   `json:"webhooks"`
 	Secrets  SecretSettings    `json:"secrets"`
 	Adapters []AdapterSettings `json:"adapters"`
@@ -88,6 +90,14 @@ type ListenSettings struct {
 // TCP listener. It is needed with listen.addr.
 type AuthSettings struct {
 	TokenEnv string `json:"token_env,omitempty"`
+}
+
+// APISettings says who may do what through the API.
+type APISettings struct {
+	// LinkDecisions is who may decide identity links (C-API-8): "socket"
+	// (the default) for callers on the Unix socket, "token" for API token
+	// holders too, "off" for no one.
+	LinkDecisions string `json:"link_decisions,omitempty"`
 }
 
 // WebhookSettings bounds the webhook route (C-INGEST-4). Worst-case memory
@@ -303,6 +313,9 @@ func (s *Settings) check() (*checked, error) {
 	}
 	if err := s.checkListen(); err != nil {
 		return nil, err
+	}
+	if !server.LinkDecisions(s.API.LinkDecisions).Valid() {
+		return nil, fmt.Errorf("boot: settings: api.link_decisions must be off, socket or token, not %q", model.Clip(s.API.LinkDecisions))
 	}
 	if err := s.checkSecrets(); err != nil {
 		return nil, err

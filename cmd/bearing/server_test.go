@@ -48,7 +48,8 @@ func (w *world) api() *server.API {
 	}
 	api, err := server.NewAPI(server.APIConfig{
 		Server: s, Query: &query.Querier{Graph: w.store, Now: w.clock.Now},
-		CallerRate: server.RateLimit{PerMinute: -1},
+		CallerRate: server.RateLimit{PerMinute: -1}, DecideRate: server.RateLimit{PerMinute: -1},
+		LinkDecisions: server.LinkDecisionsToken,
 	})
 	if err != nil {
 		w.t.Fatal(err)

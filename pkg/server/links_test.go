@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -117,6 +118,9 @@ func TestAPILinksListsTheQueueStrongestFirstWithItsEvidence(t *testing.T) {
 			t.Errorf("%s: got %d %q, want %d links", target, rec.Code, rec.Body.String(), want)
 		}
 	}
+	if rec := w.do("reader", http.MethodGet, "/v1/links?entity=catalog:repo/nope"); rec.Code != http.StatusNotFound {
+		t.Errorf("an unknown entity: got %d, want 404", rec.Code)
+	}
 	for _, target := range []string{"/v1/links?status=nope", "/v1/links?kind=nope", "/v1/links?limit=0", "/v1/links?limit=5000", "/v1/links?bogus=1"} {
 		if rec := w.do("reader", http.MethodGet, target); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: got %d, want 400", target, rec.Code)
@@ -202,8 +206,19 @@ func TestAPIDecisionRefusalsLogNothing(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	id := w.propose("payments", "billing", 0.9)
-	w.authn.callers["agent"] = Caller{Subject: "claude", Agent: true}
+	w.authn.callers["agent"] = Caller{Subject: "claude", Agent: true, Local: true}
 	tooBig := `{"decision":"accept","link_id":"` + id + `","reason":"` + strings.Repeat("x", 9<<10) + `"}`
+	// billing and search are joined by an asserted link, and payments is kept
+	// apart from billing.
+	billing, search, payments := w.recordID("catalog:repo/billing"), w.recordID("catalog:repo/search"), w.recordID("catalog:repo/payments")
+	if _, err := w.mem.Link(t.Context(), []graph.Proposal{
+		{A: billing, B: search, Kind: graph.SameAs, Status: graph.Asserted, Rule: "rule/x", Deposit: graph.Deposit{At: w.clk.Now(), Weight: 1}},
+		{A: payments, B: billing, Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: graph.PersonRule, Deposit: graph.Deposit{At: w.clk.Now(), Weight: 1}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	asserted := w.links(graph.LinkFilter{Kind: graph.SameAs, Status: graph.Asserted})[0].ID
+	blocker := w.links(graph.LinkFilter{Kind: graph.DistinctFrom})[0].ID
 	for _, tt := range []struct {
 		name, token, body string
 		want              int
@@ -224,6 +239,13 @@ func TestAPIDecisionRefusalsLogNothing(t *testing.T) {
 		{"a link that is not there", "admin", `{"decision":"accept","link_id":"nope"}`, http.StatusNotFound, "not_found"},
 		{"a record that is not there", "admin", `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/nope"}`, http.StatusNotFound, "not_found"},
 		{"a body over the limit", "admin", tooBig, http.StatusRequestEntityTooLarge, "too_large"},
+		{"a reject of an asserted link", "admin", `{"decision":"reject","link_id":"` + asserted + `"}`, http.StatusBadRequest, "invalid_request"},
+		{"a key and the ID of one record", "admin", `{"decision":"split","a":"catalog:repo/payments","b":"` + string(payments) + `"}`, http.StatusBadRequest, "invalid_request"},
+		{"a join another record's distinct_from blocks", "admin", `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/search"}`, http.StatusBadRequest, "invalid_request"},
+		{"a field twice", "admin", `{"decision":"accept","link_id":"` + id + `","link_id":"` + id + `"}`, http.StatusBadRequest, "invalid_request"},
+		{"a field in another case", "admin", `{"Decision":"accept","link_id":"` + id + `"}`, http.StatusBadRequest, "invalid_request"},
+		{"a field that is not a string", "admin", `{"decision":"accept","link_id":"` + id + `","reason":null}`, http.StatusBadRequest, "invalid_request"},
+		{"a reason with an escape", "admin", `{"decision":"accept","link_id":"` + id + `","reason":"ok\u001b[2J"}`, http.StatusBadRequest, "invalid_request"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := w.decide(tt.token, tt.body)
@@ -232,8 +254,92 @@ func TestAPIDecisionRefusalsLogNothing(t *testing.T) {
 			}
 		})
 	}
+	if rec := w.decide("admin", `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/search"}`); !strings.Contains(rec.Body.String(), blocker) {
+		t.Errorf("got %s, want the message to name the distinct_from link %s", rec.Body.String(), blocker)
+	}
+	if rec := w.decide("admin", `{"decision":"promote\u001b[2J","link_id":"x"}`); strings.Contains(rec.Body.String(), "promote") {
+		t.Errorf("got %s, want an unknown decision not echoed", rec.Body.String())
+	}
+
+	// No content type, and a chunked body over the limit.
+	req := httptest.NewRequest(http.MethodPost, "/v1/links/decisions", strings.NewReader(`{"decision":"accept","link_id":"`+id+`"}`))
+	req.Header.Set("Authorization", "Bearer admin")
+	rec := httptest.NewRecorder()
+	w.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType || decodeError(t, rec).Code != "unsupported_media_type" {
+		t.Errorf("no content type: got %d %s, want 415", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/links/decisions", io.MultiReader(strings.NewReader(tooBig)))
+	req.Header.Set("Authorization", "Bearer admin")
+	req.Header.Set("Content-Type", "application/json")
+	if req.ContentLength != -1 {
+		t.Fatalf("got content length %d, want a chunked body (-1)", req.ContentLength)
+	}
+	rec = httptest.NewRecorder()
+	w.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("a chunked body over the limit: got %d %s, want 413", rec.Code, rec.Body.String())
+	}
 	if n := len(w.entries(identityPartition)); n != 0 {
 		t.Errorf("%d decisions were logged for refused requests, want none", n)
+	}
+}
+
+// api.link_decisions: socket (the default) takes decisions only from the
+// socket, token from token holders too, off from no one; a refusal comes
+// before the body is read. The log names the records the references
+// resolved to.
+func TestAPIWhoMayDecideFollowsTheSetting(t *testing.T) {
+	t.Parallel()
+	body := `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/billing"}`
+	for _, tt := range []struct {
+		mode              LinkDecisions
+		socket, tokenUser int
+	}{
+		{"", http.StatusAccepted, http.StatusForbidden},
+		{LinkDecisionsSocket, http.StatusAccepted, http.StatusForbidden},
+		{LinkDecisionsToken, http.StatusAccepted, http.StatusAccepted},
+		{LinkDecisionsOff, http.StatusForbidden, http.StatusForbidden},
+	} {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			w := newAPIWorld(t, func(c *APIConfig) { c.LinkDecisions = tt.mode })
+			if rec := w.decide("admin", body); rec.Code != tt.socket {
+				t.Errorf("a socket caller: got %d %s, want %d", rec.Code, rec.Body.String(), tt.socket)
+			}
+			if rec := w.decide("reader", body); rec.Code != tt.tokenUser {
+				t.Errorf("a token caller: got %d %s, want %d", rec.Code, rec.Body.String(), tt.tokenUser)
+			}
+			if tt.tokenUser == http.StatusForbidden {
+				if rec := w.decide("reader", `not json`); rec.Code != http.StatusForbidden {
+					t.Errorf("a refused caller with a bad body: got %d, want 403 before the body is read", rec.Code)
+				}
+			}
+			for _, e := range w.entries(identityPartition) {
+				msg := &eventv1alpha1.LinkDecided{}
+				if err := model.DecodeJSON(e.Data, msg); err != nil {
+					t.Fatal(err)
+				}
+				if msg.GetA() != string(w.recordID("catalog:repo/payments")) || msg.GetB() != string(w.recordID("catalog:repo/billing")) {
+					t.Errorf("got a=%q b=%q, want the record IDs the keys resolved to", msg.GetA(), msg.GetB())
+				}
+			}
+		})
+	}
+	if _, err := NewAPI(APIConfig{Server: newHarness(t).s, Query: &query.Querier{}, LinkDecisions: "everyone"}); err == nil {
+		t.Error("got an API for an unknown link_decisions, want an error")
+	}
+}
+
+func TestAPIDecisionsHaveTheirOwnRateLimit(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.DecideRate = RateLimit{PerMinute: 1, Burst: 1} })
+	body := `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/billing"}`
+	decisionLogged(t, w.decide("admin", body))
+	if rec := w.decide("admin", body); rec.Code != http.StatusTooManyRequests || decodeError(t, rec).Code != "rate_limited" {
+		t.Errorf("a second decision: got %d %s, want 429", rec.Code, rec.Body.String())
+	}
+	if rec := w.do("admin", http.MethodGet, "/v1/links"); rec.Code != http.StatusOK {
+		t.Errorf("a read after it: got %d, want 200", rec.Code)
 	}
 }
 
@@ -288,6 +394,9 @@ func TestDecisionsTheStoreRefusesAreDeadLettered(t *testing.T) {
 			t.Fatal(err)
 		}
 		errs = append(errs, dl.GetEventId()+": "+dl.GetError())
+		if dl.GetAttempts() != 1 {
+			t.Errorf("%s: got %d attempts, want a refusal dead-lettered at once", dl.GetEventId(), dl.GetAttempts())
+		}
 	}
 	if len(errs) != 3 || !strings.Contains(errs[0], "unknown-link") || !strings.Contains(errs[0], "not found") ||
 		!strings.Contains(errs[1], "not decided by a person") || !strings.Contains(errs[2], "invalid decision") {

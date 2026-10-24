@@ -187,6 +187,9 @@ func (s *Server) process(ctx context.Context, e store.Entry) error {
 		attempts++
 		log.WarnContext(ctx, "handling an event failed", "event", e.ID, "partition", string(e.Partition),
 			"type", e.Type, "attempt", attempts, "error", cleanErrorText(err.Error()))
+		if errors.As(err, new(permanentError)) {
+			return s.deadLetter(ctx, span, e, attempts, err)
+		}
 		if attempts >= s.cfg.MaxAttempts {
 			if down := s.storeDown(ctx); down != nil {
 				// The failures may be the store's or the log's and not the

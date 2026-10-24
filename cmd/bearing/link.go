@@ -23,7 +23,7 @@ func linkCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 	switch args[0] {
 	case "accept", "reject":
 		decision, wantArgs = args[0], 1
-	case "undo":
+	case "undo-distinct":
 		decision, wantArgs = "undo_distinct", 1
 	case "join", "split":
 		decision, wantArgs = args[0], 2

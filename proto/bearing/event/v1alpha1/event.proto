@@ -109,8 +109,10 @@ message LinkDecided {
     DECISION_UNDO_DISTINCT = 5;
   }
 
-  // For JOIN and SPLIT, the two records, each an entity ID, a record ID or
-  // a key; the store resolves them to records. Unused by the others.
+  // For JOIN and SPLIT, the two records. The API logs the record IDs that
+  // the caller's references resolved to, so the log names exactly the
+  // records decided on; the store also takes an entity ID or a key. Unused
+  // by the others.
   string a = 1;
   // The second record, as a.
   string b = 2;
@@ -118,7 +120,8 @@ message LinkDecided {
   Decision decision = 3;
   // The link ACCEPT, REJECT and UNDO_DISTINCT act on.
   string link_id = 4;
-  // Why, as free text. Optional, never interpreted, clipped to 1 KiB.
+  // Why, as free text. Optional, never interpreted, clipped to 1 KiB, with
+  // no control characters other than newline and tab.
   string reason = 5;
   // Who decided: what the authenticator proved. Never an agent.
   Actor actor = 6;

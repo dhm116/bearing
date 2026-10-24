@@ -42,7 +42,7 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    closed when a full sync no longer lists them, ingest's `CompleteSync`).
    A person reviews links: `bearing links --proposed` lists the queue
    (strongest first, with the evidence), and `bearing link accept`, `reject`,
-   `join`, `split` and `undo` record a decision through the server's event
+   `join`, `split` and `undo-distinct` record a decision through the server's event
    log (`core/identity`), applied in order and once (`graph.Decide`).
    Still needed:
    - The model-backed matcher (ADR 7, "Proving it out" step 3) is not built;

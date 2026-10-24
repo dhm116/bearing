@@ -171,7 +171,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if scfg.Matching != nil {
 		q.HalfLife = scfg.Matching.Config.HalfLifeOf // review scores decay as the matcher's do
 	}
-	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q})
+	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q, LinkDecisions: server.LinkDecisions(s.API.LinkDecisions)})
 	if err != nil {
 		return nil, err
 	}

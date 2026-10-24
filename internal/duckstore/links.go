@@ -31,7 +31,6 @@ func (s *Store) RecordsByID(ctx context.Context, ids []graph.EntityID) ([]graph.
 		for i, id := range ids {
 			args[i] = string(id)
 		}
-		//nolint:gosec // only "?" lists are joined; values are bound
 		return records(ctx, db, `e.id IN (`+placeholders(len(ids))+`)`, args...)
 	})
 }
@@ -91,7 +90,6 @@ func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, er
 		for i, l := range links {
 			idx[l.ID], ids[i] = i, l.ID
 		}
-		//nolint:gosec // only "?" lists are joined; values are bound
 		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR), d.actor, d.reason
 		FROM link_deposit d WHERE d.link_id IN (`+placeholders(len(ids))+`)
 		ORDER BY d.deposited_at, d.observation_id`, ids...)

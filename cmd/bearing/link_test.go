@@ -120,7 +120,7 @@ func TestLinkDecisionsGoThroughTheServersLog(t *testing.T) {
 	if err != nil || len(apart) != 1 {
 		t.Fatalf("got %v, %v, want one distinct_from", apart, err)
 	}
-	run("undo", apart[0].ID)
+	run("undo-distinct", apart[0].ID)
 	var got []string
 	for _, d := range w.decisions() {
 		got = append(got, strings.TrimPrefix(d.GetDecision().String(), "DECISION_"))
@@ -134,8 +134,8 @@ func TestLinkDecisionsGoThroughTheServersLog(t *testing.T) {
 	if first := w.decisions()[0]; first.GetLinkId() != id || first.GetReason() != "same team" {
 		t.Errorf("got %v, want the accept of %s with its reason", first, id)
 	}
-	if j := w.decisions()[2]; j.GetA() != teamPayments || j.GetB() != teamPlatform {
-		t.Errorf("got %v, want the join of the two teams", j)
+	if j := w.decisions()[2]; j.GetA() != string(a.ID) || j.GetB() != string(b.ID) {
+		t.Errorf("got %v, want the join of the two teams' records, %s and %s", j, a.ID, b.ID)
 	}
 	if out := run("accept", id, "--json"); !strings.Contains(out, `"event_id"`) {
 		t.Errorf("got %q, want the server's answer as JSON", out)
