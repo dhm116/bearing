@@ -315,9 +315,6 @@ kbd {
   .ask--compact .answer li { --lead: 900ms; }
   .ask__q { animation: rise var(--dur-long) var(--ease-out) both; }
   .ask__sources li { animation-name: rise, ping; animation-duration: var(--dur-long), 900ms; }
-  /* On the home page the answer is on screen from the start, below the
-     trail; it must never show as an empty box waiting for its rows. */
-  .hunt .ask__q, .hunt .ask__sources li, .hunt .answer li { animation: none; }
   .plugs__wire { animation: wire 500ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 250ms + 300ms); }
   .plugs__plug { animation: rise var(--dur-long) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 250ms + 700ms); }
   .plugs__tools li { --step: 250ms; }
@@ -402,10 +399,22 @@ kbd {
 @media (min-width: 48rem) {
   .answer li { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
 }
-@media (min-width: 72rem) {
-  .hunt .ask { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: var(--space-2xl); }
-  .hunt .ask .ask__a { grid-column: 2; grid-row: 1 / span 2; }
-}
+
+/* "With Bearing": one question asked two ways, a terminal and an AI coding
+ * agent, side by side across the section, the same answer in each. */
+.asked { display: grid; gap: var(--space-md); }
+.asked__panes { display: grid; gap: var(--space-md); }
+@media (min-width: 64rem) { .asked__panes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.asked__note { font-size: var(--text-sm); color: var(--muted); }
+.pane { display: grid; align-content: start; background: var(--term-bg); color: var(--term-ink); border: var(--rule); border-radius: var(--radius-lg); overflow: hidden; }
+.pane__bar { padding: var(--space-xs) var(--space-lg); border-bottom: 1px solid color-mix(in srgb, var(--term-ink) 14%, transparent); font: 500 var(--text-xs)/1.6 var(--font-mono); color: var(--term-dim); }
+.pane pre { margin: 0; padding: var(--space-md) var(--space-lg); font: 400 var(--text-sm)/1.75 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent { display: grid; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); font-size: var(--text-sm); line-height: 1.6; }
+.agent__you { font-family: var(--font-mono); }
+.agent__tool { justify-self: start; padding: var(--space-2xs) var(--space-sm); border: 1px solid color-mix(in srgb, var(--term-ink) 18%, transparent); border-radius: var(--radius-sm); font: 400 var(--text-xs)/1.6 var(--font-mono); overflow-wrap: anywhere; }
+.t-dim { color: var(--term-dim); }
+.t-acc { color: var(--term-accent); }
+.t-ok { color: var(--term-ok); }
 
 /* ---------- Home: questions ---------- */
 

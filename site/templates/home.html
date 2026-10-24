@@ -76,22 +76,25 @@
   <p class="hunt__moral">Five places, two dead ends and over half an hour. Next month, someone else repeats the same hunt.</p>
 
   <h3 class="hunt__step hunt__step--bearing">With Bearing</h3>
-  <div class="ask">
-    <p class="ask__q"><svg class="icon"><use href="#i-chat"/></svg><span>Who looks after payments-api?</span></p>
-    <ul class="ask__sources" aria-label="Tools Bearing read">
-      <li><svg class="icon"><use href="#i-code"/></svg>GitHub</li>
-      <li><svg class="icon"><use href="#i-people"/></svg>Company directory</li>
-      <li><svg class="icon"><use href="#i-layers"/></svg>Kubernetes</li>
-    </ul>
-    <div class="ask__a">
-      <img class="ask__mark" src="{{static "brand/bearing-mark.svg"}}" alt="" width="32" height="32">
-      <ul class="answer">
-        <li><p>The <strong>payments</strong> team approves every change.</p><span class="src">GitHub · CODEOWNERS, line 2</span></li>
-        <li><p>On that team: <strong>Jane Doe</strong> and <strong>Raj Patel</strong>.</p><span class="src">Company directory</span></li>
-        <li><p>It runs as <strong>payments-api</strong>, labelled as the payments team's.</p><span class="src">Kubernetes</span></li>
-        <li><p>It's written in Go 1.21.</p><span class="src">GitHub · go.mod</span></li>
-      </ul>
+  <div class="asked">
+    <div class="asked__panes">
+      <div class="pane">
+        <p class="pane__bar">Terminal</p>
+        <pre><code><span class="t-dim">$</span> bearing owner github:repo/acme/payments-api
+<span class="t-dim">owners of</span> <span class="t-acc">payments-api</span>
+approves_changes <span class="t-acc">payments</span> (file .github/CODEOWNERS, line 2): <span class="t-ok">asserted 100%</span>
+<span class="t-dim">  github-acme: observed …</span></code></pre>
+      </div>
+      <div class="pane">
+        <p class="pane__bar">AI coding agent</p>
+        <div class="agent">
+          <p class="agent__you"><span class="t-dim">&gt;</span> Who should review my change to payments-api?</p>
+          <p class="agent__tool"><span class="t-dim">Asked Bearing:</span> owners("github:repo/acme/payments-api")</p>
+          <p>The <span class="t-acc">payments</span> team approves every change to payments-api, according to its CODEOWNERS file (line 2), so your change needs their review.</p>
+        </div>
+      </div>
     </div>
+    <p class="asked__note">The same answer from the same map, whether you ask in a terminal or your AI assistant asks for you.</p>
   </div>
   <p class="hunt__moral">One question, one answer in seconds, and you can see where each part came from.</p>
   <p class="fine hunt__note">Acme is made up. The hunt is an illustration; the answers come from Bearing's demo, run on Acme's test data.</p>
