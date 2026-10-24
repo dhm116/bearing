@@ -39,6 +39,9 @@ var mcpProtocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
 // without end.
 const maxMCPLine = 1 << 20
 
+// maxMCPBatch bounds the messages in one batch.
+const maxMCPBatch = 32
+
 // JSON-RPC error codes.
 const (
 	rpcParseError     = -32700
@@ -501,8 +504,20 @@ func (s *mcpServer) batch(ctx context.Context, line []byte) any {
 	if len(els) == 0 {
 		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "an empty batch")
 	}
+	if len(els) > maxMCPBatch {
+		return rpcFail(json.RawMessage("null"), rpcInvalidRequest, "a batch is at most 32 messages")
+	}
 	var out []*rpcResponse
 	for _, el := range els {
+		var m rpcRequest
+		if len(bytes.TrimSpace(el)) == 0 || bytes.TrimSpace(el)[0] != '{' || json.Unmarshal(el, &m) != nil {
+			out = append(out, rpcFail(json.RawMessage("null"), rpcInvalidRequest, "a batch holds JSON-RPC requests"))
+			continue
+		}
+		if m.Method == "initialize" { // it would renegotiate the version mid-batch
+			out = append(out, rpcFail(json.RawMessage("null"), rpcInvalidRequest, "initialize cannot be in a batch"))
+			continue
+		}
 		if r := s.handle(ctx, el); r != nil {
 			out = append(out, r)
 		}
@@ -567,6 +582,9 @@ func (s *mcpServer) handle(ctx context.Context, line []byte) *rpcResponse {
 		tools := make([]map[string]any, len(mcpTools))
 		for i, t := range mcpTools {
 			tools[i] = map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema}
+			if s.version != "2024-11-05" {
+				tools[i]["annotations"] = map[string]any{"readOnlyHint": true, "openWorldHint": false}
+			}
 			if s.structured() {
 				tools[i]["outputSchema"] = outputSchema(t.Out)
 			}
@@ -631,11 +649,12 @@ func (s *mcpServer) callTool(ctx context.Context, t mcpTool, args json.RawMessag
 	return res
 }
 
-// classify gives an error the API's code and a message for the client: one
-// fixed message per code, the same from a store and from a server. Only the
-// refusals of this tool's own argument checks say more. An error of no known
-// kind says nothing of its own: the client should not see paths or driver
-// text, and the log has the error.
+// classify gives an error the API's code and a message for the client, the
+// same from a store and from a server: fixed for not_found, timeout and
+// internal_error, the query layer's reason for invalid_request, and the
+// server's message and hint for other codes. An error of no known kind says
+// nothing of its own: the client should not see paths or driver text, and the
+// log has the error.
 func (s *mcpServer) classify(err error) (code, msg string) {
 	var ae argError
 	var apiErr *apiclient.Error
@@ -647,7 +666,10 @@ func (s *mcpServer) classify(err error) (code, msg string) {
 	case errors.Is(err, query.ErrNotFound), errors.Is(err, graph.ErrNotFound):
 		return "not_found", msgNotFound
 	case errors.Is(err, query.ErrInvalidRequest):
-		return "invalid_request", msgInvalid
+		if errors.As(err, &apiErr) { // a server's refusal also matches the sentinel
+			return "invalid_request", clipReason(apiErr.Message)
+		}
+		return "invalid_request", clipReason(strings.Replace(err.Error(), query.ErrInvalidRequest.Error()+": ", "", 1))
 	case errors.As(err, &apiErr):
 		switch apiErr.Code {
 		case "":
@@ -655,7 +677,7 @@ func (s *mcpServer) classify(err error) (code, msg string) {
 		case "not_found":
 			return "not_found", msgNotFound
 		case "invalid_request":
-			return "invalid_request", msgInvalid
+			return "invalid_request", clipReason(apiErr.Message)
 		case "timeout":
 			return "timeout", msgTimeout
 		}
@@ -668,10 +690,17 @@ func (s *mcpServer) classify(err error) (code, msg string) {
 	return "internal_error", msgInternal
 }
 
+// clipReason bounds a refusal's reason as the API does.
+func clipReason(s string) string {
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return strings.ToValidUTF8(s, "?")
+}
+
 const (
 	msgNotFound = "nothing matches"
 	msgTimeout  = "the question took too long; narrow it"
-	msgInvalid  = "the arguments were refused; check them against the tool's schema"
 	msgInternal = "the question could not be answered; see Bearing's log"
 )
 

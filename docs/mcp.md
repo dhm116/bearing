@@ -15,23 +15,29 @@ demo; beside a running server, use `--server`.
 
 ## Add it to an agent
 
+Use a server on TCP with a token. The token comes from the agent host's
+environment, named by `--token-env`; never write its value in the client's
+configuration (no `-e BEARING_AGENT_TOKEN=<value>`): that file is read by
+other tools and often committed or synced.
+
 ```sh
 # Claude Code
-claude mcp add bearing -- bearing mcp --server /run/bearing/api.sock
-
-# a server on the network: name the variable the agent host already sets
 claude mcp add bearing -- bearing mcp --server https://bearing.example:8443 --token-env BEARING_AGENT_TOKEN
 ```
-
-The token comes from the agent host's environment. Never write its value in
-the client's configuration (no `-e BEARING_TOKEN=<value>`): that file is
-read by other tools and often committed or synced.
 
 Claude Desktop takes the same command in `claude_desktop_config.json`:
 
 ```json
-{"mcpServers": {"bearing": {"command": "bearing", "args": ["mcp", "--server", "/run/bearing/api.sock"]}}}
+{"mcpServers": {"bearing": {"command": "bearing", "args": ["mcp", "--server", "https://bearing.example:8443", "--token-env", "BEARING_AGENT_TOKEN"]}}}
 ```
+
+A socket works too (`--server /run/bearing/api.sock`), but only when
+`api.link_decisions: off`: the socket serves only the service user and root,
+and with link decisions on, both may decide links, so an agent running as
+either could run `bearing link` itself.
+
+Never point an agent's `--store` at the live store file: whoever can write it
+can change links directly. Give an agent only a copy or a demo store.
 
 ## Tools
 
@@ -58,11 +64,13 @@ text itself, so every protocol version (2024-11-05, 2025-03-26 and
 that negotiate 2025-06-18 also get it as `structuredContent`, and each tool
 lists an `outputSchema` of the answer's top-level fields. A failure is a
 tool result with `isError` and the API's code first (`not_found`,
-`invalid_request`, `timeout`, `unauthenticated`), with one fixed message per
-code, the same from a store and from a server. An unknown tool or method,
+`invalid_request`, `timeout`, `unauthenticated`), the same from a store and
+from a server. The message is fixed for `not_found`, `timeout` and
+`internal_error`; for `invalid_request` it is the query layer's reason; for
+other codes it is the server's message and hint. An unknown tool or method,
 a bad request id or an unknown `tools/list` cursor is a JSON-RPC error.
 
-Limits: a request line is at most 1 MiB (a longer one is refused and
+Limits: a batch is at most 32 messages and may not contain `initialize`; a request line is at most 1 MiB (a longer one is refused and
 skipped), arguments are decoded strictly (an unknown field or an explicit
 `limit` or `depth` of 0 is refused), `find_entities` text is at most 256
 bytes, and each call has the server's request deadline (shorter for the slow
@@ -76,12 +84,11 @@ from the person who started it: the caller is whoever launched `bearing mcp`,
 with that user's rights, as with any `bearing` command. Only the absence of
 write tools keeps an agent from deciding identity links. So:
 
-- Never run the agent as the service user on the API socket: in the default
-  `api.link_decisions: socket` mode that user may decide links, and the agent
-  can run `bearing link` itself.
+- Never run the agent as the service user or root on the API socket unless
+  `api.link_decisions: off`: otherwise it can run `bearing link` itself.
 - Never turn on `api.link_decisions: token` for a token an agent holds.
-- Give the agent its own token (or a Unix account that is not the service
-  user), read from its host's environment.
+- Give the agent its own token, read from its host's environment.
+- Never point its `--store` at the live store file.
 
 See C-MCP-1 and the "agents are not marked" gap in the
 [threat model](security/threat-model.md).
@@ -89,5 +96,7 @@ See C-MCP-1 and the "agents are not marked" gap in the
 Names, attributes, qualifiers and link reasons come from people and source
 systems. The tool descriptions say to treat them as data, and the count line
 never holds them.
+
+Every tool carries `readOnlyHint` and `openWorldHint: false` annotations (not under 2024-11-05, which has none).
 
 Each call is a span named `mcp.tool <name>` ([telemetry](telemetry.md)).

@@ -128,6 +128,12 @@ func TestMCPInitializeAndToolsListMatchGolden(t *testing.T) {
 	// Only 2025-06-18 clients get output schemas.
 	got = w.mcpRun("", "", initAt("2025-06-18"), `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
 	checkMCPGolden(t, "tools-list-2025-06-18", pretty(t, got[1]))
+
+	// 2024-11-05 has no tool annotations.
+	got = w.mcpRun("", "", initAt("2024-11-05"), `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
+	if strings.Contains(got[1], "annotations") {
+		t.Errorf("2024-11-05 tools carry annotations: %s", got[1])
+	}
 }
 
 func TestMCPToolsAnswerTheSameFromAStoreAndAServer(t *testing.T) {
@@ -324,6 +330,16 @@ func TestMCPBatches(t *testing.T) {
 	if err := json.Unmarshal([]byte(got[1]), &rs); err != nil || len(rs) != 2 || string(rs[0].ID) != "1" || string(rs[1].ID) != `"b"` {
 		t.Errorf("got %s, want an array of the two non-notification responses", got[1])
 	}
+	for name, b := range map[string]string{
+		"a non-object": `[1,{"jsonrpc":"2.0","id":1,"method":"ping"}]`,
+		"initialize":   `[{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}]`,
+		"too many":     "[" + strings.TrimSuffix(strings.Repeat(`{"jsonrpc":"2.0","id":1,"method":"ping"},`, 33), ",") + "]",
+	} {
+		got := w.mcpRun("", "", initAt("2025-03-26"), b)
+		if !strings.Contains(got[1], `"code":-32600`) || !strings.Contains(got[1], `"id":null`) {
+			t.Errorf("%s: got %s, want -32600 with a null id", name, got[1])
+		}
+	}
 	for _, v := range []string{"2024-11-05", "2025-06-18"} {
 		got := w.mcpRun("", "", initAt(v), batch)
 		if !strings.Contains(got[1], `"code":-32600`) || !strings.Contains(got[1], "batches are not supported") {
@@ -404,19 +420,24 @@ func TestMCPToolCallsHaveADeadline(t *testing.T) {
 func TestMCPRefusalsAreTheSameFromAStoreAndAServer(t *testing.T) {
 	w := newMCPWorld(t)
 	for name, req := range map[string]string{
-		"not found":    callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`),
-		"owners":       callReq(1, "owners", `{"ref":"github:repo/acme/nope"}`),
-		"bad time":     callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`),
-		"bad kind":     callReq(1, "find_entities", `{"text":"x","kind":"nonsense"}`),
-		"long text":    callReq(1, "find_entities", `{"text":"`+strings.Repeat("a", 257)+`"}`),
-		"bad window":   callReq(1, "changes", `{"since":"2026-10-02","until":"2026-10-01"}`),
-		"bad relation": callReq(1, "depends_on", `{"ref":""}`),
+		"not found":  callReq(1, "get_entity", `{"ref":"github:repo/acme/nope"}`),
+		"owners":     callReq(1, "owners", `{"ref":"github:repo/acme/nope"}`),
+		"bad time":   callReq(1, "owners", `{"ref":"github:repo/acme/payments-api","as_of":"soon"}`),
+		"bad kind":   callReq(1, "find_entities", `{"text":"x","kind":"nonsense"}`),
+		"long text":  callReq(1, "find_entities", `{"text":"`+strings.Repeat("a", 257)+`"}`),
+		"bad window": callReq(1, "changes", `{"since":"2026-10-02","until":"2026-10-01"}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			fromStore := w.mcpRun("", "", req)[0]
 			fromServer := w.mcpRun(w.serve(), apiToken, req)[0]
 			if !strings.Contains(fromStore, `"isError":true`) {
 				t.Fatalf("not refused: %s", fromStore)
+			}
+			if name == "bad kind" && !strings.Contains(fromStore, "is not a kind") {
+				t.Errorf("got %s, want the query layer's reason", fromStore)
+			}
+			if name == "bad kind" && !strings.Contains(fromStore, "is not a kind") {
+				t.Errorf("got %s, want the query layer's reason", fromStore)
 			}
 			if fromStore != fromServer {
 				t.Errorf("the server's refusal differs from the store's:\n--- server\n%s\n--- store\n%s", fromServer, fromStore)

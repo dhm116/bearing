@@ -189,9 +189,13 @@ credentials; the server never sends it any.
   over 256 bytes and ids that are not strings or numbers are refused), and
   each call runs under the server's request deadline. There are no write
   tools: no link decision and no sync request. Stored text (names,
-  attributes, link reasons) is returned as data, never as instructions, and
-  errors carry a code and one fixed message. The token comes from a variable
-  the host sets, never from the client's configuration.
+  attributes, link reasons) is labelled as data in the instructions and tool
+  descriptions; Bearing cannot stop a model from following it. Errors carry a
+  code and a message (fixed for not_found, timeout and internal_error; the
+  query layer's reason for invalid_request; the server's message and hint
+  for others). The token comes from a variable the host sets, never from the
+  client's configuration. An agent's `--store` must never be the live store
+  file (whoever can write it can change links); use a copy or a demo store.
 
 **Operations and store**
 
@@ -219,9 +223,13 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
 
 - **Agents are not marked.** MCP calls look like the launching user's own, so
   only the absence of write tools keeps an agent from deciding identity links
-  (C-MCP-1). An agent run on the API socket as the service user, or holding a
+  (C-MCP-1). An agent run on the API socket as the service user or root, or holding a
   token while `api.link_decisions` is `token`, can decide links by running
   `bearing link` itself.
+
+- **Stored text can inject prompts.** Names, attributes and link reasons come
+  from people and source systems and reach the model in answers. The server
+  labels them as data; a model may still follow instructions planted in them.
 
 - **No roles or per-caller identity.** Every authenticated API caller may call
   every route but link decisions (C-API-8), and every holder of the API token
