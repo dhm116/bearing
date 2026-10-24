@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -763,5 +766,38 @@ func TestRequestSyncWaitingForTheSlotEndsWithItsContext(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a waiting caller was held past its context")
+	}
+}
+
+// A webhook to an adapter built for another protocol version is a fault to
+// retry and dead-letter, not an adapter without webhooks to skip, though the
+// refusal also carries CodeNotSupported.
+func TestServerDeadLettersAWebhookToAnAdapterOnAnotherProtocolVersion(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	lis, err := net.Listen("unix", filepath.Join(dir, "a.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, 2) }()
+	t.Cleanup(func() { cancel(); <-done })
+	r, err := adapter.Dial("old", adapter.DialConfig{Address: "unix://" + filepath.Join(dir, "a.sock")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	h.ad.handleFn = func(ctx context.Context, p adapter.HandleParams) (adapter.HandleResult, error) {
+		return r.Handle(ctx, p)
+	}
+	h.append(testSource, "d1", &eventv1alpha1.WebhookReceived{Source: testSource, Body: []byte(`{}`)})
+	h.start()
+	waitFor(t, "the delivery to be given up on", func() bool { return h.drained(testSource) })
+	if n := len(h.entries("core/dead_letter")); n != 1 {
+		t.Fatalf("%d dead letters, want 1 (a skipped delivery leaves none)", n)
 	}
 }
