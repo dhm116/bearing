@@ -32,7 +32,7 @@
       <div class="step__text">
         <h2>Connect your tools</h2>
         <p>A <strong>connector</strong> is a small add-on that knows how to read one tool, such as GitHub or your company directory. You choose which tools to connect.</p>
-        <p>Connectors only read. They can look at a tool, but never change anything in it, and each one runs sealed off from the rest, reaching only the tool it was given.</p>
+        <p>Connectors only read. They can look at a tool, but never change anything in it, and each one is given the keys for its own tool and nothing more.</p>
         <label class="step__next link-arrow" for="step-2">Next: collect</label>
       </div>
     </div>
@@ -125,9 +125,9 @@
 <section class="safe shell" aria-labelledby="safe-title">
   <h2 id="safe-title">Careful by design</h2>
   <ul class="tenets__list">
-    <li><svg class="icon"><use href="#i-eye"/></svg><h3>Read-only</h3><p>Connectors look at your tools and never change them.</p></li>
-    <li><svg class="icon"><use href="#i-lock"/></svg><h3>No keys handed out</h3><p>Connectors never see the passwords or keys for your tools. Bearing uses them on their behalf.</p></li>
-    <li><svg class="icon"><use href="#i-history"/></svg><h3>Everything on record</h3><p>Every change is written down with who or what made it, and any later tampering shows.</p></li>
+    <li><svg class="icon"><use href="#i-eye"/></svg><h3>Read-only</h3><p>Connectors look at your tools and never change them, so they need only read access.</p></li>
+    <li><svg class="icon"><use href="#i-lock"/></svg><h3>Only its own keys</h3><p>Each connector is given the key for its own tool and nothing else. Bearing's other passwords and keys stay with Bearing.</p></li>
+    <li><svg class="icon"><use href="#i-history"/></svg><h3>Every fact keeps its source</h3><p>Each fact remembers which tool said it and when. When something changes, the old fact is closed, not erased, so you can see what was true before.</p></li>
     <li><svg class="icon"><use href="#i-layers"/></svg><h3>Runs where you choose</h3><p>You run Bearing yourself, so your data stays with you. It needs no outside AI service.</p></li>
   </ul>
 </section>
