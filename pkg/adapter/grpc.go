@@ -293,7 +293,9 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 		return nil, errors.New("adapter: address must be unix:///path.sock or https://host:port")
 	}
 	tr.Protocols = &protocols
-	otel, err := otelconnect.NewInterceptor()
+	// Readiness probes are expected to fail until the adapter is up; they
+	// are not RPC spans of their own (bearing.adapter.start covers them).
+	otel, err := otelconnect.NewInterceptor(otelconnect.WithFilter(func(ctx context.Context, _ connect.Spec) bool { return !isProbing(ctx) }))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: telemetry: %w", err)
 	}
@@ -327,6 +329,11 @@ func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 	if err != nil {
 		err = fmt.Errorf("adapter %s: describe: %w", r.name, fromConnect(err))
 		r.transportFailed(err)
+		var answered *Error
+		if !errors.As(err, &answered) && isProbing(ctx) {
+			// Not up yet: the caller's span says whether it ever came up.
+			return DescribeResult{}, err
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "describe failed")
 		return DescribeResult{}, err
@@ -414,3 +421,12 @@ func (r *Remote) Handle(ctx context.Context, p HandleParams) (HandleResult, erro
 	}
 	return HandleResult{Observations: res.Msg.GetObservations()}, nil
 }
+
+// probingKey marks a context whose Describes are readiness probes.
+type probingKey struct{}
+
+// probing marks ctx as a readiness probe: a Describe that fails before the
+// adapter answers is expected and not recorded as an error span.
+func probing(ctx context.Context) context.Context { return context.WithValue(ctx, probingKey{}, true) }
+
+func isProbing(ctx context.Context) bool { v, _ := ctx.Value(probingKey{}).(bool); return v }

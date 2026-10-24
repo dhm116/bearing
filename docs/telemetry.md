@@ -66,6 +66,7 @@ Causes are connected by span links, not parents:
 | `bearing <command>` | internal | CLI, one per invocation (none for `bearing server` and `bearing mcp`, which run for the life of the process) | |
 | `server.start` | internal | `bearing server`, around loading the settings and assembling the server; ends before the server serves | |
 | `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
+| `bearing.adapter.start` | internal | core, per local adapter start: the readiness probes, which are not error spans of their own until the adapter never answers | `bearing.adapter.name`, `bearing.adapter.start.attempts` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
 | `bearing.adapter.v1alpha1.AdapterService/<Method>` | client | core, per adapter call (otelconnect) | `rpc.system=grpc`, `rpc.service`, `rpc.method`, `rpc.grpc.status_code` |
 | `bearing.adapter.v1alpha1.AdapterService/<Method>` | server | adapter, per call, continuing the core's trace | the same |

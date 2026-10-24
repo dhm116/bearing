@@ -14,6 +14,8 @@ import (
 
 	"bearing.example/pkg/clock"
 	"bearing.example/pkg/telemetry"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -143,7 +145,19 @@ var errNoAnswer = fmt.Errorf("did not answer within %s", startTimeout)
 
 // awaitReady polls Describe with a growing pause until the adapter answers,
 // exits, or startTimeout passes, which also ends a Describe that hangs.
-func (p *Process) awaitReady(ctx context.Context) error {
+func (p *Process) awaitReady(ctx context.Context) (err error) {
+	// One span for the wait: the probes that fail before the socket exists
+	// are expected, so they are not errors of their own (probing).
+	ctx, span := tracer.Start(probing(ctx), "bearing.adapter.start", trace.WithAttributes(attrAdapter.String(p.name)))
+	attempts := 0
+	defer func() {
+		span.SetAttributes(attrAttempts.Int(attempts))
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "adapter did not start")
+		}
+		span.End()
+	}()
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	deadline := p.clk.After(startTimeout)
@@ -156,6 +170,7 @@ func (p *Process) awaitReady(ctx context.Context) error {
 	}()
 	pause := 10 * time.Millisecond
 	for {
+		attempts++
 		_, err := p.Describe(ctx)
 		if err == nil {
 			return nil
