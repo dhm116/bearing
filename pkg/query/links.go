@@ -134,7 +134,9 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 		return nil, fmt.Errorf("links: records: %w", err)
 	}
 	recs := map[graph.EntityID]LinkRecord{}
+	cluster := map[graph.EntityID]graph.EntityID{}
 	for _, x := range got {
+		cluster[x.ID] = x.Cluster
 		r := LinkRecord{ID: string(x.ID), Kind: string(x.Kind), Name: x.Name, Sources: x.Sources}
 		if len(x.Keys) > 0 {
 			r.Key = string(x.Keys[0])
@@ -149,6 +151,11 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 	}
 	out := make([]Link, 0, len(ls))
 	for _, l := range ls {
+		// A proposal between records an asserted link already joined has
+		// nothing left to decide; it stays stored for when that link closes.
+		if l.Kind == graph.SameAs && l.Status == graph.Proposed && cluster[l.A] != "" && cluster[l.A] == cluster[l.B] {
+			continue
+		}
 		a, b := record(l.A), record(l.B)
 		s := match.ScoreOf(l.Deposits, at, halfLife(model.Kind(a.Kind)))
 		o := Link{

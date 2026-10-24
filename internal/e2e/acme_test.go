@@ -19,6 +19,7 @@ import (
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/query"
 )
 
 type world struct {
@@ -186,15 +187,46 @@ func TestAcmeCodeownersNameTheOwningTeam(t *testing.T) {
 
 func TestAcmeJoinsPeopleByAuthoritativeLinks(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t)
+	for _, order := range []string{"github first", "directory first"} {
+		t.Run(order, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			w.syncBoth(order == "directory first")
+			if a, b := w.id("github:user/jdoe"), w.id("authentik:username/jdoe"); a != b {
+				t.Errorf("Jane Doe: GitHub user %s and directory person %s are two entities, want one", a, b)
+			}
+			if a, b := w.id("github:user/meichen"), w.id("authentik:username/mchen"); a != b {
+				t.Errorf("Mei Chen: GitHub %s and directory %s are two entities, want one", a, b)
+			}
+			// Only Tom Becker's link is open for review: a proposal between
+			// records that are joined already has nothing to decide.
+			q := &query.Querier{Graph: w.store, Now: w.clock.Now}
+			queue, err := q.Links(t.Context(), query.LinksRequest{Status: "proposed", Kind: "same_as"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, l := range queue {
+				if l.A.Key != "github:user/tbecker" && l.B.Key != "github:user/tbecker" {
+					t.Errorf("proposed queue holds %s (%s, %s), want only Tom Becker's", l.ID, l.A.Key, l.B.Key)
+				}
+			}
+			if len(queue) != 1 {
+				t.Errorf("proposed queue has %d links, want Tom Becker's one", len(queue))
+			}
+		})
+	}
+}
+
+// syncBoth syncs GitHub and the directory, the directory first when asked.
+func (w *world) syncBoth(directoryFirst bool) {
+	w.t.Helper()
+	if directoryFirst {
+		w.syncDirectory()
+		w.syncGitHub()
+		return
+	}
 	w.syncGitHub()
 	w.syncDirectory()
-	if a, b := w.id("github:user/jdoe"), w.id("authentik:username/jdoe"); a != b {
-		t.Errorf("Jane Doe: GitHub user %s and directory person %s are two entities, want one", a, b)
-	}
-	if a, b := w.id("github:user/meichen"), w.id("authentik:username/mchen"); a != b {
-		t.Errorf("Mei Chen: GitHub %s and directory %s are two entities, want one", a, b)
-	}
 }
 
 // TestAcmeKeepsTomBeckerApart: the directory records only his GitHub login,
