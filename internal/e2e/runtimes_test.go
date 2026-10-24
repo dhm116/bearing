@@ -22,7 +22,8 @@ func redact(r *query.Runtimes) {
 	}
 }
 
-// TestAcmeAnswersWhichServicesUseALanguageBelowAVersion is question 2:
+// TestAcmeAnswersWhichServicesUseALanguageBelowAVersion is question 2
+// (go below 1.22 is golden in questions_test.go):
 // payments-api declares Go 1.21 and sandbox 1.23.1; web has a node range
 // (>=18) next to .nvmrc 20; handbook's .nvmrc is lts/hydrogen, which cannot
 // be compared and is reported as unknown, not guessed.
@@ -36,7 +37,6 @@ func TestAcmeAnswersWhichServicesUseALanguageBelowAVersion(t *testing.T) {
 		name string
 		req  query.RuntimesRequest
 	}{
-		{"go-below-1.22", query.RuntimesRequest{Language: "go", Below: "1.22"}},
 		{"node-below-20", query.RuntimesRequest{Language: "nodejs", Below: "20"}},
 		{"node-inventory", query.RuntimesRequest{Language: "node"}},
 	} {
