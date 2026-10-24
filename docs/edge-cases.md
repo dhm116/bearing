@@ -184,12 +184,12 @@ Each entry:
 - **Impact:** about 8 ms per observation (about 0.4 ms per DuckDB statement), so 50,000 observations take about 7 minutes.
 - **Proposed fix:** batch statements (one insert per table per page, not per observation) before big orgs sync hourly.
 
-## TLS certificates are read once
+## The API's TLS certificate is read once
 
-- **Found in:** security review (`pkg/server/apilisten.go`, `pkg/adapter/tls.go`)
+- **Found in:** security review (`pkg/server/apilisten.go`)
 - **Area:** TLS
-- **Example:** the API certificate or a remote adapter's certificate is renewed on disk.
-- **Impact:** the server and adapters keep the old one until restarted, so an expired certificate needs a restart.
+- **Example:** the API certificate is renewed on disk.
+- **Impact:** the server keeps the old one until restarted, so an expired certificate needs a restart. (Remote adapter certificates are reloaded, `pkg/adapter/tls.go`.)
 - **Proposed fix:** a `GetCertificate` callback that re-reads the files when they change.
 
 ## Kubernetes Secret mounts are group-readable by default
@@ -199,14 +199,6 @@ Each entry:
 - **Example:** a Secret volume's `defaultMode` is 0644, so a mounted adapter key is readable by others.
 - **Impact:** `Dial` refuses the key until the volume sets `defaultMode: 0400`. The failure is loud, but the operator has to know why.
 - **Proposed fix:** say it in the operations doc, with a manifest snippet.
-
-## TLS file check and read are separate
-
-- **Found in:** security review (`checkTLSFiles`, `adapter.Dial`)
-- **Area:** TLS
-- **Example:** the server checks a CA file's owner and mode by path; `Dial` reads it a moment later. A file swapped in between is read unchecked.
-- **Impact:** needs write access to the directory, which already means the attacker can edit the files. Small window.
-- **Proposed fix:** check on the open file descriptor, or read the PEM bytes once and pass them to `Dial`.
 
 ## Refused TLS handshakes are logged at Debug only
 

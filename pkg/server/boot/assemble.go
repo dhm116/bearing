@@ -49,6 +49,8 @@ type Running struct {
 	listen server.ListenConfig
 	st     store.Store
 	procs  []*managed
+	// remotes are the adapters at an address.
+	remotes []*adapter.Remote
 	// sockets is the private directory of the local adapters' sockets.
 	sockets string
 	cancel  context.CancelFunc // ends the adapter processes
@@ -119,17 +121,20 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	}
 	procCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	var procs []*managed
+	var remotes []*adapter.Remote
 	var sockets string
 	defer func() {
 		if err != nil {
-			logClose(closeAll(procs, st, sockets))
+			logClose(closeAll(procs, remotes, st, sockets))
 			cancel()
 		}
 	}()
 	var sources []server.Source
 	for _, p := range plans {
 		var a adapter.Adapter = p.remote
-		if p.remote == nil {
+		if p.remote != nil {
+			remotes = append(remotes, p.remote)
+		} else {
 			if sockets == "" {
 				// Private (0700) and new for each run, so no other user can
 				// reach an adapter and no stale socket is in the way.
@@ -175,7 +180,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, sockets: sockets, cancel: cancel}, nil
+	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops
@@ -193,20 +198,24 @@ func (r *Running) Run(ctx context.Context) error {
 	second := <-errs
 	// The adapters are asked to exit before their context ends: cancelling
 	// first would kill them with no chance to finish.
-	closed := closeAll(r.procs, r.st, r.sockets)
+	closed := closeAll(r.procs, r.remotes, r.st, r.sockets)
 	r.cancel()
 	return errors.Join(first, second, closed)
 }
 
 // Close releases an assembled server that was never run.
 func (r *Running) Close() {
-	logClose(closeAll(r.procs, r.st, r.sockets))
+	logClose(closeAll(r.procs, r.remotes, r.st, r.sockets))
 	r.cancel()
 }
 
-// closeAll stops the adapters, removes their socket directory, then closes
-// the store. It carries on past a failure and returns every one.
-func closeAll(procs []*managed, st store.Store, sockets string) error {
+// closeAll stops the adapters, drops the remote adapters' connections,
+// removes the socket directory, then closes the store. It carries on past a
+// failure and returns every one.
+func closeAll(procs []*managed, remotes []*adapter.Remote, st store.Store, sockets string) error {
+	for _, r := range remotes {
+		r.Close()
+	}
 	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
@@ -284,7 +293,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
 			}
 			r, err := adapter.Dial(name, adapter.DialConfig{
-				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName,
+				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName, PeerID: ad.TLS.PeerID,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
@@ -374,9 +383,9 @@ func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	return nil
 }
 
-// checkTLSFiles refuses a remote adapter's CA, certificate or key that anyone
-// but the service user or root could change: whoever can swap the CA can
-// stand in for the adapter. Dial refuses a key others can read.
+// checkTLSFiles refuses a remote adapter's CA, certificate or key that others
+// could change, naming the setting. Dial checks the same on the open file,
+// and its owner, on every reload, and refuses a key others can read.
 func checkTLSFiles(t *AdapterTLS) error {
 	for _, f := range t.files() {
 		fi, err := os.Stat(f.path)
@@ -387,9 +396,6 @@ func checkTLSFiles(t *AdapterTLS) error {
 			return fmt.Errorf("tls.%s: %s is not a regular file", f.field, f.path)
 		case fi.Mode().Perm()&0o022 != 0:
 			return fmt.Errorf("tls.%s: %s must not be writable by its group or by others (mode %04o)", f.field, f.path, fi.Mode().Perm())
-		}
-		if err := checkOwner(fi); err != nil {
-			return fmt.Errorf("tls.%s: %s: %w", f.field, f.path, err)
 		}
 	}
 	return nil

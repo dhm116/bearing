@@ -17,7 +17,7 @@ import (
 
 // EnvListen is where to serve: unix:///absolute/path.sock (what the core
 // uses) or tcp://host:port (a remote adapter, over mutual TLS: see
-// EnvTLSCert, EnvTLSKey and EnvTLSClientCA).
+// EnvTLSCert, EnvTLSKey, EnvTLSClientCA and EnvTLSPeerID).
 const EnvListen = "BEARING_ADAPTER_LISTEN"
 
 // Main runs a in an adapter binary: it sets up telemetry, serves the adapter
@@ -52,10 +52,16 @@ func Main(name, version string, a Adapter) int {
 // Listen opens the listener an EnvListen address names. A unix socket is
 // created with mode 0600, after removing a stale socket at the same path. A
 // tcp address serves mutual TLS (TLS 1.3, a client certificate from the CA
-// in EnvTLSClientCA required) with the files the variables getenv reads
-// name (nil getenv means os.Getenv), and is refused without any one of them: anyone who can reach the
-// port could otherwise call the adapter.
+// in EnvTLSClientCA required, with the SPIFFE ID in EnvTLSPeerID if set) with
+// the files the variables getenv reads name (nil getenv means os.Getenv),
+// read again when they change, and is refused without any one of them:
+// anyone who can reach the port could otherwise call the adapter.
 func Listen(addr string, getenv func(string) string) (net.Listener, error) {
+	return listen(addr, getenv, time.Now)
+}
+
+// listen is Listen with the clock for certificates and reloads.
+func listen(addr string, getenv func(string) string, now func() time.Time) (net.Listener, error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
@@ -83,7 +89,7 @@ func Listen(addr string, getenv func(string) string) (net.Listener, error) {
 		}
 		return lis, nil
 	case "tcp":
-		cfg, err := serverTLS(getenv)
+		cfg, err := serverTLS(getenv, now)
 		if err != nil {
 			return nil, err
 		}

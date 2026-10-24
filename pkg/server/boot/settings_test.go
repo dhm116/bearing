@@ -83,6 +83,8 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		{"env naming the loader", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"LD_PRELOAD"`, 1), "how the adapter is loaded or run"},
 		{"env naming GODEBUG", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"GODEBUG"`, 1), "how the adapter is loaded or run"},
 		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
+		{"a peer ID that is not a SPIFFE ID", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, strings.Replace(goodTLS, `}`, `, "peer_id": "https://adapter.example/github"}`, 1)), "tls.peer_id must be a SPIFFE ID"},
+		{"a peer ID and a server name", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, strings.Replace(goodTLS, `}`, `, "peer_id": "spiffe://acme.test/adapter/github", "server_name": "adapter.example"}`, 1)), "not both"},
 		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), "spec.secrets go to"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

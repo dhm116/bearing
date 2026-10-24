@@ -21,6 +21,7 @@ import (
 	"time"
 
 	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
+	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/server"
@@ -205,8 +206,8 @@ type AdapterSettings struct {
 
 // AdapterTLS are the PEM files of a remote adapter's mutual TLS, absolute
 // paths owned by the service user or root and writable by no one else; the
-// key must also be readable by no one else. They are read at start, so a new
-// certificate needs a restart.
+// key must also be readable by no one else. They are read again when they
+// change, so an agent such as spiffe-helper can rotate them in place.
 type AdapterTLS struct {
 	// CAFile is the CA that signed the adapter's certificate. It is the only
 	// one trusted for the adapter: the system roots are not.
@@ -216,8 +217,11 @@ type AdapterTLS struct {
 	CertFile string `json:"cert_file"`
 	KeyFile  string `json:"key_file"`
 	// ServerName is the name the adapter's certificate must hold; empty
-	// means the address's host.
+	// means the address's host. Not with PeerID.
 	ServerName string `json:"server_name,omitempty"`
+	// PeerID, when set, is the SPIFFE ID the adapter's certificate must
+	// hold, checked in place of a host name.
+	PeerID string `json:"peer_id,omitempty"`
 }
 
 // Load reads and checks the settings file at file. It refuses a file that is
@@ -554,6 +558,14 @@ func checkRemote(a *AdapterSettings) error {
 			return fmt.Errorf("tls.%s is required", f.field)
 		case !filepath.IsAbs(f.path):
 			return fmt.Errorf("tls.%s must be an absolute path", f.field)
+		}
+	}
+	if a.TLS.PeerID != "" {
+		if a.TLS.ServerName != "" {
+			return errors.New("set tls.server_name or tls.peer_id, not both: the adapter is checked by one or the other")
+		}
+		if err := adapter.CheckSPIFFEID(a.TLS.PeerID); err != nil {
+			return fmt.Errorf("tls.peer_id %w", err)
 		}
 	}
 	return nil

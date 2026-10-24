@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,10 +22,33 @@ import (
 type TLSFiles struct {
 	// CA is the CA's certificate.
 	CA string
-	// ServerCert and ServerKey are for 127.0.0.1 and localhost.
+	// ServerCert and ServerKey are for 127.0.0.1 and localhost, or for
+	// TLSOptions.ServerURIs alone.
 	ServerCert, ServerKey string
 	// ClientCert and ClientKey are a client certificate.
 	ClientCert, ClientKey string
+
+	pki *tlsPKI
+}
+
+// TLSOptions change the certificates NewTLSFilesWith issues.
+type TLSOptions struct {
+	// ServerURIs and ClientURIs, when set, are the certificate's URI SANs
+	// (SPIFFE IDs), and it then holds no DNS name or IP address, as an
+	// X.509-SVID that SPIRE issues does not.
+	ServerURIs, ClientURIs []string
+	// LeavesAreCAs marks both certificates as CAs (basic constraints CA
+	// true), which an X.509-SVID must not be.
+	LeavesAreCAs bool
+}
+
+// tlsPKI is what Reissue and RotateCA need to sign again.
+type tlsPKI struct {
+	dir    string
+	opts   TLSOptions
+	ca     *x509.Certificate
+	caKey  *ecdsa.PrivateKey
+	serial int64
 }
 
 // The certificates' validity is fixed and wide, so no clock is needed.
@@ -37,34 +61,91 @@ var (
 // private temporary directory (mode 0700, files 0600) removed when t ends.
 func NewTLSFiles(t testing.TB) TLSFiles {
 	t.Helper()
+	return NewTLSFilesWith(t, TLSOptions{})
+}
+
+// NewTLSFilesWith is NewTLSFiles with the certificates opts describes.
+func NewTLSFilesWith(t testing.TB, opts TLSOptions) TLSFiles {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs its execute bit
 		t.Fatal(err)
 	}
-	caKey := newTLSKey(t)
+	f := TLSFiles{
+		CA:         filepath.Join(dir, "ca.pem"),
+		ServerCert: filepath.Join(dir, "server.pem"), ServerKey: filepath.Join(dir, "server-key.pem"),
+		ClientCert: filepath.Join(dir, "client.pem"), ClientKey: filepath.Join(dir, "client-key.pem"),
+		pki: &tlsPKI{dir: dir, opts: opts, serial: 1},
+	}
+	f.RotateCA(t)
+	return f
+}
+
+// RotateCA replaces the CA with a new one and reissues both certificates
+// from it, in place.
+func (f TLSFiles) RotateCA(t testing.TB) {
+	t.Helper()
+	p := f.mustPKI(t)
+	p.caKey = newTLSKey(t)
+	p.serial++
 	ca := &x509.Certificate{
-		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "testkit CA"},
+		SerialNumber: big.NewInt(p.serial), Subject: pkix.Name{CommonName: "testkit CA"},
 		NotBefore: certNotBefore, NotAfter: certNotAfter,
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
+	der, err := x509.CreateCertificate(rand.Reader, ca, ca, &p.caKey.PublicKey, p.caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ca, err = x509.ParseCertificate(caDER); err != nil {
+	if p.ca, err = x509.ParseCertificate(der); err != nil {
 		t.Fatal(err)
 	}
-	f := TLSFiles{CA: writePEM(t, dir, "ca.pem", "CERTIFICATE", caDER)}
-	f.ServerCert, f.ServerKey = newLeaf(t, dir, "server", ca, caKey, &x509.Certificate{
-		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "127.0.0.1"},
+	replacePEM(t, f.CA, "CERTIFICATE", der)
+	f.Reissue(t)
+}
+
+// Reissue replaces both certificates and their keys with new ones from the
+// same CA, each file swapped by a rename as a rotating agent would.
+func (f TLSFiles) Reissue(t testing.TB) {
+	t.Helper()
+	p := f.mustPKI(t)
+	server := &x509.Certificate{
+		Subject:     pkix.Name{CommonName: "127.0.0.1"},
 		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}, DNSNames: []string{"localhost"},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
-	f.ClientCert, f.ClientKey = newLeaf(t, dir, "client", ca, caKey, &x509.Certificate{
-		SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "bearing-core"},
+	}
+	if len(p.opts.ServerURIs) > 0 {
+		server = &x509.Certificate{URIs: parseURIs(t, p.opts.ServerURIs), ExtKeyUsage: server.ExtKeyUsage}
+	}
+	client := &x509.Certificate{
+		Subject:     pkix.Name{CommonName: "bearing-core"},
+		URIs:        parseURIs(t, p.opts.ClientURIs),
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	})
-	return f
+	}
+	p.newLeaf(t, f.ServerCert, f.ServerKey, server)
+	p.newLeaf(t, f.ClientCert, f.ClientKey, client)
+}
+
+// mustPKI is the CA that NewTLSFiles made for f.
+func (f TLSFiles) mustPKI(t testing.TB) *tlsPKI {
+	t.Helper()
+	if f.pki == nil {
+		t.Fatal("testkit: TLSFiles not from NewTLSFiles or NewTLSFilesWith: there is no CA to sign with")
+	}
+	return f.pki
+}
+
+func parseURIs(t testing.TB, ss []string) []*url.URL {
+	t.Helper()
+	var out []*url.URL
+	for _, s := range ss {
+		u, err := url.Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, u)
+	}
+	return out
 }
 
 func newTLSKey(t testing.TB) *ecdsa.PrivateKey {
@@ -76,12 +157,16 @@ func newTLSKey(t testing.TB) *ecdsa.PrivateKey {
 	return k
 }
 
-// newLeaf signs tmpl with the CA and writes <name>.pem and <name>-key.pem.
-func newLeaf(t testing.TB, dir, name string, ca *x509.Certificate, caKey *ecdsa.PrivateKey, tmpl *x509.Certificate) (cert, key string) {
+// newLeaf signs tmpl with the CA under the next serial and writes the
+// certificate and its key.
+func (p *tlsPKI) newLeaf(t testing.TB, certPath, keyPath string, tmpl *x509.Certificate) {
 	t.Helper()
 	k := newTLSKey(t)
+	p.serial++
+	tmpl.SerialNumber = big.NewInt(p.serial)
 	tmpl.NotBefore, tmpl.NotAfter, tmpl.KeyUsage = certNotBefore, certNotAfter, x509.KeyUsageDigitalSignature
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &k.PublicKey, caKey)
+	tmpl.IsCA, tmpl.BasicConstraintsValid = p.opts.LeavesAreCAs, p.opts.LeavesAreCAs
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, p.ca, &k.PublicKey, p.caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,14 +174,19 @@ func newLeaf(t testing.TB, dir, name string, ca *x509.Certificate, caKey *ecdsa.
 	if err != nil {
 		t.Fatal(err)
 	}
-	return writePEM(t, dir, name+".pem", "CERTIFICATE", der), writePEM(t, dir, name+"-key.pem", "PRIVATE KEY", keyDER)
+	replacePEM(t, certPath, "CERTIFICATE", der)
+	replacePEM(t, keyPath, "PRIVATE KEY", keyDER)
 }
 
-func writePEM(t testing.TB, dir, name, typ string, der []byte) string {
+// replacePEM writes a PEM file (mode 0600) beside path and renames it over
+// path.
+func replacePEM(t testing.TB, path, typ string, der []byte) {
 	t.Helper()
-	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der}), 0o600); err != nil {
+	tmp := path + ".new"
+	if err := os.WriteFile(tmp, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
 }
