@@ -47,6 +47,7 @@ up as a single trace spanning both processes and every GitHub API call.
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.phase`, `bearing.github.sync.page` |
 | `kubernetes.sync <phase>` | internal | Kubernetes adapter, per list request (phases `namespaces`, `services`, `index`, `workloads`) | `bearing.kubernetes.cluster`, `bearing.kubernetes.sync.phase` |
 | `authentik.sync <phase>` | internal | Authentik adapter, per list page (phases `connections`, `users`, `index`, `groups`) | `bearing.authentik.sync.phase` |
+| `mcp.tool <name>` | internal | `bearing mcp`, one per tool call | `bearing.result` (`ok`, or the error code such as `not_found`). Never the arguments |
 | `ingest.webhook` | server | core, one per webhook delivery, whatever its result | `bearing.source` (the configured source; absent for an unknown route), `bearing.result` |
 | `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up |
 | `scheduler.sync` | internal | core, one per scheduled sync tick | `bearing.source` |

@@ -36,6 +36,7 @@ keeps the adapters that fetch it small.
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Trust boundaries, controls and known gaps |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
+| [`docs/mcp.md`](docs/mcp.md) | Adding `bearing mcp` to Claude Code or Claude Desktop, and its tools |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
@@ -61,7 +62,7 @@ keeps the adapters that fetch it small.
 | [`adapters/github`](adapters/github) | The GitHub adapter: repositories, teams, members, CODEOWNERS and language versions from manifests |
 | [`adapters/kubernetes`](adapters/kubernetes) | The Kubernetes adapter: workloads, namespaces, team labels, source repositories and dependencies between workloads |
 | [`adapters/authentik`](adapters/authentik) | The Authentik directory adapter: users, groups, nested groups, time-bounded memberships and GitHub account links |
-| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related`, `changes`, `find` and `runtimes` from the store or from a running server, asks a server to sync a source, and runs the server (`bearing server --settings`) |
+| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related`, `changes`, `find` and `runtimes` from the store or from a running server, asks a server to sync a source, serves the queries to agents as an MCP server (`bearing mcp`), and runs the server (`bearing server --settings`) |
 | [`cmd/bearing-adapter-github`](cmd/bearing-adapter-github), [`cmd/bearing-adapter-kubernetes`](cmd/bearing-adapter-kubernetes), [`cmd/bearing-adapter-authentik`](cmd/bearing-adapter-authentik) | The binaries that serve the GitHub, Kubernetes and Authentik adapters |
 | [`testdata/`](testdata/) | Example observations, adapter declarations, events and configuration, and the recorded Acme feeds |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |

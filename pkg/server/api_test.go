@@ -365,6 +365,7 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 		"an unknown direction":         "/v1/related?ref=catalog:repo/payments&direction=up",
 		"a find without q":             "/v1/find?kind=Repository",
 		"a find limit too big":         "/v1/find?q=x&limit=101",
+		"a find text too long":         "/v1/find?q=" + strings.Repeat("a", query.MaxFindText+1),
 		"runtimes without a language":  "/v1/runtimes?below=1.22",
 		"runtimes below not a version": "/v1/runtimes?language=go&below=lts",
 		"runtimes below a range":       "/v1/runtimes?language=go&below=>=1.22",

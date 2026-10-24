@@ -1,0 +1,62 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "text": "{\"links\":[{\"id\":\"e17\",\"kind\":\"same_as\",\"status\":\"proposed\",\"rule\":\"matcher/transparent\",\"a\":{\"id\":\"e16\",\"kind\":\"Person\",\"name\":\"Jane Doe\",\"key\":\"catalog:person/jdoe\",\"sources\":[\"catalog-acme\"]},\"b\":{\"id\":\"e3\",\"kind\":\"Person\",\"name\":\"Jane Doe\",\"key\":\"github:user/jdoe\",\"sources\":[\"github-acme\"]},\"score\":{\"strength\":0.37432334320950883,\"certainty\":0.37432334320950883,\"support\":0.5982696320007534,\"contrary\":0},\"deposits\":[{\"at\":\"2026-10-01T00:00:00Z\",\"weight\":0.6,\"features\":{\"members\":0,\"name\":1,\"score\":0.6}}],\"valid_from\":\"2026-10-01T00:00:00Z\"}]}",
+        "type": "text"
+      },
+      {
+        "text": "1 proposed link(s)",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "links": [
+        {
+          "id": "e17",
+          "kind": "same_as",
+          "status": "proposed",
+          "rule": "matcher/transparent",
+          "a": {
+            "id": "e16",
+            "kind": "Person",
+            "name": "Jane Doe",
+            "key": "catalog:person/jdoe",
+            "sources": [
+              "catalog-acme"
+            ]
+          },
+          "b": {
+            "id": "e3",
+            "kind": "Person",
+            "name": "Jane Doe",
+            "key": "github:user/jdoe",
+            "sources": [
+              "github-acme"
+            ]
+          },
+          "score": {
+            "strength": 0.37432334320950883,
+            "certainty": 0.37432334320950883,
+            "support": 0.5982696320007534,
+            "contrary": 0
+          },
+          "deposits": [
+            {
+              "at": "2026-10-01T00:00:00Z",
+              "weight": 0.6,
+              "features": {
+                "members": 0,
+                "name": 1,
+                "score": 0.6
+              }
+            }
+          ],
+          "valid_from": "2026-10-01T00:00:00Z"
+        }
+      ]
+    }
+  }
+}
