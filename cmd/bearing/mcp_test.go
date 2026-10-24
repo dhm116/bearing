@@ -199,6 +199,16 @@ func TestMCPNeverSpeaksOfTheToken(t *testing.T) {
 	}
 }
 
+// as asserts the type of a decoded JSON value.
+func as[T any](t *testing.T, v any) T {
+	t.Helper()
+	x, ok := v.(T)
+	if !ok {
+		t.Fatalf("got %T, want %T", v, x)
+	}
+	return x
+}
+
 // result decodes the result of a response line.
 func result(t *testing.T, line string) map[string]any {
 	t.Helper()
@@ -222,12 +232,12 @@ func TestMCPOlderProtocolsGetTheAnswerAsText(t *testing.T) {
 			if _, has := res["structuredContent"]; has {
 				t.Errorf("structuredContent sent to a %s client", v)
 			}
-			content := res["content"].([]any)
+			content := as[[]any](t, res["content"])
 			if len(content) != 2 {
 				t.Fatalf("got %d content blocks, want the answer and a summary", len(content))
 			}
 			var got any
-			if err := json.Unmarshal([]byte(content[0].(map[string]any)["text"].(string)), &got); err != nil {
+			if err := json.Unmarshal([]byte(as[string](t, as[map[string]any](t, content[0])["text"])), &got); err != nil {
 				t.Fatalf("content[0] is not the JSON answer: %v", err)
 			}
 			if !reflect.DeepEqual(got, golden) {
@@ -249,9 +259,9 @@ func readGolden(t *testing.T, name string) string {
 // conforms checks the top level of v against a schema outputSchema made.
 func conforms(t *testing.T, schema, v map[string]any) {
 	t.Helper()
-	props := schema["properties"].(map[string]any)
-	for _, r := range schema["required"].([]any) {
-		if _, ok := v[r.(string)]; !ok {
+	props := as[map[string]any](t, schema["properties"])
+	for _, r := range as[[]any](t, schema["required"]) {
+		if _, ok := v[as[string](t, r)]; !ok {
 			t.Errorf("required field %s is missing", r)
 		}
 	}
@@ -289,14 +299,14 @@ func TestMCPStructuredContentConformsToTheOutputSchema(t *testing.T) {
 	w := newMCPWorld(t)
 	list := result(t, w.mcpRun("", "", initAt("2025-06-18"), `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)[1])
 	schemas := map[string]map[string]any{}
-	for _, tl := range list["tools"].([]any) {
-		m := tl.(map[string]any)
-		schemas[m["name"].(string)] = m["outputSchema"].(map[string]any)
+	for _, tl := range as[[]any](t, list["tools"]) {
+		m := as[map[string]any](t, tl)
+		schemas[as[string](t, m["name"])] = as[map[string]any](t, m["outputSchema"])
 	}
 	for _, c := range mcpCalls {
 		t.Run(c.name, func(t *testing.T) {
 			res := result(t, w.mcpRun("", "", initAt("2025-06-18"), callReq(1, c.tool, c.args))[1])
-			conforms(t, schemas[c.tool], res["structuredContent"].(map[string]any))
+			conforms(t, schemas[c.tool], as[map[string]any](t, res["structuredContent"]))
 		})
 	}
 }
