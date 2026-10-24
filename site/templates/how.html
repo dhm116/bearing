@@ -1,6 +1,6 @@
 {{define "main"}}
-{{/* How it works: one example (Priya, the Payments team, payments-api)
-     followed through four steps. Plain words; the spec's terms appear only
+{{/* How it works: one example (Jane Doe, the payments team, payments-api,
+     from the demo's made-up Acme org) followed through four steps. Plain words; the spec's terms appear only
      in the glossary at the end, which links to the spec. */}}
 <header class="pagehead shell">
   <h1>How it works</h1>
@@ -25,8 +25,7 @@
         <ul class="plugs__tools">
           <li style="--i: 0"><span class="plugs__tile"><svg class="icon"><use href="#i-code"/></svg>GitHub</span><span class="plugs__wire"></span><span class="plugs__plug"><svg class="icon"><use href="#i-eye"/></svg><span class="plugs__word">reads</span></span></li>
           <li style="--i: 1"><span class="plugs__tile"><svg class="icon"><use href="#i-people"/></svg>Directory</span><span class="plugs__wire"></span><span class="plugs__plug"><svg class="icon"><use href="#i-eye"/></svg><span class="plugs__word">reads</span></span></li>
-          <li style="--i: 2"><span class="plugs__tile"><svg class="icon"><use href="#i-cloud"/></svg>Cloud</span><span class="plugs__wire"></span><span class="plugs__plug"><svg class="icon"><use href="#i-eye"/></svg><span class="plugs__word">reads</span></span></li>
-          <li style="--i: 3"><span class="plugs__tile"><svg class="icon"><use href="#i-calendar"/></svg>On call</span><span class="plugs__wire"></span><span class="plugs__plug"><svg class="icon"><use href="#i-eye"/></svg><span class="plugs__word">reads</span></span></li>
+          <li style="--i: 2"><span class="plugs__tile"><svg class="icon"><use href="#i-layers"/></svg>Kubernetes</span><span class="plugs__wire"></span><span class="plugs__plug"><svg class="icon"><use href="#i-eye"/></svg><span class="plugs__word">reads</span></span></li>
         </ul>
         <div class="plugs__hub"><img src="{{static "brand/bearing-mark.svg"}}" alt="" width="28" height="28"><span>Bearing</span></div>
       </div>
@@ -41,10 +40,10 @@
     <div class="tabs__panel tabs__panel--2 step">
       <div class="step__visual notes" aria-hidden="true">
         <ol class="notes__list">
-          <li style="--i: 0"><span class="notes__src"><svg class="icon"><use href="#i-code"/></svg>GitHub · 09:41</span><p>Changes to <b>payments-api</b> need approval from <b>@payments-team</b>.</p></li>
-          <li style="--i: 1"><span class="notes__src"><svg class="icon"><use href="#i-people"/></svg>Directory · 09:41</span><p><b>priya@acme.example</b>, Priya Nair, is in the <b>Payments</b> group.</p></li>
-          <li style="--i: 2"><span class="notes__src"><svg class="icon"><use href="#i-code"/></svg>GitHub · 09:42</span><p>User <b>pnair</b> is in <b>@payments-team</b>.</p></li>
-          <li style="--i: 3"><span class="notes__src"><svg class="icon"><use href="#i-code"/></svg>GitHub · 09:58</span><p><b>pnair</b> made change <b>#1182</b> to payments-api.</p></li>
+          <li style="--i: 0"><span class="notes__src"><svg class="icon"><use href="#i-code"/></svg>GitHub · 09:41</span><p>Changes to <b>payments-api</b> need approval from <b>@acme/payments</b>.</p></li>
+          <li style="--i: 1"><span class="notes__src"><svg class="icon"><use href="#i-people"/></svg>Directory · 09:41</span><p><b>jdoe@acme.example</b>, Jane Doe, is in the <b>payments</b> group, and her GitHub account is <b>jdoe</b>.</p></li>
+          <li style="--i: 2"><span class="notes__src"><svg class="icon"><use href="#i-code"/></svg>GitHub · 09:42</span><p>User <b>jdoe</b> is in <b>@acme/payments</b>.</p></li>
+          <li style="--i: 3"><span class="notes__src"><svg class="icon"><use href="#i-layers"/></svg>Kubernetes · 09:42</span><p>The <b>payments-api</b> service runs from the <b>payments-api</b> code, labelled <b>team: payments</b>.</p></li>
         </ol>
         <p class="notes__tray"><svg class="icon"><use href="#i-history"/></svg>Every note is kept, in order</p>
       </div>
@@ -58,26 +57,26 @@
 
     <div class="tabs__panel tabs__panel--3 step">
       <div class="step__visual">
-        <svg class="joins" viewBox="0 10 390 285" role="img" aria-label="Two accounts, pnair on GitHub and priya@acme.example in the directory, merge into one person, Priya Nair, who is then linked to the Payments team, the payments-api repository and change 1182.">
+        <svg class="joins" viewBox="0 10 390 285" role="img" aria-label="Two accounts, jdoe on GitHub and jdoe@acme.example in the directory, merge into one person, Jane Doe, who is a member of the payments team. The team approves changes to the payments-api code, which the running service is built from.">
           <g class="joins__edges">
             <path class="joins__e joins__e--1" d="M200 150 L330 70"/>
             <path class="joins__e joins__e--2" d="M330 70 L330 230"/>
-            <path class="joins__e joins__e--3" d="M200 150 L90 240"/>
+            <path class="joins__e joins__e--3" d="M125 239 L295 231"/>
           </g>
-          <g class="joins__alias joins__alias--a"><rect x="12" y="24" width="132" height="46" rx="8"/><text x="24" y="43" class="joins__k">GitHub</text><text x="24" y="60" class="joins__n">pnair</text></g>
-          <g class="joins__alias joins__alias--b"><rect x="12" y="84" width="170" height="46" rx="8"/><text x="24" y="103" class="joins__k">Directory</text><text x="24" y="120" class="joins__n">priya@acme.example</text></g>
-          <g class="joins__person"><circle cx="200" cy="150" r="34"/><text x="200" y="147" text-anchor="middle" class="joins__n">Priya</text><text x="200" y="163" text-anchor="middle" class="joins__n">Nair</text></g>
-          <g class="joins__node joins__node--1"><circle cx="330" cy="70" r="35"/><text x="330" y="74" text-anchor="middle" class="joins__s">Payments</text></g>
+          <g class="joins__alias joins__alias--a"><rect x="12" y="24" width="132" height="46" rx="8"/><text x="24" y="43" class="joins__k">GitHub</text><text x="24" y="60" class="joins__n">jdoe</text></g>
+          <g class="joins__alias joins__alias--b"><rect x="12" y="84" width="170" height="46" rx="8"/><text x="24" y="103" class="joins__k">Directory</text><text x="24" y="120" class="joins__n">jdoe@acme.example</text></g>
+          <g class="joins__person"><circle cx="200" cy="150" r="34"/><text x="200" y="147" text-anchor="middle" class="joins__n">Jane</text><text x="200" y="163" text-anchor="middle" class="joins__n">Doe</text></g>
+          <g class="joins__node joins__node--1"><circle cx="330" cy="70" r="35"/><text x="330" y="74" text-anchor="middle" class="joins__s">payments</text></g>
           <g class="joins__node joins__node--2"><circle cx="330" cy="230" r="35"/><text x="330" y="226" text-anchor="middle" class="joins__s">payments</text><text x="330" y="239" text-anchor="middle" class="joins__s">-api</text></g>
-          <g class="joins__node joins__node--3"><circle cx="90" cy="240" r="35"/><text x="90" y="244" text-anchor="middle" class="joins__s">#1182</text></g>
+          <g class="joins__node joins__node--3"><circle cx="90" cy="240" r="35"/><text x="90" y="236" text-anchor="middle" class="joins__s">running</text><text x="90" y="249" text-anchor="middle" class="joins__s">service</text></g>
           <text x="262" y="100" class="joins__l joins__l--1" text-anchor="end">member of</text>
           <text x="320" y="156" class="joins__l joins__l--2" text-anchor="end">approves</text>
-          <text x="128" y="186" class="joins__l joins__l--3" text-anchor="middle">made</text>
+          <text x="210" y="226" class="joins__l joins__l--3" text-anchor="middle">built from</text>
         </svg>
       </div>
       <div class="step__text">
         <h2>Join the dots</h2>
-        <p>Bearing works out which notes are about the same thing. The GitHub user <strong>pnair</strong> and the directory account <strong>priya@acme.example</strong> are one person, Priya Nair.</p>
+        <p>Bearing works out which notes are about the same thing. The GitHub user <strong>jdoe</strong> and the directory account <strong>jdoe@acme.example</strong> are one person, Jane Doe: the directory records her GitHub account.</p>
         <p>The result is a map of connections, a bit like a subway map: people, teams, code and changes are the stops, and every line between them is a fact that remembers its source. Engineers call this kind of map a <strong>graph</strong>.</p>
         <p>When two tools disagree, Bearing keeps both versions and says so, instead of guessing.</p>
         <label class="step__next link-arrow" for="step-4">Next: answer</label>
@@ -94,8 +93,8 @@
         <div class="ask ask--compact">
           <p class="ask__q"><svg class="icon"><use href="#i-chat"/></svg><span>Who owns payments-api?</span></p>
           <ul class="answer">
-            <li style="--i: 0"><p>The <strong>Payments team</strong>, very likely.</p><span class="src">GitHub · since 28 Sep</span></li>
-            <li style="--i: 1"><p>Its members include <strong>Priya Nair</strong>.</p><span class="src">Directory · since 2 Mar</span></li>
+            <li style="--i: 0"><p>The <strong>payments</strong> team approves every change.</p><span class="src">GitHub · CODEOWNERS</span></li>
+            <li style="--i: 1"><p>Its members include <strong>Jane Doe</strong>.</p><span class="src">Directory · since 1 Mar</span></li>
           </ul>
         </div>
       </div>
@@ -115,10 +114,10 @@
     <p>Nobody has to remember to update Bearing. When something changes in one of your tools, Bearing hears about it within seconds and the answer changes with it.</p>
     <p>Tools sometimes fail to send word, so Bearing also re-reads them on a schedule and catches anything that slipped through.</p>
   </div>
-  <ol class="loop" aria-label="What happens when Priya joins a new team">
-    <li style="--i: 0"><span class="loop__t">09:00</span><svg class="icon"><use href="#i-people"/></svg><p>Priya moves to the Checkout team in the directory.</p></li>
-    <li style="--i: 1"><span class="loop__t">09:00</span><svg class="icon"><use href="#i-plug"/></svg><p>The directory tells Bearing.</p></li>
-    <li style="--i: 2"><span class="loop__t">09:00</span><svg class="icon"><use href="#i-check"/></svg><p>Ask again, and Priya shows up on Checkout, not Payments.</p></li>
+  <ol class="loop" aria-label="What happens when approval for payments moves to another team">
+    <li style="--i: 0"><span class="loop__t">08:30</span><svg class="icon"><use href="#i-code"/></svg><p>In GitHub, approval for payments moves from the payments team to the platform team.</p></li>
+    <li style="--i: 1"><span class="loop__t">08:30</span><svg class="icon"><use href="#i-plug"/></svg><p>GitHub tells Bearing.</p></li>
+    <li style="--i: 2"><span class="loop__t">08:30</span><svg class="icon"><use href="#i-check"/></svg><p>Ask again, and the platform team shows up, not payments.</p></li>
     <li class="loop__back" style="--i: 3"><span class="loop__t">Regularly</span><svg class="icon"><use href="#i-history"/></svg><p>A full re-read confirms nothing was missed.</p></li>
   </ol>
 </section>
