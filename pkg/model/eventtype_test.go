@@ -21,6 +21,7 @@ func TestEventTypeNamesEveryEvent(t *testing.T) {
 		{&eventv1alpha1.WebhookReceived{}, "dev.bearing.webhook_received.v1"},
 		{&eventv1alpha1.ObservationsEmitted{}, "dev.bearing.observations_emitted.v1"},
 		{&eventv1alpha1.EventDeadLettered{}, "dev.bearing.event_dead_lettered.v1"},
+		{&eventv1alpha1.LinkDecided{}, "dev.bearing.link_decided.v1"},
 	}
 	for _, tt := range tests {
 		got, ok := EventType(tt.msg)

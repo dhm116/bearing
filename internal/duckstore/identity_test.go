@@ -608,3 +608,40 @@ func TestRecordsLastSeenDeletionWinsATieBetweenSources(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkDepositKeepsWhoDecided(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	people(t, s, "p:a/1", "p:b/1")
+	p := sameAs("id-1", "id-2", graph.Asserted, "person")
+	p.Deposit.Actor = "local:501"
+	link(t, s, p)
+	ls := links(t, s, graph.LinkFilter{})
+	if len(ls) != 1 || len(ls[0].Deposits) != 1 || ls[0].Deposits[0].Actor != "local:501" {
+		t.Fatalf("got %+v, want one deposit by local:501", ls)
+	}
+}
+
+func TestOpenAddsTheDepositActorToAnOlderFile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "old.duckdb")
+	db, err := sql.Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE link_deposit (link_id VARCHAR NOT NULL, deposited_at TIMESTAMPTZ NOT NULL,
+		weight DOUBLE NOT NULL, against BOOLEAN NOT NULL, observation_id VARCHAR, features JSON);
+		CREATE INDEX link_deposit_link ON link_deposit (link_id);
+		INSERT INTO link_deposit VALUES ('l1', now(), 1, false, NULL, NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := newStore(t, Config{Path: path})
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM link_deposit WHERE actor IS NULL`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("got %d rows without an actor (%v), want the old row kept with a NULL actor", n, err)
+	}
+}

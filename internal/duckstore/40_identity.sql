@@ -32,3 +32,15 @@ CREATE TABLE IF NOT EXISTS link_deposit (
     features       JSON               -- a matcher's features and contributions
 );
 CREATE INDEX IF NOT EXISTS link_deposit_link ON link_deposit (link_id);
+
+-- Who decided, for a person's decision; NULL for observations and matchers.
+-- Files made before this column was added get it here.
+ALTER TABLE link_deposit ADD COLUMN IF NOT EXISTS actor VARCHAR;
+-- A person's free text with the decision; NULL otherwise.
+ALTER TABLE link_deposit ADD COLUMN IF NOT EXISTS reason VARCHAR;
+
+-- The decisions of people already applied, so a replayed event changes nothing.
+CREATE TABLE IF NOT EXISTS link_decision (
+    id         VARCHAR PRIMARY KEY,   -- the decision's event ID
+    decided_at TIMESTAMPTZ NOT NULL
+);

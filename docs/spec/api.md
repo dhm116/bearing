@@ -3,18 +3,23 @@
 How a caller reaches a running `bearing server`: the routes, who may use
 each, and what the answers look like. Draft, like the rest of the
 specification; the routes are under `/v1` until the MVP closes. Every
-authenticated caller may call every route; there are no roles yet.
+authenticated caller may call every route except link decisions, which
+`api.link_decisions` grants; there are no roles yet.
 
 ## Listeners
 
 | Listener | For | Authentication |
 | --- | --- | --- |
-| Unix socket | Callers on the server's host, such as `bearing` on the command line | The kernel's report of the peer's UID: only the service user and root are served, any other peer is closed before it sends anything. The caller is recorded as `local:<uid>`. |
+| Unix socket | Callers on the server's host, such as `bearing` on the command line | The kernel's report of the peer's UID and PID: only the service user and root are served, and not a process the server started (a local adapter) or its child; any other peer is closed before it sends anything. The caller is recorded as `local:<uid>`. |
 | TCP | Everyone else | The API token as a bearer token in the `Authorization` header (never a query parameter), compared in constant time with the value of the environment variable that `auth.token_env` names; except `POST /webhooks/{source}`, which proves itself by its source's signature ([Webhook deliveries](#webhook-deliveries)) |
 
 The socket's directory MUST be mode 0700 exactly and owned by the service
 user, and the socket is mode 0600; the server refuses to start otherwise. It is
 available on Linux only for now, and elsewhere it refuses every connection.
+The server reads each caller's line of parents from `/proc`, so it must see
+the processes there that the service user owns: with `hidepid` or systemd's
+`ProtectProc=invisible`, processes of other users (such as `sudo`) may be
+hidden, but the service user's own may not.
 The TCP listener is off unless `auth.token_env` is set. The server refuses to
 start if that variable is empty, holds fewer than 32 bytes, or holds
 whitespace or control characters. The listener uses TLS 1.2 or later;
@@ -31,16 +36,22 @@ A request to the API (not a webhook delivery) is checked in this order, and the
 first failure is the answer:
 
 1. The route exists (else 404 `not_found` or 405 `method_not_allowed`, with
-   an `Allow` header) and the request has no body (else 400 `invalid_request`,
-   whatever the body's size or framing). Nothing else is looked at before this.
+   an `Allow` header) and, unless the route takes a body, the request has none
+   (else 400 `invalid_request`, whatever the body's size or framing); a body
+   that announces more than 8 KiB is a 413 `too_large`. Nothing else is looked
+   at before this.
 2. The server is below its limit of requests in flight (else 503 `busy`). The
    request's deadline starts here.
 3. Authentication (else 401 `unauthenticated`).
-4. The caller's rate limit (else 429 `rate_limited`).
+4. The caller's rate limit, and for a decision the caller's decision rate
+   (else 429 `rate_limited`).
 5. For a sync request, that the source exists (else 404 `unknown_source`).
-6. For a slow read (`changes`, `find`, and `related` with `depth` above 1),
-   the caller's slow reads in flight (else 429 `too_many_reads`).
-7. The parameters (else 400 `invalid_request`).
+6. For a slow read (`changes`, `find`, `links`, and `related` with `depth`
+   above 1), the caller's slow reads in flight (else 429 `too_many_reads`).
+7. The parameters or, for a decision, the caller (one that
+   `api.link_decisions` does not allow, or an agent, is a 403 `forbidden`),
+   the content type (else 415 `unsupported_media_type`) and the body (else
+   400 `invalid_request`).
 
 Parameters go in the query string. A name the route does not define, a name
 given twice, text with control characters and anything over its length limit
@@ -55,6 +66,8 @@ is a 400. Times are RFC 3339. `find` with a `kind` that is not a kind is a 400.
 | `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
 | `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
 | `GET /v1/find` | `query.find` | `q` (required), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
+| `GET /v1/links` | `links.list` | `status` (`proposed` or `asserted`), `kind` (`same_as` or `distinct_from`), `entity` (an entity ID, record ID or key; 404 when nothing has it), `limit` (1 to 1,000, default 100) | `{"links": [...]}`: the open identity links, strongest first (below). This is the review queue when `status=proposed` |
+| `POST /v1/links/decisions` | `links.decide` | JSON body (below) | 202 `{"event_id", "offset"}`, only after the decision is on the event log (partition `core/identity`); the worker applies it in order, once. 400 for a malformed decision or one the store would refuse, 404 for a link or record that does not exist, 403 for a caller `api.link_decisions` does not allow or an agent, 415 for a body that is not `application/json`, 501 when the server takes no decisions |
 | `POST /v1/sources/{source}/sync` | `sync.request` | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log. The pending request may already be running, in which case a change made after it started is seen by the next sync, not by this one |
 
 `ref` is an entity ID or a key such as `github:repo/acme/payments`, at most
@@ -75,6 +88,64 @@ them.
 **Who asked.** A sync request is recorded with the caller the authenticator
 proved: `token` for the API token, or `local:<uid>` on the socket. Nothing in the request chooses it.
 
+**Links.** Each link in a `links` answer has these fields; those marked
+*omitempty* are left out when empty:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `kind`, `status`, `rule` | The link; `rule` names what made it: a key rule (`rule/<name>`), a matcher (`matcher/<name>`), ingest (`shared_key`, `linked_ids`) or `person` |
+| `a`, `b` | Its records: `id`, and *omitempty* `kind`, `name`, `key` (the record's first key, sorted) and `sources` (the configured sources that observed it) |
+| `score` | `strength` (0 to 1, the queue's order), `certainty` (0 to 1), `support` and `contrary` (decayed weights for and against), at the server's time |
+| `deposits` | The evidence, oldest first: `at`, `weight`, and *omitempty* `against`, `observation_id`, `features` (a matcher's), `actor` and `reason` (a person's decision) |
+| `valid_from` | When the link opened |
+
+The queue is scored over at most the 5,000 links with the newest evidence;
+since evidence decays, the strongest are among them.
+
+**Link decisions.** The body of `POST /v1/links/decisions` is one JSON object
+with the content type `application/json`, whose keys are exactly the field
+names below, each at most once and each a string (anything else is a 400):
+`decision`, one of `accept`, `reject`, `join`,
+`split` and `undo_distinct`, and either `link_id` (`accept` and `reject` a
+proposed `same_as`, `undo_distinct` a `distinct_from`) or `a` and `b` (`join`
+and `split`: two references, each an entity ID, a record ID or a key), and an
+optional `reason`, free text clipped to 1 KiB and never interpreted, with no
+control characters other than newline and tab. `accept`
+asserts the proposed link; `reject` closes it and asserts a `distinct_from`, so
+the pair is not proposed again; `join` asserts a `same_as` (and closes a
+`distinct_from` between the pair); `split` closes the `same_as` links between
+the pair and asserts a `distinct_from`; `undo_distinct` closes a
+`distinct_from`, after which the matcher judges the pair afresh: its next
+deposit for the pair is dated no earlier than the undo. Facts stay on their
+records, so every decision can be undone by another. The server resolves `a` and `b` to record IDs and logs those, so
+the log names exactly the records decided on. Before logging, it answers 400
+for what the store would refuse: rejecting an asserted link (split its
+records instead), `a` and `b` naming one record, joining records of different
+kinds, and joining or accepting a pair that a `distinct_from` between other
+records of the two entities keeps apart (the message names that link; undo it
+first). The decision is recorded with the caller as its actor, and its event
+ID is the key that makes applying it once: accepting or rejecting a link that
+is closed (or accepting one already asserted), and joining or splitting a pair
+already that way, changes nothing and logs a warning. A decision the store
+cannot carry out when it is applied (a link that has vanished since) becomes a
+dead letter with the reason at once, without retries.
+
+Only a person decides ([ADR 7](../adr/0007-records-identity-links-matchers.md):
+a proposed link becomes asserted only by a person or a rule the settings
+name), and the setting `api.link_decisions` says which callers count:
+`socket` (the default) only callers on the Unix socket, `token` API token
+holders too, `off` no one (C-API-8). The socket trusts every process running
+as the service user (or root): the server refuses a peer it started itself,
+such as a local adapter, or a child of one, but not a process that has left
+the server's process tree, so `socket` is only as safe as the service
+account (see the threat model's known gaps). An authenticator that knows its caller is
+an agent sets `Caller.Agent`, and such a caller reads but always gets a 403 on
+this route. Neither authenticator the server has can tell yet, so with
+`token` a person who hands the token to an agent hands over the right to
+decide too, and the decision is attributed to `token`. Telling an agent from a
+person needs an identity provider that marks agents (OIDC); until then, keep
+the default or hold the token as you would a password.
+
 ## Limits
 
 Before any of the checks above, the TCP listener limits each remote peer (an
@@ -84,19 +155,20 @@ with a burst of 200 (else 429 `rate_limited`, counted whatever the token). It
 speaks HTTP/1.1 only, so a connection carries one request at a time. The health
 endpoints and the webhook route are not counted (the route has its own limit,
 see [Webhook deliveries](#webhook-deliveries)), and the socket has no such
-limit. Each caller has a request rate (default 600 a minute), at most two slow
+limit. Each caller has a request rate (default 600 a minute), a decision rate
+on top of it (30 a minute, burst 3), at most two slow
 reads in flight, and a deadline per request (30 seconds; 15 for a slow read).
-The slow reads are `changes`, `find` and `related` with `depth` above 1: they
+The slow reads are `changes`, `find`, `links` and `related` with `depth` above 1: they
 scan or walk many rows, so they share one cap and the shorter deadline. A
 caller is its token subject at a peer address (an IPv6 peer is its /64), or
 `local:<uid>` on the socket, so one remote client cannot use up another's
 share of a shared token. The server holds at most 256 requests at once, reads
-headers for at most 10 seconds and 16 KiB, and refuses any body (no route
-takes one).
+headers for at most 10 seconds and 16 KiB, and refuses any body except the 8 KiB
+of a decision.
 
 ## Settings
 
-The listeners come from the `listen` and `auth` blocks of the settings file
+The listeners come from the `listen`, `auth` and `api` blocks of the settings file
 (`pkg/server/boot/settings.go`):
 
 | Setting | Meaning |
@@ -109,6 +181,7 @@ The listeners come from the `listen` and `auth` blocks of the settings file
 | `listen.peer_rate_per_minute` | Requests a minute per peer before authentication (default 1,200) |
 | `listen.insecure_no_peer_rate` | Turn the per-peer request limit off |
 | `auth.token_env` | Name of the variable that holds the API token |
+| `api.link_decisions` | Who may decide identity links: `socket` (default), `token` or `off` |
 
 A limit that is present must be positive. The TLS certificate and key are
 read once at start; changing them needs a restart.
@@ -125,11 +198,15 @@ carries `Retry-After`, in seconds.
 | --- | --- |
 | 400 | `invalid_request` |
 | 401 | `unauthenticated` |
+| 403 | `forbidden` (a link decision from a caller `api.link_decisions` does not allow, or from an agent) |
 | 404 | `not_found`, `unknown_source` |
 | 405 | `method_not_allowed` |
+| 413 | `too_large` |
+| 415 | `unsupported_media_type` (a decision body that is not `application/json`) |
 | 429 | `rate_limited`, `too_many_reads` |
 | 500 | `internal` |
-| 503 | `busy`, `unavailable` (the event log refused a sync request) |
+| 501 | `not_implemented` (the server takes no link decisions) |
+| 503 | `busy`, `unavailable` (the event log refused a sync request or a decision) |
 | 504 | `timeout` |
 
 ## The command line
@@ -158,6 +235,17 @@ the two flags together are refused, and `$BEARING_SERVER` beats `$BEARING_STORE`
 `--server`, `--token-env` and `--server-ca` flags and `$BEARING_SERVER`. It
 makes the sync request and prints the request's event ID and offset (or them as
 JSON); the sync itself runs later.
+
+`bearing links [--proposed] [--entity REF] [--limit N]` lists the open identity
+links, strongest first (`--proposed` is the review queue), from `--store` or
+`--server`, with the same answer from both, except that `--store` scores
+links with the default half-lives (30 days) and does not read the server's
+`matching.half_life`. `bearing link accept|reject|undo-distinct <link ID>`
+and `bearing link join|split <ref> <ref>`, each with `--reason`, send a
+decision and print the event ID and offset; they need `--server` (or
+`$BEARING_SERVER`), since decisions go through the server's event log, and
+`--store` is a usage error. The decision is applied a moment later, so
+`bearing links` straight after may not show it yet.
 
 `--json` through `--server` prints the body the server sent, indented and with
 no field dropped, so a field a newer server adds shows at once; the text

@@ -27,6 +27,7 @@ var (
 	typeWebhookReceived     = mustType(&eventv1alpha1.WebhookReceived{})
 	typeObservationsEmitted = mustType(&eventv1alpha1.ObservationsEmitted{})
 	typeEventDeadLettered   = mustType(&eventv1alpha1.EventDeadLettered{})
+	typeLinkDecided         = mustType(&eventv1alpha1.LinkDecided{})
 )
 
 func mustType(m proto.Message) string {
@@ -186,6 +187,9 @@ func (s *Server) process(ctx context.Context, e store.Entry) error {
 		attempts++
 		log.WarnContext(ctx, "handling an event failed", "event", e.ID, "partition", string(e.Partition),
 			"type", e.Type, "attempt", attempts, "error", cleanErrorText(err.Error()))
+		if errors.As(err, new(permanentError)) {
+			return s.deadLetter(ctx, span, e, attempts, err)
+		}
 		if attempts >= s.cfg.MaxAttempts {
 			if down := s.storeDown(ctx); down != nil {
 				// The failures may be the store's or the log's and not the
@@ -260,6 +264,8 @@ func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err 
 		return s.handleWebhook(ctx, e)
 	case typeObservationsEmitted:
 		return workerApplied, s.handleObservations(ctx, e)
+	case typeLinkDecided:
+		return workerApplied, s.handleLinkDecided(ctx, e)
 	case typeEventDeadLettered:
 		// A required group reads every partition, and a record of a dead
 		// letter has nothing to apply.

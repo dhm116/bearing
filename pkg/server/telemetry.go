@@ -87,6 +87,8 @@ func eventTypeLabel(typ string) string {
 		return "observations_emitted"
 	case typeEventDeadLettered:
 		return "event_dead_lettered"
+	case typeLinkDecided:
+		return "link_decided"
 	}
 	return "other"
 }

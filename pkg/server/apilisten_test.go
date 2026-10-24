@@ -11,11 +11,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -393,12 +395,12 @@ func TestAPIServeFailsOnBadCertificateOrBusyAddress(t *testing.T) {
 	}
 }
 
-func TestPeerUIDRefusesAConnectionThatIsNotLocal(t *testing.T) {
+func TestPeerCredRefusesAConnectionThatIsNotLocal(t *testing.T) {
 	t.Parallel()
 	a, b := net.Pipe()
 	defer func() { _ = a.Close() }()
 	defer func() { _ = b.Close() }()
-	if _, err := peerUID(a); err == nil {
+	if _, _, err := peerCred(a); err == nil {
 		t.Error("got nil, want an error for a connection that is not a Unix socket")
 	}
 }
@@ -499,4 +501,96 @@ func TestAPITCPListenerTakesSignedWebhooksWithoutAToken(t *testing.T) {
 	if n := len(r.logged()); n != 1 {
 		t.Errorf("got %d events logged, want the socket's refusal to store nothing", n)
 	}
+}
+
+// A local adapter runs as the service user, so the socket refuses a peer by
+// its line of parents too: any process the server started, a child of one,
+// and one whose parents cannot be read (C-API-8). The walk stops at a
+// process of another user (sudo) or one it cannot see (hidepid).
+func TestPeerListenerRefusesProcessesTheServerStarted(t *testing.T) {
+	t.Parallel()
+	self := os.Getpid()
+	type st struct{ uid, ppid int }
+	procs := map[int]st{
+		10:   {501, self}, // an adapter
+		11:   {501, 10},   // the adapter's child
+		20:   {501, 1},    // a person's shell, started by init
+		21:   {501, 20},   // the CLI in that shell
+		30:   {0, 98},     // sudo, its parent hidden
+		31:   {501, 30},   // sudo -u bearing bearing link
+		40:   {501, 97},   // a parent hidden by hidepid, or gone
+		50:   {501, 51},   // a parent that cannot be read
+		self: {501, 1},
+	}
+	proc := func(pid int) (int, int, error) {
+		switch pid {
+		case 51:
+			return 0, 0, fs.ErrPermission
+		case 97, 98:
+			return 0, 0, fs.ErrNotExist
+		}
+		p, ok := procs[pid]
+		if !ok {
+			return 0, 0, fs.ErrNotExist
+		}
+		return p.uid, p.ppid, nil
+	}
+	ln := &chanListener{c: make(chan net.Conn, 16)}
+	pids := map[net.Conn]int{}
+	for _, pid := range []int{10, 11, 99, 21, 31, 40, 50, self} {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+		pids[a] = pid
+		ln.c <- a
+	}
+	close(ln.c)
+	cred := func(c net.Conn) (int, int, error) { return 501, pids[c], nil }
+	pl := &peerListener{Listener: ln, uid: 501, cred: cred, proc: proc}
+	var got []int
+	for {
+		c, err := pl.Accept()
+		if err != nil {
+			break
+		}
+		pc, _ := c.(*peerConn)
+		got = append(got, pids[pc.Conn])
+	}
+	if want := []int{21, 31, 40, self}; !slices.Equal(got, want) {
+		t.Errorf("got peers %v accepted, want %v", got, want)
+	}
+}
+
+// A line of parents that never ends (a loop, as PID reuse could make) is
+// refused at the cap; a root server walks past processes of other users.
+func TestDescendantCapsTheWalkAndWalksPastOtherUsersForARootServer(t *testing.T) {
+	t.Parallel()
+	loop := func(pid int) (int, int, error) { return 501, 100 + (pid+1)%2, nil }
+	if _, err := descendant(100, 7, 501, loop); err == nil || !strings.Contains(err.Error(), "4096") {
+		t.Errorf("got %v, want the walk refused at its cap", err)
+	}
+	chain := func(pid int) (int, int, error) {
+		return map[int]int{3: 0, 2: 1000}[pid], map[int]int{3: 2, 2: 7}[pid], nil
+	}
+	for _, c := range []struct {
+		owner int
+		want  bool
+	}{{501, false}, {-1, true}} {
+		if got, err := descendant(3, 7, c.owner, chain); got != c.want || err != nil {
+			t.Errorf("owner %d: got %v, %v, want %v", c.owner, got, err, c.want)
+		}
+	}
+}
+
+// chanListener is a net.Listener that hands out the connections on c.
+type chanListener struct {
+	net.Listener
+	c chan net.Conn
+}
+
+func (l *chanListener) Accept() (net.Conn, error) {
+	c, ok := <-l.c
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return c, nil
 }

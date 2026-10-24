@@ -569,3 +569,36 @@ func TestAdaptersReceiveSecretsUnderTheirSourceKey(t *testing.T) {
 		}
 	}
 }
+
+// api.link_decisions reaches the API: by default a token holder may not
+// decide; with "token" the decision gets past the check (to a 404 here, as the
+// records do not exist).
+func TestAssembledAPITakesDecisionsFromWhomTheSettingsSay(t *testing.T) {
+	for mode, want := range map[string]int{"": http.StatusForbidden, "token": http.StatusNotFound} {
+		t.Run(mode, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) { s.API.LinkDecisions = mode })
+			r := w.assemble(t)
+			run(t, r)
+			waitFor(t, "the TCP listener", func() bool {
+				c, err := net.Dial("tcp", w.addr)
+				if err != nil {
+					return false
+				}
+				_ = c.Close()
+				return true
+			})
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+w.addr+"/v1/links/decisions",
+				strings.NewReader(`{"decision":"join","a":"x:repo/a","b":"x:repo/b"}`))
+			req.Header.Set("Authorization", "Bearer "+w.getenv("BEARING_API_TOKEN"))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != want {
+				t.Errorf("got %d, want %d", resp.StatusCode, want)
+			}
+		})
+	}
+}

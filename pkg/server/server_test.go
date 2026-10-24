@@ -171,7 +171,7 @@ func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 	h.mem = newDuck(t, func() time.Time { return h.now() })
 	h.log = &flakyLog{EventLog: h.mem}
 	h.cfg = Config{
-		Log: h.log, Applier: h.ap,
+		Log: h.log, Applier: h.ap, Links: h.mem,
 		Sources:      []Source{{Name: testSource, Adapter: h.ad, Config: json.RawMessage(`{"org":"acme"}`)}},
 		PollInterval: 5 * time.Millisecond, RetryPause: time.Millisecond, MaxAttempts: 3,
 		TrimEvery: time.Hour, Retention: -1,

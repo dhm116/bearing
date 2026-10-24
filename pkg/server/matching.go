@@ -39,6 +39,8 @@ func (s *Server) signalMatching() {
 }
 
 func (s *Server) matchOnce(ctx context.Context) {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
 	m := s.cfg.Matching
 	ctx, span := tracer.Start(ctx, "match.run")
 	defer span.End()

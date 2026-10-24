@@ -1,0 +1,9 @@
+{
+  "a": "github:user/jane-doe",
+  "b": "authentik:user/jdoe",
+  "decision": "DECISION_JOIN",
+  "reason": "Same person: Jane changed her GitHub login",
+  "actor": {
+    "subject": "local:501"
+  }
+}

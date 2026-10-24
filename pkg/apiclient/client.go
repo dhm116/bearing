@@ -4,6 +4,8 @@
 package apiclient
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -315,6 +317,60 @@ func (c *Client) RequestSync(ctx context.Context, source string) (*SyncAccepted,
 	return &a, nil
 }
 
+// Links is query.Querier.Links, asked of the server.
+func (c *Client) Links(ctx context.Context, req query.LinksRequest) ([]query.Link, error) {
+	v := url.Values{}
+	set(v, "status", req.Status)
+	set(v, "kind", req.Kind)
+	set(v, "entity", req.Entity)
+	if req.Limit != 0 {
+		v.Set("limit", strconv.Itoa(req.Limit))
+	}
+	var a struct {
+		Links []query.Link `json:"links"`
+	}
+	if err := c.get(ctx, "/v1/links", v, &a); err != nil {
+		return nil, err
+	}
+	return a.Links, nil
+}
+
+// Decision is a person's decision on an identity link: Decision is accept,
+// reject, join, split or undo_distinct; LinkID names the link for the first
+// two and the last, and A and B the records for join and split.
+type Decision struct {
+	Decision string `json:"decision"`
+	LinkID   string `json:"link_id,omitempty"`
+	A        string `json:"a,omitempty"`
+	B        string `json:"b,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// DecisionAccepted is the answer to a decision: it is on the server's event
+// log, and the server applies it next.
+type DecisionAccepted struct {
+	// EventID names the decision.
+	EventID string `json:"event_id"`
+	// Offset is its position in the log's core/identity partition.
+	Offset int64 `json:"offset"`
+}
+
+// Decide sends a decision. The server answers once it is on its event log; a
+// worker applies it later, in order, so a link read straight after may not
+// show it yet.
+func (c *Client) Decide(ctx context.Context, d Decision) (*DecisionAccepted, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("apiclient: %w", err)
+	}
+	var a DecisionAccepted
+	if err := c.do(ctx, http.MethodPost, "/v1/links/decisions", bytes.NewReader(b), &a); err != nil {
+		return nil, notFoundAbout(err, cmp.Or(d.LinkID, d.A+" or "+d.B))
+	}
+	a.EventID = cleanText(a.EventID, 64)
+	return &a, nil
+}
+
 func refValues(ref string, at time.Time) url.Values {
 	v := url.Values{"ref": {ref}}
 	set(v, "at", timeText(at))
@@ -345,6 +401,9 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader, 
 		return fmt.Errorf("apiclient: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.token != nil && !c.socket {
 		token, err := c.token()
 		if err != nil {

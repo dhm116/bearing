@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,7 +48,8 @@ type ListenConfig struct {
 	// Socket is the path of the Unix socket for local callers (C-API-1). Its
 	// directory must be mode 0700 and owned by the service user; the socket
 	// is mode 0600. A peer whose UID is not the service user's or root is
-	// refused. Empty means no socket.
+	// refused, and so is a process this server started (C-API-8). Empty
+	// means no socket.
 	Socket string
 	// UID is the service user's UID; zero means this process's.
 	UID int
@@ -312,10 +314,16 @@ func fileOwner(fi os.FileInfo) (uint32, bool) {
 }
 
 // peerListener accepts only connections whose peer is the service user or
-// root (C-API-1) and tells the connection's requests who it is.
+// root (C-API-1), and not a process this server started, such as a local
+// adapter, which runs as the service user too (C-API-8). It tells the
+// connection's requests who it is.
 type peerListener struct {
 	net.Listener
 	uid int
+	// cred and proc read a peer's UID and PID and a process's owner and
+	// parent; nil means the kernel's (peerCred, procStatus).
+	cred func(net.Conn) (uid, pid int, err error)
+	proc func(pid int) (uid, ppid int, err error)
 }
 
 // peerConn is an accepted local connection and the UID that made it.
@@ -327,20 +335,75 @@ type peerConn struct {
 // Accept implements net.Listener. A refused peer is closed and counted, and
 // Accept goes on to the next.
 func (p *peerListener) Accept() (net.Conn, error) {
+	cred, proc := p.cred, p.proc
+	if cred == nil {
+		cred = peerCred
+	}
+	if proc == nil {
+		proc = procStatus
+	}
+	owner := p.uid
+	if os.Geteuid() == 0 {
+		owner = -1 // a root server's adapters may run as anyone
+	}
 	for {
 		c, err := p.Listener.Accept()
 		if err != nil {
 			return nil, err
 		}
-		uid, err := peerUID(c)
+		uid, pid, err := cred(c)
+		why := ""
 		if err != nil || (uid != p.uid && uid != 0) {
+			why = "its peer is not the service user or root"
+		} else if desc, err := descendant(pid, os.Getpid(), owner, proc); err != nil {
+			why = "its peer's line of parents cannot be read: " + err.Error()
+		} else if desc {
+			why = "its peer is a process this server started, such as a local adapter"
+		}
+		if why != "" {
 			_ = c.Close()
 			apiPeersRefused.Add(context.Background(), 1)
-			telemetry.Logger(pkgName).Warn("a local API connection was refused: its peer is not the service user or root")
+			telemetry.Logger(pkgName).Warn("a local API connection was refused: " + why)
 			continue
 		}
 		return &peerConn{Conn: c, uid: uid}, nil
 	}
+}
+
+// maxAncestors caps the walk up a peer's line of parents.
+const maxAncestors = 4096
+
+// descendant reports whether pid descends from self, walking its line of
+// parents. The walk stops at the first process not owned by owner (the
+// service user; -1 when the server runs as root and its adapters may run as
+// anyone), since the server's adapters run as the service user: so `sudo -u
+// bearing bearing link` stops at sudo. An ancestor that is not there counts
+// as not the server's: hidepid (ProtectProc=invisible) hides processes of
+// other users, and one that exited has detached its children from the
+// server, a known gap either way. An error, which names the PID that could
+// not be read, refuses the peer rather than trust it, as does a line longer
+// than maxAncestors.
+func descendant(pid, self, owner int, proc func(int) (uid, ppid int, err error)) (bool, error) {
+	for i := 0; pid > 1; i++ {
+		if i == maxAncestors {
+			return false, fmt.Errorf("more than %d ancestors", maxAncestors)
+		}
+		uid, pp, err := proc(pid)
+		if i > 0 && errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("process %d: %w", pid, err)
+		}
+		if owner >= 0 && uid != owner {
+			return false, nil
+		}
+		if pp == self {
+			return true, nil
+		}
+		pid = pp
+	}
+	return false, nil
 }
 
 type peerKey struct{}

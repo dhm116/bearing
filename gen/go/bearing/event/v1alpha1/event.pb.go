@@ -27,6 +27,73 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// What the person decided.
+type LinkDecided_Decision int32
+
+const (
+	// Not set; refused.
+	LinkDecided_DECISION_UNSPECIFIED LinkDecided_Decision = 0
+	// Assert a proposed same_as link (link_id): the two records join.
+	LinkDecided_DECISION_ACCEPT LinkDecided_Decision = 1
+	// Close a proposed same_as link (link_id) and assert a distinct_from
+	// for its pair, so no matcher or ingest proposes the pair again.
+	LinkDecided_DECISION_REJECT LinkDecided_Decision = 2
+	// Assert a same_as link between a and b, with or without a proposal.
+	LinkDecided_DECISION_JOIN LinkDecided_Decision = 3
+	// Close the same_as links between a and b and assert a distinct_from.
+	// Facts stay on their records, so a later join reverses it.
+	LinkDecided_DECISION_SPLIT LinkDecided_Decision = 4
+	// Close a distinct_from link (link_id): the pair may be proposed again.
+	LinkDecided_DECISION_UNDO_DISTINCT LinkDecided_Decision = 5
+)
+
+// Enum value maps for LinkDecided_Decision.
+var (
+	LinkDecided_Decision_name = map[int32]string{
+		0: "DECISION_UNSPECIFIED",
+		1: "DECISION_ACCEPT",
+		2: "DECISION_REJECT",
+		3: "DECISION_JOIN",
+		4: "DECISION_SPLIT",
+		5: "DECISION_UNDO_DISTINCT",
+	}
+	LinkDecided_Decision_value = map[string]int32{
+		"DECISION_UNSPECIFIED":   0,
+		"DECISION_ACCEPT":        1,
+		"DECISION_REJECT":        2,
+		"DECISION_JOIN":          3,
+		"DECISION_SPLIT":         4,
+		"DECISION_UNDO_DISTINCT": 5,
+	}
+)
+
+func (x LinkDecided_Decision) Enum() *LinkDecided_Decision {
+	p := new(LinkDecided_Decision)
+	*p = x
+	return p
+}
+
+func (x LinkDecided_Decision) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LinkDecided_Decision) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_event_v1alpha1_event_proto_enumTypes[0].Descriptor()
+}
+
+func (LinkDecided_Decision) Type() protoreflect.EnumType {
+	return &file_bearing_event_v1alpha1_event_proto_enumTypes[0]
+}
+
+func (x LinkDecided_Decision) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LinkDecided_Decision.Descriptor instead.
+func (LinkDecided_Decision) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{5, 0}
+}
+
 // Observation is a CloudEvents 1.0 event carrying one observation, in
 // structured mode: its ProtoJSON is the CloudEvents JSON form.
 type Observation struct {
@@ -422,6 +489,103 @@ func (x *ObservationsEmitted) GetSyncStarted() *timestamppb.Timestamp {
 	return nil
 }
 
+// LinkDecided is a person's decision on an identity link (ADR 7: a proposed
+// link becomes asserted only by a person or a rule the settings name). It is
+// appended to the core/identity partition and applied in order, once.
+type LinkDecided struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// For JOIN and SPLIT, the two records. The API logs the record IDs that
+	// the caller's references resolved to, so the log names exactly the
+	// records decided on; the store also takes an entity ID or a key. Unused
+	// by the others.
+	A string `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
+	// The second record, as a.
+	B string `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty"`
+	// What was decided.
+	Decision LinkDecided_Decision `protobuf:"varint,3,opt,name=decision,proto3,enum=bearing.event.v1alpha1.LinkDecided_Decision" json:"decision,omitempty"`
+	// The link ACCEPT, REJECT and UNDO_DISTINCT act on.
+	LinkId string `protobuf:"bytes,4,opt,name=link_id,json=linkId,proto3" json:"link_id,omitempty"`
+	// Why, as free text. Optional, never interpreted, clipped to 1 KiB, with
+	// no control characters other than newline and tab.
+	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Who decided: what the authenticator proved. Never an agent.
+	Actor         *Actor `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkDecided) Reset() {
+	*x = LinkDecided{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkDecided) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkDecided) ProtoMessage() {}
+
+func (x *LinkDecided) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkDecided.ProtoReflect.Descriptor instead.
+func (*LinkDecided) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *LinkDecided) GetA() string {
+	if x != nil {
+		return x.A
+	}
+	return ""
+}
+
+func (x *LinkDecided) GetB() string {
+	if x != nil {
+		return x.B
+	}
+	return ""
+}
+
+func (x *LinkDecided) GetDecision() LinkDecided_Decision {
+	if x != nil {
+		return x.Decision
+	}
+	return LinkDecided_DECISION_UNSPECIFIED
+}
+
+func (x *LinkDecided) GetLinkId() string {
+	if x != nil {
+		return x.LinkId
+	}
+	return ""
+}
+
+func (x *LinkDecided) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *LinkDecided) GetActor() *Actor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
 // Actor is who asked for an event.
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -437,7 +601,7 @@ type Actor struct {
 
 func (x *Actor) Reset() {
 	*x = Actor{}
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[5]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +613,7 @@ func (x *Actor) String() string {
 func (*Actor) ProtoMessage() {}
 
 func (x *Actor) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[5]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +626,7 @@ func (x *Actor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Actor.ProtoReflect.Descriptor instead.
 func (*Actor) Descriptor() ([]byte, []int) {
-	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{5}
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Actor) GetSubject() string {
@@ -514,7 +678,7 @@ type EventDeadLettered struct {
 
 func (x *EventDeadLettered) Reset() {
 	*x = EventDeadLettered{}
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +690,7 @@ func (x *EventDeadLettered) String() string {
 func (*EventDeadLettered) ProtoMessage() {}
 
 func (x *EventDeadLettered) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +703,7 @@ func (x *EventDeadLettered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventDeadLettered.ProtoReflect.Descriptor instead.
 func (*EventDeadLettered) Descriptor() ([]byte, []int) {
-	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{6}
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *EventDeadLettered) GetEventId() string {
@@ -637,7 +801,21 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\fobservations\x18\x03 \x03(\v2#.bearing.event.v1alpha1.ObservationR\fobservations\x12\x12\n" +
 	"\x04done\x18\x04 \x01(\bR\x04done\x12I\n" +
 	"\rcomplete_sync\x18\x05 \x01(\v2$.bearing.model.v1alpha1.CompleteSyncR\fcompleteSync\x12=\n" +
-	"\fsync_started\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vsyncStarted\"7\n" +
+	"\fsync_started\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vsyncStarted\"\xed\x02\n" +
+	"\vLinkDecided\x12\f\n" +
+	"\x01a\x18\x01 \x01(\tR\x01a\x12\f\n" +
+	"\x01b\x18\x02 \x01(\tR\x01b\x12H\n" +
+	"\bdecision\x18\x03 \x01(\x0e2,.bearing.event.v1alpha1.LinkDecided.DecisionR\bdecision\x12\x17\n" +
+	"\alink_id\x18\x04 \x01(\tR\x06linkId\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\x123\n" +
+	"\x05actor\x18\x06 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\"\x91\x01\n" +
+	"\bDecision\x12\x18\n" +
+	"\x14DECISION_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fDECISION_ACCEPT\x10\x01\x12\x13\n" +
+	"\x0fDECISION_REJECT\x10\x02\x12\x11\n" +
+	"\rDECISION_JOIN\x10\x03\x12\x12\n" +
+	"\x0eDECISION_SPLIT\x10\x04\x12\x1a\n" +
+	"\x16DECISION_UNDO_DISTINCT\x10\x05\"7\n" +
 	"\x05Actor\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\bR\x05agent\"\x9a\x02\n" +
@@ -666,34 +844,39 @@ func file_bearing_event_v1alpha1_event_proto_rawDescGZIP() []byte {
 	return file_bearing_event_v1alpha1_event_proto_rawDescData
 }
 
-var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_bearing_event_v1alpha1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_bearing_event_v1alpha1_event_proto_goTypes = []any{
-	(*Observation)(nil),              // 0: bearing.event.v1alpha1.Observation
-	(*SyncRequested)(nil),            // 1: bearing.event.v1alpha1.SyncRequested
-	(*WebhookReceived)(nil),          // 2: bearing.event.v1alpha1.WebhookReceived
-	(*Header)(nil),                   // 3: bearing.event.v1alpha1.Header
-	(*ObservationsEmitted)(nil),      // 4: bearing.event.v1alpha1.ObservationsEmitted
-	(*Actor)(nil),                    // 5: bearing.event.v1alpha1.Actor
-	(*EventDeadLettered)(nil),        // 6: bearing.event.v1alpha1.EventDeadLettered
-	(*timestamppb.Timestamp)(nil),    // 7: google.protobuf.Timestamp
-	(*v1alpha1.ObservationData)(nil), // 8: bearing.model.v1alpha1.ObservationData
-	(*v1alpha1.CompleteSync)(nil),    // 9: bearing.model.v1alpha1.CompleteSync
+	(LinkDecided_Decision)(0),        // 0: bearing.event.v1alpha1.LinkDecided.Decision
+	(*Observation)(nil),              // 1: bearing.event.v1alpha1.Observation
+	(*SyncRequested)(nil),            // 2: bearing.event.v1alpha1.SyncRequested
+	(*WebhookReceived)(nil),          // 3: bearing.event.v1alpha1.WebhookReceived
+	(*Header)(nil),                   // 4: bearing.event.v1alpha1.Header
+	(*ObservationsEmitted)(nil),      // 5: bearing.event.v1alpha1.ObservationsEmitted
+	(*LinkDecided)(nil),              // 6: bearing.event.v1alpha1.LinkDecided
+	(*Actor)(nil),                    // 7: bearing.event.v1alpha1.Actor
+	(*EventDeadLettered)(nil),        // 8: bearing.event.v1alpha1.EventDeadLettered
+	(*timestamppb.Timestamp)(nil),    // 9: google.protobuf.Timestamp
+	(*v1alpha1.ObservationData)(nil), // 10: bearing.model.v1alpha1.ObservationData
+	(*v1alpha1.CompleteSync)(nil),    // 11: bearing.model.v1alpha1.CompleteSync
 }
 var file_bearing_event_v1alpha1_event_proto_depIdxs = []int32{
-	7, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
-	8, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
-	5, // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	3, // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
-	7, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
-	0, // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
-	9, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
-	7, // 7: bearing.event.v1alpha1.ObservationsEmitted.sync_started:type_name -> google.protobuf.Timestamp
-	7, // 8: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	9,  // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
+	10, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
+	7,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	4,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
+	9,  // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
+	1,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
+	11, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
+	9,  // 7: bearing.event.v1alpha1.ObservationsEmitted.sync_started:type_name -> google.protobuf.Timestamp
+	0,  // 8: bearing.event.v1alpha1.LinkDecided.decision:type_name -> bearing.event.v1alpha1.LinkDecided.Decision
+	7,  // 9: bearing.event.v1alpha1.LinkDecided.actor:type_name -> bearing.event.v1alpha1.Actor
+	9,  // 10: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_bearing_event_v1alpha1_event_proto_init() }
@@ -706,13 +889,14 @@ func file_bearing_event_v1alpha1_event_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_event_v1alpha1_event_proto_rawDesc), len(file_bearing_event_v1alpha1_event_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   7,
+			NumEnums:      1,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bearing_event_v1alpha1_event_proto_goTypes,
 		DependencyIndexes: file_bearing_event_v1alpha1_event_proto_depIdxs,
+		EnumInfos:         file_bearing_event_v1alpha1_event_proto_enumTypes,
 		MessageInfos:      file_bearing_event_v1alpha1_event_proto_msgTypes,
 	}.Build()
 	File_bearing_event_v1alpha1_event_proto = out.File

@@ -38,6 +38,9 @@ const (
 	// DefaultCallerRate is each caller's requests a minute, with a burst of a
 	// tenth of it.
 	DefaultCallerRate = 600
+	// DefaultDecideRate is each caller's link decisions a minute, on top of
+	// the caller rate, with a burst of a tenth of it.
+	DefaultDecideRate = 30
 
 	// maxRefBytes bounds a reference (a key or an entity ID) or a find query.
 	maxRefBytes = 1024
@@ -104,6 +107,11 @@ type APIConfig struct {
 	// CallerRate is each caller's request rate; a PerMinute of zero takes
 	// DefaultCallerRate, and a negative one turns the limit off.
 	CallerRate RateLimit
+	// DecideRate is each caller's rate of link decisions, as CallerRate.
+	DecideRate RateLimit
+	// LinkDecisions says who may decide identity links; empty means
+	// LinkDecisionsSocket.
+	LinkDecisions LinkDecisions
 	// NewRequestID returns a request ID; nil means 128 random bits in hex.
 	NewRequestID func() string
 }
@@ -116,6 +124,8 @@ type API struct {
 	cfg  APIConfig
 	slot chan struct{}
 	rate *limiter
+	// decideRate limits link decisions per caller, after rate.
+	decideRate *limiter
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -128,7 +138,10 @@ type route struct {
 	method  Method
 	// write marks a route that changes state, which the 401 table test
 	// covers.
-	write  bool
+	write bool
+	// body marks a route that takes a JSON request body, read only after the
+	// caller is authenticated; no other route takes one.
+	body   bool
 	handle func(a *API, w http.ResponseWriter, r *http.Request, c Caller)
 }
 
@@ -139,6 +152,8 @@ var routes = []route{
 	{pattern: "GET /v1/related", method: MethodRelated, handle: (*API).related},
 	{pattern: "GET /v1/changes", method: MethodChanges, handle: (*API).changes},
 	{pattern: "GET /v1/find", method: MethodFind, handle: (*API).find},
+	{pattern: "GET /v1/links", method: MethodLinks, handle: (*API).links},
+	{pattern: "POST /v1/links/decisions", method: MethodDecide, write: true, body: true, handle: (*API).decide},
 	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
 }
 
@@ -154,12 +169,11 @@ func NewAPI(cfg APIConfig) (*API, error) {
 	cfg.ChangesTimeout = orDefault(cfg.ChangesTimeout, DefaultChangesTimeout)
 	cfg.MaxInFlight = orDefault(cfg.MaxInFlight, DefaultMaxInFlight)
 	cfg.ChangesPerCaller = orDefault(cfg.ChangesPerCaller, DefaultChangesPerCaller)
-	if cfg.CallerRate.PerMinute == 0 {
-		cfg.CallerRate = RateLimit{PerMinute: DefaultCallerRate, Burst: DefaultCallerRate / 10}
+	if !cfg.LinkDecisions.Valid() {
+		return nil, fmt.Errorf("server: link decisions must be off, socket or token, not %q", cfg.LinkDecisions)
 	}
-	if cfg.CallerRate.Burst <= 0 {
-		cfg.CallerRate.Burst = max(1, cfg.CallerRate.PerMinute/10)
-	}
+	cfg.CallerRate = cfg.CallerRate.withDefault(DefaultCallerRate)
+	cfg.DecideRate = cfg.DecideRate.withDefault(DefaultDecideRate)
 	if cfg.NewRequestID == nil {
 		cfg.NewRequestID = randomID
 	}
@@ -167,7 +181,22 @@ func NewAPI(cfg APIConfig) (*API, error) {
 	if cfg.CallerRate.PerMinute > 0 {
 		a.rate = newLimiter(cfg.CallerRate.PerMinute, cfg.CallerRate.Burst, maxCallerKeys, cfg.Server.clk.Now)
 	}
+	if cfg.DecideRate.PerMinute > 0 {
+		a.decideRate = newLimiter(cfg.DecideRate.PerMinute, cfg.DecideRate.Burst, maxCallerKeys, cfg.Server.clk.Now)
+	}
 	return a, nil
+}
+
+// withDefault fills a zero rate with perMinute and a missing burst with a
+// tenth of the rate; a negative rate stays off.
+func (l RateLimit) withDefault(perMinute int) RateLimit {
+	if l.PerMinute == 0 {
+		l.PerMinute = perMinute
+	}
+	if l.Burst <= 0 {
+		l.Burst = max(1, l.PerMinute/10)
+	}
+	return l
 }
 
 // Handler returns the API for one listener: the routes, each behind authn,
@@ -252,9 +281,15 @@ func (a *API) serve(authn Authenticator, rt route) http.Handler {
 
 // handle runs the checks and the handler and returns the result label.
 func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request, rt route, authn Authenticator, reqID string) string {
-	// No route takes a body. Refuse one before anything else is done for the
-	// request, since Go would otherwise read and discard up to 256 KiB of it.
-	if r.ContentLength != 0 {
+	// Only a body route takes a body. Refuse one before anything else is done
+	// for the request, since Go would otherwise read and discard up to 256 KiB
+	// of it. A body route refuses one that announces more than it reads.
+	if rt.body && r.ContentLength > maxDecisionBytes {
+		w.Header().Set("Connection", "close")
+		apiFail(w, http.StatusRequestEntityTooLarge, "too_large", "the request body is too large", reqID)
+		return apiInvalid
+	}
+	if !rt.body && r.ContentLength != 0 {
 		w.Header().Set("Connection", "close")
 		apiFail(w, http.StatusBadRequest, "invalid_request", "this route takes no request body", reqID)
 		return apiInvalid
@@ -281,7 +316,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiUnauthenticated
 	}
 	who := callerKey(caller, r)
-	if !a.rate.allow(who) {
+	if !a.rate.allow(who) || rt.method == MethodDecide && !a.decideRate.allow(who) {
 		w.Header().Set("Retry-After", "10")
 		apiFail(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down", reqID)
 		return apiLimited
@@ -314,7 +349,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 // share a per-caller cap and a shorter deadline (C-STORE-9).
 func slowRead(m Method, r *http.Request) bool {
 	switch m {
-	case MethodChanges, MethodFind:
+	case MethodChanges, MethodFind, MethodLinks:
 		return true
 	case MethodRelated:
 		d, err := strconv.Atoi(r.URL.Query().Get("depth"))
@@ -371,7 +406,7 @@ func callerKey(c Caller, r *http.Request) string {
 // authenticator gave, or local:<uid>. It comes from the
 // Caller, never from anything the request said.
 func actorOf(c Caller) *eventv1alpha1.Actor {
-	return &eventv1alpha1.Actor{Subject: c.Subject}
+	return &eventv1alpha1.Actor{Subject: c.Subject, Agent: c.Agent}
 }
 
 // statusRecorder notes what a handler answered, for the result label.

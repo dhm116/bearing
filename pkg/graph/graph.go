@@ -17,6 +17,10 @@ import (
 // ErrNotFound means nothing matched.
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalidDecision means a Decision cannot be carried out as given: an
+// unknown kind, a missing field, or a link of the wrong kind or state.
+var ErrInvalidDecision = errors.New("invalid decision")
+
 // EntityID identifies a record or a cluster of records (ADR 7). A record's
 // ID never changes; a cluster's is its oldest record's, so it changes when
 // links join or split the cluster. Store record IDs or keys, not cluster IDs.
@@ -66,6 +70,9 @@ type Graph interface {
 	// Records returns the records of one kind (every kind when empty), for
 	// matchers to find candidate pairs in.
 	Records(ctx context.Context, kind model.Kind) ([]Record, error)
+	// RecordsByID returns the records with these IDs, oldest first; an ID
+	// that names no record is left out.
+	RecordsByID(ctx context.Context, ids []EntityID) ([]Record, error)
 	// Links returns the identity links matching f.
 	Links(ctx context.Context, f LinkFilter) ([]Link, error)
 	// Link records proposals, and assertions from rules the settings name: a
@@ -76,6 +83,13 @@ type Graph interface {
 	// cluster. Closing a link Ingest made lasts only until the source says it
 	// again; to keep two records apart for good, assert a distinct_from.
 	CloseLink(ctx context.Context, id string, at time.Time) error
+	// Decide carries out a person's decision on a link in one transaction,
+	// so the closing and the asserting land together, and at most once per
+	// Decision.ID: a decision applied before changes nothing and returns the
+	// zero LinkResult. It fails with ErrNotFound for an unknown link or
+	// record and ErrInvalidDecision for one it cannot carry out; a failed
+	// Decide writes nothing.
+	Decide(ctx context.Context, d Decision) (LinkResult, error)
 }
 
 // IngestResult counts what one Ingest wrote.
@@ -286,17 +300,27 @@ type Deposit struct {
 	Against bool
 	// ObservationID is the observation behind it, when there is one.
 	ObservationID string
+	// Actor is who decided, for a person's decision (an event's
+	// Actor.subject); empty for evidence from observations and matchers.
+	Actor string
+	// Reason is the person's free text, kept as given and never interpreted.
+	Reason string
 	// Features are a matcher's inputs and their contributions, as evidence.
 	Features map[string]float64
 }
 
 // LinkFilter selects links. Empty fields match anything.
 type LinkFilter struct {
+	// ID matches one link; with WithClosed unset it matches only while open.
+	ID string
 	// Entity matches links touching any record of this entity or record.
 	Entity     EntityID
 	Kind       LinkKind
 	Status     Status
 	WithClosed bool
+	// Limit, when positive, returns at most that many links, those with the
+	// newest deposit first; zero returns every match, oldest first.
+	Limit int
 }
 
 // Proposal is one link a matcher or rule writes.
@@ -312,4 +336,49 @@ type Proposal struct {
 // LinkResult counts what one Link call wrote.
 type LinkResult struct {
 	Opened, Reinforced int
+	// Closed counts links Decide closed.
+	Closed int
+}
+
+// PersonRule is the Rule of the links a person's decision asserts.
+const PersonRule = "person"
+
+// DecisionKind is what a person decided about a link.
+type DecisionKind string
+
+// The decisions a person can make (ADR 7: a proposed link becomes asserted
+// only by a person or a rule the settings name). All are reversible: facts
+// stay on their records.
+const (
+	// Accept asserts a proposed same_as (Decision.LinkID): the records join.
+	Accept DecisionKind = "accept"
+	// Reject closes a proposed same_as (LinkID) and asserts a distinct_from
+	// for its pair, so no matcher or ingest proposes the pair again.
+	Reject DecisionKind = "reject"
+	// Join asserts a same_as between A and B, proposed or not, and closes a
+	// distinct_from between them.
+	Join DecisionKind = "join"
+	// Split closes the same_as links between A and B and asserts a
+	// distinct_from.
+	Split DecisionKind = "split"
+	// UndoDistinct closes a distinct_from (LinkID): the pair may be
+	// proposed again.
+	UndoDistinct DecisionKind = "undo_distinct"
+)
+
+// Decision is one decision of a person.
+type Decision struct {
+	// ID makes the decision happen once; the server uses its event's ID.
+	ID   string
+	Kind DecisionKind
+	// LinkID is the link Accept, Reject and UndoDistinct act on.
+	LinkID string
+	// A and B are the records Join and Split act on, each a record ID, an
+	// entity ID or a key.
+	A, B string
+	// Actor is who decided; required.
+	Actor  string
+	Reason string
+	// At is when; zero means the store's clock.
+	At time.Time
 }

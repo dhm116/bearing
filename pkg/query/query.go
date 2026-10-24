@@ -54,6 +54,9 @@ type Querier struct {
 	// Now is the time Changes counts its default window back from; nil means
 	// time.Now.
 	Now func() time.Time
+	// HalfLife is how fast a kind's link evidence fades, for the scores
+	// Links shows; nil means the matching defaults (match.Config{}).
+	HalfLife func(model.Kind) time.Duration
 }
 
 // Ref names an entity in an answer: enough to read it and to ask about it

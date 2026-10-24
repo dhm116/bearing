@@ -60,6 +60,10 @@ func (c Config) halfLife(k model.Kind) time.Duration {
 	return defaultHalfLife
 }
 
+// HalfLifeOf is how fast evidence for records of kind k fades: the setting
+// for the kind, else the default.
+func (c Config) HalfLifeOf(k model.Kind) time.Duration { return c.halfLife(k) }
+
 // ShortestHalfLife is the fastest any kind's evidence fades: the default
 // half-life, or a shorter one set for a kind.
 func (c Config) ShortestHalfLife() time.Duration {
@@ -132,9 +136,15 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	// open or closed, so a closed proposal stays closed on the same evidence.
 	joined, known := map[pair]bool{}, map[pair]bool{}
 	last := map[pair]graph.Deposit{}
+	// undone: when a person last undid their distinct_from for the pair; the
+	// matcher judges the pair afresh after that, whatever it proposed before.
+	undone := map[pair]time.Time{}
 	for _, l := range links {
 		p := pairOf(l.A, l.B)
 		open := l.ValidTo.IsZero()
+		if l.Kind == graph.DistinctFrom && l.Rule == graph.PersonRule && !open {
+			undone[p] = laterOf(undone[p], l.ValidTo)
+		}
 		// known: pairs with an open same_as link, so a deposit reinforces it
 		// rather than opening a new one (the store matches open links only).
 		if l.Kind == graph.SameAs && open {
@@ -185,7 +195,12 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 			// A deposit needs observations newer than the pair's last one, and
 			// then either changed features or a half-life since: a matcher never
 			// reinforces its own unchanged judgement.
+			// After an undo, earlier deposits no longer count, and the fresh one
+			// is dated no earlier than the undo so it counts on the next run.
 			at, prev := dated(j, ev), last[pairOf(c.A.ID, c.B.ID)]
+			if u := undone[pairOf(c.A.ID, c.B.ID)]; !at.IsZero() && prev.At.Before(u) {
+				prev, at = graph.Deposit{}, laterOf(at, u)
+			}
 			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(prev.At) ||
 				maps.Equal(f, prev.Features) && at.Sub(prev.At) < cfg.halfLife(c.A.Kind) {
 				continue

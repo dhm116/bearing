@@ -22,7 +22,7 @@ the code already uses.
 
 | Boundary | Who is on the other side | What stands between |
 | --- | --- | --- |
-| API Unix socket | A process on the server's host | The kernel's report of the peer's UID: only the service user and root are served (C-API-1) |
+| API Unix socket | A process on the server's host | The kernel's report of the peer's UID: only the service user and root are served (C-API-1), and not a process the server started (C-API-8) |
 | API TCP listener | Anyone who can reach the port | TLS, a bearer token of at least 32 bytes, per-peer connection and request limits before the token is checked (C-API-2, C-API-3, C-API-6) |
 | Webhook route (`POST /webhooks/{source}`) | A source system, or anyone pretending to be one | The source's HMAC signature, checked before the body is parsed or logged (C-INGEST-1, C-INGEST-2) |
 | Local adapter | A process the server starts | A private socket directory (mode 0700) and an environment the server builds (C-SECRET-3) |
@@ -114,10 +114,31 @@ credentials; the server never sends it any.
   literal loopback IP and follows no redirect.
 - **C-API-6** Limits before and after authentication: connection caps per peer
   and in all (closed before the TLS handshake), a per-peer request rate, a
-  per-caller rate, a cap on requests in flight, a deadline per request, and
-  header and body limits. See [the API spec](../spec/api.md#limits).
+  per-caller rate, a lower per-caller rate for link decisions (30 a minute),
+  a cap on requests in flight, a deadline per request, and header and body
+  limits: no route takes a body except a link decision, at most 8 KiB, read
+  strictly (`application/json`, known keys once each). See
+  [the API spec](../spec/api.md#limits).
 - **C-API-7** Errors carry a code, a generic message and a request ID. Details
   go to the logs, never the answer.
+- **C-API-8** Who may decide identity links is `api.link_decisions`: `socket`
+  (the default) takes decisions only from callers on the Unix socket,
+  `token` from API token holders too, `off` from no one. Anyone else gets a
+  403 before the body is read, and a caller marked as an agent never decides.
+  A decision is an assertion of identity that ownership answers then rest on,
+  so by default only a person on the server's host makes one. In `socket`
+  mode that means any process running as the service user or root: the
+  kernel names the peer's UID, not the person. The local adapters the server
+  starts run as the service user too, so the socket refuses a peer whose
+  line of parents reaches the server (an adapter or its child), and one whose
+  parents it cannot read (Linux, from `/proc/<pid>/status`). The walk stops
+  at the first process owned by another user (the server's adapters run as
+  the service user; a root server walks on), at one it cannot see, and after
+  4,096 steps, which refuses the peer. The `reason`
+  that comes with a decision is the caller's own text, which people and agents
+  later read in `bearing links`; it is kept as given, never interpreted,
+  clipped to 1 KiB, and refused if it holds control characters other than
+  newline and tab.
 
 **Ingest**
 
@@ -153,7 +174,10 @@ credentials; the server never sends it any.
   which cannot cover the server's own variables.
 - **C-SECRET-2** A reference that does not resolve stops the start. The error
   names the field and the variable, never a value.
-- **C-SECRET-3** An adapter gets only the environment described above.
+- **C-SECRET-3** An adapter gets only the environment described above. The
+  server marks itself non-dumpable at start (Linux, `PR_SET_DUMPABLE`), so an
+  adapter running as the same user can neither ptrace it nor read its
+  `/proc/<pid>/environ`.
 
 **Operations and store**
 
@@ -163,9 +187,10 @@ credentials; the server never sends it any.
   repeat it.
 - **C-OPS-5** An adapter that fails to start or answer is restarted with a pause
   that doubles from one second to one minute, so a broken adapter cannot spin.
-- **C-STORE-9** Reads that scan or walk many rows (`changes`, `find`, and
-  `related` deeper than one hop) share a per-caller cap and a shorter
-  deadline.
+- **C-STORE-9** Reads that scan or walk many rows (`changes`, `find`,
+  `links`, and `related` deeper than one hop) share a per-caller cap and a
+  shorter deadline. `links` scores at most the 5,000 links with the newest
+  evidence.
 - **C-STORE-11** Trim removes only events that are not marked to keep and that
   every required group has applied, so a stopped worker never loses work. The
   `bearing.worker.oldest_unapplied.age` metric shows it falling behind.
@@ -179,7 +204,19 @@ labels or error text. Tests plant canary values and scan for them
 Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
 
 - **No roles or per-caller identity.** Every authenticated API caller may call
-  every route, and every holder of the API token is the same caller.
+  every route but link decisions (C-API-8), and every holder of the API token
+  is the same caller. With `api.link_decisions: token`, anyone holding the
+  token, an agent included, can assert or break an identity link, and the
+  decision is attributed to `token`, not to a person.
+- **The socket trusts the service account.** Every process running as the
+  service user is an administrator on the socket and, in `socket` mode, may
+  decide identity links. The server refuses its own descendants, but a local
+  adapter that detaches a process from the server's tree (its parent exits
+  and it is re-parented) is not caught. Nor is a reused PID: a descendant can
+  pass its connection to another process over `SCM_RIGHTS` and exit, and the
+  kernel still names the connecting PID, which may later belong to someone
+  else. Both come from adapters running as the service user; the real fix is
+  to run them under their own UID.
 - **The API's TLS material is read once.** A renewed API certificate needs a
   restart. (A remote adapter's files are reloaded.)
 - **Secret volumes.** A Kubernetes Secret mounted with the default mode 0644 is

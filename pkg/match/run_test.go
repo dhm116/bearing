@@ -229,6 +229,40 @@ func TestRunSkipsDistinctAndJoinedPairs(t *testing.T) {
 	}
 }
 
+// After a person undoes a distinct_from, the matcher proposes the pair once,
+// dated at the undo, and a rerun adds nothing. A closed distinct_from that a
+// person did not make is not an undo.
+func TestRunProposesOnceAfterAPersonUndoesADistinctFrom(t *testing.T) {
+	undo := t0.Add(day + day/2)
+	for _, tc := range []struct {
+		rule string
+		want int
+	}{{graph.PersonRule, 1}, {"rule/x", 0}} {
+		t.Run(tc.rule, func(t *testing.T) {
+			g := newFake()
+			g.links = []graph.Link{
+				{
+					ID: "P", A: "d-pay", B: "g-pay", Kind: graph.SameAs, Status: graph.Proposed, Rule: TransparentRule, ValidTo: t0.Add(day),
+					Deposits: []graph.Deposit{{At: t0.Add(day), Weight: 0.6, Features: map[string]float64{"name": 1, "score": 0.6}}},
+				},
+				{ID: "D", A: "d-pay", B: "g-pay", Kind: graph.DistinctFrom, Status: graph.Asserted, Rule: tc.rule, ValidTo: undo},
+			}
+			cfg := Config{Now: func() time.Time { return t0.Add(2 * day) }}
+			if res := mustRun(t, g, cfg); res.Proposed != tc.want {
+				t.Fatalf("got %+v, want %d proposed", res, tc.want)
+			}
+			if tc.want == 1 {
+				if d := g.links[2].Deposits[0]; !d.At.Equal(undo) {
+					t.Errorf("got the deposit at %v, want it at the undo, %v", d.At, undo)
+				}
+			}
+			if res := mustRun(t, g, cfg); res.Proposed != 0 || res.Reinforced != 0 {
+				t.Errorf("rerun: got %+v, want nothing new", res)
+			}
+		})
+	}
+}
+
 func TestRunRulesAssertLinks(t *testing.T) {
 	g := newFake()
 	cfg := Config{

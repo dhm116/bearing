@@ -137,6 +137,16 @@ func (g *graphStore) Records(ctx context.Context, kind model.Kind) (out []graph.
 	return out, err
 }
 
+// RecordsByID implements graph.Graph.
+func (g *graphStore) RecordsByID(ctx context.Context, ids []graph.EntityID) (out []graph.Record, err error) {
+	err = g.observe(ctx, "records_by_id", func(ctx context.Context) error {
+		out, err = g.next.RecordsByID(ctx, ids)
+		count(ctx, out)
+		return err
+	})
+	return out, err
+}
+
 // Links implements graph.Graph.
 func (g *graphStore) Links(ctx context.Context, f graph.LinkFilter) (out []graph.Link, err error) {
 	err = g.observe(ctx, "links", func(ctx context.Context) error {
@@ -160,4 +170,13 @@ func (g *graphStore) Link(ctx context.Context, ps []graph.Proposal) (res graph.L
 // CloseLink implements graph.Graph.
 func (g *graphStore) CloseLink(ctx context.Context, id string, at time.Time) error {
 	return g.observe(ctx, "close_link", func(ctx context.Context) error { return g.next.CloseLink(ctx, id, at) })
+}
+
+// Decide implements graph.Graph.
+func (g *graphStore) Decide(ctx context.Context, d graph.Decision) (res graph.LinkResult, err error) {
+	err = g.observe(ctx, "decide", func(ctx context.Context) error {
+		res, err = g.next.Decide(ctx, d)
+		return err
+	})
+	return res, err
 }

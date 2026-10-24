@@ -40,7 +40,7 @@ func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation, s
 func (w *world) api() *server.API {
 	w.t.Helper()
 	s, err := server.New(server.Config{
-		Log: w.store, Applier: nopApplier{}, Clock: w.clock,
+		Log: w.store, Applier: nopApplier{}, Links: w.store, Clock: w.clock,
 		Sources: []server.Source{{Name: githubSource, Adapter: w.adapter, Config: w.cfg}},
 	})
 	if err != nil {
@@ -48,7 +48,8 @@ func (w *world) api() *server.API {
 	}
 	api, err := server.NewAPI(server.APIConfig{
 		Server: s, Query: &query.Querier{Graph: w.store, Now: w.clock.Now},
-		CallerRate: server.RateLimit{PerMinute: -1},
+		CallerRate: server.RateLimit{PerMinute: -1}, DecideRate: server.RateLimit{PerMinute: -1},
+		LinkDecisions: server.LinkDecisionsToken,
 	})
 	if err != nil {
 		w.t.Fatal(err)

@@ -40,7 +40,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	if err := g.complete(ctx, r.Complete, r.SyncStarted); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)
 	}
-	if err := recluster(ctx, tx, g.dirty); err != nil {
+	if _, err := recluster(ctx, tx, g.dirty); err != nil {
 		return graph.IngestResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
