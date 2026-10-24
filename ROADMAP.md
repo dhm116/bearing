@@ -55,8 +55,12 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    [docs/mcp.md](docs/mcp.md)) is built; the `runtimes` tool joins it next,
    and an HTTP MCP endpoint on the server is later.
 6. **Config.** One server file plus one block per adapter, loaded at start.
-7. **Run it.** Docker Compose with the fakes; end-to-end tests for each
-   question.
+7. **Run it.** Done: `docker compose up` starts Bearing against the Acme
+   fakes (`compose.yaml`, `Dockerfile`, `cmd/bearing-demo-fakes`) and
+   [`docs/demo.md`](docs/demo.md) walks through the five questions, the
+   story's changes, a link review and `bearing mcp`; `internal/e2e` and
+   `cmd/bearing-demo-fakes` test each question end to end. The Compose stack
+   itself is tested only with `BEARING_TEST_COMPOSE=1`.
 
 ## Later
 

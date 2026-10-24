@@ -1,0 +1,59 @@
+# Bearing against the fictional Acme org's fakes. See docs/demo.md.
+# For demos only: the certificates, tokens and settings here are not for
+# any real system (docs/security/threat-model.md).
+#
+#   cp .env.example .env
+#   docker compose up -d --build
+name: bearing-demo
+
+services:
+  fakes:
+    build: .
+    image: bearing-demo
+    command: ["/usr/local/bin/bearing-demo-fakes", "-webhook-url", "https://bearing:8443/webhooks/github-acme"]
+    environment:
+      BEARING_SECRET_GITHUB_TOKEN: ${BEARING_SECRET_GITHUB_TOKEN:?copy .env.example to .env}
+      BEARING_SECRET_GITHUB_WEBHOOK: ${BEARING_SECRET_GITHUB_WEBHOOK:?copy .env.example to .env}
+      BEARING_SECRET_DIRECTORY_TOKEN: ${BEARING_SECRET_DIRECTORY_TOKEN:?copy .env.example to .env}
+      BEARING_SECRET_KUBERNETES_TOKEN: ${BEARING_SECRET_KUBERNETES_TOKEN:?copy .env.example to .env}
+    volumes:
+      - certs:/certs
+    ports:
+      # The control endpoint has no authentication: loopback only.
+      - "127.0.0.1:9090:8080"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/bearing-demo-fakes", "-ready"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  bearing:
+    image: bearing-demo
+    depends_on:
+      fakes:
+        condition: service_healthy
+    environment:
+      BEARING_API_TOKEN: ${BEARING_API_TOKEN:?copy .env.example to .env}
+      BEARING_SECRET_GITHUB_TOKEN: ${BEARING_SECRET_GITHUB_TOKEN:?copy .env.example to .env}
+      BEARING_SECRET_GITHUB_WEBHOOK: ${BEARING_SECRET_GITHUB_WEBHOOK:?copy .env.example to .env}
+      BEARING_SECRET_DIRECTORY_TOKEN: ${BEARING_SECRET_DIRECTORY_TOKEN:?copy .env.example to .env}
+      BEARING_SECRET_KUBERNETES_TOKEN: ${BEARING_SECRET_KUBERNETES_TOKEN:?copy .env.example to .env}
+      # The adapters (which the settings let see this variable) trust the
+      # demo CA that the fakes wrote.
+      SSL_CERT_FILE: /certs/ca.pem
+    volumes:
+      - data:/var/lib/bearing
+      - certs:/certs:ro
+    # The API socket's directory must be mode 0700 and the service user's.
+    tmpfs:
+      - /run/bearing:uid=65532,gid=65532,mode=0700
+    ports:
+      - "127.0.0.1:8443:8443"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+volumes:
+  data:
+  certs:

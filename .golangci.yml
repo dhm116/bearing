@@ -50,11 +50,14 @@ linters:
             - pkg: bearing.example/internal
               desc: depend on pkg/store and pkg/graph; open backends through store.Open
         # cmd/ may import the default backend, and nothing else from internal/.
+        # The demo tool serves the fakes, so it is the one command that may
+        # import internal/fakes (see its package comment).
         internal-packages-in-cmd:
           list-mode: lax
           files:
             - "**/cmd/**"
             - "!$test"
+            - "!**/cmd/bearing-demo-fakes/**"
           allow:
             - bearing.example/internal/duckstore
           deny:
@@ -86,12 +89,13 @@ linters:
           deny:
             - pkg: bearing.example/internal/testkit
               desc: testkit is for tests only
-        # Nor the fake source systems.
+        # Nor the fake source systems, except the demo tool that serves them.
         fakes:
           files:
             - $all
             - "!$test"
             - "!**/internal/fakes/**"
+            - "!**/cmd/bearing-demo-fakes/**"
           deny:
             - pkg: bearing.example/internal/fakes
               desc: fakes are for tests only

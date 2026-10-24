@@ -10,12 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"testing"
 	"time"
 )
 
 // KubernetesOptions configures [NewKubernetes].
 type KubernetesOptions struct {
+	// Listen says where the fake listens; the zero value is a test server.
+	Listen
 	// Token is the bearer token the fake accepts. Any other token, and a
 	// request with none, gets the API server's 401. Empty accepts any
 	// non-empty token.
@@ -42,11 +43,11 @@ type Kubernetes struct {
 
 // NewKubernetes starts the Kubernetes fake for cluster. It is closed when
 // the test ends.
-func NewKubernetes(t testing.TB, cluster *Cluster, opts KubernetesOptions) *Kubernetes {
+func NewKubernetes(t TB, cluster *Cluster, opts KubernetesOptions) *Kubernetes {
 	t.Helper()
 	kb := &Kubernetes{server: &server{}, cluster: cluster, token: opts.Token}
 	kb.expire.Store(opts.ExpireContinue)
-	kb.start(t, http.HandlerFunc(kb.serve))
+	kb.start(t, opts.Listen, http.HandlerFunc(kb.serve))
 	return kb
 }
 

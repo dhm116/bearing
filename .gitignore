@@ -16,3 +16,4 @@ cover-*.out
 .worktrees/
 /bearing
 .DS_Store
+/demo-ca.pem

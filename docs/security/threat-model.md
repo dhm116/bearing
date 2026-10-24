@@ -30,6 +30,14 @@ the code already uses.
 | Remote adapter | A process on another host | Mutual TLS 1.3, each side's certificate from a CA it trusts and, optionally, holding the SPIFFE ID it expects (below) |
 | Settings file and adapter commands | An operator | File ownership and mode checks at start (C-OPS-3) |
 
+The Docker Compose demo (`compose.yaml`, `demo/settings.json`,
+`cmd/bearing-demo-fakes`, [`docs/demo.md`](../demo.md)) is for demos only.
+Its CA and certificates are generated into a shared volume by the fakes, its
+tokens are the made-up values of `.env.example`, the fakes' control endpoint
+has no authentication (Compose publishes it on loopback only), and the
+adapters trust the demo CA through `SSL_CERT_FILE`. Do not point it at a real
+source system, and do not reuse any of it in a deployment.
+
 Adapter output is untrusted even from first-party adapters: the server
 validates every observation with `pkg/model` before it is stored.
 
