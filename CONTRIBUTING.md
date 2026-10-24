@@ -33,11 +33,32 @@ on `tcp://host:port` and serves mutual TLS (TLS 1.3), with three PEM files
 named by variables: `BEARING_ADAPTER_TLS_CERT` and `BEARING_ADAPTER_TLS_KEY`
 (its certificate and key; the key readable by its owner only) and
 `BEARING_ADAPTER_TLS_CLIENT_CA` (the CA whose client certificates may call
-it; that CA must issue only Bearing core certificates, because any
-certificate from it can call `Sync` and `Handle`). `adapter.Main` refuses to listen without all three; the server's
+it). `adapter.Main` refuses to listen without all three; the server's
 settings name the matching `tls.ca_file`, `tls.cert_file` and
-`tls.key_file`. Certificates are read at start, so a new one needs a
-restart. Try it with
+`tls.key_file`. The files are read again when they change, so a rotated
+certificate needs no restart.
+
+Without a peer ID, any certificate from the client CA can call `Sync` and
+`Handle`, so that CA must issue only Bearing core certificates. To share a
+CA (a SPIRE trust domain, say), name the SPIFFE ID each side must present:
+`BEARING_ADAPTER_TLS_PEER_ID` on the adapter (the core's ID), and
+`tls.peer_id` in the server's settings or `--tls-peer-id` on the CLI (the
+adapter's ID, checked in place of a host name, so not with `server_name`).
+With SPIRE, `spiffe-helper` keeps the three files current:
+
+```hcl
+# helper.conf, for the adapter (the core's is the same with its own paths)
+agent_address = "/run/spire/agent.sock"
+cert_dir = "/run/bearing-adapter/tls"
+svid_file_name = "svid.pem"            # BEARING_ADAPTER_TLS_CERT
+svid_key_file_name = "svid_key.pem"    # BEARING_ADAPTER_TLS_KEY
+svid_bundle_file_name = "bundle.pem"   # BEARING_ADAPTER_TLS_CLIENT_CA
+key_file_mode = 0600                   # Bearing refuses a key others can read
+cert_file_mode = 0644
+daemon_mode = true
+```
+
+Try it with
 `bearing adapter describe -- <your binary>` and `bearing adapter sync`.
 
 Secrets reach an adapter the server starts as environment variables. A

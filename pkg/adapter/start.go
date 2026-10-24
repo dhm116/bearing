@@ -193,6 +193,7 @@ func (p *Process) Kill() error {
 // Close asks the adapter to exit (SIGTERM), kills it if it hasn't after 5
 // seconds, and returns how it exited.
 func (p *Process) Close() error {
+	p.Remote.Close()
 	_ = p.cmd.Process.Signal(syscall.SIGTERM) // one that already exited is fine
 	select {
 	case <-p.exited:

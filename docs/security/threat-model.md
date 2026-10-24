@@ -26,7 +26,7 @@ the code already uses.
 | API TCP listener | Anyone who can reach the port | TLS, a bearer token of at least 32 bytes, per-peer connection and request limits before the token is checked (C-API-2, C-API-3, C-API-6) |
 | Webhook route (`POST /webhooks/{source}`) | A source system, or anyone pretending to be one | The source's HMAC signature, checked before the body is parsed or logged (C-INGEST-1, C-INGEST-2) |
 | Local adapter | A process the server starts | A private socket directory (mode 0700) and an environment the server builds (C-SECRET-3) |
-| Remote adapter | A process on another host | Mutual TLS 1.3 with a CA dedicated to Bearing (below) |
+| Remote adapter | A process on another host | Mutual TLS 1.3, each side's certificate from a CA it trusts and, optionally, holding the SPIFFE ID it expects (below) |
 | Settings file and adapter commands | An operator | File ownership and mode checks at start (C-OPS-3) |
 
 Adapter output is untrusted even from first-party adapters: the server
@@ -40,11 +40,25 @@ read-only against their source by convention, not by enforcement.
 
 The core and a remote adapter each present a certificate that the other
 checks against a CA it was configured with, never the system roots, over
-TLS 1.3. There is no shared secret. The adapter's client CA must issue only
-Bearing core certificates: any certificate from it can call `Sync` and
-`Handle`. The server refuses a CA, certificate or key file that group or
-others can write, or that someone other than the service user or root owns,
-and the dialer refuses a key others can read.
+TLS 1.3. There is no shared secret. Bearing issues no certificates: SPIRE
+(through `spiffe-helper`) or any other CA does
+([ADR 9](../adr/0009-spiffe-compatible-mtls.md)).
+
+Without a peer ID, any certificate the CA issues is accepted, so the
+adapter's client CA must issue only Bearing core certificates (any of them
+can call `Sync` and `Handle`). With a peer ID (`tls.peer_id` on the server,
+`BEARING_ADAPTER_TLS_PEER_ID` on the adapter), a shared CA such as a SPIRE
+trust domain is safe: each side also requires the other's certificate to
+hold exactly one URI SAN, the SPIFFE ID it expects. The core then checks the
+ID in place of a host name, verifying the chain itself (C-ADAPTER-1).
+
+Both sides re-read their CA, certificate and key when a file changes, at
+most once a second, so short-lived certificates rotate without a restart. A
+file that fails to load (half written, unsafe mode) leaves the last good one
+in use and logs a warning naming the setting and path, never the contents.
+The server refuses a CA, certificate or key file that group or others can
+write, or that someone other than the service user or root owns, and every
+load, first or reload, refuses a key others can read.
 
 ## What an adapter is given
 
@@ -62,8 +76,30 @@ credentials; the server never sends it any.
 
 ## Controls
 
-**API**
+**Remote adapters**
 
+- **C-ADAPTER-1** With a peer ID set, a certificate must hold exactly one URI
+  SAN, equal to it byte for byte as written in the certificate (so `#`, `?`
+  or user info that parsing would drop is refused). Neither side accepts a
+  peer certificate marked as a CA. The core verifies the adapter's chain against its CA
+  (intermediates from the handshake, server-auth usage, the current time)
+  before the ID, since it turns off crypto/tls's host name check. A peer ID
+  that is not a SPIFFE ID, or one given with a server name, stops the start
+  without echoing the value.
+- **C-ADAPTER-2** TLS files are re-read when their inode, size or modification
+  time changes. At start and on every reload, in the core and in the
+  adapter, each file is opened without blocking and checked on the open
+  descriptor: a regular file, not writable by group or others, a key not
+  readable by them, at most 1 MiB, and owned by the process's user or root.
+  A failed reload keeps the last good files, is retried, and is logged once
+  per change of the files; other handshakes go on with the last good files
+  while one reloads. The adapter issues no session tickets, so a session
+  from before a CA rotation cannot be resumed after it.
+  The directories holding the files are not checked: they must be writable
+  only by the service user or root, or a symlink there can point at any
+  root-owned file (the system trust bundle, for one).
+
+**API**
 - **C-API-1** The socket's directory is mode 0700 and the service user's, the
   socket is 0600, and a peer whose UID is neither the service user's nor
   root's is closed before it sends anything. The caller is recorded as
@@ -144,9 +180,8 @@ Each is in [`edge-cases.md`](../edge-cases.md) with an example and a fix.
 
 - **No roles or per-caller identity.** Every authenticated API caller may call
   every route, and every holder of the API token is the same caller.
-- **TLS material is read once.** A renewed certificate needs a restart, and a
-  CA or key file is checked by path before it is read, so a swap in between
-  is not caught.
+- **The API's TLS material is read once.** A renewed API certificate needs a
+  restart. (A remote adapter's files are reloaded.)
 - **Secret volumes.** A Kubernetes Secret mounted with the default mode 0644 is
   refused until `defaultMode` is 0400.
 - **Handshake failures are logged at Debug only.** A TLS scan is bounded by the

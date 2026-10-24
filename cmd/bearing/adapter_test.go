@@ -233,6 +233,10 @@ func TestRunAdapterCommandsReachARunningAdapterOverMutualTLS(t *testing.T) {
 	if err := run(t.Context(), []string{"adapter", "describe", "--address", addr, "--tls-ca", f.CA, "--tls-cert", other.ClientCert, "--tls-key", other.ClientKey}, &bytes.Buffer{}); err == nil {
 		t.Fatal("a call with an untrusted client certificate succeeded")
 	}
+	// --tls-peer-id reaches the dial: this certificate holds no SPIFFE ID.
+	if err := run(t.Context(), append([]string{"adapter", "describe", "--tls-peer-id", "spiffe://acme.test/adapter/fake"}, tlsArgs...), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "URI SANs") {
+		t.Fatalf("got %v, want the adapter refused for holding no SPIFFE ID", err)
+	}
 }
 
 func TestRunAdapterCommandsRefuseAnAddressAndACommandOrNeither(t *testing.T) {

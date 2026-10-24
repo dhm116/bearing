@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -215,14 +216,21 @@ type DialConfig struct {
 	// Required for https; the key must be readable by its owner only.
 	CertFile, KeyFile string
 	// ServerName is the name the adapter's certificate must hold; empty
-	// means the address's host.
+	// means the address's host. Not with PeerID.
 	ServerName string
+	// PeerID, when set, is the SPIFFE ID the adapter's certificate must hold,
+	// checked in place of a host name (an SVID usually has none).
+	PeerID string
+	// Now is the clock for certificate validity and how often the TLS files
+	// are looked at again; nil means time.Now.
+	Now func() time.Time
 }
 
 // Remote is an Adapter reached over the adapter service.
 type Remote struct {
 	name   string
 	client adapterv1alpha1connect.AdapterServiceClient
+	tr     *http.Transport
 }
 
 var _ Adapter = (*Remote)(nil)
@@ -249,8 +257,23 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 		protocols.SetUnencryptedHTTP2(true)
 		base = "http://adapter"
 	case "https":
-		if tr.TLSClientConfig, err = clientTLS(c); err != nil {
+		r, err := clientTLS(c, u.Hostname())
+		if err != nil {
 			return nil, err
+		}
+		// Each connection takes the current files, so rotated ones are
+		// used without a restart.
+		tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			tc := tls.Client(conn, r.current(ctx))
+			if err := tc.HandshakeContext(ctx); err != nil {
+				_ = conn.Close()
+				return nil, err
+			}
+			return tc, nil
 		}
 		protocols.SetHTTP2(true)
 	default:
@@ -263,11 +286,16 @@ func Dial(name string, c DialConfig) (*Remote, error) {
 	}
 	opts := []connect.ClientOption{connect.WithGRPC(), connect.WithInterceptors(otel), connect.WithReadMaxBytes(maxMessage)}
 	hc := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &Remote{name: name, client: adapterv1alpha1connect.NewAdapterServiceClient(hc, base, opts...)}, nil
+	return &Remote{name: name, client: adapterv1alpha1connect.NewAdapterServiceClient(hc, base, opts...), tr: tr}, nil
 }
 
 // Name is the adapter's configured name, for telemetry and errors.
 func (r *Remote) Name() string { return r.name }
+
+// Close drops the idle connections, so the next call dials again and
+// handshakes with the TLS files as they are now. A call in flight is not
+// interrupted, and the Remote stays usable.
+func (r *Remote) Close() { r.tr.CloseIdleConnections() }
 
 // Describe implements Adapter.
 func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
