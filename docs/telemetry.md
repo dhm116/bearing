@@ -17,7 +17,7 @@ Standard OpenTelemetry environment variables:
 | `OTEL_TRACES_EXPORTER` | `otlp`, `console`, `none` | `otlp` if an endpoint is set, else `none` |
 | `OTEL_METRICS_EXPORTER` | `otlp`, `console`, `none` | `otlp` if an endpoint is set, else `none` |
 | `OTEL_LOGS_EXPORTER` | `otlp`, `console`, `none` | `otlp` if an endpoint is set, else `console` for `bearing server` and `none` for other commands (they print a failed command as one `bearing: …` line) |
-| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | as in the OTel spec | per binary |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | as in the OTel spec | per binary: `bearing server` is `bearing-server`, every other `bearing` command `bearing-cli` |
 | `BEARING_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
 
 Other `OTEL_EXPORTER_OTLP_*` variables (headers, per-signal endpoints,
@@ -63,7 +63,7 @@ Causes are connected by span links, not parents:
 
 | Span | Kind | Where | Key attributes |
 | --- | --- | --- | --- |
-| `bearing <command>` | internal | CLI, one per invocation (none for `bearing server`) | |
+| `bearing <command>` | internal | CLI, one per invocation (none for `bearing server` and `bearing mcp`, which run for the life of the process) | |
 | `server.start` | internal | `bearing server`, around loading the settings and assembling the server; ends before the server serves | |
 | `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
@@ -72,18 +72,18 @@ Causes are connected by span links, not parents:
 | `github.sync repos`, `github.sync teams` | internal | GitHub adapter, per page | `bearing.github.org`, `bearing.github.sync.phase`, `bearing.github.sync.page` |
 | `kubernetes.sync <phase>` | internal | Kubernetes adapter, per list request (phases `namespaces`, `services`, `index`, `workloads`) | `bearing.kubernetes.cluster`, `bearing.kubernetes.sync.phase` |
 | `authentik.sync <phase>` | internal | Authentik adapter, per list page (phases `connections`, `users`, `index`, `groups`) | `bearing.authentik.sync.phase` |
-| `mcp.tool <name>` | internal | `bearing mcp`, one per tool call | `bearing.result` (`ok`, or the error code such as `not_found`). Never the arguments |
+| `mcp.tool <name>` | internal | `bearing mcp`, one per tool call | `bearing.result` (`ok`, or the error code such as `not_found`). Never the arguments. A new root: `bearing mcp` has no span around it |
 | `ingest.webhook` | server | core, one per webhook delivery, whatever its result | `bearing.source` (the configured source; absent for an unknown route), `bearing.result` |
 | `worker.process` | internal | core, one per event an apply worker handles, including its retries | `bearing.source`, `bearing.event.type` (`other` for a type the server does not know), `bearing.event.id`, `bearing.eventlog.offset`, `bearing.dead_letter` when it gave up. A new root, with a link to the span that appended the event |
 | `scheduler.sync` | internal | core (a new root), one per scheduled sync tick | `bearing.source` |
 | `retention.trim` | internal | core (a new root), one per trim of the event log | |
-| `match.run` | internal | core (a new root, linked to the `worker.process` spans of the syncs that woke it), one per matching run after a sync's last page | `bearing.source` |
+| `match.run` | internal | core (a new root, linked to the `worker.process` spans of the syncs that woke it), one per matching run after a sync's last page | |
 | `api.request` | server | core, one per API request, whatever its answer | `bearing.request.id`, `bearing.authz.method` (including `query.runtimes`), `bearing.result`. Never the caller or the request's parameters |
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `HTTP GET`, `HTTP POST` | client | `bearing` command line, per request to a server (otelhttp, `pkg/apiclient`) | `http.response.status_code`, `url.full`. The question is in the URL's query; the bearer token never is |
 | `graph.<operation>` | client | any graph opened through `store.Open`: `graph.ingest`, `graph.entity`, `graph.find`, `graph.facts`, `graph.walk`, `graph.changes`, `graph.records`, `graph.records_by_id`, `graph.links`, `graph.link` (open or reinforce an identity link), `graph.close_link`, `graph.decide` (a person's decision on a link) | `db.operation.name`; `bearing.results.count` on `graph.ingest` (observations given) and the list reads |
-| `eventlog.<operation>` | client | any event log opened through `store.Open`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release |
+| `eventlog.<operation>` | client | any event log opened through `store.Open`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release. Only when the caller's context has a span: a call outside any unit of work (the workers' idle polls, the dead-letter count) records its metric and starts no span, since it would be a one-span trace of its own |
 
 `db.system.name` on the event log is `duckdb`. A failed graph call is recorded on its span with `error.type`; `graph.ErrNotFound` is an answer, not a failure.
 

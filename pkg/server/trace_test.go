@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/store"
 )
@@ -182,5 +185,111 @@ func TestScheduledSyncAndTrimStartNewRoots(t *testing.T) {
 		if !found {
 			t.Errorf("no root %s span", name)
 		}
+	}
+}
+
+// A delivery's worker.process span links to the ingest.webhook span that
+// logged it, end to end through a shared log.
+func TestWebhookDeliveryLinksToItsWorkerSpan(t *testing.T) {
+	h := newHarness(t)
+	r := newRig(t, func(c *IngestConfig) {
+		c.Log = h.mem
+		c.Sources[0].Name = testSource
+	})
+	body := []byte(`{"zen":"x"}`)
+	r.post("/webhooks/"+testSource, body, signed(body))
+	es := h.entries(testSource)
+	if len(es) != 1 {
+		t.Fatalf("got %d events, want the delivery", len(es))
+	}
+	h.start()
+	waitFor(t, "the delivery to be applied", func() bool { return h.drained(testSource) })
+	hooks := spansNamed("ingest.webhook", func(sp trace.ReadOnlySpan) bool {
+		return sp.SpanContext().SpanID() == store.SpanContextOf(es[0].TraceParent, "").SpanID()
+	})
+	ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, es[0].ID) })
+	if len(hooks) != 1 || len(ws) != 1 || !linksTo(ws[0], hooks[0].SpanContext()) {
+		t.Fatalf("got %d ingest.webhook and %d worker.process spans, want one each, linked", len(hooks), len(ws))
+	}
+}
+
+// A link decision and a dead letter store the trace context of the span that
+// appended them: the caller's, and the failed event's worker.process.
+func TestLinkDecisionAndDeadLetterStoreTheirAppendersSpan(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	ctx, span := tracer.Start(t.Context(), "test.caller")
+	defer span.End()
+	logged, err := h.s.DecideLink(ctx, LinkDecision{Kind: graph.Join, A: "github:team/acme/a", B: "kubernetes:team/b"}, &eventv1alpha1.Actor{Subject: "person:test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decided store.Entry
+	for _, e := range h.entries(identityPartition) {
+		if e.ID == logged.ID {
+			decided = e
+		}
+	}
+	if sc := store.SpanContextOf(decided.TraceParent, decided.TraceState); sc.SpanID() != span.SpanContext().SpanID() {
+		t.Errorf("link decision traceparent %q, want the caller's span %v", decided.TraceParent, span.SpanContext())
+	}
+
+	evID := fmt.Sprintf("trace-s1-%d", time.Now().UnixNano()) // spans are recorded process-wide
+	h.append(testSource, evID, &eventv1alpha1.SyncRequested{Source: "someone-else"})
+	h.start()
+	waitFor(t, "the event to be given up on", func() bool { return h.drained(testSource) })
+	// The join of records that don't exist is dead-lettered too; pick the other.
+	var dls []store.Entry
+	for _, e := range h.entries("core/dead_letter") {
+		if e.ID == string(deadLetterPartition)+"/"+hexSHA256(testSource+"/"+evID) {
+			dls = append(dls, e)
+		}
+	}
+	ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, testSource+"/"+evID) })
+	if len(dls) != 1 || len(ws) != 1 {
+		t.Fatalf("got %d dead letters and %d worker.process spans, want one each", len(dls), len(ws))
+	}
+	if sc := store.SpanContextOf(dls[0].TraceParent, dls[0].TraceState); sc.SpanID() != ws[0].SpanContext().SpanID() {
+		t.Errorf("dead letter traceparent %q, want the worker.process span %v", dls[0].TraceParent, ws[0].SpanContext())
+	}
+}
+
+// Once an event is applied none of the event log calls is a root span, and an
+// idle server's polls make no spans at all.
+func TestEventLogCallsAreNeverRootSpansAndIdlePollsMakeNone(t *testing.T) {
+	st, err := store.Open(t.Context(), store.Config{URL: "mem://"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := newHarness(t, func(c *Config) { c.Log = st.Events() })
+	h.start()
+	if _, err := st.Events().Append(t.Context(), []store.Event{{
+		ID: testSource + "/e1", Partition: testSource, Type: futureType, Time: time.Now(), Data: []byte(`{}`),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the event to be committed", func() bool {
+		o, err := st.Events().Committed(t.Context(), DefaultGroup, testSource)
+		return err == nil && o >= 1
+	})
+	eventlogSpans := func() (n int) {
+		for _, sp := range spans.Ended() {
+			if strings.HasPrefix(sp.Name(), "eventlog.") {
+				n++
+				if !sp.Parent().IsValid() {
+					t.Errorf("%s is a root span, want a child of an event's span", sp.Name())
+				}
+			}
+		}
+		return n
+	}
+	// The commit is under worker.process, so it was traced.
+	if eventlogSpans() == 0 {
+		t.Fatal("no eventlog span under worker.process")
+	}
+	before := eventlogSpans()
+	time.Sleep(60 * time.Millisecond) // a dozen idle polls at the harness's 5 ms
+	if after := eventlogSpans(); after != before {
+		t.Errorf("idle polls made %d event log spans, want none", after-before)
 	}
 }

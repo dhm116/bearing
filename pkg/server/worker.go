@@ -153,24 +153,34 @@ func (s *Server) drain(ctx context.Context, p store.Partition) error {
 			if err := s.process(ctx, e); err != nil {
 				return err
 			}
-			if err := s.cfg.Log.Commit(ctx, s.cfg.Group, p, e.Offset); err != nil {
-				return fmt.Errorf("commit %s at %d: %w", p, e.Offset, err)
-			}
 			after = e.Offset
 		}
 	}
 }
 
-// process handles one entry, trying again when it fails, and gives up on it
-// after MaxAttempts (a dead letter). It returns nil once the entry is applied
-// or given up on, and an error only when the caller should stop: the context
-// ended or the log or store would not take the dead letter.
+// process handles one entry, trying again when it fails, gives up on it
+// after MaxAttempts (a dead letter), and commits its offset. It returns nil
+// once the entry is applied or given up on, and an error only when the caller
+// should stop: the context ended or the log or store would not take the dead
+// letter or the commit. The commit is inside the event's span, so the log
+// calls it makes belong to the event's trace.
 func (s *Server) process(ctx context.Context, e store.Entry) error {
 	// Each event is its own trace, linked to the span that appended it.
 	ctx, span := tracer.Start(ctx, "worker.process", trace.WithNewRoot(), trace.WithLinks(linkTo(&e.Event)...),
 		trace.WithAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
 			attribute.String("bearing.event.id", e.ID), attribute.Int64("bearing.eventlog.offset", int64(e.Offset))))
 	defer span.End()
+	if err := s.attempt(ctx, span, e); err != nil {
+		return err
+	}
+	if err := s.cfg.Log.Commit(ctx, s.cfg.Group, e.Partition, e.Offset); err != nil {
+		return fmt.Errorf("commit %s at %d: %w", e.Partition, e.Offset, err)
+	}
+	return nil
+}
+
+// attempt is process's retry loop.
+func (s *Server) attempt(ctx context.Context, span trace.Span, e store.Entry) error {
 	log := telemetry.Logger(pkgName)
 
 	attempts := 0

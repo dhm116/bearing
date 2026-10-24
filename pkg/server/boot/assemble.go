@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -62,9 +63,15 @@ type Running struct {
 // Start loads the settings file and assembles the server under a short
 // server.start span that ends before the server runs, so that nothing the
 // server does later is a child of it.
-func Start(ctx context.Context, file string, env Env) (*Running, error) {
+func Start(ctx context.Context, file string, env Env) (r *Running, err error) {
 	ctx, span := tracer.Start(ctx, "server.start", trace.WithNewRoot())
-	defer span.End()
+	defer func() {
+		if err != nil { // the caller reports it; the span only has to show it failed
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "server start failed")
+		}
+		span.End()
+	}()
 	s, err := Load(file)
 	if err != nil {
 		return nil, err

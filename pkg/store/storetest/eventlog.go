@@ -138,15 +138,21 @@ func EventLog(t *testing.T, newLog func(t *testing.T) (store.EventLog, Clock)) {
 
 	t.Run("A repeated ID writes nothing and returns the original position", func(t *testing.T) {
 		l, _ := fresh(t)
-		first := appendOne(t, l, event("github-acme", "d1"))
+		const tp1 = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+		const tp2 = "00-1af7651916cd43dd8448eb211c80319c-c7ad6b7169203331-01"
+		d1 := event("github-acme", "d1")
+		d1.TraceParent, d1.TraceState = tp1, "a=b"
+		first := appendOne(t, l, d1)
 		second := appendOne(t, l, event("github-acme", "d2"))
 		changed := event("github-acme", "d1")
 		changed.Data = []byte(`{"different":true}`)
+		changed.TraceParent, changed.TraceState = tp2, "c=d"
 		again := appendOne(t, l, changed)
 		ensure(t, again.Duplicate && again.Offset == first.Offset && again.Partition == first.Partition, "got %+v, want a duplicate of %+v", again, first)
 		es := read(t, l, "github-acme", 0, 10)
 		g := ids(es)
 		ensure(t, slices.Equal(g, []string{"github-acme/d1", "github-acme/d2"}) && string(es[0].Data) == `{"id":"d1"}`, "log after a duplicate: %v; want the original kept and nothing added", g)
+		ensure(t, es[0].TraceParent == tp1 && es[0].TraceState == "a=b", "duplicate trace = %q %q, want the first one kept", es[0].TraceParent, es[0].TraceState)
 		next := appendOne(t, l, event("github-acme", "d3"))
 		ensure(t, next.Offset > second.Offset, "next offset = %d, want above %d", next.Offset, second.Offset)
 	})

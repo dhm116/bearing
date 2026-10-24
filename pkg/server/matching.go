@@ -31,7 +31,8 @@ func (s *Server) runMatching(ctx context.Context) error {
 	}
 }
 
-// maxMatchLinks caps the syncs a matching run links to when many woke it.
+// maxMatchLinks caps the syncs a matching run links to when many woke it;
+// the cap keeps the first ones and drops later wakers.
 const maxMatchLinks = 16
 
 // signalMatching asks runMatching to run; a run already asked for covers it.
@@ -50,13 +51,15 @@ func (s *Server) signalMatching(ctx context.Context) {
 }
 
 func (s *Server) matchOnce(ctx context.Context) {
-	s.identityMu.Lock()
-	defer s.identityMu.Unlock()
-	m := s.cfg.Matching
+	// Take the wakers first: syncs that finish while this run waits for
+	// identityMu belong to the next run.
 	s.matchMu.Lock()
 	wakers := s.matchWakers
 	s.matchWakers = nil
 	s.matchMu.Unlock()
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	m := s.cfg.Matching
 	ctx, span := tracer.Start(ctx, "match.run", trace.WithNewRoot(), trace.WithLinks(wakers...))
 	defer span.End()
 	log := telemetry.Logger(pkgName)

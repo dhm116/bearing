@@ -45,12 +45,17 @@ type eventLog struct {
 
 // observe runs fn in a span and records its duration. ErrNotFound is an
 // expected outcome (a commit in a partition that doesn't exist yet), so it
-// doesn't mark the span.
+// doesn't mark the span. A call whose ctx has no span records its metric and
+// starts no span: it would be a one-span trace of its own, and the server's
+// idle polls make several a second.
 func (e *eventLog) observe(ctx context.Context, op string, attrs []attribute.KeyValue, fn func(context.Context) error) error {
 	base := []attribute.KeyValue{attrBackend.String(e.backend), attrOperation.String(op)}
-	ctx, span := tracer.Start(ctx, "eventlog."+op, trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(append(base, attrs...)...))
-	defer span.End()
+	span := trace.SpanFromContext(ctx)
+	if span.SpanContext().IsValid() {
+		ctx, span = tracer.Start(ctx, "eventlog."+op, trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(append(base, attrs...)...))
+		defer span.End()
+	}
 	start := time.Now()
 	err := fn(ctx)
 	if err != nil && !errors.Is(err, ErrNotFound) {

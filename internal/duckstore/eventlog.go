@@ -58,7 +58,7 @@ func (s *Store) Append(ctx context.Context, events []store.Event) ([]store.Appen
 			}
 			head++
 			heads[e.Partition] = head
-			parent, state := store.CleanTrace(&e)
+			parent, state := store.CleanTrace(e.TraceParent, e.TraceState)
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO event_log (partition, off, id, type, time, data, retain, appended_at, traceparent, tracestate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
 				string(e.Partition), int64(head), e.ID, e.Type, e.Time.UTC().Truncate(time.Microsecond), e.Data, e.Retain, at, parent, state); err != nil {

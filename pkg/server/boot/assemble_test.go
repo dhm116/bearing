@@ -20,7 +20,9 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
 	"bearing.example/adapters/github"
 	_ "bearing.example/internal/duckstore" // registers the mem scheme
@@ -639,11 +641,72 @@ func TestAssembleRefusesALocalAdapterOnAnotherProtocolVersion(t *testing.T) {
 	}
 }
 
-// Start opens a short server.start span that has ended before the server
-// runs, and nothing started afterwards is its child.
+// Start opens a short server.start root span that has ended before the server
+// runs, even when the caller's context carries a span, and the adapter
+// processes it starts do not inherit a span.
 func TestStartEndsItsSpanBeforeTheServerRuns(t *testing.T) {
 	installCapture()
 	w := newWorld(t, nil)
+	file := w.writeSettings(t)
+	parent, parentSpan := tracer.Start(t.Context(), "test.process-long-span")
+	defer parentSpan.End()
+	r, err := Start(parent, file, Env{Getenv: w.getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.procs) == 0 {
+		t.Fatal("no local adapter in the world, want one")
+	}
+	for _, m := range r.procs {
+		if trace.SpanContextFromContext(m.ctx).IsValid() {
+			t.Error("the adapter's launch context carries a span, want none")
+		}
+	}
+	stop := run(t, r)
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	var starts []sdktrace.ReadOnlySpan
+	for _, sp := range spanLog.Ended() {
+		if sp.Name() == "server.start" {
+			starts = append(starts, sp)
+		}
+	}
+	if len(starts) == 0 {
+		t.Fatal("no ended server.start span")
+	}
+	start := starts[len(starts)-1]
+	if start.Parent().IsValid() || start.SpanContext().TraceID() == parentSpan.SpanContext().TraceID() {
+		t.Errorf("server.start has parent %v, want a new root", start.Parent())
+	}
+	for _, sp := range spanLog.Ended() {
+		if sp.Parent().SpanID() == start.SpanContext().SpanID() && sp.StartTime().After(start.EndTime()) {
+			t.Errorf("span %q started after server.start ended and is its child", sp.Name())
+		}
+	}
+}
+
+// A start that fails shows on its span.
+func TestStartRecordsAFailureOnItsSpan(t *testing.T) {
+	installCapture()
+	before := len(spanLog.Ended())
+	if _, err := Start(t.Context(), filepath.Join(t.TempDir(), "missing.json"), Env{}); err == nil {
+		t.Fatal("Start succeeded on a missing settings file")
+	}
+	var got []sdktrace.ReadOnlySpan
+	for _, sp := range spanLog.Ended()[before:] {
+		if sp.Name() == "server.start" {
+			got = append(got, sp)
+		}
+	}
+	if len(got) != 1 || got[0].Status().Code != codes.Error || len(got[0].Events()) == 0 {
+		t.Fatalf("got %v, want one server.start span with an error status and the error recorded", got)
+	}
+}
+
+// writeSettings writes the world's settings to a file and returns its path.
+func (w *world) writeSettings(t *testing.T) string {
+	t.Helper()
 	b, err := json.Marshal(w.settings)
 	if err != nil {
 		t.Fatal(err)
@@ -652,27 +715,5 @@ func TestStartEndsItsSpanBeforeTheServerRuns(t *testing.T) {
 	if err := os.WriteFile(file, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Start(t.Context(), file, Env{Getenv: w.getenv})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stop := run(t, r)
-	time.Sleep(50 * time.Millisecond) // let the server start work
-	if err := stop(); err != nil {
-		t.Fatal(err)
-	}
-	var start sdktrace.ReadOnlySpan
-	for _, sp := range spanLog.Ended() {
-		if sp.Name() == "server.start" && !sp.Parent().IsValid() {
-			start = sp
-		}
-	}
-	if start == nil {
-		t.Fatal("no ended server.start root span before the server ran")
-	}
-	for _, sp := range spanLog.Ended() {
-		if sp.Parent().SpanID() == start.SpanContext().SpanID() && sp.StartTime().After(start.EndTime()) {
-			t.Errorf("span %q started after server.start ended and is its child", sp.Name())
-		}
-	}
+	return file
 }
