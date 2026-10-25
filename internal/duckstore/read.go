@@ -75,8 +75,9 @@ func resolveID(ctx context.Context, db querier, id graph.EntityID) (graph.Entity
 	return graph.EntityID(got), nil
 }
 
-// entities loads the given clusters: each one's ID, the kind and name of its
-// oldest record that has them, every key, sorted, and its records.
+// entities loads the given clusters: each one's ID, kind, name (the oldest
+// record with a kind and a name, else the oldest record's), every key,
+// sorted, and its records.
 func entities(ctx context.Context, db querier, clusters []string) (map[string]graph.Entity, error) {
 	out := map[string]graph.Entity{}
 	if len(clusters) == 0 {
@@ -86,22 +87,27 @@ func entities(ctx context.Context, db querier, clusters []string) (map[string]gr
 	if err != nil {
 		return nil, err
 	}
-	described := map[string]bool{} // the cluster's name came from a record of a kind
-	for _, r := range recs {       // oldest first
+	for _, r := range recs { // oldest first
 		e := out[string(r.Cluster)]
 		e.ID = r.Cluster
 		if e.Kind == "" {
 			e.Kind = r.Kind
 		}
-		// A kindless record is a placeholder named after its key's tail
-		// ("jdoe"), so a described record's name ("Jane Doe") wins.
-		if e.Name == "" || (!described[string(r.Cluster)] && r.Kind != "") {
-			e.Name = r.Name
-			described[string(r.Cluster)] = r.Kind != ""
-		}
 		e.Keys = append(e.Keys, r.Keys...)
 		e.Records = append(e.Records, r)
 		out[string(r.Cluster)] = e
+	}
+	// A kindless record is a placeholder named after its key's tail ("jdoe"),
+	// so the oldest described record's name ("Jane Doe") wins over it.
+	for id, e := range out {
+		e.Name = e.Records[0].Name
+		for _, r := range e.Records {
+			if r.Kind != "" && r.Name != "" {
+				e.Name = r.Name
+				break
+			}
+		}
+		out[id] = e
 	}
 	for id, e := range out {
 		slices.Sort(e.Keys)

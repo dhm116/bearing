@@ -236,6 +236,12 @@ func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
 	}
 }
 
+// aliased adds aliases to the observed entity, which links it to the records
+// that carry those keys.
+func aliased(keys ...string) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) { d.Entity.Aliases = append(d.Entity.Aliases, keys...) }
+}
+
 // from is a member_of claim by key about the observed team, with a role when
 // one is given.
 func from(key, role string, absent bool) func(*modelv1alpha1.ObservationData) {
@@ -251,7 +257,8 @@ func from(key, role string, absent bool) func(*modelv1alpha1.ObservationData) {
 // newTeamQuerier returns a Querier over an Acme where billing is owned_by the
 // payments team. GitHub lists Raj (member) and Jane (maintainer) at minute 1,
 // Zoe joins at minute 20 and Raj is dropped at minute 30; the directory also
-// lists Jane, under a different key, without a role.
+// lists Jane under its own key (authentik:user/…), linked to her GitHub key by
+// an alias, without a role.
 func newTeamQuerier(t *testing.T) *query.Querier {
 	t.Helper()
 	s, err := duckstore.Open(context.Background(), duckstore.Config{Now: func() time.Time { return at(100) }, NewID: testkit.NewSeqIDs("e").NewID})
@@ -273,7 +280,10 @@ func newTeamQuerier(t *testing.T) *query.Querier {
 		ob("t1", 1, "Team", teamPay, attr("name", "Payments"), from(raj, "member", false), from(jane, "maintainer", false)),
 		ob("r1", 1, "Repository", billing, rel("owned_by", teamPay, false)),
 	)
-	ingest("directory", ob("d1", 2, "Team", teamPay, from(jane, "", false)))
+	const dirJane, dirTeam = "authentik:user/42", "authentik:group/payments"
+	ingest("directory",
+		ob("d0", 2, "Person", dirJane, attr("name", "Jane Doe"), aliased(jane)),
+		ob("d1", 2, "Team", dirTeam, attr("name", "Payments"), aliased(teamPay), from(dirJane, "", false)))
 	ingest("github-acme", ob("t2", 20, "Team", teamPay, from(zoe, "member", false)))
 	ingest("github-acme", ob("t3", 30, "Team", teamPay, from(raj, "", true)))
 	return &query.Querier{Graph: s, Now: func() time.Time { return at(50) }}
