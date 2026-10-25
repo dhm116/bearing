@@ -573,7 +573,10 @@ func (g *ingest) count(ctx context.Context, q string, args ...any) (n int, err e
 }
 
 func (g *ingest) refresh(ctx context.Context, id string, conf float64, quals string) error {
-	if _, err := g.exec(ctx, `UPDATE fact SET confidence = ?, qualifiers = ? WHERE id = ?`, conf, nullIfEmpty(quals), id); err != nil {
+	// A stale page must not replace what a newer observation said (a role).
+	if _, err := g.exec(ctx, `UPDATE fact SET confidence = ?, qualifiers = ? WHERE id = ?
+		AND ? >= coalesce((SELECT max(o.observed_at) FROM fact_source fs JOIN observation o ON o.id = fs.observation_id WHERE fs.fact_id = fact.id), ?)`,
+		conf, nullIfEmpty(quals), id, g.observed, g.observed); err != nil {
 		return err
 	}
 	g.res.Refreshed++

@@ -359,3 +359,17 @@ func TestIngestClosesAnOldListValuedFactOnTheNextDeclarationSync(t *testing.T) {
 		`api runtime {"file":"go.mod","language":"go","version":"1.21"} [5,open) x1`,
 	)
 }
+
+func TestOwnersRoleIgnoresAStaleObservation(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 30, "Person", "gh:user/jane", relWith("member_of", "gh:team/pay", "role", "maintainer")))
+	ingestOK(t, s, "gh", obs("o2", 20, "Person", "gh:user/jane", relWith("member_of", "gh:team/pay", "role", "member")))
+	facts, err := s.Facts(t.Context(), graph.FactFilter{Predicate: "member_of"})
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("got %v, %v, want one fact", facts, err)
+	}
+	if got := facts[0].Qualifiers["role"]; got != "maintainer" {
+		t.Errorf("got role %v, want maintainer", got)
+	}
+}
