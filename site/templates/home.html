@@ -24,8 +24,8 @@
       <div class="chat__bearing">
         <img src="{{static "brand/bearing-mark.svg"}}" alt="Bearing" width="28" height="28">
         <div class="chat__bubble">
-          <p>The <strong>payments</strong> team approves every change to it.</p>
-          <ul class="chat__cite" aria-label="Sources"><li>GitHub</li><li>.github/CODEOWNERS, line 2</li><li>Certain</li></ul>
+          <p>The <strong>payments</strong> team approves every change to it. <strong>jdoe</strong> is its maintainer and <strong>Raj Patel</strong> is on it.</p>
+          <ul class="chat__cite" aria-label="Sources"><li>GitHub</li><li>.github/CODEOWNERS, line 2</li><li>Directory</li><li>Certain</li></ul>
         </div>
       </div>
     </div>
@@ -80,21 +80,29 @@
     <div class="asked__panes">
       <div class="pane">
         <p class="pane__bar pane__bar--term"><svg class="icon"><use href="#i-terminal"/></svg>Terminal</p>
-        <pre><code><span class="t-dim">$</span> bearing owner github:repo/acme/payments-api
+        <pre><code><span class="t-dim">$</span> bearing owner github:repo/acme/payments-api --members
 <span class="t-dim">owners of</span> <span class="t-acc">payments-api</span>
 approves_changes <span class="t-acc">payments</span> (file .github/CODEOWNERS, line 2): <span class="t-ok">asserted 100%</span>
-<span class="t-dim">  github-acme: observed …</span></code></pre>
+<span class="t-dim">  github-acme: observed …</span>
+
+<span class="t-dim">people on</span> <span class="t-acc">payments</span>
+  <span class="t-acc">jdoe</span>: maintainer, since 2026-03-01
+<span class="t-dim">    github-acme: observed …</span>
+<span class="t-dim">    directory: observed …</span>
+  <span class="t-acc">Raj Patel</span>: member, since 2025-06-01
+<span class="t-dim">    github-acme: observed …</span>
+<span class="t-dim">    directory: observed …</span></code></pre>
       </div>
       <div class="pane">
         <p class="pane__bar pane__bar--agent"><svg class="icon"><use href="#i-spark"/></svg>AI coding agent</p>
         <div class="agent">
           <p class="agent__you"><span class="t-dim">&gt;</span> Who should review my change to payments-api?</p>
           <p class="agent__tool"><span class="t-dim">Asked Bearing:</span> owners("github:repo/acme/payments-api")</p>
-          <p>The <span class="t-acc">payments</span> team approves every change to payments-api, according to its CODEOWNERS file (line 2), so your change needs their review.</p>
+          <p>The <span class="t-acc">payments</span> team approves every change to payments-api, according to its CODEOWNERS file (line 2), so your change needs their review. <span class="t-acc">jdoe</span> is the team's maintainer and <span class="t-acc">Raj Patel</span> is on it, from GitHub and the directory.</p>
         </div>
       </div>
     </div>
-    <p class="asked__note">The same answer from the same map, whether you ask in a terminal or your AI assistant asks for you.</p>
+    <p class="asked__note">The same answer from the same map, whether you ask in a terminal or your AI assistant asks for you. Bearing tells you who is on the team and their role, not who is on call or available today; that needs an on-call adapter, which is on the roadmap.</p>
   </div>
   <p class="hunt__moral">One question, one answer in seconds, and you can see where each part came from.</p>
   <p class="fine hunt__note">Acme is made up. The hunt is an illustration; the answers come from Bearing's demo, run on Acme's test data.</p>
