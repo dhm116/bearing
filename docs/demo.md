@@ -65,6 +65,28 @@ The answer is a fact from CODEOWNERS, with the file, the line and the
 observation it came from. `payments` is a GitHub team the directory also
 knows as a group, joined by a rule in the settings.
 
+Add `--members` for the people to contact: the people on the owning team,
+with their role in it and where each fact came from.
+
+```sh
+bin/bearing owner github:repo/acme/payments-api --members --server-ca demo-ca.pem
+```
+
+```
+people on payments [Team …] authentik:group/…
+  jdoe [Person …] authentik:user/…: maintainer, since 2026-03-01T00:00:00Z
+    github-acme: observed …
+    directory: observed …
+  Raj Patel [Person …] authentik:user/…: member, since 2025-06-01T00:00:00Z
+    github-acme: observed …
+    directory: observed …
+```
+
+This lists who is on the team and their role there. It does not say who is
+on call or available today; that needs an on-call adapter, which is on the
+[roadmap](../ROADMAP.md). An agent gets the people by default: `owners`
+returns them unless called with `members: false`.
+
 **2. Which services use Go below 1.22?**
 
 ```sh

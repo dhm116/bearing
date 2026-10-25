@@ -123,8 +123,12 @@ func TestQuestionsGoOutAsTheAPIExpectsThem(t *testing.T) {
 		},
 		"get now": {func() error { _, err := c.Get(t.Context(), "x", time.Time{}); return err }, "/v1/get", map[string]string{"ref": "x"}},
 		"owner": {
-			func() error { _, err := c.Owners(t.Context(), "github:repo/acme/a", at); return err }, "/v1/owner",
+			func() error { _, err := c.Owners(t.Context(), "github:repo/acme/a", at, false); return err }, "/v1/owner",
 			map[string]string{"ref": "github:repo/acme/a", "at": "2026-10-01T12:00:00.000000005Z"},
+		},
+		"owner with members": {
+			func() error { _, err := c.Owners(t.Context(), "x", time.Time{}, true); return err }, "/v1/owner",
+			map[string]string{"ref": "x", "members": "true"},
 		},
 		"related": {
 			func() error { _, err := c.Related(t.Context(), "x", "member_of", "in", 3, time.Time{}); return err }, "/v1/related",
@@ -212,7 +216,7 @@ func TestAnswersDecodeIntoTheQueryTypes(t *testing.T) {
 		t.Fatalf("got %+v, %v, want one match", ms, err)
 	}
 	// Fields a later version adds are not an error.
-	if _, err := c.Owners(t.Context(), "x", time.Time{}); err != nil {
+	if _, err := c.Owners(t.Context(), "x", time.Time{}, false); err != nil {
 		t.Fatalf("got %v, want an answer with an unknown field accepted", err)
 	}
 }
@@ -486,7 +490,7 @@ func TestANotFoundNamesWhatWasAskedAboutAndKeepsItsMeaning(t *testing.T) {
 		want string
 	}{
 		"get":     {func() error { _, err := c.Get(t.Context(), "github:repo/acme/gone", at); return err }, "nothing matches github:repo/acme/gone: "},
-		"owner":   {func() error { _, err := c.Owners(t.Context(), "github:repo/acme/gone", at); return err }, "nothing matches github:repo/acme/gone: "},
+		"owner":   {func() error { _, err := c.Owners(t.Context(), "github:repo/acme/gone", at, false); return err }, "nothing matches github:repo/acme/gone: "},
 		"related": {func() error { _, err := c.Related(t.Context(), "01a0", "", "", 0, at); return err }, "nothing matches 01a0: "},
 		"changes": {func() error {
 			_, err := c.Changes(t.Context(), "github:repo/acme/gone", time.Time{}, at, 0)

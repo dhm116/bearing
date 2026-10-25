@@ -40,6 +40,8 @@ const (
 	// MaxFindText bounds the text Find looks for, in bytes: a name is short,
 	// and the store scores the text against every entity.
 	MaxFindText = 256
+	// MaxTeamMembers bounds the people Owners lists per owning team.
+	MaxTeamMembers = 50
 	// defaultWindow is how far back Changes looks when no start is given.
 	defaultWindow = 24 * time.Hour
 )
@@ -114,6 +116,29 @@ type Entity struct {
 type Ownership struct {
 	Subject Ref    `json:"subject"`
 	Owners  []Fact `json:"owners"`
+	// Teams are the people on each owning team; only when asked for
+	// (members), and only for owners that are teams.
+	Teams []TeamMembers `json:"teams,omitempty"`
+}
+
+// TeamMembers is the people on one owning team at the answer's time.
+type TeamMembers struct {
+	Team    Ref      `json:"team"`
+	Members []Member `json:"members"`
+	// Truncated is set when the team has more than MaxTeamMembers people.
+	Truncated bool `json:"members_truncated,omitempty"`
+}
+
+// Member is a person with a current member_of fact to a team.
+type Member struct {
+	Ref
+	// Role is the team role a source gives ("maintainer" or "member" on
+	// GitHub); empty when none does.
+	Role string `json:"role,omitempty"`
+	// Since is when the membership was first observed.
+	Since time.Time `json:"since"`
+	// Sources are the observations behind the membership, as for a Fact.
+	Sources []Source `json:"sources"`
 }
 
 // Relations is the answer to Related.
@@ -174,8 +199,10 @@ func (q *Querier) Get(ctx context.Context, ref string, at time.Time) (*Entity, e
 
 // Owners returns the asserted owned_by facts of the entity at at or, when it
 // has none, its asserted approves_changes facts (CODEOWNERS). Each fact keeps
-// its predicate, so a caller sees which rule answered.
-func (q *Querier) Owners(ctx context.Context, ref string, at time.Time) (*Ownership, error) {
+// its predicate, so a caller sees which rule answered. With members it also
+// lists the people on each owning team (current members at at, maintainers
+// first); without, it asks the store nothing more.
+func (q *Querier) Owners(ctx context.Context, ref string, at time.Time, members bool) (*Ownership, error) {
 	e, err := q.entity(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -194,7 +221,76 @@ func (q *Querier) Owners(ctx context.Context, ref string, at time.Time) (*Owners
 	if out.Owners, err = l.facts(ctx, merge(facts)); err != nil {
 		return nil, err
 	}
+	if members {
+		if out.Teams, err = q.teams(ctx, l, out.Owners, at); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
+}
+
+// teams lists the people on each owner that is not a person.
+func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.Time) ([]TeamMembers, error) {
+	var out []TeamMembers
+	for _, o := range owners {
+		if o.Object == nil || o.Object.Kind == string(model.KindPerson) {
+			continue
+		}
+		facts, err := q.Graph.Facts(ctx, graph.FactFilter{Predicate: "member_of", Object: graph.EntityID(o.Object.ID), At: at})
+		if err != nil {
+			return nil, fmt.Errorf("members of %s: %w", o.Object.ID, err)
+		}
+		// Teams in teams are not people; skip them.
+		people := []Member{}
+		for _, f := range merge(facts) {
+			r, err := l.ref(ctx, graph.EntityID(f.Subject))
+			if err != nil {
+				return nil, err
+			}
+			if r.Kind != string(model.KindPerson) {
+				continue
+			}
+			vf, err := l.fact(ctx, f)
+			if err != nil {
+				return nil, err
+			}
+			people = append(people, Member{Ref: r, Role: roleOf(facts, f.Subject), Since: vf.ValidFrom, Sources: vf.Sources})
+		}
+		slices.SortFunc(people, func(a, b Member) int {
+			return cmp.Or(cmp.Compare(rank(a.Role), rank(b.Role)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
+		})
+		tm := TeamMembers{Team: *o.Object, Members: people}
+		if len(people) > MaxTeamMembers {
+			tm.Members, tm.Truncated = people[:MaxTeamMembers], true
+		}
+		out = append(out, tm)
+	}
+	return out, nil
+}
+
+// roleOf is the role the most recently observed source gives person, or
+// empty: a source with no roles (the directory) does not hide another's.
+func roleOf(facts []graph.Fact, person graph.EntityID) string {
+	var role string
+	var seen time.Time
+	for _, f := range facts {
+		r, _ := f.Qualifiers["role"].(string)
+		if f.Subject == person && r != "" && !lastObserved(f).Before(seen) {
+			role, seen = r, lastObserved(f)
+		}
+	}
+	return role
+}
+
+// rank orders roles: maintainers, other roles, then people with none.
+func rank(role string) int {
+	switch role {
+	case "maintainer":
+		return 0
+	case "":
+		return 2
+	}
+	return 1
 }
 
 // Related walks relations from the entity ref names: predicate alone, or every

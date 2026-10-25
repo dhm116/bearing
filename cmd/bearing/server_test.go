@@ -97,6 +97,8 @@ func TestServerAnswersTheWayTheStoreDoes(t *testing.T) {
 		{"get", "github:repo/acme/payments-api"},
 		{"get", "github:repo/acme/payments-api", "--as-of", "2026-10-01T01:00:00Z"},
 		{"owner", "acme/payments-api"},
+		{"owner", "acme/payments-api", "--as-of", "2026-10-01T01:00:00Z", "--members"},
+		{"owner", "acme/payments-api", "--as-of", "2026-10-01T01:00:00Z", "--members", "--json"},
 		{"related", "github:team/acme/payments", "--direction", "in", "--depth", "2"},
 		{"changes", "--since", "2026-10-01T01:00:00Z", "--limit", "1"},
 		{"changes", "--since", "2026-09-01", "--as-of", "2026-09-02"},

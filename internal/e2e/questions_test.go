@@ -112,7 +112,16 @@ func checkGolden(t *testing.T, name string, answer any, err error) {
 func TestQuestionWhichTeamOwnsPaymentsAPIBeforeTheCodeownersMove(t *testing.T) {
 	t.Parallel()
 	s := newStoryWorld(t)
-	golden(t, "owners-before-the-move")(s.q.Owners(t.Context(), paymentsAPI, s.beforeMove))
+	golden(t, "owners-before-the-move")(s.q.Owners(t.Context(), paymentsAPI, s.beforeMove, false))
+}
+
+// TestQuestionWhoIsOnTheTeamThatOwnsPaymentsAPI is question 1 asked for the
+// people to contact: the owning team with its maintainer and members, from
+// GitHub and the directory.
+func TestQuestionWhoIsOnTheTeamThatOwnsPaymentsAPI(t *testing.T) {
+	t.Parallel()
+	s := newStoryWorld(t)
+	golden(t, "owners-before-the-move-with-members")(s.q.Owners(t.Context(), paymentsAPI, s.beforeMove, true))
 }
 
 // TestQuestionWhichTeamOwnsPaymentsAPIAfterTheCodeownersMove is question 1
@@ -121,7 +130,7 @@ func TestQuestionWhichTeamOwnsPaymentsAPIBeforeTheCodeownersMove(t *testing.T) {
 func TestQuestionWhichTeamOwnsPaymentsAPIAfterTheCodeownersMove(t *testing.T) {
 	t.Parallel()
 	s := newStoryWorld(t)
-	golden(t, "owners-after-the-move")(s.q.Owners(t.Context(), paymentsAPI, time.Time{}))
+	golden(t, "owners-after-the-move")(s.q.Owners(t.Context(), paymentsAPI, time.Time{}, false))
 }
 
 // TestQuestionWhichServicesUseGoBelow122 is question 2.

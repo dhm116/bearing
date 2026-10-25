@@ -3,6 +3,8 @@ package query_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,7 +141,7 @@ func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
 		{"approves_changes answers without owned_by", payments, "approves_changes", "Payments"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			o, err := q.Owners(t.Context(), tt.ref, time.Time{})
+			o, err := q.Owners(t.Context(), tt.ref, time.Time{}, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,7 +150,7 @@ func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
 			}
 		})
 	}
-	o, err := q.Owners(t.Context(), db, time.Time{})
+	o, err := q.Owners(t.Context(), db, time.Time{}, false)
 	if err != nil || len(o.Owners) != 0 {
 		t.Fatalf("got %+v, %v, want no owners", o, err)
 	}
@@ -214,7 +216,7 @@ func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
 		want error
 	}{
 		{"unknown ref", func() error { _, err := q.Get(ctx, "github:repo/acme/none", time.Time{}); return err }, query.ErrNotFound},
-		{"no ref", func() error { _, err := q.Owners(ctx, "", time.Time{}); return err }, query.ErrInvalidRequest},
+		{"no ref", func() error { _, err := q.Owners(ctx, "", time.Time{}, false); return err }, query.ErrInvalidRequest},
 		{"bad direction", func() error { _, err := q.Related(ctx, payments, "", "up", 1, time.Time{}); return err }, query.ErrInvalidRequest},
 		{"too deep", func() error { _, err := q.Related(ctx, payments, "", "out", 11, time.Time{}); return err }, query.ErrInvalidRequest},
 		{"backward window", func() error { _, err := q.Changes(ctx, "", at(5), at(1), 0); return err }, query.ErrInvalidRequest},
@@ -231,5 +233,130 @@ func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
 	}
 	if !errors.Is(query.ErrNotFound, graph.ErrNotFound) {
 		t.Error("query.ErrNotFound does not wrap graph.ErrNotFound")
+	}
+}
+
+// from is a member_of claim by key about the observed team, with a role when
+// one is given.
+func from(key, role string, absent bool) func(*modelv1alpha1.ObservationData) {
+	return func(d *modelv1alpha1.ObservationData) {
+		r := &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: key}, Absent: absent}
+		if role != "" {
+			r.Attributes = map[string]*structpb.Value{"role": structpb.NewStringValue(role)}
+		}
+		d.Relations = append(d.Relations, r)
+	}
+}
+
+// newTeamQuerier returns a Querier over an Acme where billing is owned_by the
+// payments team. GitHub lists Raj (member) and Jane (maintainer) at minute 1,
+// Zoe joins at minute 20 and Raj is dropped at minute 30; the directory also
+// lists Jane, under a different key, without a role.
+func newTeamQuerier(t *testing.T) *query.Querier {
+	t.Helper()
+	s, err := duckstore.Open(context.Background(), duckstore.Config{Now: func() time.Time { return at(100) }, NewID: testkit.NewSeqIDs("e").NewID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ingest := func(source string, obs ...*eventv1alpha1.Observation) {
+		t.Helper()
+		if _, err := s.Ingest(context.Background(), graph.IngestRequest{Source: source, Observations: obs}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const jane, raj, zoe = "github:user/jdoe", "github:user/rpatel", "github:user/zoe"
+	ingest("github-acme",
+		ob("p1", 1, "Person", jane, attr("name", "Jane Doe"), attr("login", "jdoe")),
+		ob("p2", 1, "Person", raj, attr("name", "Raj Patel")),
+		ob("p3", 1, "Person", zoe, attr("name", "Zoe Adams")),
+		ob("t1", 1, "Team", teamPay, attr("name", "Payments"), from(raj, "member", false), from(jane, "maintainer", false)),
+		ob("r1", 1, "Repository", billing, rel("owned_by", teamPay, false)),
+	)
+	ingest("directory", ob("d1", 2, "Team", teamPay, from(jane, "", false)))
+	ingest("github-acme", ob("t2", 20, "Team", teamPay, from(zoe, "member", false)))
+	ingest("github-acme", ob("t3", 30, "Team", teamPay, from(raj, "", true)))
+	return &query.Querier{Graph: s, Now: func() time.Time { return at(50) }}
+}
+
+func memberLines(o *query.Ownership) []string {
+	var out []string
+	for _, m := range o.Teams[0].Members {
+		out = append(out, m.Name+"/"+m.Role)
+	}
+	return out
+}
+
+func TestOwnersListsTheTeamsPeopleOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	q := newTeamQuerier(t)
+	o, err := q.Owners(t.Context(), billing, at(25), false)
+	if err != nil || o.Teams != nil {
+		t.Fatalf("got %+v, %v, want no teams without members", o, err)
+	}
+	o, err = q.Owners(t.Context(), billing, at(25), true)
+	if err != nil || len(o.Teams) != 1 || o.Teams[0].Team.Name != "Payments" {
+		t.Fatalf("got %+v, %v, want the Payments team", o, err)
+	}
+	want := []string{"Jane Doe/maintainer", "Raj Patel/member", "Zoe Adams/member"}
+	if got := memberLines(o); !slices.Equal(got, want) {
+		t.Errorf("got members %v, want %v: maintainer first, then by name, Jane's role kept though the directory gave none", got, want)
+	}
+	jane := o.Teams[0].Members[0]
+	if len(jane.Sources) < 2 {
+		t.Errorf("got %d sources for Jane, want GitHub's and the directory's: %+v", len(jane.Sources), jane.Sources)
+	}
+	if !jane.Since.Equal(at(1)) {
+		t.Errorf("got since %v, want minute 1", jane.Since)
+	}
+}
+
+func TestOwnersMembersFollowTime(t *testing.T) {
+	t.Parallel()
+	q := newTeamQuerier(t)
+	for _, tt := range []struct {
+		name string
+		at   time.Time
+		want []string
+	}{
+		{"before the newcomer joined", at(10), []string{"Jane Doe/maintainer", "Raj Patel/member"}},
+		{"after a member left", at(40), []string{"Jane Doe/maintainer", "Zoe Adams/member"}},
+		{"now", time.Time{}, []string{"Jane Doe/maintainer", "Zoe Adams/member"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			o, err := q.Owners(t.Context(), billing, tt.at, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := memberLines(o); !slices.Equal(got, tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOwnersCapsTheMembersPerTeam(t *testing.T) {
+	t.Parallel()
+	s, err := duckstore.Open(context.Background(), duckstore.Config{Now: func() time.Time { return at(100) }, NewID: testkit.NewSeqIDs("e").NewID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	team := ob("t1", 1, "Team", teamPay, attr("name", "Payments"))
+	obs := []*eventv1alpha1.Observation{team, ob("r1", 1, "Repository", billing, rel("owned_by", teamPay, false))}
+	for i := range query.MaxTeamMembers + 1 {
+		key := fmt.Sprintf("github:user/u%03d", i)
+		obs = append(obs, ob(fmt.Sprintf("p%d", i), 1, "Person", key, attr("name", key)))
+		team.Data.Relations = append(team.Data.Relations, &modelv1alpha1.Relation{Type: "member_of", End: &modelv1alpha1.Relation_From{From: key}})
+	}
+	if _, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "github-acme", Observations: obs}); err != nil {
+		t.Fatal(err)
+	}
+	o, err := (&query.Querier{Graph: s}).Owners(t.Context(), billing, time.Time{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm := o.Teams[0]; len(tm.Members) != query.MaxTeamMembers || !tm.Truncated {
+		t.Errorf("got %d members, truncated %v, want %d and true", len(tm.Members), tm.Truncated, query.MaxTeamMembers)
 	}
 }

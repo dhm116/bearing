@@ -601,13 +601,17 @@ func (a *API) get(w http.ResponseWriter, r *http.Request, _ Caller) {
 }
 
 func (a *API) owner(w http.ResponseWriter, r *http.Request, _ Caller) {
-	p := parseParams(r, "ref", "at")
+	p := parseParams(r, "ref", "at", "members")
 	ref, at := p.subject(), p.when("at")
+	members := p.text("members", 8) == "true"
+	if p.err == "" && p.vals["members"] != "" && !members {
+		p.err = "parameter members must be true when given"
+	}
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	o, err := a.cfg.Query.Owners(r.Context(), ref, at)
+	o, err := a.cfg.Query.Owners(r.Context(), ref, at, members)
 	a.answer(w, r, o, err)
 }
 

@@ -319,6 +319,7 @@ func (c *client) readTeam(ctx context.Context, t gqlTeam, sent time.Time, seen m
 type member struct {
 	user gqlUser
 	sent time.Time
+	role string // "maintainer" or "member"
 }
 
 // teamMembers lists the direct members of the team with slug, across all
@@ -332,6 +333,7 @@ func (c *client) teamMembers(ctx context.Context, slug string) (members []member
 					Members struct {
 						PageInfo pageInfo `json:"pageInfo"`
 						Edges    []struct {
+							Role string  `json:"role"`
 							Node gqlUser `json:"node"`
 						} `json:"edges"`
 					} `json:"members"`
@@ -351,7 +353,7 @@ func (c *client) teamMembers(ctx context.Context, slug string) (members []member
 			return nil, false, nil
 		}
 		for _, e := range data.Organization.Team.Members.Edges {
-			members = append(members, member{e.Node, sent})
+			members = append(members, member{e.Node, sent, strings.ToLower(e.Role)})
 		}
 		if after, err = data.Organization.Team.Members.PageInfo.next(); err != nil || after == "" {
 			return members, true, err
@@ -519,22 +521,26 @@ func (c *client) teamObservation(t gqlTeam, members []member, at time.Time) (*ev
 	// Members of the team, people and child teams, are claims about it as
 	// the object of member_of: the team's observation owns the whole set.
 	var rels []*modelv1alpha1.Relation
-	from := func(key string) {
-		rels = append(rels, &modelv1alpha1.Relation{Type: string(model.RelMemberOf), End: &modelv1alpha1.Relation_From{From: key}})
+	from := func(key, role string) {
+		r := &modelv1alpha1.Relation{Type: string(model.RelMemberOf), End: &modelv1alpha1.Relation_From{From: key}}
+		if role != "" {
+			r.Attributes = map[string]*structpb.Value{"role": structpb.NewStringValue(role)}
+		}
+		rels = append(rels, r)
 	}
 	for _, m := range members {
 		uid, err := nextID("U", m.user.ID)
 		if err != nil {
 			return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: "user " + m.user.Login + ": " + err.Error()}
 		}
-		from(c.node("user_node", uid))
+		from(c.node("user_node", uid), m.role)
 	}
 	for _, ch := range t.ChildTeams.Nodes {
 		cid, err := nextID("T", ch.ID)
 		if err != nil {
 			return nil, &adapter.Error{Code: adapter.CodeUpstream, Message: "child of team " + t.Slug + ": " + err.Error()}
 		}
-		from(c.node("team_node", cid))
+		from(c.node("team_node", cid), "")
 	}
 	return model.NewObservation(Source, at, &modelv1alpha1.ObservationData{
 		Entity: &modelv1alpha1.Entity{

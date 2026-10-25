@@ -330,9 +330,16 @@ func TestSyncFirstFollowsTheFictionalOrg(t *testing.T) {
 		t.Errorf("engineering lists %q: want its three child teams and no people (jdoe is in payments only)", engineering)
 	}
 	payments := links(get(t, obs, "github:team/acme/payments"))
-	want := []string{"member_of from " + nodeOf("github:user/jdoe"), "member_of from " + nodeOf("github:user/rpatel")}
+	want := []string{"member_of from " + nodeOf("github:user/jdoe") + " :0 ", "member_of from " + nodeOf("github:user/rpatel") + " :0 "}
 	if !slices.Equal(payments, want) {
 		t.Errorf("payments members = %q, want %q", payments, want)
+	}
+	roles := map[string]string{}
+	for _, r := range get(t, obs, "github:team/acme/payments").GetRelations() {
+		roles[r.GetFrom()] = r.GetAttributes()["role"].GetStringValue()
+	}
+	if roles[nodeOf("github:user/jdoe")] != "maintainer" || roles[nodeOf("github:user/rpatel")] != "member" {
+		t.Errorf("payments member roles = %v, want jdoe maintainer and rpatel member", roles)
 	}
 	if m := get(t, obs, "github:user/meichen").GetEntity().GetAttributes(); m["login"].GetStringValue() != "meichen" || m["name"].GetStringValue() != "Mei Chen" ||
 		!slices.Equal(listOf(m["verified_email"]), []string{"mchen@acme.example"}) {

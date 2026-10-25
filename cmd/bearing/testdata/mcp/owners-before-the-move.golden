@@ -4,7 +4,7 @@
   "result": {
     "content": [
       {
-        "text": "{\"subject\":{\"id\":\"e5\",\"kind\":\"Repository\",\"name\":\"payments-api\",\"key\":\"github:repo/acme/payments-api\"},\"owners\":[{\"subject\":{\"id\":\"e5\",\"kind\":\"Repository\",\"name\":\"payments-api\",\"key\":\"github:repo/acme/payments-api\"},\"predicate\":\"approves_changes\",\"object\":{\"id\":\"e1\",\"kind\":\"Team\",\"name\":\"Payments\",\"key\":\"github:team/acme/payments\"},\"status\":\"asserted\",\"confidence\":1,\"valid_from\":\"2026-10-01T00:00:00Z\",\"valid_to\":\"2026-10-01T02:00:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/payments-api@2026-10-01T00:00:00.000000Z\",\"observed_at\":\"2026-10-01T00:00:00Z\"}],\"source_count\":1}]}",
+        "text": "{\"subject\":{\"id\":\"e5\",\"kind\":\"Repository\",\"name\":\"payments-api\",\"key\":\"github:repo/acme/payments-api\"},\"owners\":[{\"subject\":{\"id\":\"e5\",\"kind\":\"Repository\",\"name\":\"payments-api\",\"key\":\"github:repo/acme/payments-api\"},\"predicate\":\"approves_changes\",\"object\":{\"id\":\"e1\",\"kind\":\"Team\",\"name\":\"Payments\",\"key\":\"github:team/acme/payments\"},\"status\":\"asserted\",\"confidence\":1,\"valid_from\":\"2026-10-01T00:00:00Z\",\"valid_to\":\"2026-10-01T02:00:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/payments-api@2026-10-01T00:00:00.000000Z\",\"observed_at\":\"2026-10-01T00:00:00Z\"}],\"source_count\":1}],\"teams\":[{\"team\":{\"id\":\"e1\",\"kind\":\"Team\",\"name\":\"Payments\",\"key\":\"github:team/acme/payments\"},\"members\":[{\"id\":\"e3\",\"kind\":\"Person\",\"name\":\"Jane Doe\",\"key\":\"github:user/jdoe\",\"since\":\"2026-10-01T00:00:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:user/jdoe@2026-10-01T00:00:00.000000Z\",\"observed_at\":\"2026-10-01T00:00:00Z\"}]}]}]}",
         "type": "text"
       },
       {
@@ -46,6 +46,32 @@
             }
           ],
           "source_count": 1
+        }
+      ],
+      "teams": [
+        {
+          "team": {
+            "id": "e1",
+            "kind": "Team",
+            "name": "Payments",
+            "key": "github:team/acme/payments"
+          },
+          "members": [
+            {
+              "id": "e3",
+              "kind": "Person",
+              "name": "Jane Doe",
+              "key": "github:user/jdoe",
+              "since": "2026-10-01T00:00:00Z",
+              "sources": [
+                {
+                  "source": "github-acme",
+                  "observation_id": "github:user/jdoe@2026-10-01T00:00:00.000000Z",
+                  "observed_at": "2026-10-01T00:00:00Z"
+                }
+              ]
+            }
+          ]
         }
       ]
     }

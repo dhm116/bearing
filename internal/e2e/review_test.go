@@ -44,7 +44,7 @@ func TestAcmePersonReviewsATeamLink(t *testing.T) {
 	link := queue[0].ID
 	ownerKeys := func() []string {
 		t.Helper()
-		o, err := q.Owners(t.Context(), paymentsAPI, time.Time{})
+		o, err := q.Owners(t.Context(), paymentsAPI, time.Time{}, false)
 		if err != nil || len(o.Owners) != 1 {
 			t.Fatalf("got %+v, %v, want one owner of payments-api", o, err)
 		}

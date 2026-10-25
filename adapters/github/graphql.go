@@ -62,6 +62,7 @@ var (
       members(first: $first, after: $after, membership: IMMEDIATE) {
         pageInfo { hasNextPage endCursor }
         edges {
+          role
           node { id databaseId login name url organizationVerifiedDomainEmails(login: $org) }
         }
       }

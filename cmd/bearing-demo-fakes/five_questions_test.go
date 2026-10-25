@@ -124,7 +124,7 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 		postgres = "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
 	)
 	owner := func() string {
-		o, err := c.Owners(ctx, payments, time.Time{})
+		o, err := c.Owners(ctx, payments, time.Time{}, false)
 		if err != nil {
 			return err.Error()
 		}

@@ -63,7 +63,7 @@ const (
 // questions with the same types.
 type answerer interface {
 	Get(ctx context.Context, ref string, at time.Time) (*query.Entity, error)
-	Owners(ctx context.Context, ref string, at time.Time) (*query.Ownership, error)
+	Owners(ctx context.Context, ref string, at time.Time, members bool) (*query.Ownership, error)
 	Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error)
 	Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error)
 	Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error)
@@ -127,10 +127,11 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	qf.register(fs, name)
 	var namespace, predicate, direction, since, kind, entity, language, below string
 	var limit, depth int
-	var proposed bool
+	var proposed, members bool
 	switch name {
 	case "owner":
 		fs.StringVar(&namespace, "namespace", "github", "namespace of a repository given as <org>/<name>")
+		fs.BoolVar(&members, "members", false, "also list the people on each owning team, with their role")
 	case "related":
 		fs.StringVar(&predicate, "predicate", "", "only this relation, for example member_of (default every relation)")
 		fs.StringVar(&direction, "direction", "out", "out: what the entity points at; in: what points at it")
@@ -217,7 +218,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 		}
 	case "owner":
 		var o *query.Ownership
-		if o, err = q.Owners(ctx, repoRef(pos[0], namespace), at); err == nil {
+		if o, err = q.Owners(ctx, repoRef(pos[0], namespace), at, members); err == nil {
 			answer, render = o, func(w io.Writer) error { return renderOwnership(w, o, at) }
 		}
 	case "related":
