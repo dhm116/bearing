@@ -47,6 +47,7 @@ func TestQueryGoldens(t *testing.T) {
 		{"get-repo-before-the-move", []string{"get", "github:repo/acme/payments-api", "--as-of", "2026-10-01T01:00:00Z"}},
 		{"owner-from-codeowners", []string{"owner", "acme/payments-api"}},
 		{"owner-from-codeowners-before-the-move", []string{"owner", "acme/payments-api", "--as-of", "2026-10-01T01:00:00Z"}},
+		{"owner-with-members-before-the-move", []string{"owner", "acme/payments-api", "--as-of", "2026-10-01T01:00:00Z", "--members"}},
 		{"owner-from-owned-by", []string{"owner", "acme/billing"}},
 		{"related-depends-on", []string{"related", "catalog:component/payments", "--predicate", "depends_on", "--depth", "2"}},
 		{"related-in", []string{"related", "github:team/acme/payments", "--direction", "in"}},

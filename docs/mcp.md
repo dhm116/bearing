@@ -49,7 +49,7 @@ link or to request a sync: only a person decides links
 | --- | --- |
 | `find_entities(text, kind?, limit?)` | Which entity has this name? |
 | `get_entity(ref, as_of?)` | What is asserted about it? |
-| `owners(ref, as_of?)` | Who owns it? |
+| `owners(ref, as_of?, members?)` | Who owns it, and who are the people on the owning team (role, since when)? `members` defaults to true; `false` omits the people |
 | `changes(ref?, since, until?, limit?)` | What changed in a window? |
 | `depends_on(ref, depth?, as_of?)` | What does it depend on, and how? |
 | `depended_on_by(ref, depth?, as_of?)` | What depends on it, and how? |

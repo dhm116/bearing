@@ -5,7 +5,7 @@
       "object": {
         "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
         "kind": "Team",
-        "name": "payments"
+        "name": "Payments"
       },
       "predicate": "approves_changes",
       "qualifiers": {

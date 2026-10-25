@@ -131,17 +131,26 @@ var mcpTools = []mcpTool{
 	{
 		Name:        "owners",
 		Out:         query.Ownership{},
-		Description: "Which team or person owns an entity such as a repository or service, with the evidence for each owner (an owned_by fact, or else the CODEOWNERS approvers)." + dataNote,
+		Description: "Which team or person owns an entity such as a repository or service, with the evidence for each owner (an owned_by fact, or else the CODEOWNERS approvers). Also returns the people on each owning team, with their role and since when: the people to contact or ask for review. Set members to false to omit them." + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
-			"ref":   refProp,
-			"as_of": asOfProp,
+			"ref":     refProp,
+			"as_of":   asOfProp,
+			"members": map[string]any{"type": "boolean", "description": "list the people on each owning team, with their role and since when (default true); false omits them"},
 		}),
 		Call: func(ctx context.Context, c mcpCall, raw json.RawMessage) (any, string, error) {
-			ref, at, err := refArgs(raw, c.Now)
+			var a struct {
+				Ref     string `json:"ref"`
+				AsOf    string `json:"as_of"`
+				Members *bool  `json:"members"`
+			}
+			if err := decodeArgs(raw, &a); err != nil {
+				return nil, "", err
+			}
+			at, err := mcpTime("as_of", a.AsOf, c.Now)
 			if err != nil {
 				return nil, "", err
 			}
-			o, err := c.A.Owners(ctx, ref, at)
+			o, err := c.A.Owners(ctx, a.Ref, at, a.Members == nil || *a.Members)
 			if err != nil {
 				return nil, "", err
 			}

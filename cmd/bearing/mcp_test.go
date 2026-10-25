@@ -124,6 +124,7 @@ var mcpCalls = []struct {
 	{"find-entities", "find_entities", `{"text":"payments","kind":"Component"}`},
 	{"get-entity", "get_entity", `{"ref":"github:repo/acme/payments-api"}`},
 	{"owners", "owners", `{"ref":"github:repo/acme/payments-api"}`},
+	{"owners-without-members", "owners", `{"ref":"github:repo/acme/payments-api","members":false}`},
 	{"owners-before-the-move", "owners", `{"ref":"github:repo/acme/payments-api","as_of":"2026-10-01T01:00:00Z"}`},
 	{"changes", "changes", `{"ref":"github:repo/acme/payments-api","since":"2026-10-01"}`},
 	{"depends-on", "depends_on", `{"ref":"catalog:component/payments","depth":2}`},
@@ -171,6 +172,22 @@ func TestMCPToolsAnswerTheSameFromAStoreAndAServer(t *testing.T) {
 				t.Fatalf("tool error: %s", fromStore)
 			}
 			checkMCPGolden(t, tt.name, pretty(t, fromStore))
+		})
+	}
+}
+
+func TestMCPOwnersListsThePeopleUnlessToldNot(t *testing.T) {
+	w := newMCPWorld(t)
+	const ref = `"ref":"github:repo/acme/payments-api","as_of":"2026-10-01T01:00:00Z"`
+	for name, tt := range map[string]struct {
+		args string
+		want bool
+	}{"by default": {`{` + ref + `}`, true}, "members true": {`{` + ref + `,"members":true}`, true}, "members false": {`{` + ref + `,"members":false}`, false}} {
+		t.Run(name, func(t *testing.T) {
+			got := w.mcpRun("", "", initAt("2025-06-18"), callReq(1, "owners", tt.args))[1]
+			if has := strings.Contains(got, "Jane Doe"); has != tt.want {
+				t.Errorf("people listed = %v, want %v: %s", has, tt.want, got)
+			}
 		})
 	}
 }

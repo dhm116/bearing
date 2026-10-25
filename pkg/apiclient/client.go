@@ -234,9 +234,13 @@ func (c *Client) Get(ctx context.Context, ref string, at time.Time) (*query.Enti
 }
 
 // Owners is query.Querier.Owners, asked of the server.
-func (c *Client) Owners(ctx context.Context, ref string, at time.Time) (*query.Ownership, error) {
+func (c *Client) Owners(ctx context.Context, ref string, at time.Time, members bool) (*query.Ownership, error) {
 	var o query.Ownership
-	if err := c.get(ctx, "/v1/owner", refValues(ref, at), &o); err != nil {
+	v := refValues(ref, at)
+	if members {
+		v.Set("members", "true")
+	}
+	if err := c.get(ctx, "/v1/owner", v, &o); err != nil {
 		return nil, notFoundAbout(err, ref)
 	}
 	return &o, nil

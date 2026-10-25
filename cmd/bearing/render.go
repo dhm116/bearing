@@ -162,6 +162,24 @@ func renderOwnership(w io.Writer, ow *query.Ownership, at time.Time) error {
 	for _, f := range ow.Owners {
 		o.fact(0, f, false)
 	}
+	for _, t := range ow.Teams {
+		o.line(0, "")
+		o.line(0, "people on %s", refText(t.Team))
+		if len(t.Members) == 0 {
+			o.line(1, "none")
+		}
+		for _, m := range t.Members {
+			role := m.Role
+			if role == "" {
+				role = "no role given"
+			}
+			o.line(1, "%s: %s, since %s", refText(m.Ref), role, stamp(m.Since))
+			o.sources(2, m.Sources)
+		}
+		if t.Truncated {
+			o.line(1, "more people than shown (%d)", query.MaxTeamMembers)
+		}
+	}
 	return o.flush(w)
 }
 
