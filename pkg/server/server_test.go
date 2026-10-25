@@ -220,16 +220,19 @@ func (h *harness) entries(p store.Partition) []store.Entry {
 // drained reports whether the apply group has committed every event of p.
 func (h *harness) drained(p store.Partition) bool {
 	h.t.Helper()
+	// Committed first, then the head: the head only grows, so a commit read
+	// before it that reaches it really covers it. The other order can see an
+	// old head, then a commit made after a newer page was appended.
+	c, err := h.mem.Committed(h.t.Context(), h.cfg.Group0(), p)
+	if err != nil {
+		h.t.Fatal(err)
+	}
 	parts, err := h.mem.Partitions(h.t.Context())
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	for _, info := range parts {
 		if info.Partition == p {
-			c, err := h.mem.Committed(h.t.Context(), h.cfg.Group0(), p)
-			if err != nil {
-				h.t.Fatal(err)
-			}
 			return c >= info.Head
 		}
 	}
