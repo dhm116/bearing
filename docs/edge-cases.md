@@ -282,3 +282,35 @@ Each entry:
 - **Example:** a local adapter (same UID as the server) double-forks a process that re-parents to init and connects to the API socket.
 - **Impact:** the socket admits it as an administrator and, with `api.link_decisions: socket`, it can join or split records. The server refuses its own descendants by PID (Linux), but a detached one is no longer a descendant.
 - **Proposed fix:** run local adapters under their own UID (`SysProcAttr.Credential`), so the socket's UID check refuses them outright. A cheaper partial fix is to make the server a child subreaper (`PR_SET_CHILD_SUBREAPER`), so a detached process is re-parented to the server and stays its descendant.
+
+## Role history is not versioned
+
+- **Found in:** owner-people review (`internal/duckstore/ingest.go`, `refresh`)
+- **Area:** store
+- **Example:** Jane is promoted from `member` to `maintainer`; the `member_of` fact is refreshed in place with the new role.
+- **Impact:** a role lives in the fact's qualifiers, so `--as-of` and `changes` show today's role for any past time, and the promotion is not a change.
+- **Proposed fix:** close the fact and open a new one when a qualifier that matters (role) changes, so the history keeps both.
+
+## A deleted described record keeps naming its cluster
+
+- **Found in:** owner-people review (`internal/duckstore/read.go`, `entities`)
+- **Area:** store
+- **Example:** a cluster is named by its oldest record with a kind and a name; that source deletes the record, or the person is renamed there.
+- **Impact:** the cluster keeps the old name while any record of it remains, even if newer records carry the current name.
+- **Proposed fix:** name a cluster from records that still exist and are current, with source precedence (see the next entry).
+
+## Two sources name one thing differently
+
+- **Found in:** owner-people review (`internal/duckstore/read.go`, `entities`)
+- **Area:** identity
+- **Example:** GitHub calls a person "jdoe" and the directory calls the same person "Jane Doe".
+- **Impact:** the first ingested record with a kind and a name wins, so two stores synced in different orders can show different names for one entity.
+- **Proposed fix:** source precedence for display names (configured per source), with ingest order only as the tie-break.
+
+## As-of answers list sources observed after the as-of time
+
+- **Found in:** owner-people review (`internal/duckstore/read.go`, fact sources)
+- **Area:** store
+- **Example:** `owner --as-of` a date in March for a fact that a later sync in June observed again.
+- **Impact:** the answer's values are right for March, but its sources and observed times include the June observation. Pre-existing.
+- **Proposed fix:** limit the sources of an as-of answer to observations recorded at or before the as-of time (or label the later ones).
