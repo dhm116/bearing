@@ -4,6 +4,8 @@
 package apiclient
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -46,7 +48,7 @@ type Config struct {
 	// loopback address only. The socket authenticates by the caller's UID and
 	// needs no token.
 	Server string
-	// Token returns the OIDC bearer token for a TCP server, read at each
+	// Token returns the API bearer token for a TCP server, read at each
 	// request. The token is sent only over TLS or to a loopback address, and
 	// never in a URL.
 	Token func() (string, error)
@@ -201,8 +203,6 @@ func (e *Error) Unwrap() error {
 		return query.ErrNotFound
 	case "invalid_request":
 		return query.ErrInvalidRequest
-	case "invalid_page_token":
-		return query.ErrBadPageToken
 	}
 	return nil
 }
@@ -225,62 +225,85 @@ func KeepBody(ctx context.Context, dst *[]byte) context.Context {
 }
 
 // Get is query.Querier.Get, asked of the server.
-func (c *Client) Get(ctx context.Context, ref string, p query.Point) (*query.Entity, error) {
+func (c *Client) Get(ctx context.Context, ref string, at time.Time) (*query.Entity, error) {
 	var e query.Entity
-	if err := c.get(ctx, "/v1/get", pointValues(ref, p), &e); err != nil {
-		return nil, notFoundAbout(err, ref, p)
+	if err := c.get(ctx, "/v1/get", refValues(ref, at), &e); err != nil {
+		return nil, notFoundAbout(err, ref)
 	}
 	return &e, nil
 }
 
 // Owners is query.Querier.Owners, asked of the server.
-func (c *Client) Owners(ctx context.Context, ref string, p query.Point) (*query.Ownership, error) {
+func (c *Client) Owners(ctx context.Context, ref string, at time.Time) (*query.Ownership, error) {
 	var o query.Ownership
-	if err := c.get(ctx, "/v1/owner", pointValues(ref, p), &o); err != nil {
-		return nil, notFoundAbout(err, ref, p)
+	if err := c.get(ctx, "/v1/owner", refValues(ref, at), &o); err != nil {
+		return nil, notFoundAbout(err, ref)
 	}
 	return &o, nil
 }
 
 // Related is query.Querier.Related, asked of the server.
-func (c *Client) Related(ctx context.Context, ref, predicate string, p query.Point) (*query.Relations, error) {
-	v := pointValues(ref, p)
-	if predicate != "" {
-		v.Set("predicate", predicate)
+func (c *Client) Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error) {
+	v := refValues(ref, at)
+	set(v, "predicate", predicate)
+	set(v, "direction", direction)
+	if depth != 0 {
+		v.Set("depth", strconv.Itoa(depth))
 	}
 	var r query.Relations
 	if err := c.get(ctx, "/v1/related", v, &r); err != nil {
-		return nil, notFoundAbout(err, ref, p)
+		return nil, notFoundAbout(err, ref)
 	}
 	return &r, nil
 }
 
-// Changes is query.Querier.Changes, asked of the server: one page.
-func (c *Client) Changes(ctx context.Context, req query.ChangesRequest) (*query.Changes, error) {
+// Changes is query.Querier.Changes, asked of the server.
+func (c *Client) Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error) {
 	v := url.Values{}
-	set := func(name, val string) {
-		if val != "" {
-			v.Set(name, val)
-		}
+	set(v, "ref", ref)
+	set(v, "since", timeText(since))
+	set(v, "until", timeText(until))
+	if limit != 0 {
+		v.Set("limit", strconv.Itoa(limit))
 	}
-	set("ref", req.Ref)
-	set("since", timeText(req.Since))
-	set("until", timeText(req.Until))
-	set("axis", string(req.Axis))
-	if req.Limit != 0 {
-		set("limit", strconv.Itoa(req.Limit))
-	}
-	set("page_token", req.PageToken)
 	var ch query.Changes
 	if err := c.get(ctx, "/v1/changes", v, &ch); err != nil {
-		// The subject is looked up as the world stands at the window's end.
-		end := query.Point{Valid: req.Until}
-		if req.Axis == query.AxisRecord {
-			end.Recorded = req.Until
-		}
-		return nil, notFoundAbout(err, req.Ref, end)
+		return nil, notFoundAbout(err, ref)
 	}
 	return &ch, nil
+}
+
+// Find is query.Querier.Find, asked of the server.
+func (c *Client) Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error) {
+	v := url.Values{"q": {text}}
+	set(v, "kind", kind)
+	if limit != 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	var f struct {
+		Matches []query.Match `json:"matches"`
+	}
+	if err := c.get(ctx, "/v1/find", v, &f); err != nil {
+		return nil, err
+	}
+	return f.Matches, nil
+}
+
+// Runtimes is query.Querier.Runtimes, asked of the server.
+func (c *Client) Runtimes(ctx context.Context, req query.RuntimesRequest) (*query.Runtimes, error) {
+	v := url.Values{}
+	set(v, "language", req.Language)
+	set(v, "below", req.Below)
+	set(v, "kind", req.Kind)
+	set(v, "at", timeText(req.At))
+	if req.Limit != 0 {
+		v.Set("limit", strconv.Itoa(req.Limit))
+	}
+	var r query.Runtimes
+	if err := c.get(ctx, "/v1/runtimes", v, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // SyncAccepted is the answer to a sync request: the request is on the server's
@@ -311,15 +334,71 @@ func (c *Client) RequestSync(ctx context.Context, source string) (*SyncAccepted,
 	return &a, nil
 }
 
-func pointValues(ref string, p query.Point) url.Values {
+// Links is query.Querier.Links, asked of the server.
+func (c *Client) Links(ctx context.Context, req query.LinksRequest) ([]query.Link, error) {
+	v := url.Values{}
+	set(v, "status", req.Status)
+	set(v, "kind", req.Kind)
+	set(v, "entity", req.Entity)
+	if req.Limit != 0 {
+		v.Set("limit", strconv.Itoa(req.Limit))
+	}
+	var a struct {
+		Links []query.Link `json:"links"`
+	}
+	if err := c.get(ctx, "/v1/links", v, &a); err != nil {
+		return nil, err
+	}
+	return a.Links, nil
+}
+
+// Decision is a person's decision on an identity link: Decision is accept,
+// reject, join, split or undo_distinct; LinkID names the link for the first
+// two and the last, and A and B the records for join and split.
+type Decision struct {
+	Decision string `json:"decision"`
+	LinkID   string `json:"link_id,omitempty"`
+	A        string `json:"a,omitempty"`
+	B        string `json:"b,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// DecisionAccepted is the answer to a decision: it is on the server's event
+// log, and the server applies it next.
+type DecisionAccepted struct {
+	// EventID names the decision.
+	EventID string `json:"event_id"`
+	// Offset is its position in the log's core/identity partition.
+	Offset int64 `json:"offset"`
+}
+
+// Decide sends a decision. The server answers once it is on its event log; a
+// worker applies it later, in order, so a link read straight after may not
+// show it yet.
+func (c *Client) Decide(ctx context.Context, d Decision) (*DecisionAccepted, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("apiclient: %w", err)
+	}
+	var a DecisionAccepted
+	if err := c.do(ctx, http.MethodPost, "/v1/links/decisions", bytes.NewReader(b), &a); err != nil {
+		return nil, notFoundAbout(err, cmp.Or(d.LinkID, d.A+" or "+d.B))
+	}
+	a.EventID = cleanText(a.EventID, 64)
+	return &a, nil
+}
+
+func refValues(ref string, at time.Time) url.Values {
 	v := url.Values{"ref": {ref}}
-	if s := timeText(p.Valid); s != "" {
-		v.Set("valid_at", s)
-	}
-	if s := timeText(p.Recorded); s != "" {
-		v.Set("recorded_at", s)
-	}
+	set(v, "at", timeText(at))
 	return v
+}
+
+// set sets a parameter that is not empty.
+func set(v url.Values, name, val string) {
+	if val != "" {
+		v.Set(name, val)
+	}
 }
 
 func timeText(t time.Time) string {
@@ -339,6 +418,9 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader, 
 		return fmt.Errorf("apiclient: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.token != nil && !c.socket {
 		token, err := c.token()
 		if err != nil {
@@ -376,26 +458,13 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader, 
 }
 
 // notFoundAbout says what a not-found answer was about. The server's text is
-// generic (C-API-7) and names neither the subject nor the time, which the
-// store's does; the client knows both. Any other error is returned as it is.
-func notFoundAbout(err error, ref string, p query.Point) error {
+// generic (C-API-7) and does not name the reference; the client knows it. Any
+// other error is returned as it is.
+func notFoundAbout(err error, ref string) error {
 	if ref == "" || !errors.Is(err, query.ErrNotFound) {
 		return err
 	}
-	return fmt.Errorf("no subject matches %s at %s: %w", cleanText(ref, maxAskedBytes), pointText(p), err)
-}
-
-// pointText says when a Point is, in the words query's own not-found messages
-// use.
-func pointText(p query.Point) string {
-	valid, recorded := "now", "as known now"
-	if !p.Valid.IsZero() {
-		valid = p.Valid.UTC().Format(time.RFC3339)
-	}
-	if !p.Recorded.IsZero() {
-		recorded = "as known " + p.Recorded.UTC().Format(time.RFC3339)
-	}
-	return valid + ", " + recorded
+	return fmt.Errorf("nothing matches %s: %w", cleanText(ref, maxAskedBytes), err)
 }
 
 // unwrapURLError drops the URL that net/http puts in its errors, which holds

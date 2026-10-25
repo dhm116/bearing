@@ -24,12 +24,12 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/duckstore"
 	"bearing.example/internal/fakes"
-	"bearing.example/internal/memstore"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 var (
@@ -53,7 +53,7 @@ var epoch = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 // rig is an Ingest over an in-memory event log with a fake clock.
 type rig struct {
 	t     *testing.T
-	log   *memstore.Store
+	log   *duckstore.Store
 	clock *testkit.FakeClock
 	in    *Ingest
 	srv   *httptest.Server
@@ -65,7 +65,7 @@ func newRig(t *testing.T, mod ...func(*IngestConfig)) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, log: memstore.New(), clock: testkit.NewClock(epoch)}
+	r := &rig{t: t, log: newDuck(t, time.Now), clock: testkit.NewClock(epoch)}
 	var n atomic.Int64
 	cfg := IngestConfig{
 		Log:          r.log,
@@ -110,15 +110,15 @@ func signed(body []byte) http.Header {
 }
 
 // logged returns the entries on the source's partition.
-func (r *rig) logged() []contracts.Entry {
+func (r *rig) logged() []store.Entry {
 	r.t.Helper()
 	parts, err := r.log.Partitions(r.t.Context())
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	var all []contracts.Entry
+	var all []store.Entry
 	for _, p := range parts {
-		es, err := r.log.Read(r.t.Context(), p.Partition, 0, contracts.MaxReadEntries)
+		es, err := r.log.Read(r.t.Context(), p.Partition, 0, store.MaxReadEntries)
 		if err != nil {
 			r.t.Fatal(err)
 		}
@@ -248,11 +248,11 @@ func TestIngestRepeatedDeliveryIsAcknowledgedButNotStoredTwice(t *testing.T) {
 
 // failingLog fails Append.
 type failingLog struct {
-	contracts.EventLog
+	store.EventLog
 	err error
 }
 
-func (f failingLog) Append(context.Context, []contracts.Event) ([]contracts.Appended, error) {
+func (f failingLog) Append(context.Context, []store.Event) ([]store.Appended, error) {
 	return nil, f.err
 }
 
@@ -272,19 +272,19 @@ func TestIngestAnswers503WhenTheLogFailsAndStoresNothing(t *testing.T) {
 
 // slowLog holds Append until released and says when it has been called.
 type slowLog struct {
-	contracts.EventLog
+	store.EventLog
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (s slowLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.Appended, error) {
+func (s slowLog) Append(ctx context.Context, ev []store.Event) ([]store.Appended, error) {
 	close(s.entered)
 	<-s.release
 	return s.EventLog.Append(ctx, ev)
 }
 
 func TestIngestSendsNoAnswerUntilTheEventIsInTheLog(t *testing.T) {
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	slow := slowLog{EventLog: log, entered: make(chan struct{}), release: make(chan struct{})}
 	r := newRig(t, func(c *IngestConfig) { c.Log = slow })
 	body := []byte(`{}`)
@@ -515,7 +515,7 @@ func TestNewIngestRefusesWhatCannotBeRouted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	ok := WebhookSource{Name: source, Signature: decl, Secret: []byte(secret)}
 	for _, tt := range []struct {
 		name string
@@ -740,9 +740,9 @@ func TestIngestSaysWhichMethodItTakes(t *testing.T) {
 }
 
 // emptyAppendLog answers an append with no positions.
-type emptyAppendLog struct{ contracts.EventLog }
+type emptyAppendLog struct{ store.EventLog }
 
-func (emptyAppendLog) Append(context.Context, []contracts.Event) ([]contracts.Appended, error) {
+func (emptyAppendLog) Append(context.Context, []store.Event) ([]store.Appended, error) {
 	return nil, nil
 }
 
@@ -782,12 +782,12 @@ func TestStoredHeadersDropCredentialHeadersWhateverTheirCase(t *testing.T) {
 
 // gateLog holds every Append until released and says each time one arrives.
 type gateLog struct {
-	contracts.EventLog
+	store.EventLog
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (g gateLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.Appended, error) {
+func (g gateLog) Append(ctx context.Context, ev []store.Event) ([]store.Appended, error) {
 	g.entered <- struct{}{}
 	<-g.release
 	return g.EventLog.Append(ctx, ev)
@@ -796,7 +796,7 @@ func (g gateLog) Append(ctx context.Context, ev []contracts.Event) ([]contracts.
 // More deliveries at once than the cap are turned away before their body is
 // read, whatever the path, and a freed slot is used again (C-INGEST-4).
 func TestIngestTurnsAwayDeliveriesPastTheInFlightCap(t *testing.T) {
-	log := memstore.New()
+	log := newDuck(t, time.Now)
 	gate := gateLog{EventLog: log, entered: make(chan struct{}, 2), release: make(chan struct{})}
 	r := newRig(t, func(c *IngestConfig) { c.Log = gate; c.MaxInFlight = 2 })
 	first, second := []byte(`{"n":1}`), []byte(`{"n":2}`)

@@ -1,5 +1,4 @@
-// The core-closed lists of the data model (docs/spec/data-model.md, "Wire
-// mapping"). On the wire and in configuration they are written as their
+// The core-closed lists of the data model. On the wire and in configuration they are written as their
 // ProtoJSON names (FACT_STATUS_ASSERTED); prose and fact_id use the short
 // form (asserted). A zero *_UNSPECIFIED value means the field's stated
 // default and is rejected only where the field is required.
@@ -26,181 +25,6 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
-
-// SubjectStatus says whether a subject is live or was merged into another.
-type SubjectStatus int32
-
-const (
-	// Not set. Required wherever a subject is reported.
-	SubjectStatus_SUBJECT_STATUS_UNSPECIFIED SubjectStatus = 0
-	// The subject stands on its own.
-	SubjectStatus_SUBJECT_STATUS_ACTIVE SubjectStatus = 1
-	// The subject was merged; merged_into names the survivor.
-	SubjectStatus_SUBJECT_STATUS_MERGED SubjectStatus = 2
-)
-
-// Enum value maps for SubjectStatus.
-var (
-	SubjectStatus_name = map[int32]string{
-		0: "SUBJECT_STATUS_UNSPECIFIED",
-		1: "SUBJECT_STATUS_ACTIVE",
-		2: "SUBJECT_STATUS_MERGED",
-	}
-	SubjectStatus_value = map[string]int32{
-		"SUBJECT_STATUS_UNSPECIFIED": 0,
-		"SUBJECT_STATUS_ACTIVE":      1,
-		"SUBJECT_STATUS_MERGED":      2,
-	}
-)
-
-func (x SubjectStatus) Enum() *SubjectStatus {
-	p := new(SubjectStatus)
-	*p = x
-	return p
-}
-
-func (x SubjectStatus) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (SubjectStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[0].Descriptor()
-}
-
-func (SubjectStatus) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[0]
-}
-
-func (x SubjectStatus) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use SubjectStatus.Descriptor instead.
-func (SubjectStatus) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{0}
-}
-
-// MintRule is why the core minted a subject.
-type MintRule int32
-
-const (
-	// Not set. Required on every mint.
-	MintRule_MINT_RULE_UNSPECIFIED MintRule = 0
-	// Resolution rule 3: an observed entity matched no subject.
-	MintRule_MINT_RULE_OBSERVATION MintRule = 1
-	// A reference to an unbound alias, or a released name that doesn't redirect.
-	MintRule_MINT_RULE_REFERENCE MintRule = 2
-	// An un-merge whose aliases never had a subject of their own.
-	MintRule_MINT_RULE_SPLIT MintRule = 3
-)
-
-// Enum value maps for MintRule.
-var (
-	MintRule_name = map[int32]string{
-		0: "MINT_RULE_UNSPECIFIED",
-		1: "MINT_RULE_OBSERVATION",
-		2: "MINT_RULE_REFERENCE",
-		3: "MINT_RULE_SPLIT",
-	}
-	MintRule_value = map[string]int32{
-		"MINT_RULE_UNSPECIFIED": 0,
-		"MINT_RULE_OBSERVATION": 1,
-		"MINT_RULE_REFERENCE":   2,
-		"MINT_RULE_SPLIT":       3,
-	}
-)
-
-func (x MintRule) Enum() *MintRule {
-	p := new(MintRule)
-	*p = x
-	return p
-}
-
-func (x MintRule) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MintRule) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[1].Descriptor()
-}
-
-func (MintRule) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[1]
-}
-
-func (x MintRule) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MintRule.Descriptor instead.
-func (MintRule) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{1}
-}
-
-// MergeRule is why two subjects merged.
-type MergeRule int32
-
-const (
-	// Not set. Required on every merge.
-	MergeRule_MERGE_RULE_UNSPECIFIED MergeRule = 0
-	// One observation carried id aliases bound to both subjects.
-	MergeRule_MERGE_RULE_CO_REPORTED_IDS MergeRule = 1
-	// An observed binding covered a placeholder's tentative binding.
-	MergeRule_MERGE_RULE_PLACEHOLDER MergeRule = 2
-	// Live authoritative identity evidence joined them.
-	MergeRule_MERGE_RULE_AUTHORITATIVE MergeRule = 3
-	// same_as confidence reached the kind's threshold under the score policy.
-	MergeRule_MERGE_RULE_SCORE MergeRule = 4
-	// A MergeRequested event.
-	MergeRule_MERGE_RULE_MANUAL MergeRule = 5
-)
-
-// Enum value maps for MergeRule.
-var (
-	MergeRule_name = map[int32]string{
-		0: "MERGE_RULE_UNSPECIFIED",
-		1: "MERGE_RULE_CO_REPORTED_IDS",
-		2: "MERGE_RULE_PLACEHOLDER",
-		3: "MERGE_RULE_AUTHORITATIVE",
-		4: "MERGE_RULE_SCORE",
-		5: "MERGE_RULE_MANUAL",
-	}
-	MergeRule_value = map[string]int32{
-		"MERGE_RULE_UNSPECIFIED":     0,
-		"MERGE_RULE_CO_REPORTED_IDS": 1,
-		"MERGE_RULE_PLACEHOLDER":     2,
-		"MERGE_RULE_AUTHORITATIVE":   3,
-		"MERGE_RULE_SCORE":           4,
-		"MERGE_RULE_MANUAL":          5,
-	}
-)
-
-func (x MergeRule) Enum() *MergeRule {
-	p := new(MergeRule)
-	*p = x
-	return p
-}
-
-func (x MergeRule) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MergeRule) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[2].Descriptor()
-}
-
-func (MergeRule) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[2]
-}
-
-func (x MergeRule) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MergeRule.Descriptor instead.
-func (MergeRule) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{2}
-}
 
 // KeyClass says whether a key type is a permanent id or a renamable name.
 type KeyClass int32
@@ -239,11 +63,11 @@ func (x KeyClass) String() string {
 }
 
 func (KeyClass) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[3].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[0].Descriptor()
 }
 
 func (KeyClass) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[3]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[0]
 }
 
 func (x KeyClass) Number() protoreflect.EnumNumber {
@@ -252,7 +76,7 @@ func (x KeyClass) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use KeyClass.Descriptor instead.
 func (KeyClass) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{3}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{0}
 }
 
 // PerSubject limits how many names of one key type a subject holds.
@@ -292,11 +116,11 @@ func (x PerSubject) String() string {
 }
 
 func (PerSubject) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[4].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[1].Descriptor()
 }
 
 func (PerSubject) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[4]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[1]
 }
 
 func (x PerSubject) Number() protoreflect.EnumNumber {
@@ -305,7 +129,7 @@ func (x PerSubject) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PerSubject.Descriptor instead.
 func (PerSubject) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{4}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{1}
 }
 
 // KeyCase is how external IDs of a key type are compared.
@@ -345,11 +169,11 @@ func (x KeyCase) String() string {
 }
 
 func (KeyCase) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[5].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[2].Descriptor()
 }
 
 func (KeyCase) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[5]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[2]
 }
 
 func (x KeyCase) Number() protoreflect.EnumNumber {
@@ -358,64 +182,7 @@ func (x KeyCase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use KeyCase.Descriptor instead.
 func (KeyCase) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{5}
-}
-
-// MergePolicy decides, per kind, when same_as is asserted and subjects merge.
-type MergePolicy int32
-
-const (
-	// Not set. Required in configuration.
-	MergePolicy_MERGE_POLICY_UNSPECIFIED MergePolicy = 0
-	// Live authoritative evidence or a person's confirmation.
-	MergePolicy_MERGE_POLICY_AUTHORITATIVE MergePolicy = 1
-	// As authoritative, or same_as confidence at or above the policy threshold.
-	MergePolicy_MERGE_POLICY_SCORE MergePolicy = 2
-	// Only MergeRequested.
-	MergePolicy_MERGE_POLICY_MANUAL MergePolicy = 3
-)
-
-// Enum value maps for MergePolicy.
-var (
-	MergePolicy_name = map[int32]string{
-		0: "MERGE_POLICY_UNSPECIFIED",
-		1: "MERGE_POLICY_AUTHORITATIVE",
-		2: "MERGE_POLICY_SCORE",
-		3: "MERGE_POLICY_MANUAL",
-	}
-	MergePolicy_value = map[string]int32{
-		"MERGE_POLICY_UNSPECIFIED":   0,
-		"MERGE_POLICY_AUTHORITATIVE": 1,
-		"MERGE_POLICY_SCORE":         2,
-		"MERGE_POLICY_MANUAL":        3,
-	}
-)
-
-func (x MergePolicy) Enum() *MergePolicy {
-	p := new(MergePolicy)
-	*p = x
-	return p
-}
-
-func (x MergePolicy) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MergePolicy) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[6].Descriptor()
-}
-
-func (MergePolicy) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[6]
-}
-
-func (x MergePolicy) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MergePolicy.Descriptor instead.
-func (MergePolicy) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{6}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{2}
 }
 
 // MatchMethod is how a field's values count as identity evidence.
@@ -463,11 +230,11 @@ func (x MatchMethod) String() string {
 }
 
 func (MatchMethod) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[7].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[3].Descriptor()
 }
 
 func (MatchMethod) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[7]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[3]
 }
 
 func (x MatchMethod) Number() protoreflect.EnumNumber {
@@ -476,7 +243,7 @@ func (x MatchMethod) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MatchMethod.Descriptor instead.
 func (MatchMethod) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{7}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{3}
 }
 
 // Direction says which end of a fact the observed entity is.
@@ -517,11 +284,11 @@ func (x Direction) String() string {
 }
 
 func (Direction) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[8].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[4].Descriptor()
 }
 
 func (Direction) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[8]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[4]
 }
 
 func (x Direction) Number() protoreflect.EnumNumber {
@@ -530,7 +297,7 @@ func (x Direction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Direction.Descriptor instead.
 func (Direction) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{8}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{4}
 }
 
 // Cardinality is how many objects one source supports at once.
@@ -570,11 +337,11 @@ func (x Cardinality) String() string {
 }
 
 func (Cardinality) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[9].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[5].Descriptor()
 }
 
 func (Cardinality) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[9]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[5]
 }
 
 func (x Cardinality) Number() protoreflect.EnumNumber {
@@ -583,7 +350,7 @@ func (x Cardinality) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Cardinality.Descriptor instead.
 func (Cardinality) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{9}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{5}
 }
 
 // ConflictPolicy is when supports from different source systems conflict.
@@ -627,11 +394,11 @@ func (x ConflictPolicy) String() string {
 }
 
 func (ConflictPolicy) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[10].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[6].Descriptor()
 }
 
 func (ConflictPolicy) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[10]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[6]
 }
 
 func (x ConflictPolicy) Number() protoreflect.EnumNumber {
@@ -640,7 +407,7 @@ func (x ConflictPolicy) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConflictPolicy.Descriptor instead.
 func (ConflictPolicy) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{10}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{6}
 }
 
 // ValueType is the type of an attribute value.
@@ -692,11 +459,11 @@ func (x ValueType) String() string {
 }
 
 func (ValueType) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[11].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[7].Descriptor()
 }
 
 func (ValueType) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[11]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[7]
 }
 
 func (x ValueType) Number() protoreflect.EnumNumber {
@@ -705,84 +472,7 @@ func (x ValueType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ValueType.Descriptor instead.
 func (ValueType) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{11}
-}
-
-// SupportReason is why a support version was written.
-type SupportReason int32
-
-const (
-	// Not set. Required on every support version.
-	SupportReason_SUPPORT_REASON_UNSPECIFIED SupportReason = 0
-	// An asserting claim.
-	SupportReason_SUPPORT_REASON_ASSERT SupportReason = 1
-	// An ending claim (absent).
-	SupportReason_SUPPORT_REASON_END SupportReason = 2
-	// A snapshot scope's watermark.
-	SupportReason_SUPPORT_REASON_SNAPSHOT SupportReason = 3
-	// entity.deleted or a derived deletion.
-	SupportReason_SUPPORT_REASON_DELETED SupportReason = 4
-	// A ClaimWithdrawn event.
-	SupportReason_SUPPORT_REASON_WITHDRAWN SupportReason = 5
-	// A merge re-pointed the support.
-	SupportReason_SUPPORT_REASON_MERGE SupportReason = 6
-	// An un-merge re-pointed the support.
-	SupportReason_SUPPORT_REASON_UNMERGE SupportReason = 7
-	// A derivation rule re-evaluated the support.
-	SupportReason_SUPPORT_REASON_DERIVED SupportReason = 8
-)
-
-// Enum value maps for SupportReason.
-var (
-	SupportReason_name = map[int32]string{
-		0: "SUPPORT_REASON_UNSPECIFIED",
-		1: "SUPPORT_REASON_ASSERT",
-		2: "SUPPORT_REASON_END",
-		3: "SUPPORT_REASON_SNAPSHOT",
-		4: "SUPPORT_REASON_DELETED",
-		5: "SUPPORT_REASON_WITHDRAWN",
-		6: "SUPPORT_REASON_MERGE",
-		7: "SUPPORT_REASON_UNMERGE",
-		8: "SUPPORT_REASON_DERIVED",
-	}
-	SupportReason_value = map[string]int32{
-		"SUPPORT_REASON_UNSPECIFIED": 0,
-		"SUPPORT_REASON_ASSERT":      1,
-		"SUPPORT_REASON_END":         2,
-		"SUPPORT_REASON_SNAPSHOT":    3,
-		"SUPPORT_REASON_DELETED":     4,
-		"SUPPORT_REASON_WITHDRAWN":   5,
-		"SUPPORT_REASON_MERGE":       6,
-		"SUPPORT_REASON_UNMERGE":     7,
-		"SUPPORT_REASON_DERIVED":     8,
-	}
-)
-
-func (x SupportReason) Enum() *SupportReason {
-	p := new(SupportReason)
-	*p = x
-	return p
-}
-
-func (x SupportReason) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (SupportReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[12].Descriptor()
-}
-
-func (SupportReason) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[12]
-}
-
-func (x SupportReason) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use SupportReason.Descriptor instead.
-func (SupportReason) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{12}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{7}
 }
 
 // FactStatus is a fact's status at a valid and record time.
@@ -834,11 +524,11 @@ func (x FactStatus) String() string {
 }
 
 func (FactStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[13].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[8].Descriptor()
 }
 
 func (FactStatus) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[13]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[8]
 }
 
 func (x FactStatus) Number() protoreflect.EnumNumber {
@@ -847,92 +537,7 @@ func (x FactStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FactStatus.Descriptor instead.
 func (FactStatus) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{13}
-}
-
-// StatusReason is which status step decided a fact's status.
-type StatusReason int32
-
-const (
-	// Not set. Required in every result.
-	StatusReason_STATUS_REASON_UNSPECIFIED StatusReason = 0
-	// Step 7: nothing else applied.
-	StatusReason_STATUS_REASON_NONE StatusReason = 1
-	// Step 1: no live supports.
-	StatusReason_STATUS_REASON_NO_SUPPORT StatusReason = 2
-	// Step 2: a manual override.
-	StatusReason_STATUS_REASON_OVERRIDE StatusReason = 3
-	// Step 3: confidence below the threshold.
-	StatusReason_STATUS_REASON_BELOW_THRESHOLD StatusReason = 4
-	// Steps 4a, 4c and 6c: a conflict stands.
-	StatusReason_STATUS_REASON_CONFLICT StatusReason = 5
-	// Step 4b: a set distinct_from.
-	StatusReason_STATUS_REASON_DISTINCT_FROM StatusReason = 6
-	// Step 4d: the kind's merge policy doesn't accept it.
-	StatusReason_STATUS_REASON_MERGE_POLICY StatusReason = 7
-	// Step 5: the object has no live exists support.
-	StatusReason_STATUS_REASON_UNOBSERVED_OBJECT StatusReason = 8
-	// Step 6a: configured precedence decided.
-	StatusReason_STATUS_REASON_PRECEDENCE StatusReason = 9
-	// Step 6b: authority decided.
-	StatusReason_STATUS_REASON_AUTHORITY StatusReason = 10
-)
-
-// Enum value maps for StatusReason.
-var (
-	StatusReason_name = map[int32]string{
-		0:  "STATUS_REASON_UNSPECIFIED",
-		1:  "STATUS_REASON_NONE",
-		2:  "STATUS_REASON_NO_SUPPORT",
-		3:  "STATUS_REASON_OVERRIDE",
-		4:  "STATUS_REASON_BELOW_THRESHOLD",
-		5:  "STATUS_REASON_CONFLICT",
-		6:  "STATUS_REASON_DISTINCT_FROM",
-		7:  "STATUS_REASON_MERGE_POLICY",
-		8:  "STATUS_REASON_UNOBSERVED_OBJECT",
-		9:  "STATUS_REASON_PRECEDENCE",
-		10: "STATUS_REASON_AUTHORITY",
-	}
-	StatusReason_value = map[string]int32{
-		"STATUS_REASON_UNSPECIFIED":       0,
-		"STATUS_REASON_NONE":              1,
-		"STATUS_REASON_NO_SUPPORT":        2,
-		"STATUS_REASON_OVERRIDE":          3,
-		"STATUS_REASON_BELOW_THRESHOLD":   4,
-		"STATUS_REASON_CONFLICT":          5,
-		"STATUS_REASON_DISTINCT_FROM":     6,
-		"STATUS_REASON_MERGE_POLICY":      7,
-		"STATUS_REASON_UNOBSERVED_OBJECT": 8,
-		"STATUS_REASON_PRECEDENCE":        9,
-		"STATUS_REASON_AUTHORITY":         10,
-	}
-)
-
-func (x StatusReason) Enum() *StatusReason {
-	p := new(StatusReason)
-	*p = x
-	return p
-}
-
-func (x StatusReason) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (StatusReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[14].Descriptor()
-}
-
-func (StatusReason) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[14]
-}
-
-func (x StatusReason) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use StatusReason.Descriptor instead.
-func (StatusReason) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{14}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{8}
 }
 
 // ConflictResolution is the rule that decided a disagreement.
@@ -980,11 +585,11 @@ func (x ConflictResolution) String() string {
 }
 
 func (ConflictResolution) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[15].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[9].Descriptor()
 }
 
 func (ConflictResolution) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[15]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[9]
 }
 
 func (x ConflictResolution) Number() protoreflect.EnumNumber {
@@ -993,117 +598,7 @@ func (x ConflictResolution) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConflictResolution.Descriptor instead.
 func (ConflictResolution) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{15}
-}
-
-// CompactionDetail is the level of detail an answer comes from.
-type CompactionDetail int32
-
-const (
-	// Not set. Required in every precision.
-	CompactionDetail_COMPACTION_DETAIL_UNSPECIFIED CompactionDetail = 0
-	// Every support version.
-	CompactionDetail_COMPACTION_DETAIL_FULL CompactionDetail = 1
-	// A summary per UTC calendar quarter.
-	CompactionDetail_COMPACTION_DETAIL_QUARTER CompactionDetail = 2
-	// A summary per UTC calendar year.
-	CompactionDetail_COMPACTION_DETAIL_YEAR CompactionDetail = 3
-)
-
-// Enum value maps for CompactionDetail.
-var (
-	CompactionDetail_name = map[int32]string{
-		0: "COMPACTION_DETAIL_UNSPECIFIED",
-		1: "COMPACTION_DETAIL_FULL",
-		2: "COMPACTION_DETAIL_QUARTER",
-		3: "COMPACTION_DETAIL_YEAR",
-	}
-	CompactionDetail_value = map[string]int32{
-		"COMPACTION_DETAIL_UNSPECIFIED": 0,
-		"COMPACTION_DETAIL_FULL":        1,
-		"COMPACTION_DETAIL_QUARTER":     2,
-		"COMPACTION_DETAIL_YEAR":        3,
-	}
-)
-
-func (x CompactionDetail) Enum() *CompactionDetail {
-	p := new(CompactionDetail)
-	*p = x
-	return p
-}
-
-func (x CompactionDetail) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (CompactionDetail) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[16].Descriptor()
-}
-
-func (CompactionDetail) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[16]
-}
-
-func (x CompactionDetail) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use CompactionDetail.Descriptor instead.
-func (CompactionDetail) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{16}
-}
-
-// IssueType is a kind of data-quality issue.
-type IssueType int32
-
-const (
-	// Not set. Required in every issue.
-	IssueType_ISSUE_TYPE_UNSPECIFIED IssueType = 0
-	// An object referenced by live relation supports has no live exists support.
-	IssueType_ISSUE_TYPE_UNOBSERVED_OBJECT IssueType = 1
-	// A same_as the merge guard excludes.
-	IssueType_ISSUE_TYPE_ID_CONFLICT IssueType = 2
-)
-
-// Enum value maps for IssueType.
-var (
-	IssueType_name = map[int32]string{
-		0: "ISSUE_TYPE_UNSPECIFIED",
-		1: "ISSUE_TYPE_UNOBSERVED_OBJECT",
-		2: "ISSUE_TYPE_ID_CONFLICT",
-	}
-	IssueType_value = map[string]int32{
-		"ISSUE_TYPE_UNSPECIFIED":       0,
-		"ISSUE_TYPE_UNOBSERVED_OBJECT": 1,
-		"ISSUE_TYPE_ID_CONFLICT":       2,
-	}
-)
-
-func (x IssueType) Enum() *IssueType {
-	p := new(IssueType)
-	*p = x
-	return p
-}
-
-func (x IssueType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (IssueType) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[17].Descriptor()
-}
-
-func (IssueType) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[17]
-}
-
-func (x IssueType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use IssueType.Descriptor instead.
-func (IssueType) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{17}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{9}
 }
 
 // RejectionCode says why part of an event was rejected.
@@ -1201,11 +696,11 @@ func (x RejectionCode) String() string {
 }
 
 func (RejectionCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[18].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[10].Descriptor()
 }
 
 func (RejectionCode) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[18]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[10]
 }
 
 func (x RejectionCode) Number() protoreflect.EnumNumber {
@@ -1214,68 +709,11 @@ func (x RejectionCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RejectionCode.Descriptor instead.
 func (RejectionCode) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{18}
-}
-
-// MergeReviewStatus is what re-evaluating a merge's evidence found
-// (docs/spec/data-model.md, "Merge" step 4).
-type MergeReviewStatus int32
-
-const (
-	// Not set. Rejected on a review write.
-	MergeReviewStatus_MERGE_REVIEW_STATUS_UNSPECIFIED MergeReviewStatus = 0
-	// The evidence still supports the merge, or it ended in a way that is not a
-	// reason for review (a subject was deleted, or lost its exists).
-	MergeReviewStatus_MERGE_REVIEW_STATUS_HOLDS MergeReviewStatus = 1
-	// The evidence now contradicts the merge, and the core opened a conflict
-	// on (subject, same_as) for a person to look at. The core never un-merges
-	// by itself.
-	MergeReviewStatus_MERGE_REVIEW_STATUS_NEEDS_REVIEW MergeReviewStatus = 2
-)
-
-// Enum value maps for MergeReviewStatus.
-var (
-	MergeReviewStatus_name = map[int32]string{
-		0: "MERGE_REVIEW_STATUS_UNSPECIFIED",
-		1: "MERGE_REVIEW_STATUS_HOLDS",
-		2: "MERGE_REVIEW_STATUS_NEEDS_REVIEW",
-	}
-	MergeReviewStatus_value = map[string]int32{
-		"MERGE_REVIEW_STATUS_UNSPECIFIED":  0,
-		"MERGE_REVIEW_STATUS_HOLDS":        1,
-		"MERGE_REVIEW_STATUS_NEEDS_REVIEW": 2,
-	}
-)
-
-func (x MergeReviewStatus) Enum() *MergeReviewStatus {
-	p := new(MergeReviewStatus)
-	*p = x
-	return p
-}
-
-func (x MergeReviewStatus) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MergeReviewStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[19].Descriptor()
-}
-
-func (MergeReviewStatus) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[19]
-}
-
-func (x MergeReviewStatus) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MergeReviewStatus.Descriptor instead.
-func (MergeReviewStatus) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{19}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{10}
 }
 
 // WebhookScheme is how a source signs its webhook deliveries, so the host
-// can check one before anything is stored (ADR 7, ADR 9 A6). The host has
+// can check one before anything is stored. The host has
 // one verifier per scheme; a scheme it has no verifier for cannot be
 // declared.
 type WebhookScheme int32
@@ -1312,11 +750,11 @@ func (x WebhookScheme) String() string {
 }
 
 func (WebhookScheme) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[20].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[11].Descriptor()
 }
 
 func (WebhookScheme) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[20]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[11]
 }
 
 func (x WebhookScheme) Number() protoreflect.EnumNumber {
@@ -1325,30 +763,14 @@ func (x WebhookScheme) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WebhookScheme.Descriptor instead.
 func (WebhookScheme) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{20}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{11}
 }
 
 var File_bearing_model_v1alpha1_enums_proto protoreflect.FileDescriptor
 
 const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\n" +
-	"\"bearing/model/v1alpha1/enums.proto\x12\x16bearing.model.v1alpha1*e\n" +
-	"\rSubjectStatus\x12\x1e\n" +
-	"\x1aSUBJECT_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
-	"\x15SUBJECT_STATUS_ACTIVE\x10\x01\x12\x19\n" +
-	"\x15SUBJECT_STATUS_MERGED\x10\x02*n\n" +
-	"\bMintRule\x12\x19\n" +
-	"\x15MINT_RULE_UNSPECIFIED\x10\x00\x12\x19\n" +
-	"\x15MINT_RULE_OBSERVATION\x10\x01\x12\x17\n" +
-	"\x13MINT_RULE_REFERENCE\x10\x02\x12\x13\n" +
-	"\x0fMINT_RULE_SPLIT\x10\x03*\xae\x01\n" +
-	"\tMergeRule\x12\x1a\n" +
-	"\x16MERGE_RULE_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aMERGE_RULE_CO_REPORTED_IDS\x10\x01\x12\x1a\n" +
-	"\x16MERGE_RULE_PLACEHOLDER\x10\x02\x12\x1c\n" +
-	"\x18MERGE_RULE_AUTHORITATIVE\x10\x03\x12\x14\n" +
-	"\x10MERGE_RULE_SCORE\x10\x04\x12\x15\n" +
-	"\x11MERGE_RULE_MANUAL\x10\x05*K\n" +
+	"\"bearing/model/v1alpha1/enums.proto\x12\x16bearing.model.v1alpha1*K\n" +
 	"\bKeyClass\x12\x19\n" +
 	"\x15KEY_CLASS_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fKEY_CLASS_ID\x10\x01\x12\x12\n" +
@@ -1361,12 +783,7 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\aKeyCase\x12\x18\n" +
 	"\x14KEY_CASE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12KEY_CASE_SENSITIVE\x10\x01\x12\x18\n" +
-	"\x14KEY_CASE_INSENSITIVE\x10\x02*|\n" +
-	"\vMergePolicy\x12\x1c\n" +
-	"\x18MERGE_POLICY_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aMERGE_POLICY_AUTHORITATIVE\x10\x01\x12\x16\n" +
-	"\x12MERGE_POLICY_SCORE\x10\x02\x12\x17\n" +
-	"\x13MERGE_POLICY_MANUAL\x10\x03*\x8c\x01\n" +
+	"\x14KEY_CASE_INSENSITIVE\x10\x02*\x8c\x01\n" +
 	"\vMatchMethod\x12\x1c\n" +
 	"\x18MATCH_METHOD_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12MATCH_METHOD_EXACT\x10\x01\x12\x16\n" +
@@ -1392,17 +809,7 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x10VALUE_TYPE_FLOAT\x10\x02\x12\x13\n" +
 	"\x0fVALUE_TYPE_BOOL\x10\x03\x12\x13\n" +
 	"\x0fVALUE_TYPE_TIME\x10\x04\x12\x13\n" +
-	"\x0fVALUE_TYPE_JSON\x10\x05*\x8b\x02\n" +
-	"\rSupportReason\x12\x1e\n" +
-	"\x1aSUPPORT_REASON_UNSPECIFIED\x10\x00\x12\x19\n" +
-	"\x15SUPPORT_REASON_ASSERT\x10\x01\x12\x16\n" +
-	"\x12SUPPORT_REASON_END\x10\x02\x12\x1b\n" +
-	"\x17SUPPORT_REASON_SNAPSHOT\x10\x03\x12\x1a\n" +
-	"\x16SUPPORT_REASON_DELETED\x10\x04\x12\x1c\n" +
-	"\x18SUPPORT_REASON_WITHDRAWN\x10\x05\x12\x18\n" +
-	"\x14SUPPORT_REASON_MERGE\x10\x06\x12\x1a\n" +
-	"\x16SUPPORT_REASON_UNMERGE\x10\a\x12\x1a\n" +
-	"\x16SUPPORT_REASON_DERIVED\x10\b*\xac\x01\n" +
+	"\x0fVALUE_TYPE_JSON\x10\x05*\xac\x01\n" +
 	"\n" +
 	"FactStatus\x12\x1b\n" +
 	"\x17FACT_STATUS_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -1410,35 +817,13 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x14FACT_STATUS_ASSERTED\x10\x02\x12\x19\n" +
 	"\x15FACT_STATUS_CANDIDATE\x10\x03\x12\x1a\n" +
 	"\x16FACT_STATUS_CONFLICTED\x10\x04\x12\x1a\n" +
-	"\x16FACT_STATUS_OVERRIDDEN\x10\x05*\xdf\x02\n" +
-	"\fStatusReason\x12\x1d\n" +
-	"\x19STATUS_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12STATUS_REASON_NONE\x10\x01\x12\x1c\n" +
-	"\x18STATUS_REASON_NO_SUPPORT\x10\x02\x12\x1a\n" +
-	"\x16STATUS_REASON_OVERRIDE\x10\x03\x12!\n" +
-	"\x1dSTATUS_REASON_BELOW_THRESHOLD\x10\x04\x12\x1a\n" +
-	"\x16STATUS_REASON_CONFLICT\x10\x05\x12\x1f\n" +
-	"\x1bSTATUS_REASON_DISTINCT_FROM\x10\x06\x12\x1e\n" +
-	"\x1aSTATUS_REASON_MERGE_POLICY\x10\a\x12#\n" +
-	"\x1fSTATUS_REASON_UNOBSERVED_OBJECT\x10\b\x12\x1c\n" +
-	"\x18STATUS_REASON_PRECEDENCE\x10\t\x12\x1b\n" +
-	"\x17STATUS_REASON_AUTHORITY\x10\n" +
-	"*\xcc\x01\n" +
+	"\x16FACT_STATUS_OVERRIDDEN\x10\x05*\xcc\x01\n" +
 	"\x12ConflictResolution\x12#\n" +
 	"\x1fCONFLICT_RESOLUTION_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cCONFLICT_RESOLUTION_OVERRIDE\x10\x01\x12\"\n" +
 	"\x1eCONFLICT_RESOLUTION_PRECEDENCE\x10\x02\x12!\n" +
 	"\x1dCONFLICT_RESOLUTION_AUTHORITY\x10\x03\x12(\n" +
-	"$CONFLICT_RESOLUTION_EVIDENCE_CHANGED\x10\x04*\x8c\x01\n" +
-	"\x10CompactionDetail\x12!\n" +
-	"\x1dCOMPACTION_DETAIL_UNSPECIFIED\x10\x00\x12\x1a\n" +
-	"\x16COMPACTION_DETAIL_FULL\x10\x01\x12\x1d\n" +
-	"\x19COMPACTION_DETAIL_QUARTER\x10\x02\x12\x1a\n" +
-	"\x16COMPACTION_DETAIL_YEAR\x10\x03*e\n" +
-	"\tIssueType\x12\x1a\n" +
-	"\x16ISSUE_TYPE_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cISSUE_TYPE_UNOBSERVED_OBJECT\x10\x01\x12\x1a\n" +
-	"\x16ISSUE_TYPE_ID_CONFLICT\x10\x02*\xee\x04\n" +
+	"$CONFLICT_RESOLUTION_EVIDENCE_CHANGED\x10\x04*\xee\x04\n" +
 	"\rRejectionCode\x12\x1e\n" +
 	"\x1aREJECTION_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cREJECTION_CODE_KIND_MISMATCH\x10\x01\x12$\n" +
@@ -1457,11 +842,7 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x1dREJECTION_CODE_ALREADY_MERGED\x10\r\x12$\n" +
 	" REJECTION_CODE_INVALID_OPERATION\x10\x0e\x12\x1c\n" +
 	"\x18REJECTION_CODE_MALFORMED\x10\x0f\x12\x1c\n" +
-	"\x18REJECTION_CODE_TOO_LARGE\x10\x10*}\n" +
-	"\x11MergeReviewStatus\x12#\n" +
-	"\x1fMERGE_REVIEW_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
-	"\x19MERGE_REVIEW_STATUS_HOLDS\x10\x01\x12$\n" +
-	" MERGE_REVIEW_STATUS_NEEDS_REVIEW\x10\x02*O\n" +
+	"\x18REJECTION_CODE_TOO_LARGE\x10\x10*O\n" +
 	"\rWebhookScheme\x12\x1e\n" +
 	"\x1aWEBHOOK_SCHEME_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aWEBHOOK_SCHEME_HMAC_SHA256\x10\x01B=Z;bearing.example/gen/go/bearing/model/v1alpha1;modelv1alpha1b\x06proto3"
@@ -1478,29 +859,20 @@ func file_bearing_model_v1alpha1_enums_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 21)
+var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
 var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
-	(SubjectStatus)(0),      // 0: bearing.model.v1alpha1.SubjectStatus
-	(MintRule)(0),           // 1: bearing.model.v1alpha1.MintRule
-	(MergeRule)(0),          // 2: bearing.model.v1alpha1.MergeRule
-	(KeyClass)(0),           // 3: bearing.model.v1alpha1.KeyClass
-	(PerSubject)(0),         // 4: bearing.model.v1alpha1.PerSubject
-	(KeyCase)(0),            // 5: bearing.model.v1alpha1.KeyCase
-	(MergePolicy)(0),        // 6: bearing.model.v1alpha1.MergePolicy
-	(MatchMethod)(0),        // 7: bearing.model.v1alpha1.MatchMethod
-	(Direction)(0),          // 8: bearing.model.v1alpha1.Direction
-	(Cardinality)(0),        // 9: bearing.model.v1alpha1.Cardinality
-	(ConflictPolicy)(0),     // 10: bearing.model.v1alpha1.ConflictPolicy
-	(ValueType)(0),          // 11: bearing.model.v1alpha1.ValueType
-	(SupportReason)(0),      // 12: bearing.model.v1alpha1.SupportReason
-	(FactStatus)(0),         // 13: bearing.model.v1alpha1.FactStatus
-	(StatusReason)(0),       // 14: bearing.model.v1alpha1.StatusReason
-	(ConflictResolution)(0), // 15: bearing.model.v1alpha1.ConflictResolution
-	(CompactionDetail)(0),   // 16: bearing.model.v1alpha1.CompactionDetail
-	(IssueType)(0),          // 17: bearing.model.v1alpha1.IssueType
-	(RejectionCode)(0),      // 18: bearing.model.v1alpha1.RejectionCode
-	(MergeReviewStatus)(0),  // 19: bearing.model.v1alpha1.MergeReviewStatus
-	(WebhookScheme)(0),      // 20: bearing.model.v1alpha1.WebhookScheme
+	(KeyClass)(0),           // 0: bearing.model.v1alpha1.KeyClass
+	(PerSubject)(0),         // 1: bearing.model.v1alpha1.PerSubject
+	(KeyCase)(0),            // 2: bearing.model.v1alpha1.KeyCase
+	(MatchMethod)(0),        // 3: bearing.model.v1alpha1.MatchMethod
+	(Direction)(0),          // 4: bearing.model.v1alpha1.Direction
+	(Cardinality)(0),        // 5: bearing.model.v1alpha1.Cardinality
+	(ConflictPolicy)(0),     // 6: bearing.model.v1alpha1.ConflictPolicy
+	(ValueType)(0),          // 7: bearing.model.v1alpha1.ValueType
+	(FactStatus)(0),         // 8: bearing.model.v1alpha1.FactStatus
+	(ConflictResolution)(0), // 9: bearing.model.v1alpha1.ConflictResolution
+	(RejectionCode)(0),      // 10: bearing.model.v1alpha1.RejectionCode
+	(WebhookScheme)(0),      // 11: bearing.model.v1alpha1.WebhookScheme
 }
 var file_bearing_model_v1alpha1_enums_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1520,7 +892,7 @@ func file_bearing_model_v1alpha1_enums_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_enums_proto_rawDesc), len(file_bearing_model_v1alpha1_enums_proto_rawDesc)),
-			NumEnums:      21,
+			NumEnums:      12,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

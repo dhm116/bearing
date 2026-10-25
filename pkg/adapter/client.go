@@ -1,25 +1,15 @@
 package adapter
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -29,204 +19,16 @@ import (
 	"bearing.example/pkg/telemetry"
 )
 
-// Client talks to one adapter over the protocol. It is safe for concurrent
-// use; calls are serialized because the protocol handles one request at a time.
-type Client struct {
-	name   string
-	mu     sync.Mutex
-	enc    *json.Encoder
-	sc     *bufio.Scanner
-	nextID int
-	close  func() error
-	kill   func() error
-}
-
-// NewClient speaks the protocol over an existing reader and writer, such as
-// in-memory pipes in tests. name labels the adapter in telemetry.
-func NewClient(name string, r io.Reader, w io.Writer) *Client {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), maxMessage)
-	return &Client{name: name, enc: json.NewEncoder(w), sc: sc, close: func() error { return nil }}
-}
-
-// Start launches an adapter executable and connects to its stdin and stdout.
-// The adapter's stderr, where its console telemetry goes, is passed through
-// to this process's stderr. The adapter inherits this process's environment,
-// including OTEL_* settings. A host that runs adapters for other people's
-// sources uses StartWith and names the environment instead.
-func Start(ctx context.Context, name string, args ...string) (*Client, error) {
-	return start(ctx, StartConfig{Name: name, Args: args}, true)
-}
-
-// StartConfig is how StartWith launches an adapter.
-type StartConfig struct {
-	// Name is the executable; the host passes an absolute path.
-	Name string
-	// Args are its arguments.
-	Args []string
-	// Env is the adapter's whole environment, as KEY=value entries. Nothing is
-	// inherited from this process, so an empty Env is an empty environment.
-	Env []string
-	// Dir is the adapter's working directory; empty means this process's.
-	Dir string
-}
-
-// StartWith launches an adapter with exactly the environment in c, so a
-// variable the host did not name (a store password, a signing key, another
-// source's token) never reaches it. The stdio transport is retired when the
-// adapter service lands (docs/spec/adapter-protocol.md); nothing new is built
-// on it.
-func StartWith(ctx context.Context, c StartConfig) (*Client, error) {
-	return start(ctx, c, false)
-}
-
-func start(ctx context.Context, c StartConfig, inherit bool) (*Client, error) {
-	// Running the adapter the caller names is this function's job.
-	cmd := exec.CommandContext(ctx, c.Name, c.Args...) //nolint:gosec // G204: the adapter command is the caller's choice
-	cmd.Stderr = os.Stderr
-	cmd.Dir = c.Dir
-	if !inherit {
-		// A nil Env would mean "inherit".
-		cmd.Env = append([]string{}, c.Env...)
-	}
-	stdin, err := cmd.StdinPipe()
-	var stdout io.ReadCloser
-	if err == nil {
-		stdout, err = cmd.StdoutPipe()
-	}
-	if err == nil {
-		err = cmd.Start()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("adapter: start %s: %w", c.Name, err)
-	}
-	telemetry.Logger(pkgName).InfoContext(ctx, "adapter started",
-		string(attrAdapter), filepath.Base(c.Name), "pid", cmd.Process.Pid)
-	cl := NewClient(filepath.Base(c.Name), stdout, stdin)
-	cl.close = func() error {
-		// Closing stdin tells the adapter to exit; Wait reports how it did.
-		closeErr := stdin.Close()
-		return errors.Join(cmd.Wait(), closeErr)
-	}
-	cl.kill = func() error { return cmd.Process.Kill() }
-	return cl, nil
-}
-
-// Name is the adapter's label in telemetry.
-func (c *Client) Name() string { return c.name }
-
-// Close ends the session and, for started adapters, waits for the process.
-func (c *Client) Close() error { return c.close() }
-
-// Kill ends the process of a started adapter without waiting for it, so a
-// call that is blocked on a hung adapter returns with an error; Close still
-// reaps it. It does nothing for a client over a reader and writer.
-func (c *Client) Kill() error {
-	if c.kill == nil {
-		return nil
-	}
-	return c.kill()
-}
-
-func (c *Client) call(ctx context.Context, method string, params, result any) (err error) {
-	ctx, span := tracer.Start(ctx, method,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(semconv.RPCSystemNameJSONRPC, semconv.RPCMethod(method), attrAdapter.String(c.name)))
-	start := time.Now()
-	defer func() {
-		attrs := []attribute.KeyValue{semconv.RPCMethod(method), attrAdapter.String(c.name)}
-		var rpcErr *Error
-		switch {
-		case err == nil:
-		case errors.As(err, &rpcErr) && rpcErr.Code == CodeNotSupported:
-			attrs = append(attrs, semconv.ErrorTypeKey.String(rpcErr.ErrorType()))
-			span.SetAttributes(semconv.RPCResponseStatusCode(rpcErr.ErrorType()))
-		default:
-			attrs = append(attrs, semconv.ErrorTypeKey.String(telemetry.ErrorType(err)))
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		rpcClientDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
-		span.End()
-	}()
-
-	meta := map[string]string{}
-	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(meta))
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.nextID++
-	id := json.RawMessage(strconv.Itoa(c.nextID))
-	span.SetAttributes(attribute.String("jsonrpc.request.id", string(id)))
-	var raw json.RawMessage
-	if params != nil {
-		b, err := json.Marshal(params)
-		if err != nil {
-			return err
-		}
-		raw = b
-	}
-	if err := c.enc.Encode(request{JSONRPC: "2.0", ID: id, Method: method, Params: raw, Meta: meta}); err != nil {
-		return fmt.Errorf("%s: write: %w", method, err)
-	}
-	if !c.sc.Scan() {
-		if err := c.sc.Err(); err != nil {
-			return fmt.Errorf("%s: read: %w", method, err)
-		}
-		return fmt.Errorf("%s: adapter closed the connection", method)
-	}
-	var resp struct {
-		ID     json.RawMessage `json:"id"`
-		Result json.RawMessage `json:"result"`
-		Error  *Error          `json:"error"`
-	}
-	if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
-		return fmt.Errorf("%s: decode response: %w", method, err)
-	}
-	if string(resp.ID) != string(id) {
-		return fmt.Errorf("%s: response id %s does not match request id %s", method, resp.ID, id)
-	}
-	if resp.Error != nil {
-		return resp.Error
-	}
-	return json.Unmarshal(resp.Result, result)
-}
-
-// Describe calls bearing.describe.
-func (c *Client) Describe(ctx context.Context) (DescribeResult, error) {
-	var res DescribeResult
-	err := c.call(ctx, MethodDescribe, nil, &res)
-	return res, err
-}
-
-// Sync calls bearing.sync for one page.
-func (c *Client) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
-	var res SyncResult
-	err := c.call(ctx, MethodSync, p, &res)
-	return res, err
-}
-
-// Handle calls bearing.handle. It validates every observation and truncates
-// its times to microseconds. Unlike SyncAll it fails on the first invalid
-// observation: a delivery is one event, not a sweep to carry on with.
-func (c *Client) Handle(ctx context.Context, p HandleParams) (HandleResult, error) {
-	var res HandleResult
-	if err := c.call(ctx, MethodHandle, p, &res); err != nil {
-		return res, err
-	}
-	return checkHandled(ctx, c.name, res)
-}
-
-// Handler is anything that takes webhook deliveries: a Client, or an Adapter
+// Handler is anything that takes webhook deliveries: a Remote, or an Adapter
 // called in-process.
 type Handler interface {
 	Handle(context.Context, HandleParams) (HandleResult, error)
 }
 
-// HandleChecked is what the host does with a delivery for an adapter that
-// runs in its process: it calls Handle and then validates every observation
-// as Client.Handle does, so both ways of running an adapter give the core the
-// same observations. name labels the adapter in telemetry.
+// HandleChecked is what the host does with a delivery: it calls Handle and
+// then validates every observation, failing on the first invalid one (a
+// delivery is one event, not a sweep to carry on with), and truncates its
+// times to microseconds. name labels the adapter in telemetry.
 func HandleChecked(ctx context.Context, h Handler, name string, p HandleParams) (HandleResult, error) {
 	res, err := h.Handle(ctx, p)
 	if err != nil {
@@ -238,7 +40,7 @@ func HandleChecked(ctx context.Context, h Handler, name string, p HandleParams) 
 func checkHandled(ctx context.Context, name string, res HandleResult) (HandleResult, error) {
 	for i, o := range res.Observations {
 		if err := checkObservation(ctx, name, o); err != nil {
-			return HandleResult{}, fmt.Errorf("%s: observation %d: %w", MethodHandle, i, err)
+			return HandleResult{}, fmt.Errorf("handle: observation %d: %w", i, err)
 		}
 	}
 	return res, nil
@@ -260,7 +62,7 @@ func checkObservation(ctx context.Context, adapterName string, o *eventv1alpha1.
 // ErrTooManyPages is returned by SyncAll when an adapter never reports done.
 var ErrTooManyPages = errors.New("adapter: returned too many pages without finishing")
 
-// Syncer is anything that serves sync pages: a Client, or an Adapter called
+// Syncer is anything that serves sync pages: a Remote, or an Adapter called
 // in-process.
 type Syncer interface {
 	Sync(context.Context, SyncParams) (SyncResult, error)
@@ -273,19 +75,17 @@ type SyncSummary struct {
 	// Accepted is how many observations SyncAll passed to emit, with their
 	// rejected claims already removed.
 	Accepted int
-	// RejectedObservations were skipped whole: they failed validation, or
-	// could not be decoded at all.
+	// RejectedObservations failed validation and were skipped whole.
 	RejectedObservations int
 	// RejectedClaims were removed from observations that were accepted.
 	RejectedClaims int
 }
 
-// Complete reports whether SyncAll skipped no observation, whole or because
-// it couldn't be decoded. A sync that skipped some has not seen every entity
-// the adapter returned, so the core must not count it as complete when it
-// looks for entities that went missing (docs/spec/data-model.md, "Sync
-// completeness"). It says nothing about whether the sync finished: callers
-// must also require that SyncAll returned no error.
+// Complete reports whether SyncAll skipped no observation. A sync that
+// skipped some has not seen every entity the adapter returned, so the core
+// must not count it as complete when it looks for entities that went
+// missing. It says nothing about whether the sync finished: callers must
+// also require that SyncAll returned no error.
 func (s SyncSummary) Complete() bool { return s.RejectedObservations == 0 }
 
 // maxRejectionLogs is how many rejections SyncAll logs one by one in a sync;
@@ -344,8 +144,7 @@ type Page struct {
 // (model.ValidateAdapterObservation), truncating its times to microseconds
 // and passing it to emit. An observation that fails validation is skipped,
 // or, if only some of its claims are rejected, passed on without them; the
-// summary counts both and the sync goes on. An observation that can't be
-// decoded (an unknown field, say) counts as rejected too. maxPages guards
+// summary counts both and the sync goes on. maxPages guards
 // against adapters that never finish. The whole sync runs in one span, with
 // each page as a child.
 func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
@@ -398,13 +197,6 @@ func SyncPages(ctx context.Context, a Syncer, config json.RawMessage, maxPages i
 		}
 		sum.Pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
-		for _, why := range res.Undecodable {
-			observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
-			sum.RejectedObservations++
-			if sum.RejectedObservations+sum.RejectedClaims <= maxRejectionLogs {
-				log.WarnContext(ctx, "adapter observation rejected", string(attrAdapter), name, "reason", "malformed: "+why)
-			}
-		}
 		kept := make([]*eventv1alpha1.Observation, 0, len(res.Observations))
 		for _, o := range res.Observations {
 			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs

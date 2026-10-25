@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,12 +22,9 @@ import (
 	"bearing.example/internal/fakes"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
+	"bearing.example/pkg/store"
 )
-
-var _ Applier = (*resolver.Resolver)(nil)
 
 func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	ctx := t.Context()
@@ -37,28 +35,13 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"GITHUB_TOKEN": "tok", "GITHUB_WEBHOOK_SECRET": "sec"}
+	env := map[string]string{"GITHUB_TOKEN": "tok"}
 	gh := &github.Adapter{HTTP: srv.Client(), Now: clk.Now, Getenv: func(k string) string { return env[k] }}
 
 	h := newHarness(t, func(c *Config) {
 		c.Sources = []Source{{Name: testSource, Adapter: gh, Config: cfg}}
 	})
-	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "declarations", "github.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	decl := &modelv1alpha1.AdapterDeclaration{}
-	if err := model.DecodeJSON(b, decl); err != nil {
-		t.Fatal(err)
-	}
-	res, err := resolver.New(resolver.Config{
-		Declarations: []*modelv1alpha1.AdapterDeclaration{decl},
-		Sources:      map[string]*resolver.Source{testSource: {Name: testSource, Adapter: "github"}},
-	}, h.mem)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.s.cfg.Applier = res
+	h.s.cfg.Applier = StoreApplier{Store: h.mem}
 	h.start()
 
 	sr, err := h.s.RequestSync(ctx, testSource, &eventv1alpha1.Actor{Subject: "system:test"})
@@ -73,12 +56,8 @@ func TestServerSyncsGitHubIntoTheGraph(t *testing.T) {
 		// The request, then its pages: all are in the log and applied.
 		return len(h.entries(testSource)) >= 2
 	})
-	sub, err := h.mem.ResolveKey(ctx, "github:repo/acme/payments-api", time.Time{}, time.Time{})
-	if err != nil {
+	if _, err := h.mem.Entity(ctx, "github:repo/acme/payments-api"); err != nil {
 		t.Fatalf("the repository is not in the graph: %v", err)
-	}
-	if sub == nil {
-		t.Fatal("got no subject")
 	}
 
 	// Every page names the request that caused it, in order, and the last
@@ -195,7 +174,7 @@ func TestServerPagesAreNumberedAndStampedWithTheirSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the page to be applied", func() bool { return h.drained(testSource) && len(h.ap.called()) == 1 })
-	var pages []contracts.Entry
+	var pages []store.Entry
 	for _, e := range h.entries(testSource) {
 		if e.Type == typeObservationsEmitted {
 			pages = append(pages, e)
@@ -285,7 +264,6 @@ func TestSchedulerRunsOnItsInterval(t *testing.T) {
 		c.Clock = clk
 		c.Sources[0].Interval = time.Hour
 		c.Sources[0].SyncOnStart = true
-		c.LockCheck = 24 * time.Hour
 		c.PollInterval = 24 * time.Hour
 	})
 	h.start()
@@ -307,7 +285,7 @@ func TestRetentionTrimsWhatTheGroupHasApplied(t *testing.T) {
 		c.Retention = 24 * time.Hour
 		c.TrimEvery = time.Hour
 	})
-	h.mem.Now = clk.Now
+	h.now = clk.Now
 	applied := h.emitted(testSource, "old-applied", 1)
 	unapplied := h.emitted(testSource, "old-unapplied", 1)
 	if err := h.mem.Commit(t.Context(), DefaultGroup, testSource, applied.Offset); err != nil {
@@ -331,58 +309,6 @@ func TestRetentionCountsDeadLetters(t *testing.T) {
 	}
 }
 
-// lockStub is an instance lock a test can lose.
-type lockStub struct{ lost atomic.Bool }
-
-func (l *lockStub) Held(context.Context) error {
-	if l.lost.Load() {
-		return errors.New("session ended")
-	}
-	return nil
-}
-func (*lockStub) Release(context.Context) error { return nil }
-
-func TestServerStopsWhenItLosesTheInstanceLock(t *testing.T) {
-	clk := testkit.NewClock(time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC))
-	lock := &lockStub{}
-	h := newHarness(t, func(c *Config) { c.Clock = clk; c.Lock = lock; c.LockCheck = time.Minute })
-	done := make(chan error, 1)
-	go func() { done <- h.s.Run(t.Context()) }()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	if err := clk.BlockUntilWaiters(ctx, 3); err != nil {
-		t.Fatal(err)
-	}
-	clk.Advance(time.Minute) // still held
-	select {
-	case err := <-done:
-		t.Fatalf("Run returned %v with the lock held", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	if err := h.s.Ready(ctx); err != nil {
-		t.Errorf("not ready with the lock held: %v", err)
-	}
-	lock.lost.Store(true)
-	if err := clk.BlockUntilWaiters(ctx, 3); err != nil {
-		t.Fatal(err)
-	}
-	clk.Advance(time.Minute)
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrLockLost) {
-			t.Fatalf("got %v, want ErrLockLost", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not stop")
-	}
-	if h.s.Live() == nil {
-		t.Error("a server that stopped for a lost lock reports itself live")
-	}
-	if err := h.s.Ready(ctx); !errors.Is(err, ErrLockLost) {
-		t.Errorf("got %v from Ready after the lock was lost, want ErrLockLost", err)
-	}
-}
-
 func TestHealthHandlerAnswersWithStatusCodes(t *testing.T) {
 	clk := testkit.NewClock(time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC))
 	h := newHarness(t, func(c *Config) { c.Clock = clk })
@@ -402,7 +328,7 @@ func TestHealthHandlerAnswersWithStatusCodes(t *testing.T) {
 	if got := get("/readyz"); got != http.StatusOK {
 		t.Errorf("got %d for /readyz, want 200", got)
 	}
-	h.graph.down.Store(true)
+	h.log.failRead.Store(true)
 	if got := get("/readyz"); got != http.StatusOK {
 		t.Errorf("got %d for /readyz within a second of the last check, want the cached 200", got)
 	}
@@ -451,45 +377,43 @@ func TestCleanErrorText(t *testing.T) {
 	}
 }
 
-var _ = contracts.ErrStale
-
 // flakyLog is an event log whose Append and Trim fail while a test says so.
 type flakyLog struct {
-	contracts.EventLog
+	store.EventLog
 	failAppend, failTrim, failRead atomic.Bool
 	failCommit, failCommitted      atomic.Bool
 	failReadEntries                atomic.Bool
 }
 
-func (f *flakyLog) Commit(ctx context.Context, group string, p contracts.Partition, o contracts.Offset) error {
+func (f *flakyLog) Commit(ctx context.Context, group string, p store.Partition, o store.Offset) error {
 	if f.failCommit.Load() {
 		return errors.New("commit refused")
 	}
 	return f.EventLog.Commit(ctx, group, p, o)
 }
 
-func (f *flakyLog) Committed(ctx context.Context, group string, p contracts.Partition) (contracts.Offset, error) {
+func (f *flakyLog) Committed(ctx context.Context, group string, p store.Partition) (store.Offset, error) {
 	if f.failCommitted.Load() {
 		return 0, errors.New("committed refused")
 	}
 	return f.EventLog.Committed(ctx, group, p)
 }
 
-func (f *flakyLog) Read(ctx context.Context, p contracts.Partition, after contracts.Offset, limit int) ([]contracts.Entry, error) {
+func (f *flakyLog) Read(ctx context.Context, p store.Partition, after store.Offset, limit int) ([]store.Entry, error) {
 	if f.failReadEntries.Load() {
 		return nil, errors.New("read refused")
 	}
 	return f.EventLog.Read(ctx, p, after, limit)
 }
 
-func (f *flakyLog) Partitions(ctx context.Context) ([]contracts.PartitionInfo, error) {
+func (f *flakyLog) Partitions(ctx context.Context) ([]store.PartitionInfo, error) {
 	if f.failRead.Load() {
 		return nil, errors.New("log unavailable")
 	}
 	return f.EventLog.Partitions(ctx)
 }
 
-func (f *flakyLog) Append(ctx context.Context, evs []contracts.Event) ([]contracts.Appended, error) {
+func (f *flakyLog) Append(ctx context.Context, evs []store.Event) ([]store.Appended, error) {
 	if f.failAppend.Load() {
 		return nil, errors.New("log unavailable")
 	}
@@ -506,11 +430,11 @@ func (f *flakyLog) Trim(ctx context.Context, before time.Time, groups []string) 
 func TestServerRefusesAPageTooBigForTheLog(t *testing.T) {
 	h := newHarness(t)
 	o := validObservation(t)
-	obs := make(adapter.Observations, contracts.MaxEventBytes/700+1000)
+	obs := make(adapter.Observations, store.MaxEventBytes/700+1000)
 	for i := range obs {
 		obs[i] = o
 	}
-	_, err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil)
+	_, err := h.s.appendObservations(t.Context(), testSource, testSource+"/req", 1, obs, true, nil, time.Time{})
 	if err == nil || !strings.Contains(err.Error(), "over the event limit") {
 		t.Fatalf("got %v, want a refusal that names the size", err)
 	}
@@ -547,7 +471,7 @@ func TestRetentionSurvivesATrimThatFails(t *testing.T) {
 func TestServerWaitsForTheLogToTakeADeadLetter(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
 	log := h.log
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
+	h.ap.fail = func(applied, int) error { return errors.New("bad data") }
 	h.emitted(testSource, "a", 1)
 	// The dead-letter record cannot be appended, so the event is neither
 	// given up on nor committed, and the partition is read again later.
@@ -576,15 +500,15 @@ func TestServerDeadLettersEventsItCannotDecodeOrPlace(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-			if _, err := h.mem.Append(t.Context(), []contracts.Event{{
-				ID: tt.source + "/bad", Partition: contracts.Partition(tt.source), Type: tt.typ,
+			if _, err := h.mem.Append(t.Context(), []store.Event{{
+				ID: tt.source + "/bad", Partition: store.Partition(tt.source), Type: tt.typ,
 				Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: []byte(tt.data),
 			}}); err != nil {
 				t.Fatal(err)
 			}
-			h.append(tt.source, "after", &eventv1alpha1.OverrideSet{}) // a type the server skips
+			h.appendRaw(tt.source, "after", futureType, []byte(`{}`)) // a type the server skips
 			h.start()
-			waitFor(t, "the partition to be committed", func() bool { return h.drained(contracts.Partition(tt.source)) })
+			waitFor(t, "the partition to be committed", func() bool { return h.drained(store.Partition(tt.source)) })
 			if n := len(h.entries("core/dead_letter")); n != 1 {
 				t.Fatalf("%d dead letters, want 1", n)
 			}
@@ -672,22 +596,6 @@ func TestServerDoesNotClaimACompleteSyncWhenItRepeatsAFailedRun(t *testing.T) {
 	}
 }
 
-func TestServerDoesNotApplyAnEventWhoseDeadLetterWasAuditedBeforeAStop(t *testing.T) {
-	h := newHarness(t)
-	poison := h.emitted(testSource, "poison", 1)
-	h.emitted(testSource, "next", 1)
-	// The server stopped after step 2 of the dead letter and before the
-	// commit: the audit entry exists, the offset does not.
-	if err := h.s.auditDeadLetter(t.Context(), poison, "attempts exhausted"); err != nil {
-		t.Fatal(err)
-	}
-	h.start()
-	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
-	if got, want := h.ap.called(), []string{testSource + "/next/1"}; !equalStrings(got, want) {
-		t.Fatalf("got applies %v, want only %v: the given-up event must stay given up", got, want)
-	}
-}
-
 func TestReadyAnswerIsNotSpoiledByAProberThatGoesAway(t *testing.T) {
 	h := newHarness(t)
 	h.start()
@@ -745,7 +653,7 @@ func TestServerGivesBackItsSlotBetweenAttempts(t *testing.T) {
 		c.RetryPause = time.Hour
 		c.Sources = []Source{{Name: "failing", Adapter: &fakeAdapter{}}, {Name: "other", Adapter: &fakeAdapter{}}}
 	})
-	h.ap.fail = func(ev resolver.Event, _ int) error {
+	h.ap.fail = func(ev applied, _ int) error {
 		if ev.Source == "failing" {
 			return errors.New("always")
 		}
@@ -757,19 +665,6 @@ func TestServerGivesBackItsSlotBetweenAttempts(t *testing.T) {
 	h.emitted("other", "b", 1)
 	h.s.wakeUp()
 	waitFor(t, "the other source to be applied while the first waits", func() bool { return h.drained("other") })
-}
-
-// auditDown is an audit log whose Query fails while a test says so.
-type auditDown struct {
-	contracts.AuditLog
-	down atomic.Bool
-}
-
-func (a *auditDown) Query(ctx context.Context, f contracts.AuditFilter) ([]*modelv1alpha1.AuditRecord, error) {
-	if a.down.Load() {
-		return nil, errors.New("audit unavailable")
-	}
-	return a.AuditLog.Query(ctx, f)
 }
 
 func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
@@ -794,8 +689,8 @@ func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 			}
 			flag.Store(false)
 			waitFor(t, "the partition to be applied once the log answers", func() bool { return h.drained(testSource) })
-			// A refused commit repeats the event; the store's processed-event
-			// mark makes the repeat harmless, which the real resolver relies on.
+			// A refused commit repeats the event; the store applies each
+			// observation ID once, so the repeat is harmless.
 			applied := map[string]bool{}
 			for _, id := range h.ap.called() {
 				applied[id] = true
@@ -804,53 +699,6 @@ func TestServerGoesOnWhenTheLogRefusesReadsCommitsOrOffsets(t *testing.T) {
 				t.Errorf("got applies %v, want both events", h.ap.called())
 			}
 		})
-	}
-}
-
-func TestServerWaitsWhenItCannotLookUpAGivenUpEvent(t *testing.T) {
-	audit := &auditDown{}
-	h := newHarness(t, func(c *Config) { audit.AuditLog = c.Audit; c.Audit = audit })
-	h.emitted(testSource, "a", 1)
-	audit.down.Store(true)
-	h.start()
-	time.Sleep(50 * time.Millisecond)
-	if n := len(h.ap.called()); n != 0 {
-		t.Fatalf("applied %d observations of an event it could not check", n)
-	}
-	audit.down.Store(false)
-	waitFor(t, "the partition to be applied", func() bool { return h.drained(testSource) })
-}
-
-func TestServerRetriesTheDeadLetterWhenTheStoreRefusesTheAuditEntry(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
-	h.emitted(testSource, "a", 1)
-	h.graph.failApply.Store(true)
-	h.start()
-	waitFor(t, "a dead-letter try", func() bool { return len(h.entries("core/dead_letter")) == 1 })
-	time.Sleep(50 * time.Millisecond)
-	if h.drained(testSource) {
-		t.Fatal("committed past an event whose audit entry the store refused")
-	}
-	h.graph.failApply.Store(false)
-	waitFor(t, "the event to be given up on", func() bool { return h.drained(testSource) })
-	if n := len(h.entries("core/dead_letter")); n != 1 {
-		t.Errorf("%d dead letters after the retry, want the same record once", n)
-	}
-}
-
-func TestServerDoesNotTryAGivenUpEventAgainWhenTheCommitWasRefused(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	h.ap.fail = func(resolver.Event, int) error { return errors.New("bad data") }
-	h.emitted(testSource, "a", 1)
-	h.log.failCommit.Store(true)
-	h.start()
-	waitFor(t, "the dead letter", func() bool { return len(h.entries("core/dead_letter")) == 1 })
-	time.Sleep(100 * time.Millisecond) // the partition is read again, and the commit refused again
-	h.log.failCommit.Store(false)
-	waitFor(t, "the event to be committed", func() bool { return h.drained(testSource) })
-	if got := len(h.ap.called()); got != 1 {
-		t.Fatalf("the event was tried %d times, want once: it was already given up on", got)
 	}
 }
 
@@ -918,5 +766,38 @@ func TestRequestSyncWaitingForTheSlotEndsWithItsContext(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a waiting caller was held past its context")
+	}
+}
+
+// A webhook to an adapter built for another protocol version is a fault to
+// retry and dead-letter, not an adapter without webhooks to skip, though the
+// refusal also carries CodeNotSupported.
+func TestServerDeadLettersAWebhookToAnAdapterOnAnotherProtocolVersion(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	lis, err := net.Listen("unix", filepath.Join(dir, "a.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, 2) }()
+	t.Cleanup(func() { cancel(); <-done })
+	r, err := adapter.Dial("old", adapter.DialConfig{Address: "unix://" + filepath.Join(dir, "a.sock")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
+	h.ad.handleFn = func(ctx context.Context, p adapter.HandleParams) (adapter.HandleResult, error) {
+		return r.Handle(ctx, p)
+	}
+	h.append(testSource, "d1", &eventv1alpha1.WebhookReceived{Source: testSource, Body: []byte(`{}`)})
+	h.start()
+	waitFor(t, "the delivery to be given up on", func() bool { return h.drained(testSource) })
+	if n := len(h.entries("core/dead_letter")); n != 1 {
+		t.Fatalf("%d dead letters, want 1 (a skipped delivery leaves none)", n)
 	}
 }

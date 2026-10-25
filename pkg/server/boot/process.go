@@ -17,6 +17,8 @@ import (
 
 const pkgName = "pkg/server/boot"
 
+var tracer = telemetry.Tracer(pkgName)
+
 var adapterRestarts = must(telemetry.Meter(pkgName).Int64Counter("bearing.adapter.restarts",
 	metric.WithDescription("Adapter processes the server had to drop after a failed call or start. A source that keeps failing is retried with a growing pause."),
 	metric.WithUnit("{restart}")))
@@ -31,13 +33,14 @@ func must[T any](v T, err error) T {
 // Process is one running adapter, as a source needs it.
 type Process interface {
 	adapter.Adapter
-	// Close ends the session and reaps the process.
+	// Close asks the process to exit, kills it after a grace period, and
+	// reaps it.
 	Close() error
 	// Kill ends the process so a blocked call returns.
 	Kill() error
 }
 
-var _ Process = (*adapter.Client)(nil)
+var _ Process = (*adapter.Process)(nil)
 
 // Launcher starts an adapter process. ctx outlives any one call: it is the
 // server's.
@@ -55,8 +58,7 @@ const (
 // call, drops it when a call fails in transit or runs past its context, and
 // starts a new one after a growing pause, so a crashing adapter costs a log
 // line and a counter instead of a busy loop. It satisfies adapter.Adapter for
-// the server, which neither knows nor cares how the adapter runs: the stdio
-// process is replaced when the adapter service lands (M4).
+// the server, which neither knows nor cares how the adapter runs.
 type managed struct {
 	source string
 	launch Launcher
@@ -70,6 +72,7 @@ type managed struct {
 	proc    Process
 	fails   int
 	retryAt time.Time
+	lastErr error // why the last start failed, shown while the pause lasts
 }
 
 var _ adapter.Adapter = (*managed)(nil)
@@ -90,11 +93,17 @@ func (m *managed) get() (Process, error) {
 		return m.proc, nil
 	}
 	if now := m.clk.Now(); now.Before(m.retryAt) {
-		return nil, fmt.Errorf("adapter for source %s failed and is not started again for %s", m.source, m.retryAt.Sub(now).Round(time.Second))
+		// lastErr is text, so a stale context.DeadlineExceeded cannot match errors.Is on this call; only a protocol refusal is kept.
+		err := fmt.Errorf("adapter for source %s failed and is not started again for %s (last start: %s)", m.source, m.retryAt.Sub(now).Round(time.Second), m.lastErr.Error())
+		if errors.Is(m.lastErr, adapter.ErrProtocolMismatch) {
+			err = fmt.Errorf("%w: %w", adapter.ErrProtocolMismatch, err)
+		}
+		return nil, err
 	}
 	p, err := m.launch(m.ctx)
 	if err != nil {
 		m.failLocked()
+		m.lastErr = err
 		return nil, fmt.Errorf("start the adapter for source %s: %w", m.source, err)
 	}
 	m.proc = p
@@ -119,6 +128,7 @@ func (m *managed) drop(p Process, why error) {
 	m.proc = nil
 	if !errors.Is(why, context.Canceled) { // a caller that walked away, or a stop, is not the adapter's failure
 		m.failLocked()
+		m.lastErr = why
 	}
 	m.reaping.Add(1)
 	m.mu.Unlock()
@@ -143,8 +153,8 @@ type outcome[T any] struct {
 	err error
 }
 
-// do runs f against the process. A call that fails in transit (the pipe, the
-// framing, a dead process) or outlasts ctx costs the process; an error the
+// do runs f against the process. A call that fails in transit (the socket,
+// a dead process) or outlasts ctx costs the process; an error the
 // adapter itself answered with does not.
 func do[T any](ctx context.Context, m *managed, f func(Process) (T, error)) (T, error) {
 	var zero T
@@ -200,7 +210,7 @@ func (m *managed) Close() error {
 	if p == nil {
 		return nil
 	}
-	// Closing stdin asks the adapter to exit; one that does not is killed.
+	// Close asks the adapter to exit; one that does not is killed.
 	done := make(chan error, 1)
 	go func() { done <- p.Close() }()
 	select {

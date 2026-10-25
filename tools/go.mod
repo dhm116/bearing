@@ -1,8 +1,9 @@
 module bearing.example/tools
 
-go 1.27.2
+go 1.27.3
 
 tool (
+	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	github.com/bufbuild/buf/cmd/buf
 	github.com/bufbuild/protoschema-plugins/cmd/protoc-gen-jsonschema
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint

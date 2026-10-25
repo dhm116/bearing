@@ -1,0 +1,43 @@
+{
+  "direction": "in",
+  "steps": [
+    {
+      "depth": 1,
+      "fact": {
+        "confidence": 0.9,
+        "object": {
+          "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+          "kind": "Component",
+          "name": "postgres"
+        },
+        "predicate": "depends_on",
+        "qualifiers": {
+          "port": 5432,
+          "protocol": "postgres",
+          "service": "billing/postgres",
+          "via": "env:DATABASE_URL"
+        },
+        "source_count": 1,
+        "sources": [
+          {
+            "observation_id": "kubernetes:workload/k3d-acme/billing/deployment/billing-api@2026-09-01T00:00:00.000000Z",
+            "observed_at": "2026-09-01T00:00:00Z",
+            "source": "kubernetes-acme"
+          }
+        ],
+        "status": "asserted",
+        "subject": {
+          "key": "kubernetes:workload/k3d-acme/billing/deployment/billing-api",
+          "kind": "Component",
+          "name": "billing-api"
+        },
+        "valid_from": "2026-09-01T00:00:00Z"
+      }
+    }
+  ],
+  "subject": {
+    "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+    "kind": "Component",
+    "name": "postgres"
+  }
+}

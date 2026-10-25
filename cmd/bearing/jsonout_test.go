@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"bearing.example/internal/fakes"
 	"bearing.example/pkg/apiclient"
 	"bearing.example/pkg/query"
 )
@@ -105,8 +104,8 @@ func hostile(t *testing.T, status int, body string) string {
 
 func TestJSONThroughAServerKeepsFieldsThisClientHasNoTypeForAndEscapesText(t *testing.T) {
 	w := newWorld(t)
-	vars := map[string]string{tokenEnv: readerToken}
-	get := `{"subject":{"subject_id":"s-1","name":"pay` + "\u009b2J\u202e" + `ments"},"a_later_field":{"x":[1,2]},"facts":[]}`
+	vars := map[string]string{tokenEnv: apiToken}
+	get := `{"id":"s-1","name":"pay` + "\u009b2J\u202e" + `ments","a_later_field":{"x":[1,2]},"facts":[]}`
 	addr := hostile(t, http.StatusOK, get)
 	out, err := w.cliWith(vars, "get", "x", "--server", addr, "--json")
 	if err != nil {
@@ -122,7 +121,7 @@ func TestJSONThroughAServerKeepsFieldsThisClientHasNoTypeForAndEscapesText(t *te
 	}
 
 	// The same holds for each query command and for a sync request.
-	for _, args := range [][]string{{"owner", "acme/x"}, {"related", "x"}, {"changes", "x"}} {
+	for _, args := range [][]string{{"owner", "acme/x"}, {"related", "x"}, {"changes", "x"}, {"find", "x"}} {
 		out, err := w.cliWith(vars, append(append([]string{}, args...), "--server", addr, "--json")...)
 		if err != nil || !strings.Contains(out, `"a_later_field"`) {
 			t.Errorf("%v: got %q, %v, want the later field kept", args, out, err)
@@ -137,8 +136,8 @@ func TestJSONThroughAServerKeepsFieldsThisClientHasNoTypeForAndEscapesText(t *te
 
 func TestTextThroughAServerStillShowsOnlyWhatItKnows(t *testing.T) {
 	w := newWorld(t)
-	addr := hostile(t, http.StatusOK, `{"subject":{"subject_id":"s-1"},"a_later_field":1}`)
-	out, err := w.cliWith(map[string]string{tokenEnv: readerToken}, "get", "x", "--server", addr)
+	addr := hostile(t, http.StatusOK, `{"id":"s-1","a_later_field":1}`)
+	out, err := w.cliWith(map[string]string{tokenEnv: apiToken}, "get", "x", "--server", addr)
 	if err != nil || strings.Contains(out, "a_later_field") || !strings.Contains(out, "s-1") {
 		t.Fatalf("got %q, %v, want the text of the fields it knows", out, err)
 	}
@@ -146,7 +145,6 @@ func TestTextThroughAServerStillShowsOnlyWhatItKnows(t *testing.T) {
 
 func TestServerRefusalsSayWhichTokenVariableWasUsed(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
 	addr := w.serve()
 	ref := "github:repo/acme/payments-api"
 
@@ -159,21 +157,8 @@ func TestServerRefusalsSayWhichTokenVariableWasUsed(t *testing.T) {
 		t.Fatalf("got %v, want the *Error kept under the hint", err)
 	}
 
-	_, err = w.cliWith(map[string]string{"MY_TOKEN": nobodyToken}, "get", "--server", addr, "--token-env", "MY_TOKEN", ref)
-	if err == nil || !strings.Contains(err.Error(), "accepted the token in $MY_TOKEN, but its caller's role is not allowed") || strings.Contains(err.Error(), nobodyToken) {
-		t.Fatalf("got %v, want a 403 hint that names $MY_TOKEN and says the role is not allowed", err)
-	}
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
-		t.Fatalf("got %v, want the *Error kept under the hint", err)
-	}
-
-	// A sync request is refused the same way.
-	_, err = w.cliWith(map[string]string{tokenEnv: readerToken}, "source", "sync", githubSource, "--server", addr)
-	if err == nil || !strings.Contains(err.Error(), "role is not allowed") || !strings.Contains(err.Error(), "$"+tokenEnv) {
-		t.Fatalf("got %v, want the 403 hint on a sync request", err)
-	}
 	// Other errors carry no hint.
-	_, err = w.cliWith(map[string]string{tokenEnv: readerToken}, "get", "--server", addr, "github:repo/acme/no-such-repo")
+	_, err = w.cliWith(map[string]string{tokenEnv: apiToken}, "get", "--server", addr, "github:repo/acme/no-such-repo")
 	if err == nil || strings.Contains(err.Error(), "hint:") {
 		t.Fatalf("got %v, want a not-found with no hint", err)
 	}
@@ -186,19 +171,15 @@ func TestSocketRefusalsSayNoTokenIsUsed(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sf serverFlags
-	for status, want := range map[int]string{
-		http.StatusUnauthorized: "does not know the account this command runs as (the socket needs no token)",
-		http.StatusForbidden:    "role is not allowed to do this",
-	} {
-		code := map[int]string{http.StatusUnauthorized: "unauthenticated", http.StatusForbidden: "forbidden"}[status]
-		err := sf.explain(c, &apiclient.Error{Status: status, Code: code, Message: "m"})
+	for status, want := range map[int]string{http.StatusUnauthorized: "does not know the account this command runs as (the socket needs no token)"} {
+		err := sf.explain(c, &apiclient.Error{Status: status, Code: "unauthenticated", Message: "m"})
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "$") {
 			t.Errorf("%d: got %v, want a hint with %q and no variable", status, err, want)
 		}
 	}
 	// Nothing to explain for a store, for other statuses or for other errors.
 	other := errors.New("boom")
-	if got := sf.explain(&query.Querier{}, &apiclient.Error{Status: http.StatusForbidden}); got == nil || strings.Contains(got.Error(), "hint") {
+	if got := sf.explain(&query.Querier{}, &apiclient.Error{Status: http.StatusUnauthorized, Code: "unauthenticated"}); got == nil || strings.Contains(got.Error(), "hint") {
 		t.Errorf("got %v, want a store's error returned as it is", got)
 	}
 	if got := sf.explain(c, other); !errors.Is(got, other) || strings.Contains(got.Error(), "hint") {
@@ -216,20 +197,18 @@ func TestSocketRefusalsSayNoTokenIsUsed(t *testing.T) {
 	}
 }
 
-func TestServerNotFoundNamesTheSubjectAndTheTime(t *testing.T) {
+func TestServerNotFoundNamesTheRef(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	addr := w.serve()
 	_, err := w.cliServer(addr, "get", "github:repo/acme/no-such-repo", "--as-of", "2026-09-28T00:00:00Z")
-	if !errors.Is(err, query.ErrNotFound) || !strings.Contains(err.Error(), "no subject matches github:repo/acme/no-such-repo at 2026-09-28T00:00:00Z, as known now") {
-		t.Fatalf("got %v, want the ref and the time in a not-found", err)
+	if !errors.Is(err, query.ErrNotFound) || !strings.Contains(err.Error(), "nothing matches github:repo/acme/no-such-repo") {
+		t.Fatalf("got %v, want the ref in a not-found", err)
 	}
 	_, err = w.cliServer(addr, "owner", "acme/no-such-repo")
-	if !errors.Is(err, query.ErrNotFound) || !strings.Contains(err.Error(), "no subject matches github:repo/acme/no-such-repo at now") {
+	if !errors.Is(err, query.ErrNotFound) || !strings.Contains(err.Error(), "nothing matches github:repo/acme/no-such-repo") {
 		t.Fatalf("got %v, want the repository's key in a not-found", err)
 	}
-	_, err = w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", "no-such-source", "--server", addr)
+	_, err = w.cliWith(map[string]string{tokenEnv: apiToken}, "source", "sync", "no-such-source", "--server", addr)
 	if err == nil || !strings.Contains(err.Error(), "source no-such-source:") {
 		t.Fatalf("got %v, want the source named", err)
 	}

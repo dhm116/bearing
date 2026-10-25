@@ -10,8 +10,7 @@ import (
 )
 
 // maxSignatureCandidates is how many comma-separated values of the signature
-// header a delivery is checked against (docs/spec/data-model.md,
-// "Declarations").
+// header a delivery is checked against.
 const maxSignatureCandidates = 8
 
 // hmacSHA256 verifies HMAC-SHA256 signatures over the raw body, as GitHub and

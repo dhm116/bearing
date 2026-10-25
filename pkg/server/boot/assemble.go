@@ -11,18 +11,18 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
-	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/auth"
 	"bearing.example/pkg/clock"
-	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/contracts/instrument"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
-	"bearing.example/pkg/resolver"
 	"bearing.example/pkg/server"
 	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
@@ -37,32 +37,46 @@ const childPath = "/usr/bin:/bin"
 // operator names absolute paths.
 const childDir = "/"
 
-// releaseTimeout bounds giving the instance lock up and closing the store
-// when the server stops.
-const releaseTimeout = 10 * time.Second
-
 // Env is what Assemble reads from the process, replaceable in tests.
 type Env struct {
-	// Getenv reads secrets and the store password; nil means os.Getenv.
+	// Getenv reads secrets; nil means os.Getenv.
 	Getenv func(string) string
 	// Clock is the time source; nil means clock.Real.
 	Clock clock.Clock
-
-	// Seams for the tests of the paths a healthy store never takes.
-	lockInstance func(context.Context, *store.Store) (store.InstanceLock, error) // nil means st.LockInstance
-	afterLock    func() error                                                    // fails Assemble after the lock is held
 }
 
 // Running is a server that has been assembled and not yet run: its store is
-// open, the instance lock is held and its listeners are configured.
+// open and its listeners are configured.
 type Running struct {
 	srv    *server.Server
 	api    *server.API
 	listen server.ListenConfig
-	st     *store.Store
-	lock   store.InstanceLock
+	st     store.Store
 	procs  []*managed
-	cancel context.CancelFunc // ends the adapter processes
+	// remotes are the adapters at an address.
+	remotes []*adapter.Remote
+	// sockets is the private directory of the local adapters' sockets.
+	sockets string
+	cancel  context.CancelFunc // ends the adapter processes
+}
+
+// Start loads the settings file and assembles the server under a short
+// server.start span that ends before the server runs, so that nothing the
+// server does later is a child of it.
+func Start(ctx context.Context, file string, env Env) (r *Running, err error) {
+	ctx, span := tracer.Start(ctx, "server.start", trace.WithNewRoot())
+	defer func() {
+		if err != nil { // the caller reports it; the span only has to show it failed
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "server start failed")
+		}
+		span.End()
+	}()
+	s, err := Load(file)
+	if err != nil {
+		return nil, err
+	}
+	return Assemble(ctx, s, env)
 }
 
 // Assemble checks s and builds the server it describes. It refuses to start
@@ -94,7 +108,6 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	rcfg := resolverConfig(c, decls)
 
 	var webhooks []server.WebhookSource
 	for _, p := range plans {
@@ -113,78 +126,66 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		return nil, errors.New("boot: settings: a source has a webhook_secret, and webhooks arrive on the TCP listener: set listen.addr")
 	}
 	l := listenConfig(s)
-	authz, err := roleAuthorizer(s)
-	if err != nil {
-		return nil, err
-	}
 	if s.Listen.Addr != "" {
-		v, err := auth.NewVerifier(auth.OIDCConfig{
-			Issuer: s.Auth.Issuer, Audience: s.Auth.Audience, GroupsClaim: s.Auth.GroupsClaim,
-			AccessTokenJWT: s.Auth.AccessTokenJWT, AllowedClients: s.Auth.AllowedClients,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("boot: settings: auth: %w", err)
+		token := env.Getenv(s.Auth.TokenEnv)
+		if token == "" {
+			return nil, errors.New("boot: settings: auth.token_env: the variable auth.token_env names is empty or unset: listen.addr needs an API token")
 		}
-		l.Authenticator = server.OIDCAuthenticator{Verifier: v}
+		if err := checkAPIToken(token); err != nil {
+			return nil, fmt.Errorf("boot: settings: auth.token_env: the variable auth.token_env names %w", err)
+		}
+		l.Authenticator = server.TokenAuthenticator{Token: token}
 	}
 	warnLimits(s)
 
-	st, err := store.Open(ctx, store.Config{
-		Graph: s.Store.Graph, Events: s.Store.Events, Vectors: s.Store.Vectors,
-		Namespaces: namespaces(c), Getenv: env.Getenv,
-	})
+	st, err := store.Open(ctx, store.Config{URL: s.Store.URL})
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
-	var lock store.InstanceLock
-	procCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	procCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})) // no span: adapters outlive server.start
 	var procs []*managed
+	var remotes []*adapter.Remote
+	var sockets string
 	defer func() {
 		if err != nil {
-			logClose(closeAll(procs, lock, st))
+			logClose(closeAll(procs, remotes, st, sockets))
 			cancel()
 		}
 	}()
-	// A second server on the same store could apply a source's events out of
-	// order, so this one does not start without the lock (#176, #235).
-	lockInstance := env.lockInstance
-	if lockInstance == nil {
-		lockInstance = func(ctx context.Context, st *store.Store) (store.InstanceLock, error) { return st.LockInstance(ctx) }
-	}
-	if lock, err = lockInstance(ctx, st); err != nil {
-		return nil, fmt.Errorf("boot: another server holds the store, or its lock cannot be taken: %w", err)
-	}
-	if env.afterLock != nil {
-		if err = env.afterLock(); err != nil {
-			return nil, err
+	var sources []server.Source
+	for _, p := range plans {
+		var a adapter.Adapter = p.remote
+		if p.remote != nil {
+			remotes = append(remotes, p.remote)
+		} else {
+			if sockets == "" {
+				// Private (0700) and new for each run, so no other user can
+				// reach an adapter and no stale socket is in the way.
+				if sockets, err = os.MkdirTemp("", "bearing-"); err != nil {
+					return nil, fmt.Errorf("boot: adapter socket directory: %w", err)
+				}
+			}
+			cfg := p.start
+			cfg.SocketDir = sockets
+			m := newManaged(procCtx, p.name, func(ctx context.Context) (Process, error) { return adapter.Start(ctx, cfg) }, env.Clock)
+			procs = append(procs, m)
+			a = m
 		}
+		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
-
-	checkpoints, retention, err := auditConfig(s, c, st, env.Getenv)
+	if err = checkProtocols(ctx, sources); err != nil {
+		return nil, err
+	}
+	scfg, err := serverConfig(s, st, plans, sources, env.Clock)
 	if err != nil {
 		return nil, err
 	}
-
-	res, err := resolver.New(rcfg, st.Graph)
-	if err != nil {
-		return nil, fmt.Errorf("boot: resolver: %w", err)
-	}
-	var sources []server.Source
-	for _, p := range plans {
-		m := newManaged(procCtx, p.name, p.launcher, env.Clock)
-		procs = append(procs, m)
-		sources = append(sources, server.Source{Name: p.name, Adapter: m, Config: p.config, Interval: p.every})
-	}
-	srv, err := server.New(server.Config{
-		Log: st.Events, Graph: st.Graph, Applier: res, Audit: st.Audit,
-		Sources: sources, Lock: lock, Clock: env.Clock,
-		AuditCheckpoints: checkpoints, AuditRetention: retention,
-	})
+	srv, err := server.New(scfg)
 	if err != nil {
 		return nil, err
 	}
 	if len(webhooks) > 0 {
-		ic := server.IngestConfig{Log: st.Events, Sources: webhooks}
+		ic := server.IngestConfig{Log: st.Events(), Sources: webhooks}
 		if v := s.Webhooks.MaxInFlight; v != nil {
 			ic.MaxInFlight = *v
 		}
@@ -197,17 +198,54 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		l.Webhooks = in
 	}
-	api, err := server.NewAPI(server.APIConfig{
-		Server: srv, Query: &query.Querier{Graph: st.Graph}, Authorizer: instrument.Authorizer(authz, "roles"),
-	})
+	q := &query.Querier{Graph: st.Graph()}
+	if scfg.Matching != nil {
+		q.HalfLife = scfg.Matching.Config.HalfLifeOf // review scores decay as the matcher's do
+	}
+	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q, LinkDecisions: server.LinkDecisions(s.API.LinkDecisions)})
 	if err != nil {
 		return nil, err
 	}
-	return &Running{srv: srv, api: api, listen: l, st: st, lock: lock, procs: procs, cancel: cancel}, nil
+	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
+}
+
+// protocolCheckTimeout bounds the Describe that checks an adapter's protocol
+// version at start. A local adapter is launched by that call (through the
+// lazy managed get), so it is longer than adapter.Start's 10 s wait.
+const protocolCheckTimeout = 15 * time.Second
+
+// checkProtocols asks every adapter to Describe itself, in parallel, and
+// stops the start on one built for another protocol version, naming its
+// source (the first in source order if several). Any other failure (a remote
+// adapter not up yet) is left to the first sync, which describes again
+// before anything else and so refuses it then. Local adapters have already
+// answered a Describe when they started at boot, so this reaches the remote
+// ones in effect.
+func checkProtocols(ctx context.Context, sources []server.Source) error {
+	errs := make([]error, len(sources))
+	var wg sync.WaitGroup
+	for i, src := range sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
+			defer cancel()
+			if _, err := src.Adapter.Describe(cctx); errors.Is(err, adapter.ErrProtocolMismatch) {
+				errs[i] = fmt.Errorf("boot: source %s: %w", src.Name, err)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops
-// both, gives the adapters time to exit, releases the instance lock and
+// both, gives the adapters time to exit and
 // closes the store. It returns what stopped it, nil for a stop by ctx, and
 // anything that did not shut down cleanly.
 func (r *Running) Run(ctx context.Context) error {
@@ -221,34 +259,36 @@ func (r *Running) Run(ctx context.Context) error {
 	second := <-errs
 	// The adapters are asked to exit before their context ends: cancelling
 	// first would kill them with no chance to finish.
-	closed := closeAll(r.procs, r.lock, r.st)
+	closed := closeAll(r.procs, r.remotes, r.st, r.sockets)
 	r.cancel()
 	return errors.Join(first, second, closed)
 }
 
 // Close releases an assembled server that was never run.
 func (r *Running) Close() {
-	logClose(closeAll(r.procs, r.lock, r.st))
+	logClose(closeAll(r.procs, r.remotes, r.st, r.sockets))
 	r.cancel()
 }
 
-// closeAll stops the adapters, then gives the instance lock up and closes the
-// store. It carries on past a failure and returns every one.
-func closeAll(procs []*managed, lock store.InstanceLock, st *store.Store) error {
+// closeAll stops the adapters, drops the remote adapters' connections,
+// removes the socket directory, then closes the store. It carries on past a
+// failure and returns every one.
+func closeAll(procs []*managed, remotes []*adapter.Remote, st store.Store, sockets string) error {
+	for _, r := range remotes {
+		r.Close()
+	}
 	var errs []error
 	for _, m := range procs {
 		if err := m.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("adapter for source %s did not exit cleanly: %w", m.source, err))
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
-	defer cancel()
-	if lock != nil {
-		if err := lock.Release(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("release the instance lock: %w", err))
+	if sockets != "" {
+		if err := os.RemoveAll(sockets); err != nil {
+			errs = append(errs, fmt.Errorf("remove the adapter socket directory: %w", err))
 		}
 	}
-	if err := st.Close(ctx); err != nil {
+	if err := st.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("close the store: %w", err))
 	}
 	return errors.Join(errs...)
@@ -269,10 +309,13 @@ type sourcePlan struct {
 	config        json.RawMessage
 	every         time.Duration
 	webhookSecret []byte
-	launcher      Launcher
+	// start runs a local adapter (Assemble sets SocketDir); remote, if set,
+	// is an adapter at an address instead.
+	start  adapter.StartConfig
+	remote *adapter.Remote
 }
 
-// planSources resolves every source's secrets and builds its launcher. A
+// planSources resolves every source's secrets and how to reach its adapter. A
 // reference that does not resolve to a value stops the start, naming the
 // field and the variable, never a value (C-SECRET-2).
 func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration, getenv func(string) string) ([]sourcePlan, error) {
@@ -288,7 +331,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			if val == "" {
 				return nil, fmt.Errorf("boot: settings: sources[%d].spec.secrets[%q]: the variable %s is not set or is empty", i, key, varName)
 			}
-			secretEnv = append(secretEnv, varName+"="+val)
+			secretEnv = append(secretEnv, key+"="+val) // the adapter sees the key, not the server variable
 		}
 		p := sourcePlan{name: name, decl: decls[ad.Name], every: c.schedule[name], config: json.RawMessage(`{}`)}
 		if ref := spec.GetWebhookSecret(); ref != "" {
@@ -306,8 +349,20 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 			}
 			p.config = b
 		}
-		cfg := adapter.StartConfig{Name: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
-		p.launcher = func(ctx context.Context) (Process, error) { return adapter.StartWith(ctx, cfg) }
+		if ad.Address != "" {
+			if err := checkTLSFiles(ad.TLS); err != nil {
+				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
+			}
+			r, err := adapter.Dial(name, adapter.DialConfig{
+				Address: ad.Address, CAFile: ad.TLS.CAFile, CertFile: ad.TLS.CertFile, KeyFile: ad.TLS.KeyFile, ServerName: ad.TLS.ServerName, PeerID: ad.TLS.PeerID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("boot: settings: adapter %s: %w", ad.Name, err)
+			}
+			p.remote = r
+		} else {
+			p.start = adapter.StartConfig{Name: name, Command: ad.Command, Args: ad.Args, Env: childEnv(ad, secretEnv, getenv), Dir: childDir}
+		}
 		plans = append(plans, p)
 	}
 	return plans, nil
@@ -315,7 +370,7 @@ func planSources(s *Settings, c *checked, decls map[string]*modelv1alpha1.Adapte
 
 // childEnv is an adapter's whole environment: a fixed PATH, the secrets its
 // source names, and the variables the operator allowed it. The webhook
-// secret, the store password, the signing key and everything else the server
+// secret, the store password and everything else the server
 // was started with stay behind (C-SECRET-3).
 func childEnv(ad *AdapterSettings, secrets []string, getenv func(string) string) []string {
 	env := append([]string{"PATH=" + childPath}, secrets...)
@@ -370,6 +425,9 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
+		if a.Address != "" {
+			continue
+		}
 		fi, err := stat(a.Command)
 		switch {
 		case err != nil:
@@ -386,46 +444,22 @@ func checkCommands(s *Settings, stat func(string) (os.FileInfo, error)) error {
 	return nil
 }
 
-// resolverConfig maps the Source resources to the resolver's sources.
-func resolverConfig(c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration) resolver.Config {
-	cfg := resolver.Config{Sources: map[string]*resolver.Source{}}
-	for _, name := range slices.Sorted(maps.Keys(decls)) {
-		cfg.Declarations = append(cfg.Declarations, decls[name])
-	}
-	for _, src := range c.sources {
-		spec := src.GetSpec()
-		rs := &resolver.Source{Name: src.GetMetadata().GetName(), Adapter: spec.GetAdapter(), Namespace: spec.GetNamespace()}
-		for _, u := range spec.GetIssues() {
-			rs.Issues = append(rs.Issues, resolverNamespace(u))
-		}
-		for _, u := range spec.GetLinks() {
-			rs.Links = append(rs.Links, resolverNamespace(u))
-		}
-		cfg.Sources[rs.Name] = rs
-	}
-	return cfg
-}
-
-func resolverNamespace(u *configv1alpha1.NamespaceUse) resolver.Namespace {
-	return resolver.Namespace{Name: u.GetNamespace(), IssuerType: u.GetIssuerType(), KeyClasses: u.GetKeyClasses()}
-}
-
-// namespaces are the source namespaces telemetry may name in a label.
-func namespaces(c *checked) []string {
-	var out []string
-	for _, src := range c.sources {
-		spec := src.GetSpec()
-		out = append(out, spec.GetNamespace())
-		for _, u := range spec.GetIssues() {
-			out = append(out, u.GetNamespace())
-		}
-		for _, u := range spec.GetLinks() {
-			out = append(out, u.GetNamespace())
+// checkTLSFiles refuses a remote adapter's CA, certificate or key that others
+// could change, naming the setting. Dial checks the same on the open file,
+// and its owner, on every reload, and refuses a key others can read.
+func checkTLSFiles(t *AdapterTLS) error {
+	for _, f := range t.files() {
+		fi, err := os.Stat(f.path)
+		switch {
+		case err != nil:
+			return fmt.Errorf("tls.%s: %w", f.field, err)
+		case !fi.Mode().IsRegular():
+			return fmt.Errorf("tls.%s: %s is not a regular file", f.field, f.path)
+		case fi.Mode().Perm()&0o022 != 0:
+			return fmt.Errorf("tls.%s: %s must not be writable by its group or by others (mode %04o)", f.field, f.path, fi.Mode().Perm())
 		}
 	}
-	out = slices.DeleteFunc(out, func(n string) bool { return n == "" })
-	slices.Sort(out)
-	return slices.Compact(out)
+	return nil
 }
 
 // listenConfig maps the listen settings.
@@ -447,19 +481,6 @@ func listenConfig(s *Settings) server.ListenConfig {
 		cfg.PeerRate = server.RateLimit{PerMinute: *l.PeerRatePerMinute}
 	}
 	return cfg
-}
-
-// roleAuthorizer builds the authorizer from the grants.
-func roleAuthorizer(s *Settings) (contracts.Authorizer, error) {
-	var grants []contracts.Grant
-	for _, g := range s.Auth.Grants {
-		grants = append(grants, contracts.Grant{Group: g.Group, Client: g.Client, Role: contracts.Role(g.Role), Sources: g.Sources})
-	}
-	a, err := auth.NewRoleAuthorizer(grants)
-	if err != nil {
-		return nil, fmt.Errorf("boot: settings: auth.grants: %w", err)
-	}
-	return a, nil
 }
 
 // warnLimits logs what limitWarnings says at start.
@@ -488,16 +509,59 @@ func limitWarnings(s *Settings) []string {
 	return out
 }
 
-// loopbackAddr reports whether a host:port address names a loopback IP or
-// "localhost". An address that does not parse counts as not loopback.
+// loopbackAddr reports whether a host:port address names a literal loopback
+// IP. A name, even "localhost", counts as not loopback, since a resolver
+// decides where it points.
 func loopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
 	}
-	if host == "localhost" {
-		return true
-	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// serverConfig is the server's configuration from the settings: what each
+// source's declaration and the operator's authority overrides allow, and
+// matching only when the settings have a matching block.
+func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
+	declared := map[string]map[string]model.Predicate{}
+	authorities := map[string]func(model.Key) bool{}
+	for _, p := range plans {
+		declared[p.name] = model.DeclaredAttributes(p.decl)
+		authorities[p.name] = authority(model.LinkAuthority(p.decl), s.Authority[p.name])
+	}
+	cfg := server.Config{
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
+		Links:   st.Graph(),
+		Sources: sources, Clock: clk,
+	}
+	if s.Matching != nil {
+		matchCfg, err := s.Matching.config()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
+		// Ingest spaces its own link deposits by the shortest half-life, so a
+		// proposal it made does not decay between them.
+		if l, ok := st.(interface{ SetLinkEvery(time.Duration) }); ok {
+			l.SetLinkEvery(matchCfg.ShortestHalfLife())
+		}
+	}
+	return cfg, nil
+}
+
+// minAPITokenBytes is the shortest API token the server starts with.
+const minAPITokenBytes = 32
+
+// checkAPIToken refuses a weak or malformed token. The error never holds the
+// token.
+func checkAPIToken(token string) error {
+	if len(token) < minAPITokenBytes {
+		return fmt.Errorf("holds a token shorter than %d bytes", minAPITokenBytes)
+	}
+	if strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return errors.New("holds a token with whitespace or control characters")
+	}
+	return nil
 }

@@ -3,22 +3,23 @@ package boot
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"bearing.example/pkg/model"
 )
 
 // goodSettings is a settings file that validates, as JSON, for tests to break
 // one field of.
 const goodSettings = `{
-  "store": {"graph": "mem://"},
+  "store": {"url": "mem://"},
   "listen": {"socket": "/run/bearing/api.sock"},
   "adapters": [{"name": "github", "command": "/usr/local/bin/bearing-adapter-github", "declaration": "/etc/bearing/github.json", "env": ["HTTPS_PROXY"]}],
   "sources": [{
     "apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
     "spec": {"adapter": "github", "schedule": "PT1H",
-      "secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},
+      "secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},
       "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK"}
   }]
 }`
@@ -42,31 +43,49 @@ func TestSettingsRefuseWhatTheyCannotVouchFor(t *testing.T) {
 		to      string
 		wantErr string
 	}{
-		{"no store", `"graph": "mem://"`, `"graph": ""`, "store.graph is required"},
-		{"memory events under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "mem://"`, "store.events is in memory"},
-		{"memory events in capitals under a durable graph", `"graph": "mem://"`, `"graph": "postgres://bearing@db/bearing", "events": "MEM://x"`, "store.events is in memory"},
+		{"no store", `"url": "mem://"`, `"url": ""`, "store.url is required"},
 		{"no listener", `"socket": "/run/bearing/api.sock"`, `"socket": ""`, "listen needs a socket"},
 		{"a typo in a limit", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns": 0`, "max_conns must be positive"},
 		{"a negative per-peer cap", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "max_conns_per_peer": -1`, "max_conns_per_peer must be positive"},
 		{"a rate and its switch-off", `"socket": "/run/bearing/api.sock"`, `"socket": "/run/bearing/api.sock", "peer_rate_per_minute": 5, "insecure_no_peer_rate": true`, "contradict"},
 		{"an address with no identity provider", `"socket": "/run/bearing/api.sock"`, `"addr": "0.0.0.0:8443"`, "open access"},
+		{"an unknown link_decisions", `"store": {`, `"api": {"link_decisions": "everyone"}, "store": {`, "api.link_decisions must be off, socket or token"},
 		{"a relative command", `/usr/local/bin/bearing-adapter-github`, `bearing-adapter-github`, "absolute path"},
 		{"a command argument is fine but PATH is not", `"HTTPS_PROXY"`, `"PATH"`, "PATH is fixed"},
 		{"one of Bearing's own variables", `"HTTPS_PROXY"`, `"BEARING_STORE_PASSWORD"`, "Bearing's own variables"},
 		{"a source for an adapter that is not installed", `"adapter": "github"`, `"adapter": "gitlab"`, "is not in adapters"},
 		{"a secret written as a value", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"ghp_notAReference"`, "must be a reference"},
-		{"a file reference before M5", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"file:/run/secrets/bearing/token"`, "until M5"},
+		{"a file reference", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"file:/run/secrets/bearing/token"`, "for now"},
 		{"Bearing's own variable as a secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_STORE_PASSWORD"`, "the secret allowlist"},
 		{"a webhook secret outside the allowlist", `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, `"env:HOME"`, "the secret allowlist"},
 		{"a schedule that is not ISO 8601", `"PT1H"`, `"1h"`, "ISO 8601"},
 		{"a schedule that is a typo for seconds", `"PT1H"`, `"PT5S"`, "shorter than"},
-		{"authority before M5", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "not supported until M5"},
+		{"a removed field (authority)", `"schedule": "PT1H"`, `"schedule": "PT1H", "authority": [{"kind": "Repository", "predicate": "name"}]`, "unknown field"},
 		{"a zero in-flight webhook cap", `"store": {`, `"webhooks": {"max_in_flight": 0}, "store": {`, "webhooks.max_in_flight must be positive"},
 		{"a negative webhook body cap", `"store": {`, `"webhooks": {"max_body_bytes": -1}, "store": {`, "webhooks.max_body_bytes must be positive"},
 		{"an adapter with no declaration", `"declaration": "/etc/bearing/github.json", `, ``, "declaration is required"},
 		{"an adapter name that is not a name", `"name": "github", "command"`, `"name": "Git Hub", "command"`, "must be lowercase"},
 		{"an env name that is not a variable name", `"HTTPS_PROXY"`, `"not a name"`, "is not a variable name"},
 		{"a misspelled setting", `"store": {`, `"stroe": {}, "store": {`, "unknown field"},
+		{"both a command and an address", `"command": "/usr/local/bin/bearing-adapter-github",`, `"command": "/usr/local/bin/bearing-adapter-github", "address": "https://adapter.example:8443",`, "set one of command"},
+		{"neither a command nor an address", `"command": "/usr/local/bin/bearing-adapter-github",`, ``, "set one of command"},
+		{"an address without tls", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, ``), "needs tls"},
+		{"a token instead of tls", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "token_env": "BEARING_SECRET_ADAPTER_TOKEN"`, "remote adapters use mutual TLS"},
+		{"a token on a command", localAdapter, localAdapter + `, "token_env": "BEARING_SECRET_ADAPTER_TOKEN"`, "remote adapters use mutual TLS"},
+		{"tls without a key", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "/etc/bearing/core.pem"}`), "tls.key_file is required"},
+		{"tls without a CA", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"cert_file": "/etc/bearing/core.pem", "key_file": "/etc/bearing/core-key.pem"}`), "tls.ca_file is required"},
+		{"a relative certificate", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "core.pem", "key_file": "/etc/bearing/core-key.pem"}`), "tls.cert_file must be an absolute path"},
+		{"a misspelled tls setting", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, `{"ca": "/etc/bearing/adapter-ca.pem"}`), "unknown field"},
+		{"tls for a command", localAdapter, localAdapter + `, "tls": ` + goodTLS, "tls is for an adapter at an address"},
+		{"an address that is not https", localAdapter, remoteAdapter(`"ftp://adapter.example"`, goodTLS), "must be https"},
+		{"credentials in an address", localAdapter, remoteAdapter(`"https://u:p@adapter.example"`, goodTLS), "must be https"},
+		{"plain http even on loopback", localAdapter, remoteAdapter(`"http://127.0.0.1:9000"`, goodTLS), "must be https"},
+		{"env naming the loader", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"LD_PRELOAD"`, 1), "how the adapter is loaded or run"},
+		{"env naming GODEBUG", localAdapter, strings.Replace(localAdapter, `"HTTPS_PROXY"`, `"GODEBUG"`, 1), "how the adapter is loaded or run"},
+		{"env for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS) + `, "env": ["HTTPS_PROXY"]`, "args and env are for a command"},
+		{"a peer ID that is not a SPIFFE ID", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, strings.Replace(goodTLS, `}`, `, "peer_id": "https://adapter.example/github"}`, 1)), "tls.peer_id must be a SPIFFE ID"},
+		{"a peer ID and a server name", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, strings.Replace(goodTLS, `}`, `, "peer_id": "spiffe://acme.test/adapter/github", "server_name": "adapter.example"}`, 1)), "not both"},
+		{"secrets for an adapter at an address", localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), "spec.secrets go to"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -232,36 +251,171 @@ func TestListenConfigCarriesTheLimitsAndTheSwitchOff(t *testing.T) {
 	}
 }
 
-func TestRoleAuthorizerRefusesAGrantItCannotUse(t *testing.T) {
-	t.Parallel()
-	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "read"}}}}); err != nil {
-		t.Fatalf("a read grant: %v", err)
+// localAdapter is goodSettings' adapter after its name, for tests that turn it
+// into one at an address.
+const localAdapter = `"command": "/usr/local/bin/bearing-adapter-github", "declaration": "/etc/bearing/github.json", "env": ["HTTPS_PROXY"]`
+
+// goodTLS is a remote adapter's tls block.
+const goodTLS = `{"ca_file": "/etc/bearing/adapter-ca.pem", "cert_file": "/etc/bearing/core.pem", "key_file": "/etc/bearing/core-key.pem"}`
+
+// remoteAdapter is the adapter at address with the tls block tlsBlock (a JSON
+// object, or empty for none).
+func remoteAdapter(address, tlsBlock string) string {
+	s := `"address": ` + address + `, "declaration": "/etc/bearing/github.json"`
+	if tlsBlock != "" {
+		s += `, "tls": ` + tlsBlock
 	}
-	if _, err := roleAuthorizer(&Settings{Auth: AuthSettings{Grants: []GrantSettings{{Group: "eng", Role: "emperor"}}}}); err == nil || !strings.Contains(err.Error(), "auth.grants") {
-		t.Fatalf("got %v, want an unknown role refused", err)
+	return s
+}
+
+func TestSettingsAcceptAnAdapterAtAnAddress(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, localAdapter, remoteAdapter(`"https://adapter.example:8443"`, goodTLS), 1)
+	text = strings.Replace(text, `"secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},`, "", 1)
+	s, err := Parse([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestNamespacesAreTheOnesASourceIssuesAndLinks(t *testing.T) {
+func TestAuthorityOverridesWinOverTheDeclaration(t *testing.T) {
 	t.Parallel()
-	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
-	  "spec": {"adapter": "github", "namespace": "github", "schedule": "PT1H",
-	    "issues": [{"namespace": "acme-saml", "issuer_type": "saml"}],
-	    "links": [{"namespace": "acme-saml", "issuer_type": "saml"}, {"namespace": "acme-oidc", "issuer_type": "oidc"}]}}`
-	s, err := Parse([]byte(strings.Replace(goodSettings[:strings.Index(goodSettings, `"sources"`)]+`"sources": [`+src+`]}`, `"declaration"`, `"declaration"`, 1)))
+	declared := func(k model.Key) bool { return k == "github:user_node/1" }
+	got := authority(declared, map[string]bool{"github:user_login": true, "github:user_node": false})
+	for key, want := range map[model.Key]bool{
+		"github:user_login/jane": true,  // the override vouches
+		"github:user_node/1":     false, // the override withdraws what the declaration vouches for
+		"github:user_node/2":     false,
+		"gitlab:user_login/jane": false,
+	} {
+		if v := got(key); v != want {
+			t.Errorf("%s: got %v, want %v", key, v, want)
+		}
+	}
+	if !authority(declared, nil)("github:user_node/1") {
+		t.Error("without overrides the declaration decides")
+	}
+}
+
+func TestMatchingSettingsBecomeAMatchConfig(t *testing.T) {
+	t.Parallel()
+	cfg, err := MatchingSettings{
+		Rules:     []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}},
+		ProposeAt: 0.7, HalfLife: map[string]string{"Team": "P90D"},
+	}.config()
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.check()
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Name != "team" || cfg.ProposeAt != 0.7 || cfg.HalfLife["Team"] != 90*24*time.Hour {
+		t.Errorf("got %+v", cfg)
+	}
+	for name, m := range map[string]MatchingSettings{
+		"a rule without a pattern": {Rules: []MatchRule{{Name: "x", A: "a:{name}", B: "b"}}},
+		"a score over 1":           {Floor: 1.5},
+		"floor above review_at":    {Floor: 0.5},
+		"a negative score":         {Floor: -0.1},
+		"an unknown kind":          {HalfLife: map[string]string{"Widget": "P1D"}},
+		"a bad duration":           {HalfLife: map[string]string{"Team": "90 days"}},
+	} {
+		if _, err := m.config(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestSettingsRefuseAnAuthorityForAnUnknownSource(t *testing.T) {
+	t.Parallel()
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"sources"`, `"authority": {"nope": {"github:user_login": true}}, "sources"`, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := namespaces(c), []string{"acme-oidc", "acme-saml", "github"}; !slices.Equal(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "not a source") {
+		t.Errorf("got %v, want a refusal naming the unknown source", err)
 	}
-	cfg := resolverConfig(c, nil)
-	rs := cfg.Sources["github-acme"]
-	if rs == nil || len(rs.Issues) != 1 || rs.Issues[0].Name != "acme-saml" || rs.Issues[0].IssuerType != "saml" {
-		t.Fatalf("got %+v, want the issued namespace carried to the resolver", rs)
+}
+
+// A token pasted into auth.token_env must not come back in the error.
+func TestSettingsRefuseATokenWhereTheVariableNameGoes(t *testing.T) {
+	t.Parallel()
+	const pasted = "ghp_canaryToken-with-dash!"
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "`+pasted+`"}, "store": {`, 1)))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "auth.token_env") || strings.Contains(err.Error(), pasted) {
+		t.Fatalf("got %v, want an auth.token_env error without %q", err, pasted)
+	}
+}
+
+func TestSettingsKeepTheServersSecretsFromAdapters(t *testing.T) {
+	t.Parallel()
+	withAuth := strings.Replace(goodSettings, `"store": {`, `"auth": {"token_env": "BEARING_SECRET_API"}, "store": {`, 1)
+	for _, tt := range []struct {
+		name, from, to string
+		text           string
+	}{
+		{"env naming the API token", `"HTTPS_PROXY"`, `"BEARING_SECRET_API"`, withAuth},
+		{"env naming a webhook secret", `"HTTPS_PROXY"`, `"BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+		{"a secret naming the API token", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_API"`, withAuth},
+		{"a secret naming a webhook secret", `"env:BEARING_SECRET_GITHUB_TOKEN"`, `"env:BEARING_SECRET_GITHUB_WEBHOOK"`, withAuth},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, err := Parse([]byte(strings.Replace(tt.text, tt.from, tt.to, 1)))
+			if err == nil {
+				err = s.Validate()
+			}
+			if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+				t.Fatalf("got %v, want a refusal to share the server's secret", err)
+			}
+		})
+	}
+	s, err := Parse([]byte(withAuth))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err != nil {
+		t.Fatalf("the untouched settings: got %v, want them valid", err)
+	}
+}
+
+// An adapter's env must not name a secret another adapter's source holds.
+func TestSettingsKeepOneSourcesSecretsFromAnotherAdapter(t *testing.T) {
+	t.Parallel()
+	text := strings.Replace(goodSettings, `"env": ["HTTPS_PROXY"]}]`, `"env": ["BEARING_SECRET_GITLAB_TOKEN"]},
+    {"name": "gitlab", "command": "/usr/local/bin/bearing-adapter-gitlab", "declaration": "/etc/bearing/gitlab.json"}]`, 1)
+	text = strings.Replace(text, `}]
+}`, `},
+  {"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "gitlab-acme"},
+    "spec": {"adapter": "gitlab", "schedule": "PT1H", "secrets": {"GITLAB_TOKEN": "env:BEARING_SECRET_GITLAB_TOKEN"}}}]
+}`, 1)
+	s, err := Parse([]byte(text))
+	if err == nil {
+		err = s.Validate()
+	}
+	if err == nil || !strings.Contains(err.Error(), "secret of the server or of another adapter") {
+		t.Fatalf("got %v, want a refusal to share another adapter's secret", err)
+	}
+}
+
+// A secret's key becomes a variable in the adapter's environment, so it may
+// not shadow PATH, Bearing's variables or the loader's, and the refusal does
+// not quote the reference.
+func TestSettingsRefuseASecretKeyTheAdapterMustNotSee(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"github_token", "PATH", "BEARING_ADAPTER_LISTEN", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "GODEBUG"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			s, err := Parse([]byte(strings.Replace(goodSettings, `"GITHUB_TOKEN"`, `"`+key+`"`, 1)))
+			if err == nil {
+				err = s.Validate()
+			}
+			if err == nil || !strings.Contains(err.Error(), `spec.secrets["`+key+`"]`) || strings.Contains(err.Error(), "BEARING_SECRET_GITHUB_TOKEN") {
+				t.Fatalf("got %v, want a refusal naming %q and not the reference", err, key)
+			}
+		})
 	}
 }

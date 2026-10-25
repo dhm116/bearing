@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"bearing.example/internal/githubid"
+
 	"google.golang.org/protobuf/proto"
 
 	"bearing.example/internal/fakes"
@@ -127,14 +129,13 @@ func TestHandleObservesAMissingObjectAsDeleted(t *testing.T) {
 	}
 	o := res.Observations[0]
 	// observed_at is the re-read's send time, not anything in the payload.
-	if e := o.GetData().GetEntity(); e.GetKey() != "github:repo_node/"+nextNodeID("R", 999) || !e.GetDeleted() || !o.GetTime().AsTime().Equal(fakes.TeamDeletedAt) {
+	if e := o.GetData().GetEntity(); e.GetKey() != "github:repo_node/"+githubid.NextNodeID("R", 999) || !e.GetDeleted() || !o.GetTime().AsTime().Equal(fakes.TeamDeletedAt) {
 		t.Fatalf("got %v at %v, want repo 999 deleted at %v", e, o.GetTime().AsTime(), fakes.TeamDeletedAt)
 	}
 }
 
-func TestHandleRejectsWhatItCannotTrust(t *testing.T) {
+func TestHandleRejectsMalformedDeliveries(t *testing.T) {
 	r := newRig(t)
-	body := []byte(`{"action":"deleted","repository":{"id":525776495},"organization":{"login":"acme","id":81234567}}`)
 	invalid := func(name string, p adapter.HandleParams, want string) {
 		t.Helper()
 		_, err := r.a.Handle(context.Background(), p)
@@ -143,18 +144,6 @@ func TestHandleRejectsWhatItCannotTrust(t *testing.T) {
 			t.Errorf("%s: got %v, want an invalid-params error containing %q", name, err, want)
 		}
 	}
-	invalid("bad signature", adapter.HandleParams{
-		Config: r.cfg, Body: body,
-		Headers: map[string][]string{"X-GitHub-Event": {"repository"}, "X-Hub-Signature-256": {fakes.Sign("wrong", body)}},
-	}, "signature")
-	invalid("missing signature", adapter.HandleParams{
-		Config: r.cfg, Body: body,
-		Headers: map[string][]string{"X-GitHub-Event": {"repository"}},
-	}, "signature")
-	invalid("no secret", adapter.HandleParams{
-		Config: json.RawMessage(`{"org":"acme","webhook_secret_env":"NOPE"}`), Body: body,
-		Headers: signedHeaders("repository", body),
-	}, "NOPE")
 	for name, tt := range map[string]struct{ event, body string }{
 		"malformed json":  {"repository", `{`},
 		"no repository":   {"repository", `{"organization":{"login":"acme","id":1}}`},

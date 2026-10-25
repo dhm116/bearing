@@ -1,6 +1,7 @@
 package boot
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -10,21 +11,32 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
-	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+
+	"bearing.example/adapters/github"
+	_ "bearing.example/internal/duckstore" // registers the mem scheme
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/server"
 	"bearing.example/pkg/store"
 )
 
 const (
 	stubEnv     = "BOOT_STUB"      // set in a child: serve the stub adapter
 	stubMarkEnv = "BOOT_STUB_MARK" // the file the stub writes when it is synced
+	githubEnv   = "BOOT_GITHUB"    // set in a child: serve the real GitHub adapter
+	protoEnv    = "BOOT_PROTO"     // set in a child: answer Describe with this protocol version
 )
 
 // stubAdapter reports the environment it was started with as its name and its
@@ -48,11 +60,22 @@ func (stubAdapter) Handle(context.Context, adapter.HandleParams) (adapter.Handle
 }
 
 func TestMain(m *testing.M) {
-	if os.Getenv(stubEnv) != "" {
-		if err := adapter.ServeStdio(context.Background(), stubAdapter{}); err != nil {
+	if v := os.Getenv(protoEnv); v != "" {
+		n, _ := strconv.Atoi(v)
+		lis, err := adapter.Listen(os.Getenv(adapter.EnvListen), os.Getenv)
+		if err != nil {
 			os.Exit(1)
 		}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+		_ = testkit.ServeAdapterProtocol(ctx, lis, uint32(n)) //nolint:gosec // G115: a small test value
+		stop()
 		os.Exit(0)
+	}
+	if os.Getenv(stubEnv) != "" {
+		os.Exit(adapter.Main("stub", "test", stubAdapter{}))
+	}
+	if os.Getenv(githubEnv) != "" {
+		os.Exit(adapter.Main("github", github.Version, github.New()))
 	}
 	os.Exit(m.Run())
 }
@@ -91,13 +114,13 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 	w := &world{dir: dir, socket: filepath.Join(dir, "api.sock"), mark: filepath.Join(dir, "mark"), addr: freeAddr(t)}
 	src := `{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "github-acme"},
 	  "spec": {"adapter": "github", "schedule": "PT1H",
-	    "secrets": {"token": "env:BEARING_SECRET_GITHUB_TOKEN"},
+	    "secrets": {"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"},
 	    "webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",
 	    "settings": {"org": "acme"}}}`
 	w.settings = &Settings{
-		Store:    StoreSettings{Graph: "mem://"},
+		Store:    StoreSettings{URL: "mem://"},
 		Listen:   ListenSettings{Socket: w.socket, Addr: w.addr, InsecureAPIPlaintext: true},
-		Auth:     AuthSettings{Issuer: "https://idp.example", Audience: "bearing", AccessTokenJWT: true},
+		Auth:     AuthSettings{TokenEnv: "BEARING_API_TOKEN"}, //nolint:gosec // G101: the name of a variable, not a credential
 		Adapters: []AdapterSettings{{Name: "github", Command: exe, Declaration: declFile, Env: []string{stubEnv, stubMarkEnv, "HTTPS_PROXY"}}},
 		Sources:  []json.RawMessage{json.RawMessage(src)},
 	}
@@ -109,7 +132,7 @@ func newWorld(t *testing.T, mod func(*Settings)) *world {
 		"BEARING_SECRET_GITHUB_TOKEN":   "canary-token",
 		"BEARING_SECRET_GITHUB_WEBHOOK": "canary-webhook-secret",
 		"BEARING_STORE_PASSWORD":        "canary-store-password",
-		"BEARING_AUDIT_KEY":             "canary-audit-key",
+		"BEARING_API_TOKEN":             "canary-api-token-0123456789-abcdefghij",
 		"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://collector.example",
 		"HOME":                          "/home/canary",
 	}
@@ -238,16 +261,18 @@ func TestAdapterEnvironmentHoldsOnlyWhatItsSourceNames(t *testing.T) {
 	got := strings.Split(d.Name, "\n")
 	slices.Sort(got)
 	want := []string{
-		"BEARING_SECRET_GITHUB_TOKEN=canary-token",
+		"GITHUB_TOKEN=canary-token",
 		"BOOT_STUB=1",
 		"BOOT_STUB_MARK=" + w.mark,
 		"HTTPS_PROXY=http://proxy.example:3128",
 		"PATH=" + childPath,
 	}
+	want = append(want, adapter.EnvListen+"=unix://"+filepath.Join(r.sockets, "github-acme.sock"))
+	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("got environment %q, want exactly %q", got, want)
 	}
-	for _, canary := range []string{"canary-store-password", "canary-audit-key", "canary-webhook-secret"} {
+	for _, canary := range []string{"canary-store-password", "canary-webhook-secret"} {
 		if strings.Contains(d.Name, canary) {
 			t.Errorf("the adapter's environment holds %q", canary)
 		}
@@ -302,9 +327,16 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 		{"a secret outside the allowlist", func(s *Settings, _ *world) {
 			s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), "env:BEARING_SECRET_GITHUB_TOKEN", "env:HOME", 1))
 		}, "allowlist"},
-		{"a grant that names a role nobody has", func(s *Settings, _ *world) {
-			s.Auth.Grants = []GrantSettings{{Group: "admins", Role: "emperor"}}
-		}, "boot: settings: auth.grants"},
+		{"a token pasted as the variable name, unset", func(s *Settings, _ *world) { s.Auth.TokenEnv = "ghpCanaryPastedToken123" }, "the variable auth.token_env names is empty or unset"},
+		{"a token pasted as the variable name, bad value", func(s *Settings, w *world) {
+			s.Auth.TokenEnv = "ghpCanaryPastedToken123"
+			w.env["ghpCanaryPastedToken123"] = "short"
+		}, "the variable auth.token_env names holds a token shorter"},
+		{"a TCP listener with no token setting", func(s *Settings, _ *world) { s.Auth = AuthSettings{} }, "listen.addr needs auth.token_env"},
+		{"an API token variable that is empty", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "" }, "the variable auth.token_env names is empty or unset"},
+		{"an API token variable that is not set", func(_ *Settings, w *world) { delete(w.env, "BEARING_API_TOKEN") }, "the variable auth.token_env names is empty or unset"},
+		{"an API token that is too short", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-short" }, "the variable auth.token_env names holds a token shorter than 32 bytes"},
+		{"an API token with whitespace", func(_ *Settings, w *world) { w.env["BEARING_API_TOKEN"] = "canary-api-token-0123456789-abcdef ghij" }, "whitespace or control"},
 		{"webhooks with no TCP listener", func(s *Settings, w *world) { s.Listen = ListenSettings{Socket: w.socket}; s.Auth = AuthSettings{} }, "set listen.addr"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -316,7 +348,7 @@ func TestAssembleRefusesWhatItCannotVouchFor(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
-			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password"} {
+			for _, secret := range []string{"canary-token", "canary-webhook-secret", "canary-store-password", "canary-api-token-0123456789-abcdefghij", "canary-api-short", "abcdef ghij", "ghpCanaryPastedToken123"} {
 				if err != nil && strings.Contains(err.Error(), secret) {
 					t.Errorf("the error names a secret value: %v", err)
 				}
@@ -365,7 +397,7 @@ func TestAssembledServerTakesASignedWebhookOnItsTCPListener(t *testing.T) {
 	if code := post(signed("canary-webhook-secret", body), body); code/100 != 2 {
 		t.Fatalf("a signed delivery: got %d, want 2xx", code)
 	}
-	entries, err := r.st.Events.Read(t.Context(), contracts.Partition("github-acme"), 0, 100)
+	entries, err := r.st.Events().Read(t.Context(), store.Partition("github-acme"), 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +423,6 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 	w := newWorld(t, func(s *Settings) {
 		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"webhook_secret": "env:BEARING_SECRET_GITHUB_WEBHOOK",`, "", 1))
 		s.Listen = ListenSettings{Addr: "127.0.0.1:0", InsecureAPIPlaintext: true}
-		s.Auth = AuthSettings{Issuer: "https://idp.example", Audience: "bearing", AccessTokenJWT: true}
 	})
 	r := w.assemble(t)
 	if r.listen.Webhooks != nil {
@@ -400,67 +431,12 @@ func TestAssembleWithoutAWebhookSecretMountsNoWebhookRoute(t *testing.T) {
 	r.Close()
 }
 
-// recordingLock wraps the store's lock and notes that it was given up.
-type recordingLock struct {
-	store.InstanceLock
-	released atomic.Bool
-}
-
-func (l *recordingLock) Release(ctx context.Context) error {
-	l.released.Store(true)
-	return l.InstanceLock.Release(ctx)
-}
-
-func TestAssembleReleasesTheLockWhenALaterStepFails(t *testing.T) {
-	w := newWorld(t, nil)
-	var lock *recordingLock
-	env := Env{
-		Getenv: w.getenv,
-		lockInstance: func(ctx context.Context, st *store.Store) (store.InstanceLock, error) {
-			l, err := st.LockInstance(ctx)
-			lock = &recordingLock{InstanceLock: l}
-			return lock, err
-		},
-		afterLock: func() error { return errors.New("a later step failed") },
-	}
-	if _, err := Assemble(t.Context(), w.settings, env); err == nil || !strings.Contains(err.Error(), "a later step failed") {
-		t.Fatalf("got %v, want the later step's error", err)
-	}
-	if lock == nil || !lock.released.Load() {
-		t.Fatal("the instance lock was taken and not released when Assemble failed")
-	}
-}
-
-func TestAssembleRefusesToStartWhenAnotherServerHoldsTheStore(t *testing.T) {
-	w := newWorld(t, nil)
-	env := Env{
-		Getenv: w.getenv,
-		lockInstance: func(context.Context, *store.Store) (store.InstanceLock, error) {
-			return nil, store.ErrInstanceLocked
-		},
-	}
-	_, err := Assemble(t.Context(), w.settings, env)
-	if !errors.Is(err, store.ErrInstanceLocked) || !strings.Contains(err.Error(), "another server holds the store") {
-		t.Fatalf("got %v, want a refusal naming the held lock", err)
-	}
-}
-
-func TestAssembleStopsOnAnIssuerThatIsNotHTTPS(t *testing.T) {
-	w := newWorld(t, func(s *Settings) {
-		s.Listen = ListenSettings{Addr: "127.0.0.1:0"}
-		s.Auth = AuthSettings{Issuer: "http://not-https.example", Audience: "bearing", AccessTokenJWT: true}
-	})
-	if _, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv}); err == nil || !strings.Contains(err.Error(), "https") {
-		t.Fatalf("got %v, want the issuer refused", err)
-	}
-}
-
 func TestChildEnvDropsDuplicatesAndUnsetNames(t *testing.T) {
 	t.Parallel()
-	ad := &AdapterSettings{Env: []string{"B", "A", "A", "UNSET", "BEARING_SECRET_X"}}
-	get := func(k string) string { return map[string]string{"A": "1", "B": "2", "BEARING_SECRET_X": "dup"}[k] }
-	got := childEnv(ad, []string{"BEARING_SECRET_X=s"}, get)
-	want := []string{"PATH=" + childPath, "BEARING_SECRET_X=s", "A=1", "B=2"}
+	ad := &AdapterSettings{Env: []string{"B", "A", "A", "UNSET", "AWS_SECRET_ACCESS_KEY"}}
+	get := func(k string) string { return map[string]string{"A": "1", "B": "2", "AWS_SECRET_ACCESS_KEY": "dup"}[k] }
+	got := childEnv(ad, []string{"AWS_SECRET_ACCESS_KEY=s"}, get)
+	want := []string{"PATH=" + childPath, "AWS_SECRET_ACCESS_KEY=s", "A=1", "B=2"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -479,7 +455,7 @@ func TestLimitWarningsAreAHintForPlainHTTPOffLoopbackWithAnyDefaultLimit(t *test
 		{"a socket only", ListenSettings{Socket: "/run/bearing/api.sock", InsecureAPIPlaintext: true}, false, false},
 		{"plain HTTP on an address that does not parse", ListenSettings{Addr: "not-an-address", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on loopback", ListenSettings{Addr: "127.0.0.1:8443", InsecureAPIPlaintext: true}, true, false},
-		{"plain HTTP on localhost", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, false},
+		{"plain HTTP on the name localhost, which is not a literal loopback IP", ListenSettings{Addr: "localhost:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP on IPv6 loopback", ListenSettings{Addr: "[::1]:8443", InsecureAPIPlaintext: true}, true, false},
 		{"plain HTTP on a public address, all defaults", ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true}, true, true},
 		{"plain HTTP with no host, all defaults", ListenSettings{Addr: ":8443", InsecureAPIPlaintext: true}, true, true},
@@ -513,19 +489,231 @@ func TestAssembleLogsTheWarningsForWhatTheSettingsGaveUp(t *testing.T) {
 	w := newWorld(t, func(s *Settings) {
 		s.Listen = ListenSettings{Addr: "0.0.0.0:8443", InsecureAPIPlaintext: true, InsecureNoPeerRate: true}
 	})
-	w.settings.Audit = AuditSettings{
-		Checkpoints:                 &CheckpointSettings{File: filepath.Join(w.dir, "checkpoints.ndjson")},
-		InsecureUnsignedCheckpoints: true,
-	}
 	w.assemble(t).Close()
 	got := logs.all()
 	for _, want := range []string{
 		"insecure_no_peer_rate is on",
 		"behind a proxy every client is one peer",
-		"insecure_unsigned_checkpoints is on",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the log has no warning %q:\n%s", want, got)
 		}
 	}
+}
+
+func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		matching  *MatchingSettings
+		wantRules int
+	}{
+		{"with a matching block", &MatchingSettings{Rules: []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}}}, 1},
+		{"without one", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) {
+				s.Matching = tc.matching
+				s.Authority = map[string]map[string]bool{"github-acme": {"authentik:user": true}}
+			})
+			c, err := w.settings.check()
+			if err != nil {
+				t.Fatal(err)
+			}
+			decls, err := loadDeclarations(w.settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plans, err := planSources(w.settings, c, decls, w.getenv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := store.Open(t.Context(), store.Config{URL: "mem://"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			cfg, err := serverConfig(w.settings, st, plans, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (cfg.Matching != nil) != (tc.matching != nil) {
+				t.Fatalf("got matching %v, want it set only with a block", cfg.Matching)
+			}
+			if cfg.Matching != nil && len(cfg.Matching.Config.Rules) != tc.wantRules {
+				t.Errorf("got %d rules, want %d", len(cfg.Matching.Config.Rules), tc.wantRules)
+			}
+			applier, ok := cfg.Applier.(server.StoreApplier)
+			if !ok {
+				t.Fatalf("got applier %T, want a StoreApplier", cfg.Applier)
+			}
+			if vouches := applier.Authority["github-acme"]; !vouches("authentik:user/1") {
+				t.Error("the operator's override should vouch for authentik:user keys")
+			}
+		})
+	}
+}
+
+// A source's spec.secrets key is the variable its adapter reads; the server's
+// variable name stays behind, so two sources can give an SDK's name different
+// values.
+func TestAdaptersReceiveSecretsUnderTheirSourceKey(t *testing.T) {
+	w := newWorld(t, func(s *Settings) {
+		s.Adapters = append(s.Adapters, s.Adapters[0])
+		s.Adapters[1].Name = "aws"
+		decl, err := os.ReadFile(s.Adapters[0].Declaration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Adapters[1].Declaration = s.Adapters[0].Declaration + ".aws"
+		if err := os.WriteFile(s.Adapters[1].Declaration, bytes.Replace(decl, []byte(`"name": "github"`), []byte(`"name": "aws"`), 1), 0o600); err != nil { //nolint:gosec // G703: a path under the test directory
+			t.Fatal(err)
+		}
+		s.Sources = append(s.Sources, json.RawMessage(`{"apiVersion": "bearing/v1alpha1", "kind": "Source", "metadata": {"name": "aws-prod"},
+		  "spec": {"adapter": "aws", "schedule": "PT1H", "secrets": {"AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_AWS_PROD"}}}`))
+		s.Sources[0] = json.RawMessage(strings.Replace(string(s.Sources[0]), `"GITHUB_TOKEN": "env:BEARING_SECRET_GITHUB_TOKEN"`,
+			`"AWS_SECRET_ACCESS_KEY": "env:BEARING_SECRET_GITHUB_TOKEN"`, 1))
+	})
+	w.env["BEARING_SECRET_AWS_PROD"] = "canary-aws"
+	ps, err := plans(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"AWS_SECRET_ACCESS_KEY=canary-token", "AWS_SECRET_ACCESS_KEY=canary-aws"} {
+		env := ps[i].start.Env
+		if !slices.Contains(env, want) {
+			t.Errorf("source %s: env %q lacks %q", ps[i].name, env, want)
+		}
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "BEARING_SECRET_") {
+				t.Errorf("source %s: env holds the server's variable %q", ps[i].name, kv)
+			}
+		}
+	}
+}
+
+// api.link_decisions reaches the API: by default a token holder may not
+// decide; with "token" the decision gets past the check (to a 404 here, as the
+// records do not exist).
+func TestAssembledAPITakesDecisionsFromWhomTheSettingsSay(t *testing.T) {
+	for mode, want := range map[string]int{"": http.StatusForbidden, "token": http.StatusNotFound} {
+		t.Run(mode, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) { s.API.LinkDecisions = mode })
+			r := w.assemble(t)
+			run(t, r)
+			waitFor(t, "the TCP listener", func() bool {
+				c, err := net.Dial("tcp", w.addr)
+				if err != nil {
+					return false
+				}
+				_ = c.Close()
+				return true
+			})
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+w.addr+"/v1/links/decisions",
+				strings.NewReader(`{"decision":"join","a":"x:repo/a","b":"x:repo/b"}`))
+			req.Header.Set("Authorization", "Bearer "+w.getenv("BEARING_API_TOKEN"))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != want {
+				t.Errorf("got %d, want %d", resp.StatusCode, want)
+			}
+		})
+	}
+}
+
+func TestAssembleRefusesALocalAdapterOnAnotherProtocolVersion(t *testing.T) {
+	for _, v := range []string{"2"} {
+		t.Run("version "+v, func(t *testing.T) {
+			w := newWorld(t, func(s *Settings) { s.Adapters[0].Env = append(s.Adapters[0].Env, protoEnv) })
+			w.env[protoEnv] = v
+			r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+			if err == nil {
+				r.Close()
+				t.Fatal("got a running server, want the start refused")
+			}
+			if !errors.Is(err, adapter.ErrProtocolMismatch) || !strings.Contains(err.Error(), "github-acme") {
+				t.Fatalf("got %v, want a protocol refusal naming the source github-acme", err)
+			}
+		})
+	}
+}
+
+// Start opens a short server.start root span that has ended before the server
+// runs, even when the caller's context carries a span, and the adapter
+// processes it starts do not inherit a span.
+func TestStartEndsItsSpanBeforeTheServerRuns(t *testing.T) {
+	installCapture()
+	w := newWorld(t, nil)
+	file := w.writeSettings(t)
+	parent, parentSpan := tracer.Start(t.Context(), "test.process-long-span")
+	defer parentSpan.End()
+	r, err := Start(parent, file, Env{Getenv: w.getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.procs) == 0 {
+		t.Fatal("no local adapter in the world, want one")
+	}
+	for _, m := range r.procs {
+		if trace.SpanContextFromContext(m.ctx).IsValid() {
+			t.Error("the adapter's launch context carries a span, want none")
+		}
+	}
+	stop := run(t, r)
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	var starts []sdktrace.ReadOnlySpan
+	for _, sp := range spanLog.Ended() {
+		if sp.Name() == "server.start" {
+			starts = append(starts, sp)
+		}
+	}
+	if len(starts) == 0 {
+		t.Fatal("no ended server.start span")
+	}
+	start := starts[len(starts)-1]
+	if start.Parent().IsValid() || start.SpanContext().TraceID() == parentSpan.SpanContext().TraceID() {
+		t.Errorf("server.start has parent %v, want a new root", start.Parent())
+	}
+	for _, sp := range spanLog.Ended() {
+		if sp.Parent().SpanID() == start.SpanContext().SpanID() && sp.StartTime().After(start.EndTime()) {
+			t.Errorf("span %q started after server.start ended and is its child", sp.Name())
+		}
+	}
+}
+
+// A start that fails shows on its span.
+func TestStartRecordsAFailureOnItsSpan(t *testing.T) {
+	installCapture()
+	before := len(spanLog.Ended())
+	if _, err := Start(t.Context(), filepath.Join(t.TempDir(), "missing.json"), Env{}); err == nil {
+		t.Fatal("Start succeeded on a missing settings file")
+	}
+	var got []sdktrace.ReadOnlySpan
+	for _, sp := range spanLog.Ended()[before:] {
+		if sp.Name() == "server.start" {
+			got = append(got, sp)
+		}
+	}
+	if len(got) != 1 || got[0].Status().Code != codes.Error || len(got[0].Events()) == 0 {
+		t.Fatalf("got %v, want one server.start span with an error status and the error recorded", got)
+	}
+}
+
+// writeSettings writes the world's settings to a file and returns its path.
+func (w *world) writeSettings(t *testing.T) string {
+	t.Helper()
+	b, err := json.Marshal(w.settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(w.dir, "settings.json")
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file
 }

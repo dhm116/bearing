@@ -23,7 +23,8 @@
         { "predicate": "topics" },
         { "predicate": "archived" },
         { "predicate": "description" },
-        { "predicate": "codeowners_rules", "type": "VALUE_TYPE_FLOAT", "cardinality": "CARDINALITY_ONE" }
+        { "predicate": "codeowners_rules", "type": "VALUE_TYPE_FLOAT", "cardinality": "CARDINALITY_ONE" },
+        { "predicate": "runtime", "type": "VALUE_TYPE_JSON", "cardinality": "CARDINALITY_MANY" }
       ]
     },
     {

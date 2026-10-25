@@ -10,12 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"testing"
 	"time"
 )
 
 // KubernetesOptions configures [NewKubernetes].
 type KubernetesOptions struct {
+	// Listen says where the fake listens; the zero value is a test server.
+	Listen
 	// Token is the bearer token the fake accepts. Any other token, and a
 	// request with none, gets the API server's 401. Empty accepts any
 	// non-empty token.
@@ -42,11 +43,11 @@ type Kubernetes struct {
 
 // NewKubernetes starts the Kubernetes fake for cluster. It is closed when
 // the test ends.
-func NewKubernetes(t testing.TB, cluster *Cluster, opts KubernetesOptions) *Kubernetes {
+func NewKubernetes(t TB, cluster *Cluster, opts KubernetesOptions) *Kubernetes {
 	t.Helper()
 	kb := &Kubernetes{server: &server{}, cluster: cluster, token: opts.Token}
 	kb.expire.Store(opts.ExpireContinue)
-	kb.start(t, http.HandlerFunc(kb.serve))
+	kb.start(t, opts.Listen, http.HandlerFunc(kb.serve))
 	return kb
 }
 
@@ -139,14 +140,16 @@ func verbOf(r *http.Request, named bool) string {
 }
 
 // allowed reports whether the adapter's token may make the request: list
-// namespaces, and list Deployments, StatefulSets and DaemonSets, in one
-// namespace or all. Nothing else, not even a get of one of them.
+// namespaces, list Services in one namespace, and list Deployments,
+// StatefulSets and DaemonSets, in one namespace or all. Nothing else, not even a get of one of them.
 func (rr resourceRequest) allowed() bool {
 	if !rr.isResource || rr.verb != "list" {
 		return false
 	}
 	switch {
 	case rr.group == "" && rr.resource == "namespaces" && rr.namespace == "":
+		return true
+	case rr.group == "" && rr.resource == "services" && rr.namespace != "":
 		return true
 	case rr.group == "apps":
 		_, ok := workloadResources[rr.resource]
@@ -195,6 +198,10 @@ func (kb *Kubernetes) serve(w http.ResponseWriter, r *http.Request) {
 		kb.listNamespaces(w, r)
 		return
 	}
+	if rr.resource == "services" {
+		kb.listServices(w, r, rr)
+		return
+	}
 	kb.listWorkloads(w, r, rr)
 }
 
@@ -204,6 +211,14 @@ func (kb *Kubernetes) listNamespaces(w http.ResponseWriter, r *http.Request) {
 		items = append(items, listItem{key: n.Name, obj: namespaceJSON(n)})
 	}
 	kb.writeList(w, r, "v1", "NamespaceList", items)
+}
+
+func (kb *Kubernetes) listServices(w http.ResponseWriter, r *http.Request, rr resourceRequest) {
+	var items []listItem
+	for _, sv := range kb.cluster.Services(rr.namespace) {
+		items = append(items, listItem{key: sv.Namespace + "/" + sv.Name, obj: serviceJSON(sv)})
+	}
+	kb.writeList(w, r, "v1", "ServiceList", items)
 }
 
 func (kb *Kubernetes) listWorkloads(w http.ResponseWriter, r *http.Request, rr resourceRequest) {
@@ -344,6 +359,40 @@ func namespaceJSON(n Namespace) map[string]any {
 	}
 }
 
+// serviceJSON renders a Service as a list item. A ClusterIP Service has a
+// cluster IP, which an adapter must not mistake for a name.
+func serviceJSON(sv Service) map[string]any {
+	spec := map[string]any{}
+	if sv.Type == "ExternalName" {
+		spec["type"], spec["externalName"] = sv.Type, "db.acme.example"
+	} else {
+		spec["type"], spec["clusterIP"] = "ClusterIP", "10.43.0."+strconv.FormatInt(sv.ResourceVersion%250+1, 10)
+		if len(sv.Selector) > 0 {
+			spec["selector"] = sv.Selector
+		}
+	}
+	ports := make([]map[string]any, len(sv.Ports))
+	for i, p := range sv.Ports {
+		ports[i] = map[string]any{"port": p.Port, "protocol": "TCP", "targetPort": p.Port}
+		if p.Name != "" {
+			ports[i]["name"] = p.Name
+		}
+		if p.AppProtocol != "" {
+			ports[i]["appProtocol"] = p.AppProtocol
+		}
+	}
+	spec["ports"] = ports
+	return map[string]any{
+		"metadata": map[string]any{
+			"name": sv.Name, "namespace": sv.Namespace, "uid": sv.UID,
+			"resourceVersion":   strconv.FormatInt(sv.ResourceVersion, 10),
+			"creationTimestamp": kubeTime(sv.CreatedAt),
+		},
+		"spec":   spec,
+		"status": map[string]any{"loadBalancer": map[string]any{}},
+	}
+}
+
 // workloadJSON renders a workload as a list item: an object with metadata,
 // spec and status, as an API server returns it, so an adapter must pick out
 // the few fields it reports. List items carry no kind or apiVersion.
@@ -424,11 +473,17 @@ func containersJSON(cs []Container) []map[string]any {
 		if len(c.Args) > 0 {
 			m["args"] = c.Args
 		}
-		if len(c.Env) > 0 {
-			var env []map[string]string
-			for _, name := range slices.Sorted(maps.Keys(c.Env)) {
-				env = append(env, map[string]string{"name": name, "value": c.Env[name]})
-			}
+		var env []map[string]any
+		for _, name := range slices.Sorted(maps.Keys(c.Env)) {
+			env = append(env, map[string]any{"name": name, "value": c.Env[name]})
+		}
+		for _, name := range slices.Sorted(maps.Keys(c.EnvFromConfigMaps)) {
+			ref := c.EnvFromConfigMaps[name]
+			env = append(env, map[string]any{"name": name, "valueFrom": map[string]any{
+				"configMapKeyRef": map[string]string{"name": ref.Name, "key": ref.Key},
+			}})
+		}
+		if len(env) > 0 {
 			m["env"] = env
 		}
 		if len(c.EnvFromSecrets) > 0 {

@@ -15,62 +15,44 @@ import (
 	"testing"
 	"time"
 
-	"bearing.example/internal/fakes"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/apiclient"
-	"bearing.example/pkg/auth"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/server"
+	"bearing.example/pkg/store"
 )
 
-// tokenAuthn maps a bearer token to a caller, as the server's verifier does.
-type tokenAuthn map[string]contracts.Caller
+// apiToken is the static API token the test server accepts.
+const apiToken = "api-token"
 
-func (a tokenAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
-	token, err := auth.BearerToken(r.Header)
-	if err != nil {
-		return contracts.Caller{}, server.ErrUnauthenticated
-	}
-	c, ok := a[token]
-	if !ok {
-		return contracts.Caller{}, server.ErrUnauthenticated
-	}
-	return c, nil
+var testCallers = server.TokenAuthenticator{Token: apiToken}
+
+// nopApplier applies nothing: these tests read the graph the world built.
+type nopApplier struct{}
+
+func (nopApplier) Apply(context.Context, string, []*eventv1alpha1.Observation, server.Completion) error {
+	return nil
 }
 
-const (
-	readerToken = "reader-token"
-	botToken    = "bot-token"
-	nobodyToken = "nobody-token"
-)
-
-var testCallers = tokenAuthn{
-	readerToken: {Issuer: "https://idp", Subject: "alice", Groups: []string{"readers"}},
-	botToken:    {Issuer: "https://idp", Subject: "bot", ClientID: "bot"},
-	nobodyToken: {Issuer: "https://idp", Subject: "dave", Groups: []string{"strangers"}},
-}
-
-// api builds the server's API over the world's store, with a reader, an ingest
-// client for the GitHub source and a caller with no role.
+// api builds the server's API over the world's store, with the static API token
+// authenticator.
 func (w *world) api() *server.API {
 	w.t.Helper()
 	s, err := server.New(server.Config{
-		Log: w.store, Graph: w.store, Applier: w.resolver, Clock: w.clock,
+		Log: w.store, Applier: nopApplier{}, Links: w.store, Clock: w.clock,
 		Sources: []server.Source{{Name: githubSource, Adapter: w.adapter, Config: w.cfg}},
 	})
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	az, err := auth.NewRoleAuthorizer([]contracts.Grant{
-		{Group: "readers", Role: contracts.RoleRead},
-		{Client: "bot", Role: contracts.RoleIngest, Sources: []string{githubSource}},
-	})
-	if err != nil {
-		w.t.Fatal(err)
-	}
 	api, err := server.NewAPI(server.APIConfig{
-		Server: s, Query: &query.Querier{Graph: w.store, Now: w.clock.Now}, Authorizer: az,
-		CallerRate: server.RateLimit{PerMinute: -1},
+		Server: s, Query: &query.Querier{Graph: w.store, Now: w.clock.Now},
+		CallerRate: server.RateLimit{PerMinute: -1}, DecideRate: server.RateLimit{PerMinute: -1},
+		LinkDecisions: server.LinkDecisionsToken,
 	})
 	if err != nil {
 		w.t.Fatal(err)
@@ -91,7 +73,7 @@ func (w *world) serve() string {
 func (w *world) cliWith(vars map[string]string, args ...string) (string, error) {
 	w.t.Helper()
 	env := queryEnv{
-		Open: func(context.Context, string, func(string) string) (contracts.GraphStore, func(context.Context) error, error) {
+		Open: func(context.Context, string) (graph.Graph, func(context.Context) error, error) {
 			return nil, nil, errors.New("test: this command must not open the store")
 		},
 		Getenv: func(k string) string { return vars[k] },
@@ -105,41 +87,39 @@ func (w *world) cliWith(vars map[string]string, args ...string) (string, error) 
 // cliServer runs a query command against the world's API as the reader.
 func (w *world) cliServer(addr string, args ...string) (string, error) {
 	w.t.Helper()
-	return w.cliWith(map[string]string{tokenEnv: readerToken}, append([]string{args[0], "--server", addr}, args[1:]...)...)
+	return w.cliWith(map[string]string{tokenEnv: apiToken}, append([]string{args[0], "--server", addr}, args[1:]...)...)
 }
 
-// TestServerAnswersEveryGoldenTheWayTheStoreDoes asks the API the questions
-// of TestQueryGoldens, and wants the same text.
-func TestServerAnswersEveryGoldenTheWayTheStoreDoes(t *testing.T) {
-	cases := []struct {
-		name  string
-		until time.Time
-		now   time.Time
-		args  []string
-	}{
-		{"first-sync-get-repo", fakes.Start, day(2026, 9, 29), []string{"get", "github:repo/acme/payments-api"}},
-		{"first-sync-related-member-of", fakes.Start, day(2026, 9, 29), []string{"related", "github:team/acme/engineering", "--predicate", "member_of"}},
-		{"rename-get-as-of-before", fakes.RepoRenamedAt, day(2026, 10, 2), []string{"get", "github:repo/acme/payments-api", "--as-of", "2026-09-30T00:00:00Z"}},
-		{"codeowners-changes-record-axis", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"changes", "github:repo/acme/payments", "--axis", "record", "--since", "2026-10-02T08:00:00Z", "--as-of", "2026-10-02T09:00:00Z"}},
-		{"changes-last-day-first-page", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"changes", "--limit", "3"}},
-		{"changes-nothing-in-the-last-day", fakes.Start, day(2026, 10, 5), []string{"changes"}},
-		{"membership-related-team-as-of-before", fakes.TeamDeletedAt, day(2026, 11, 2), []string{"related", "authentik:group_name/engineering", "--predicate", "member_of", "--as-of", "2026-10-15T00:00:00Z"}},
-		{"owner-by-repo", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"owner", "acme/payments"}},
-		{"owner-by-repo-as-recorded", fakes.CodeownersChangedAt, day(2026, 10, 3), []string{"owner", "acme/payments", "--recorded-at", "2026-10-02T08:00:00Z", "--json"}},
-		{"get-json", fakes.RepoRenamedAt, day(2026, 10, 2), []string{"get", "github:repo/acme/payments-api", "--json"}},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
+// TestServerAnswersTheWayTheStoreDoes asks the API questions of
+// TestQueryGoldens, and wants the same text.
+func TestServerAnswersTheWayTheStoreDoes(t *testing.T) {
+	for _, args := range [][]string{
+		{"get", "github:repo/acme/payments-api"},
+		{"get", "github:repo/acme/payments-api", "--as-of", "2026-10-01T01:00:00Z"},
+		{"owner", "acme/payments-api"},
+		{"related", "github:team/acme/payments", "--direction", "in", "--depth", "2"},
+		{"changes", "--since", "2026-10-01T01:00:00Z", "--limit", "1"},
+		{"changes", "--since", "2026-09-01", "--as-of", "2026-09-02"},
+		{"find", "ledger", "--json"},
+		{"get", "github:user/jdoe", "--json"},
+		{"runtimes", "--language", "go", "--below", "1.22"},
+		{"runtimes", "--language", "node", "--json"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			w := newWorld(t)
-			w.play(tt.until)
-			w.at(tt.now)
-			want, err := w.cli(tt.args...)
-			if err != nil {
-				t.Fatalf("bearing %s: %v", strings.Join(tt.args, " "), err)
+			if args[0] == "runtimes" { // seeded here so the other answers stay as they are
+				w.ingest(githubSource, seedAt,
+					entity("Repository", "github:repo/acme/old", "old", runtimeAttr(t, [][3]string{{"go", "1.21", "go.mod"}, {"node", ">=18", "package.json"}})),
+					entity("Repository", "github:repo/acme/odd", "odd", runtimeAttr(t, [][3]string{{"go", "tip", "go.mod"}, {"node", "lts/hydrogen", ".nvmrc"}})),
+				)
 			}
-			got, err := w.cliServer(w.serve(), tt.args...)
+			want, err := w.cli(args...)
 			if err != nil {
-				t.Fatalf("bearing %s --server: %v", strings.Join(tt.args, " "), err)
+				t.Fatalf("bearing %s: %v", strings.Join(args, " "), err)
+			}
+			got, err := w.cliServer(w.serve(), args...)
+			if err != nil {
+				t.Fatalf("bearing %s --server: %v", strings.Join(args, " "), err)
 			}
 			if got != want {
 				t.Errorf("the server's answer differs from the store's:\n--- server\n%s\n--- store\n%s", got, want)
@@ -148,49 +128,14 @@ func TestServerAnswersEveryGoldenTheWayTheStoreDoes(t *testing.T) {
 	}
 }
 
-func TestServerPagesFollowTheirTokenLikeTheStoresDo(t *testing.T) {
-	w := newWorld(t)
-	w.play(fakes.CodeownersChangedAt)
-	w.at(day(2026, 10, 3))
-	addr := w.serve()
-	first, err := w.cliServer(addr, "changes", "--limit", "3", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var page struct {
-		Next string `json:"next_page_token"`
-	}
-	if err := json.Unmarshal([]byte(first), &page); err != nil || page.Next == "" {
-		t.Fatalf("got %q, %v, want a first page that ends with a token", first, err)
-	}
-	want, err := w.cli("changes", "--page-token", page.Next, "--limit", "3", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := w.cliServer(addr, "changes", "--page-token", page.Next, "--limit", "3", "--json")
-	if err != nil || got != want {
-		t.Fatalf("got %q, %v, want the second page the store gives:\n%s", got, err, want)
-	}
-	// A token the server did not issue is the same mistake as at the store.
-	if _, err := w.cliServer(addr, "changes", "--page-token", "not-a-token"); !errors.Is(err, query.ErrBadPageToken) || !errors.Is(err, errUsage) {
-		t.Fatalf("got %v, want a bad page token that is also a usage error", err)
-	}
-}
-
 func TestServerErrorsMatchWhatTheStoreMeans(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	addr := w.serve()
 	if _, err := w.cliServer(addr, "get", "github:repo/acme/no-such-repo"); !errors.Is(err, query.ErrNotFound) {
 		t.Fatalf("got %v, want not found", err)
 	}
 	var apiErr *apiclient.Error
-	_, err := w.cliWith(map[string]string{tokenEnv: nobodyToken}, "get", "--server", addr, "github:repo/acme/payments-api")
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden || apiErr.Code != "forbidden" || apiErr.RequestID == "" {
-		t.Fatalf("got %v, want a 403 forbidden with a request ID for a caller with no role", err)
-	}
-	_, err = w.cliWith(map[string]string{tokenEnv: "wrong"}, "get", "--server", addr, "github:repo/acme/payments-api")
+	_, err := w.cliWith(map[string]string{tokenEnv: "wrong"}, "get", "--server", addr, "github:repo/acme/payments-api")
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
 		t.Fatalf("got %v, want a 401 for an unknown token", err)
 	}
@@ -207,7 +152,7 @@ func TestServerNeedsATokenAndNeverEchoesOne(t *testing.T) {
 		t.Fatalf("got %v, want an error that names the variable to set", err)
 	}
 	// --token-env names the variable that holds the token.
-	_, err = w.cliWith(map[string]string{"MY_TOKEN": readerToken}, "get", "--server", addr, "--token-env", "MY_TOKEN", "github:repo/acme/payments-api")
+	_, err = w.cliWith(map[string]string{"MY_TOKEN": apiToken}, "get", "--server", addr, "--token-env", "MY_TOKEN", "github:repo/acme/payments-api")
 	if errors.Is(err, errUsage) || (err != nil && strings.Contains(err.Error(), "no token")) {
 		t.Fatalf("got %v, want the token read from the variable --token-env names", err)
 	}
@@ -221,19 +166,17 @@ func TestServerNeedsATokenAndNeverEchoesOne(t *testing.T) {
 
 func TestServerAndStoreFlagsAndVariablesChooseOneSource(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	addr := w.serve()
 	args := []string{"get", "github:repo/acme/payments-api", "--json"}
 
-	if _, err := w.cliWith(map[string]string{tokenEnv: readerToken}, append(args, "--server", addr, "--store", "mem://")...); !errors.Is(err, errUsage) {
+	if _, err := w.cliWith(map[string]string{tokenEnv: apiToken}, append(args, "--server", addr, "--store", "mem://")...); !errors.Is(err, errUsage) {
 		t.Fatalf("got %v, want both flags refused as a usage error", err)
 	}
 	if _, err := w.cliWith(nil, args...); err == nil || !strings.Contains(err.Error(), serverEnv) || !strings.Contains(err.Error(), storeEnv) {
 		t.Fatalf("got %v, want an error that names both variables", err)
 	}
 	// $BEARING_SERVER is used when no flag is given, and beats $BEARING_STORE.
-	vars := map[string]string{serverEnv: addr, storeEnv: "mem://", tokenEnv: readerToken}
+	vars := map[string]string{serverEnv: addr, storeEnv: "mem://", tokenEnv: apiToken}
 	if _, err := w.cliWith(vars, args...); err != nil {
 		t.Fatalf("got %v, want the server from the variable", err)
 	}
@@ -252,7 +195,7 @@ func TestServerAndStoreFlagsAndVariablesChooseOneSource(t *testing.T) {
 func TestSourceSyncQueuesARequestOnTheServer(t *testing.T) {
 	w := newWorld(t)
 	addr := w.serve()
-	out, err := w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", githubSource, "--server", addr, "--json")
+	out, err := w.cliWith(map[string]string{tokenEnv: apiToken}, "source", "sync", githubSource, "--server", addr, "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,24 +203,20 @@ func TestSourceSyncQueuesARequestOnTheServer(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &acc); err != nil || !strings.HasPrefix(acc.EventID, githubSource+"/") {
 		t.Fatalf("got %q, %v, want the request's event ID", out, err)
 	}
-	// The request is on the log, in the source's partition, from the client.
-	ents, err := w.store.Read(t.Context(), contracts.Partition(githubSource), 0, 10)
-	if err != nil || len(ents) != 1 || ents[0].ID != acc.EventID || !strings.Contains(string(ents[0].Data), "bot") {
-		t.Fatalf("got %v, %v, want one sync request from the bot on the log", ents, err)
+	// The request is on the log, in the source's partition, from the token caller.
+	ents, err := w.store.Read(t.Context(), store.Partition(githubSource), 0, 10)
+	if err != nil || len(ents) != 1 || ents[0].ID != acc.EventID || !strings.Contains(string(ents[0].Data), `"subject":"token"`) {
+		t.Fatalf("got %v, %v, want one sync request from the token caller on the log", ents, err)
 	}
-	text, err := w.cliWith(map[string]string{tokenEnv: botToken, serverEnv: addr}, "source", "sync", githubSource)
+	text, err := w.cliWith(map[string]string{tokenEnv: apiToken, serverEnv: addr}, "source", "sync", githubSource)
 	if err != nil || !strings.Contains(text, "requested") {
 		t.Fatalf("got %q, %v, want the request said to be queued", text, err)
 	}
 
 	var apiErr *apiclient.Error
-	_, err = w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", "no-such-source", "--server", addr)
+	_, err = w.cliWith(map[string]string{tokenEnv: apiToken}, "source", "sync", "no-such-source", "--server", addr)
 	if !errors.As(err, &apiErr) || apiErr.Code != "unknown_source" {
 		t.Fatalf("got %v, want unknown_source", err)
-	}
-	_, err = w.cliWith(map[string]string{tokenEnv: readerToken}, "source", "sync", githubSource, "--server", addr)
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
-		t.Fatalf("got %v, want a reader refused", err)
 	}
 	for name, args := range map[string][]string{
 		"no source":          {"source", "sync", "--server", addr},
@@ -286,7 +225,7 @@ func TestSourceSyncQueuesARequestOnTheServer(t *testing.T) {
 		"no subcommand":      {"source"},
 		"no server":          {"source", "sync", githubSource},
 	} {
-		if _, err := w.cliWith(map[string]string{tokenEnv: botToken}, args...); err == nil {
+		if _, err := w.cliWith(map[string]string{tokenEnv: apiToken}, args...); err == nil {
 			t.Errorf("%s: got no error, want one", name)
 		}
 	}
@@ -299,7 +238,7 @@ func TestSourceSyncShowsTheEventIDWithoutControlCharacters(t *testing.T) {
 		_, _ = rw.Write([]byte(`{"event_id":"src/\u001b]0;pwn\u0007","offset":2}`))
 	}))
 	t.Cleanup(srv.Close)
-	out, err := w.cliWith(map[string]string{tokenEnv: botToken}, "source", "sync", githubSource, "--server", srv.URL)
+	out, err := w.cliWith(map[string]string{tokenEnv: apiToken}, "source", "sync", githubSource, "--server", srv.URL)
 	if err != nil || strings.ContainsAny(out, "\x1b\x07") || !strings.Contains(out, "src/]0;pwn") {
 		t.Fatalf("got %q, %v, want the event ID with its control characters dropped", out, err)
 	}
@@ -307,8 +246,6 @@ func TestSourceSyncShowsTheEventIDWithoutControlCharacters(t *testing.T) {
 
 func TestServerOverTLSTrustsOnlyTheCAItIsGiven(t *testing.T) {
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	srv := httptest.NewTLSServer(w.api().Handler(testCallers))
 	t.Cleanup(srv.Close)
 	ca := filepath.Join(t.TempDir(), "ca.pem")
@@ -317,7 +254,7 @@ func TestServerOverTLSTrustsOnlyTheCAItIsGiven(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := []string{"get", "github:repo/acme/payments-api", "--server", srv.URL}
-	vars := map[string]string{tokenEnv: readerToken}
+	vars := map[string]string{tokenEnv: apiToken}
 	if _, err := w.cliWith(vars, append(args, "--server-ca", ca)...); err != nil {
 		t.Fatalf("got %v, want the answer over TLS with the CA given", err)
 	}
@@ -334,8 +271,6 @@ func TestServerOverTheLocalSocketNeedsNoToken(t *testing.T) {
 		t.Skip("the local socket authenticates by peer credentials, which are Linux only")
 	}
 	w := newWorld(t)
-	w.play(fakes.Start)
-	w.at(day(2026, 9, 29))
 	dir := filepath.Join(t.TempDir(), "run")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -371,5 +306,21 @@ func TestServerOverTheLocalSocketNeedsNoToken(t *testing.T) {
 	}
 	if got, err := w.cliWith(nil, append(args, "--server", "unix://"+sock)...); err != nil || got != want {
 		t.Fatalf("got %q, %v, want the unix:// form to work too", got, err)
+	}
+}
+
+// runtimeAttr declares runtimes as {language, version, file} triples.
+func runtimeAttr(t *testing.T, decls [][3]string) func(*modelv1alpha1.ObservationData) {
+	t.Helper()
+	l := make([]any, len(decls))
+	for i, d := range decls {
+		l[i] = map[string]any{"language": d[0], "version": d[1], "file": d[2]}
+	}
+	v, err := structpb.NewList(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(d *modelv1alpha1.ObservationData) {
+		d.Entity.Attributes["runtime"] = structpb.NewListValue(v)
 	}
 }

@@ -51,8 +51,6 @@ features:
     area: Connect your tools
     summary: A published guide and protocol for connecting a tool Bearing doesn't support yet.
     milestone: 5
-    links:
-      - { label: Connector protocol, href: spec/adapter-protocol/ }
   - name: AWS
     area: Connect your tools
     summary: Cloud accounts and resources, the tags that say who they belong to, and who changed what.
@@ -80,7 +78,7 @@ features:
     summary: Every answer says which tool it came from, when that tool last confirmed it and how sure Bearing is.
     milestone: 3
     links:
-      - { label: How facts are recorded, href: spec/data-model/ }
+      - { label: How facts are recorded, href: spec/concepts/ }
   - name: Disagreements shown, not hidden
     area: Answers you can check
     summary: When two tools disagree, Bearing shows both answers instead of quietly picking one.
@@ -161,16 +159,14 @@ features:
     issues: [13, 11]
     links:
       - { label: Read the spec, href: spec/ }
-  - name: Swap any part
-    area: Run it your way
-    summary: Each part sits behind a published interface with tests, so you can replace the database, or any other part, with your own.
-    status: available
-    links:
-      - { label: Component contracts, href: spec/contracts/ }
   - name: One database to start
     area: Run it your way
-    summary: PostgreSQL, the widely used open source database, holds both the facts and the search index, so there is one database to run.
-    status: available
+    summary: DuckDB runs inside Bearing and holds the facts, so there is no separate database to run.
+    status: planned
+  - name: Swap any part
+    area: Run it your way
+    summary: The store sits behind one interface, so you can replace it. DuckDB can also keep its data in a database you already run, such as PostgreSQL, MySQL or SQLite, or in a DuckLake on object storage.
+    status: planned
   - name: Settings in files
     area: Run it your way
     summary: Describe your connectors in files you can review like code, and preview every change before it applies.

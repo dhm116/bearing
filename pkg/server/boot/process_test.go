@@ -3,7 +3,12 @@ package boot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -354,5 +359,90 @@ func TestManagedPassesHandleThrough(t *testing.T) {
 	}
 	if n := l.n.Load(); n != 1 {
 		t.Fatalf("got %d starts, want 1", n)
+	}
+}
+
+// An adapter that comes back from a restart on another protocol version is
+// refused like one that crashes: counted, and not started again until the
+// pause is over, which still says why.
+func TestManagedBacksOffAnAdapterThatRestartsOnAnotherProtocolVersion(t *testing.T) {
+	installCapture()
+	clk := testkit.NewClock(epoch)
+	mismatch := realMismatch(t)
+	var starts atomic.Int32
+	launch := func(context.Context) (Process, error) {
+		if starts.Add(1) == 1 {
+			return newFakeProc(func(context.Context) (adapter.DescribeResult, error) {
+				return adapter.DescribeResult{}, io.ErrClosedPipe
+			}), nil
+		}
+		return nil, fmt.Errorf("adapter s: %w", mismatch)
+	}
+	m := newManaged(t.Context(), "versioned-src", launch, clk)
+	if _, err := m.Describe(t.Context()); !errors.Is(err, io.ErrClosedPipe) { // the first process dies
+		t.Fatal(err)
+	}
+	clk.Advance(backoffMax)
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) {
+		t.Fatalf("got %v, want the restart refused for its protocol version", err)
+	}
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) || !strings.Contains(err.Error(), "not started again") || starts.Load() != 2 {
+		t.Fatalf("got %v after %d starts, want a pause that names the protocol refusal, with no third start", err, starts.Load())
+	}
+}
+
+// realMismatch is the error a Remote gives for an adapter on another protocol
+// version, with the CodeNotSupported it carries, as the launcher gets it from
+// adapter.Start.
+func realMismatch(t *testing.T) error {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "a.sock")
+	lis, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, 2) }()
+	t.Cleanup(func() { cancel(); <-done })
+	r, err := adapter.Dial("old", adapter.DialConfig{Address: "unix://" + sock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Describe(t.Context())
+	var e *adapter.Error
+	if !errors.Is(err, adapter.ErrProtocolMismatch) || !errors.As(err, &e) {
+		t.Fatalf("got %v, want the real protocol refusal", err)
+	}
+	return err
+}
+
+// The pause after a refused version keeps the refusal for errors.Is but not
+// whatever else the last error wrapped, such as a stale deadline.
+func TestManagedPauseErrorWrapsOnlyAProtocolRefusal(t *testing.T) {
+	t.Parallel()
+	clk := testkit.NewClock(epoch)
+	l := &launches{}
+	l.fail.Store(true)
+	m := newManaged(t.Context(), "s", l.launch, clk)
+	m.mu.Lock()
+	m.retryAt = clk.Now().Add(time.Minute)
+	m.lastErr = fmt.Errorf("start: %w", context.DeadlineExceeded)
+	m.mu.Unlock()
+	if _, err := m.Describe(t.Context()); err == nil || errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Fatalf("got %v, want the deadline in the text only", err)
+	}
+	m.mu.Lock()
+	m.lastErr = fmt.Errorf("start: %w, %w", context.DeadlineExceeded, realMismatch(t))
+	m.mu.Unlock()
+	// Not ErrNotSupported either: a webhook to a paused adapter must retry,
+	// never be skipped as "no webhooks here".
+	if _, err := m.Describe(t.Context()); !errors.Is(err, adapter.ErrProtocolMismatch) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, adapter.ErrNotSupported) {
+		t.Fatalf("got %v, want a protocol refusal and no deadline", err)
 	}
 }

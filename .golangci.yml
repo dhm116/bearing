@@ -26,39 +26,60 @@ linters:
       # When a package matches both an allow and a deny entry, the longer
       # (more specific) match wins.
       rules:
-        # Code depends on pkg/contracts, not on backends or other internal
-        # packages (AGENTS.md, architecture rule 4). Only the backends
-        # themselves (internal/<name>store) and testkit are exempt, and
-        # pkg/store, where backends are wired up. Denying the whole
-        # internal/ tree means a new backend is covered without editing
-        # this file, and so is a new non-backend internal package.
+        # Code depends on pkg/store and pkg/graph, not on backends or other
+        # internal packages (AGENTS.md, architecture rule 4). Only the
+        # backends themselves (internal/<name>store) and testkit are exempt,
+        # and cmd/, whose main imports the default backend for its side
+        # effect: that registers the store's URL schemes with pkg/store.
+        # Denying the whole internal/ tree means a new backend is covered
+        # without editing this file, and so is a new non-backend internal
+        # package.
+        # internal/githubid is a pure helper (node-ID encoding) shared by the
+        # GitHub adapter, the Authentik adapter and the fakes.
         internal-packages:
+          list-mode: lax
           files:
             - $all
             - "!$test"
             - "!**/internal/*store/**"
             - "!**/internal/testkit/**"
-            - "!**/pkg/store/**"
+            - "!**/cmd/**"
+          allow:
+            - bearing.example/internal/githubid
           deny:
             - pkg: bearing.example/internal
-              desc: depend on pkg/contracts; open backends through pkg/store
-        # Other tests may use the in-memory reference backend, the testkit
-        # fakes and the fake source systems in internal/fakes, nothing else
-        # from internal/.
+              desc: depend on pkg/store and pkg/graph; open backends through store.Open
+        # cmd/ may import the default backend, and nothing else from internal/.
+        # The demo tool serves the fakes, so it is the one command that may
+        # import internal/fakes (see its package comment).
+        internal-packages-in-cmd:
+          list-mode: lax
+          files:
+            - "**/cmd/**"
+            - "!$test"
+            - "!**/cmd/bearing-demo-fakes/**"
+          allow:
+            - bearing.example/internal/duckstore
+          deny:
+            - pkg: bearing.example/internal
+              desc: cmd/ may import internal/duckstore only, to register the default store
+        # Other tests may use the real store in memory (internal/duckstore),
+        # the testkit fakes and the fake source systems in internal/fakes,
+        # nothing else from internal/.
         internal-packages-in-tests:
           list-mode: lax
           files:
             - $test
             - "!**/internal/*store/**"
             - "!**/internal/testkit/**"
-            - "!**/pkg/store/**"
           allow:
+            - bearing.example/internal/duckstore
             - bearing.example/internal/fakes
-            - bearing.example/internal/memstore
+            - bearing.example/internal/githubid
             - bearing.example/internal/testkit
           deny:
             - pkg: bearing.example/internal
-              desc: test against memstore, internal/testkit or a contracts fake
+              desc: test against duckstore in memory, internal/testkit or internal/fakes
         # Production code never imports testkit (AGENTS.md, Style guide).
         testkit:
           files:
@@ -68,12 +89,13 @@ linters:
           deny:
             - pkg: bearing.example/internal/testkit
               desc: testkit is for tests only
-        # Nor the fake source systems.
+        # Nor the fake source systems, except the demo tool that serves them.
         fakes:
           files:
             - $all
             - "!$test"
             - "!**/internal/fakes/**"
+            - "!**/cmd/bearing-demo-fakes/**"
           deny:
             - pkg: bearing.example/internal/fakes
               desc: fakes are for tests only
@@ -185,14 +207,6 @@ linters:
       - path: ^site/
         linters: [gosec]
         text: G(204|304)
-      # The stdio protocol server speaks on stdout.
-      - path: ^pkg/adapter/server\.go$
-        linters: [forbidigo]
-        text: os\.Stdout
-      # An adapter's stderr (its console telemetry) passes through.
-      - path: ^pkg/adapter/client\.go$
-        linters: [forbidigo]
-        text: os\.Stderr
       # Console exporters default to stderr, and Setup installs slog's
       # default logger.
       - path: ^pkg/telemetry/

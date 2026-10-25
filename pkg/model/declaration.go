@@ -9,9 +9,8 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
-// ValidateDeclaration checks an adapter's declarations against the registry
-// (docs/spec/data-model.md, "Declarations" and "Key types"). Checks that
-// need other adapters' declarations or source configuration happen at
+// ValidateDeclaration checks an adapter's declarations against the registry.
+// Checks that need other adapters' declarations or source configuration happen at
 // configuration apply. It returns a *ValidationError.
 func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 	c := &checker{}
@@ -180,5 +179,38 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 	}
 	if f.GetMatch() == modelv1alpha1.MatchMethod_MATCH_METHOD_MEMBERS && (name != string(RelMemberOf) || !in) {
 		c.add(codeMalformed, path+".match", "members applies only to member_of with direction in")
+	}
+}
+
+// DeclaredAttributes returns the attributes d declares that the registry
+// doesn't have, in the form ValidateObservationWith takes. A nil d declares
+// none.
+func DeclaredAttributes(d *modelv1alpha1.AdapterDeclaration) map[string]Predicate {
+	out := map[string]Predicate{}
+	for _, k := range d.GetKinds() {
+		for _, f := range k.GetFields() {
+			if _, registered := LookupPredicate(f.GetPredicate()); !registered {
+				out[f.GetPredicate()] = Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality()}
+			}
+		}
+	}
+	return out
+}
+
+// LinkAuthority returns a function that says whether the adapter vouches for
+// a linked key: true when some kind of d declares a link with the key's
+// issuer type and key type as authoritative.
+func LinkAuthority(d *modelv1alpha1.AdapterDeclaration) func(Key) bool {
+	vouched := map[string]bool{}
+	for _, k := range d.GetKinds() {
+		for _, l := range k.GetLinks() {
+			if l.GetAuthority().GetAuthoritative() {
+				vouched[l.GetIssuerType()+":"+l.GetKeyType()] = true
+			}
+		}
+	}
+	return func(k Key) bool {
+		issuer, keyType, _, err := k.Parse()
+		return err == nil && vouched[issuer+":"+keyType]
 	}
 }

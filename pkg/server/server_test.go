@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,12 +17,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/internal/memstore"
+	"bearing.example/internal/duckstore"
 	"bearing.example/pkg/adapter"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/resolver"
+	"bearing.example/pkg/store"
 )
 
 // waitFor polls cond until it holds, and fails the test if it does not within
@@ -93,35 +92,43 @@ func (f *fakeAdapter) syncs() int {
 	return f.syncCalls
 }
 
-// fakeApplier records the observations it is asked to apply.
+// applied is one observation a fakeApplier was asked to apply.
+type applied struct{ ID, Source string }
+
+// fakeApplier records the observations it is asked to apply, one at a time,
+// and stops a page at the first that fails.
 type fakeApplier struct {
 	mu    sync.Mutex
 	calls []string
-	// fail, if set, decides whether the n-th call (from 1) for an ID fails.
-	fail func(ev resolver.Event, n int) error
+	// fail, if set, decides whether the n-th try (from 1) of an observation
+	// fails.
+	fail func(ev applied, n int) error
 	seen map[string]int
 	// during, if set, runs inside each call.
-	during func(ev resolver.Event)
+	during func(ev applied)
 }
 
-func (f *fakeApplier) Apply(_ context.Context, ev resolver.Event) (resolver.Applied, error) {
-	f.mu.Lock()
-	f.calls = append(f.calls, ev.ID)
-	if f.seen == nil {
-		f.seen = map[string]int{}
-	}
-	f.seen[ev.ID]++
-	n, fail, during := f.seen[ev.ID], f.fail, f.during
-	f.mu.Unlock()
-	if during != nil {
-		during(ev)
-	}
-	if fail != nil {
-		if err := fail(ev, n); err != nil {
-			return resolver.Applied{}, err
+func (f *fakeApplier) Apply(_ context.Context, source string, obs []*eventv1alpha1.Observation, _ Completion) error {
+	for i, o := range obs {
+		ev := applied{ID: o.GetId(), Source: source}
+		f.mu.Lock()
+		f.calls = append(f.calls, ev.ID)
+		if f.seen == nil {
+			f.seen = map[string]int{}
+		}
+		f.seen[ev.ID]++
+		n, fail, during := f.seen[ev.ID], f.fail, f.during
+		f.mu.Unlock()
+		if during != nil && i == 0 {
+			during(ev)
+		}
+		if fail != nil {
+			if err := fail(ev, n); err != nil {
+				return err
+			}
 		}
 	}
-	return resolver.Applied{}, nil
+	return nil
 }
 
 func (f *fakeApplier) called() []string {
@@ -130,49 +137,41 @@ func (f *fakeApplier) called() []string {
 	return append([]string(nil), f.calls...)
 }
 
-// downGraph is a graph store whose Head fails while down is set.
-type downGraph struct {
-	contracts.GraphStore
-	down      atomic.Bool
-	failApply atomic.Bool
-}
-
-func (d *downGraph) Apply(ctx context.Context, cs *modelv1alpha1.ChangeSet) (contracts.ApplyResult, error) {
-	if d.failApply.Load() {
-		return contracts.ApplyResult{}, errors.New("apply refused")
-	}
-	return d.GraphStore.Apply(ctx, cs)
-}
-
-func (d *downGraph) Head(ctx context.Context) (time.Time, error) {
-	if d.down.Load() {
-		return time.Time{}, errors.New("connection refused")
-	}
-	return d.GraphStore.Head(ctx)
-}
-
 const testSource = "github-acme"
 
 // harness is a server over an in-memory store with a scripted adapter and
-// applier.
+// applier. The store's clock is now, which a test may replace before it
+// starts the server.
 type harness struct {
-	t     *testing.T
-	mem   *memstore.Store
-	graph *downGraph
-	log   *flakyLog
-	ad    *fakeAdapter
-	ap    *fakeApplier
-	cfg   Config
-	s     *Server
+	t   *testing.T
+	mem *duckstore.Store
+	log *flakyLog
+	ad  *fakeAdapter
+	ap  *fakeApplier
+	cfg Config
+	s   *Server
+	now func() time.Time
+}
+
+// newDuck opens an in-memory store on the clock now, closed when the test
+// ends.
+func newDuck(t testing.TB, now func() time.Time) *duckstore.Store {
+	t.Helper()
+	d, err := duckstore.Open(context.Background(), duckstore.Config{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
 }
 
 func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 	t.Helper()
-	h := &harness{t: t, mem: memstore.New(), ad: &fakeAdapter{}, ap: &fakeApplier{}}
-	h.graph = &downGraph{GraphStore: h.mem}
+	h := &harness{t: t, now: time.Now, ad: &fakeAdapter{}, ap: &fakeApplier{}}
+	h.mem = newDuck(t, func() time.Time { return h.now() })
 	h.log = &flakyLog{EventLog: h.mem}
 	h.cfg = Config{
-		Log: h.log, Graph: h.graph, Audit: h.mem.AuditLog(), Applier: h.ap,
+		Log: h.log, Applier: h.ap, Links: h.mem,
 		Sources:      []Source{{Name: testSource, Adapter: h.ad, Config: json.RawMessage(`{"org":"acme"}`)}},
 		PollInterval: 5 * time.Millisecond, RetryPause: time.Millisecond, MaxAttempts: 3,
 		TrimEvery: time.Hour, Retention: -1,
@@ -188,9 +187,12 @@ func newHarness(t *testing.T, mod ...func(*Config)) *harness {
 }
 
 // start runs the server until the test ends.
-func (h *harness) start() {
+func (h *harness) start() { h.t.Helper(); h.startOn(context.Background()) }
+
+// startOn is start on a context the server's work inherits from.
+func (h *harness) startOn(parent context.Context) {
 	h.t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	done := make(chan error, 1)
 	go func() { done <- h.s.Run(ctx) }()
 	h.t.Cleanup(func() {
@@ -206,9 +208,9 @@ func (h *harness) start() {
 	})
 }
 
-func (h *harness) entries(p contracts.Partition) []contracts.Entry {
+func (h *harness) entries(p store.Partition) []store.Entry {
 	h.t.Helper()
-	es, err := h.mem.Read(h.t.Context(), p, 0, contracts.MaxReadEntries)
+	es, err := h.mem.Read(h.t.Context(), p, 0, store.MaxReadEntries)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -216,18 +218,21 @@ func (h *harness) entries(p contracts.Partition) []contracts.Entry {
 }
 
 // drained reports whether the apply group has committed every event of p.
-func (h *harness) drained(p contracts.Partition) bool {
+func (h *harness) drained(p store.Partition) bool {
 	h.t.Helper()
+	// Committed first, then the head: the head only grows, so a commit read
+	// before it that reaches it really covers it. The other order can see an
+	// old head, then a commit made after a newer page was appended.
+	c, err := h.mem.Committed(h.t.Context(), h.cfg.Group0(), p)
+	if err != nil {
+		h.t.Fatal(err)
+	}
 	parts, err := h.mem.Partitions(h.t.Context())
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	for _, info := range parts {
 		if info.Partition == p {
-			c, err := h.mem.Committed(h.t.Context(), h.cfg.Group0(), p)
-			if err != nil {
-				h.t.Fatal(err)
-			}
 			return c >= info.Head
 		}
 	}
@@ -244,17 +249,18 @@ func (c Config) Group0() string {
 
 // emitted appends an ObservationsEmitted event with n observations to the
 // partition of source, as the sync worker would.
-func (h *harness) emitted(source, id string, n int) contracts.Entry {
+func (h *harness) emitted(source, id string, n int) store.Entry {
 	h.t.Helper()
 	obs := make([]*eventv1alpha1.Observation, n)
 	for i := range obs {
 		obs[i] = validObservation(h.t)
+		obs[i].Id = fmt.Sprintf("%s/%s/%d", source, id, i+1)
 	}
 	msg := &eventv1alpha1.ObservationsEmitted{Source: source, TriggerEventId: source + "/trigger", Observations: obs, Done: true}
 	return h.append(source, id, msg)
 }
 
-func (h *harness) append(partition, id string, msg proto.Message) contracts.Entry {
+func (h *harness) append(partition, id string, msg proto.Message) store.Entry {
 	h.t.Helper()
 	typ, ok := model.EventType(msg)
 	if !ok {
@@ -264,14 +270,22 @@ func (h *harness) append(partition, id string, msg proto.Message) contracts.Entr
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	got, err := h.mem.Append(h.t.Context(), []contracts.Event{{
-		ID: partition + "/" + id, Partition: contracts.Partition(partition), Type: typ, Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: data,
+	return h.appendRaw(partition, id, typ, data)
+}
+
+// futureType is the type of an event the server has no handler for.
+const futureType = "dev.bearing.future_thing.v1"
+
+func (h *harness) appendRaw(partition, id, typ string, data []byte) store.Entry {
+	h.t.Helper()
+	got, err := h.mem.Append(h.t.Context(), []store.Event{{
+		ID: partition + "/" + id, Partition: store.Partition(partition), Type: typ, Time: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC), Data: data,
 		Retain: partition == "manual" || strings.HasPrefix(partition, "core/dead_letter"),
 	}})
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	es, err := h.mem.Read(h.t.Context(), contracts.Partition(partition), got[0].Offset-1, 1)
+	es, err := h.mem.Read(h.t.Context(), store.Partition(partition), got[0].Offset-1, 1)
 	if err != nil || len(es) != 1 {
 		h.t.Fatalf("read back: %v, %d entries", err, len(es))
 	}
@@ -279,15 +293,14 @@ func (h *harness) append(partition, id string, msg proto.Message) contracts.Entr
 }
 
 func TestNewRefusesWhatItCannotRun(t *testing.T) {
-	mem := memstore.New()
+	mem := newDuck(t, time.Now)
 	ad := &fakeAdapter{}
-	ok := Config{Log: mem, Graph: mem, Applier: &fakeApplier{}, Sources: []Source{{Name: testSource, Adapter: ad}}}
+	ok := Config{Log: mem, Applier: &fakeApplier{}, Sources: []Source{{Name: testSource, Adapter: ad}}}
 	for _, tt := range []struct {
 		name string
 		mod  func(*Config)
 	}{
 		{"no log", func(c *Config) { c.Log = nil }},
-		{"no graph", func(c *Config) { c.Graph = nil }},
 		{"no applier", func(c *Config) { c.Applier = nil }},
 		{"a bad group name", func(c *Config) { c.Group = "a\nb" }},
 		{"a source without an adapter", func(c *Config) { c.Sources = []Source{{Name: testSource}} }},
@@ -341,7 +354,7 @@ func TestServerStartsWhereTheGroupLeftOff(t *testing.T) {
 
 func TestServerRedoesAWholePageAfterAFailureInTheMiddle(t *testing.T) {
 	h := newHarness(t)
-	h.ap.fail = func(ev resolver.Event, n int) error {
+	h.ap.fail = func(ev applied, n int) error {
 		if strings.HasSuffix(ev.ID, "/2") && n == 1 {
 			return errors.New("store busy")
 		}
@@ -367,7 +380,7 @@ func TestServerRedoesAWholePageAfterAFailureInTheMiddle(t *testing.T) {
 
 func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 	h := newHarness(t)
-	h.ap.fail = func(ev resolver.Event, _ int) error {
+	h.ap.fail = func(ev applied, _ int) error {
 		if strings.HasPrefix(ev.ID, testSource+"/poison/") {
 			return errors.New("bad\x00data\xff from the source " + strings.Repeat("x", 3000))
 		}
@@ -405,26 +418,6 @@ func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 	if strings.Contains(string(dl[0].Data), "repository") {
 		t.Error("the record copies the event's data")
 	}
-	// Step 2: one audit entry, from the worker, under the dead event's ID.
-	recs, err := h.mem.AuditLog().Query(t.Context(), contracts.AuditFilter{EventID: poison.ID, Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 1 {
-		t.Fatalf("%d audit records, want 1", len(recs))
-	}
-	e := recs[0].GetEntry()
-	if e.GetAction() != modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED || e.GetActor().GetId() != "system:worker" ||
-		e.GetActor().GetKind() != modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM || e.GetRule() != "attempts_exhausted" ||
-		e.GetTarget().GetKind() != modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT || e.GetTarget().GetId() != poison.ID ||
-		e.GetReason() != rec.GetError() {
-		t.Errorf("got audit entry %v", e)
-	}
-	// The event is marked processed: a later apply of it is a duplicate.
-	res, err := h.mem.Apply(t.Context(), &modelv1alpha1.ChangeSet{EventId: poison.ID})
-	if err != nil || !res.Duplicate {
-		t.Errorf("a second apply of the dead event: %+v, %v, want a duplicate", res, err)
-	}
 	// The poison event was tried three times and no more.
 	tries := 0
 	for _, id := range h.ap.called() {
@@ -439,9 +432,13 @@ func TestServerGivesUpOnAPoisonEventAndGoesOn(t *testing.T) {
 
 func TestServerDoesNotGiveUpWhileTheStoreIsDown(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
-	h.graph.down.Store(true)
-	h.ap.fail = func(resolver.Event, int) error {
-		if h.graph.down.Load() {
+	// The store goes down once the worker has read the event, as the log
+	// does: they are one database.
+	var down atomic.Bool
+	down.Store(true)
+	h.ap.fail = func(applied, int) error {
+		if down.Load() {
+			h.log.failRead.Store(true)
 			return errors.New("connection refused")
 		}
 		return nil
@@ -452,29 +449,11 @@ func TestServerDoesNotGiveUpWhileTheStoreIsDown(t *testing.T) {
 	if n := len(h.entries("core/dead_letter")); n != 0 {
 		t.Fatalf("%d dead letters while the store was down, want none", n)
 	}
-	h.graph.down.Store(false)
+	down.Store(false)
+	h.log.failRead.Store(false)
 	waitFor(t, "the event to be applied after the store came back", func() bool { return h.drained(testSource) })
 	if n := len(h.entries("core/dead_letter")); n != 0 {
 		t.Fatalf("%d dead letters, want none", n)
-	}
-}
-
-func TestServerKeepsTryingWhenAnotherApplyLandsFirst(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxAttempts = 2 })
-	h.ap.fail = func(_ resolver.Event, n int) error {
-		if n <= 3 {
-			return contracts.ErrStale
-		}
-		return nil
-	}
-	h.emitted(testSource, "a", 1)
-	h.start()
-	waitFor(t, "the event to be applied", func() bool { return h.drained(testSource) })
-	if n := len(h.entries("core/dead_letter")); n != 0 {
-		t.Fatalf("%d dead letters for contention, want none", n)
-	}
-	if got := len(h.ap.called()); got != 4 {
-		t.Errorf("got %d tries, want 4", got)
 	}
 }
 
@@ -492,7 +471,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 	arrived := make(chan string, 4)
 	proceed := make(chan struct{})
 	var once sync.Once
-	h.ap.during = func(ev resolver.Event) {
+	h.ap.during = func(ev applied) {
 		mu.Lock()
 		active[ev.Source]++
 		if active[ev.Source] > 1 {
@@ -521,7 +500,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 	}
 	once.Do(func() { close(proceed) })
 	for _, s := range sources {
-		waitFor(t, s+" to be applied", func() bool { return h.drained(contracts.Partition(s)) })
+		waitFor(t, s+" to be applied", func() bool { return h.drained(store.Partition(s)) })
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -532,7 +511,7 @@ func TestServerReadsDifferentPartitionsTogetherAndOneInOrder(t *testing.T) {
 
 func TestServerSkipsEventsItDoesNotHandleYet(t *testing.T) {
 	h := newHarness(t)
-	h.append(testSource, "o1", &eventv1alpha1.OverrideSet{})
+	h.appendRaw(testSource, "o1", futureType, []byte(`{}`))
 	h.emitted(testSource, "a", 1)
 	h.start()
 	waitFor(t, "the partition to be committed", func() bool { return h.drained(testSource) })
@@ -546,7 +525,7 @@ func TestServerSkipsEventsItDoesNotHandleYet(t *testing.T) {
 
 func TestServerDeadLettersAManualRequestNothingCanCarryOut(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxAttempts = 1 })
-	op := h.append("manual", "m1", &eventv1alpha1.OverrideSet{})
+	op := h.appendRaw("manual", "m1", futureType, []byte(`{}`))
 	h.start()
 	waitFor(t, "the manual partition to be committed", func() bool { return h.drained("manual") })
 	dl := h.entries("core/dead_letter")

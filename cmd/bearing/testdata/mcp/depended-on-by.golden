@@ -1,0 +1,90 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "text": "{\"subject\":{\"id\":\"e13\",\"kind\":\"Component\",\"name\":\"db\",\"key\":\"catalog:component/db\"},\"direction\":\"in\",\"steps\":[{\"depth\":1,\"fact\":{\"subject\":{\"id\":\"e11\",\"kind\":\"Component\",\"name\":\"ledger\",\"key\":\"catalog:component/ledger\"},\"predicate\":\"depends_on\",\"object\":{\"id\":\"e13\",\"kind\":\"Component\",\"name\":\"db\",\"key\":\"catalog:component/db\"},\"status\":\"asserted\",\"confidence\":1,\"valid_from\":\"2026-10-01T00:01:00Z\",\"sources\":[{\"source\":\"catalog-acme\",\"observation_id\":\"catalog:component/ledger@2026-10-01T00:01:00.000000Z\",\"observed_at\":\"2026-10-01T00:01:00Z\"}],\"source_count\":1}},{\"depth\":2,\"fact\":{\"subject\":{\"id\":\"e10\",\"kind\":\"Component\",\"name\":\"payments\",\"key\":\"catalog:component/payments\"},\"predicate\":\"depends_on\",\"object\":{\"id\":\"e11\",\"kind\":\"Component\",\"name\":\"ledger\",\"key\":\"catalog:component/ledger\"},\"qualifiers\":{\"port\":8080,\"protocol\":\"http\",\"via\":\"env:LEDGER_URL\"},\"status\":\"asserted\",\"confidence\":1,\"valid_from\":\"2026-10-01T00:01:00Z\",\"sources\":[{\"source\":\"catalog-acme\",\"observation_id\":\"catalog:component/payments@2026-10-01T00:01:00.000000Z\",\"observed_at\":\"2026-10-01T00:01:00Z\"}],\"source_count\":1}}]}",
+        "type": "text"
+      },
+      {
+        "text": "2 dependency link(s)",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "subject": {
+        "id": "e13",
+        "kind": "Component",
+        "name": "db",
+        "key": "catalog:component/db"
+      },
+      "direction": "in",
+      "steps": [
+        {
+          "depth": 1,
+          "fact": {
+            "subject": {
+              "id": "e11",
+              "kind": "Component",
+              "name": "ledger",
+              "key": "catalog:component/ledger"
+            },
+            "predicate": "depends_on",
+            "object": {
+              "id": "e13",
+              "kind": "Component",
+              "name": "db",
+              "key": "catalog:component/db"
+            },
+            "status": "asserted",
+            "confidence": 1,
+            "valid_from": "2026-10-01T00:01:00Z",
+            "sources": [
+              {
+                "source": "catalog-acme",
+                "observation_id": "catalog:component/ledger@2026-10-01T00:01:00.000000Z",
+                "observed_at": "2026-10-01T00:01:00Z"
+              }
+            ],
+            "source_count": 1
+          }
+        },
+        {
+          "depth": 2,
+          "fact": {
+            "subject": {
+              "id": "e10",
+              "kind": "Component",
+              "name": "payments",
+              "key": "catalog:component/payments"
+            },
+            "predicate": "depends_on",
+            "object": {
+              "id": "e11",
+              "kind": "Component",
+              "name": "ledger",
+              "key": "catalog:component/ledger"
+            },
+            "qualifiers": {
+              "port": 8080,
+              "protocol": "http",
+              "via": "env:LEDGER_URL"
+            },
+            "status": "asserted",
+            "confidence": 1,
+            "valid_from": "2026-10-01T00:01:00Z",
+            "sources": [
+              {
+                "source": "catalog-acme",
+                "observation_id": "catalog:component/payments@2026-10-01T00:01:00.000000Z",
+                "observed_at": "2026-10-01T00:01:00Z"
+              }
+            ],
+            "source_count": 1
+          }
+        }
+      ]
+    }
+  }
+}

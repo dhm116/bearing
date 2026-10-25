@@ -20,8 +20,8 @@ import (
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -73,7 +73,7 @@ type RateLimit struct {
 // IngestConfig configures Ingest.
 type IngestConfig struct {
 	// Log is where accepted deliveries go.
-	Log contracts.EventLog
+	Log store.EventLog
 	// Sources are the configured sources that may receive webhooks.
 	Sources []WebhookSource
 	// MaxBodyBytes bounds a delivery's body; zero means DefaultMaxBodyBytes.
@@ -97,7 +97,7 @@ var _ http.Handler = (*Ingest)(nil)
 // it with that source's key, and appends it to the event log before it
 // answers 2xx (C-INGEST-2, C-INGEST-8). Create it with NewIngest.
 type Ingest struct {
-	log      contracts.EventLog
+	log      store.EventLog
 	sources  map[string]*webhookRoute
 	maxBody  int64
 	now      func() time.Time
@@ -110,7 +110,7 @@ type Ingest struct {
 type webhookRoute struct {
 	name      string
 	verifier  hmacSHA256
-	partition contracts.Partition
+	partition store.Partition
 }
 
 // NewIngest returns an Ingest for cfg, or an error for a source that cannot
@@ -150,7 +150,7 @@ func NewIngest(cfg IngestConfig) (*Ingest, error) {
 		}
 		in.sources[s.Name] = &webhookRoute{
 			name:      s.Name,
-			partition: contracts.Partition(s.Name),
+			partition: store.Partition(s.Name),
 			verifier:  hmacSHA256{header: w.GetSignatureHeader(), prefix: w.GetSignaturePrefix(), key: slices.Clone(s.Secret)},
 		}
 	}
@@ -176,7 +176,7 @@ func newRateLimiter(r RateLimit, now func() time.Time) *limiter {
 // reserves.
 func checkSourceName(name string) error {
 	switch {
-	case contracts.CheckPartition(contracts.Partition(name)) != nil || strings.Contains(name, "/"):
+	case store.CheckPartition(store.Partition(name)) != nil || strings.Contains(name, "/"):
 		return fmt.Errorf("server: source name %q is not usable", model.Clip(name))
 	case name == model.SourceManual || strings.HasPrefix(name, "core"):
 		return fmt.Errorf("server: source name %q is reserved", name)
@@ -279,7 +279,8 @@ func (in *Ingest) serve(ctx context.Context, span trace.Span, r *http.Request) (
 		_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "webhook event not built", err, attrSourceName.String(source))
 		return source, http.StatusServiceUnavailable, resultUnavailable
 	}
-	got, err := in.log.Append(ctx, []contracts.Event{ev})
+	stamp(ctx, &ev)
+	got, err := in.log.Append(ctx, []store.Event{ev})
 	if err != nil || len(got) != 1 {
 		if err == nil {
 			err = errors.New("the event log returned no position")
@@ -307,7 +308,7 @@ func peerOf(r *http.Request) string {
 // event builds the WebhookReceived event of an authenticated delivery. Its ID
 // is the SHA-256 of the body, so a repeat is a duplicate on the log
 // (C-INGEST-5).
-func (in *Ingest) event(route *webhookRoute, h http.Header, body []byte) (contracts.Event, error) {
+func (in *Ingest) event(route *webhookRoute, h http.Header, body []byte) (store.Event, error) {
 	now := in.now().UTC()
 	msg := &eventv1alpha1.WebhookReceived{
 		Source:     route.name,
@@ -317,11 +318,11 @@ func (in *Ingest) event(route *webhookRoute, h http.Header, body []byte) (contra
 	}
 	data, err := model.EncodeJSON(msg)
 	if err != nil {
-		return contracts.Event{}, fmt.Errorf("encode webhook: %w", err)
+		return store.Event{}, fmt.Errorf("encode webhook: %w", err)
 	}
 	typ, _ := model.EventType(msg)
 	sum := sha256.Sum256(body)
-	return contracts.Event{
+	return store.Event{
 		ID:        route.name + "/" + hex.EncodeToString(sum[:]),
 		Partition: route.partition,
 		Type:      typ,

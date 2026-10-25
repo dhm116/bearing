@@ -11,14 +11,14 @@ import (
 	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -28,6 +28,7 @@ var (
 	typeWebhookReceived     = mustType(&eventv1alpha1.WebhookReceived{})
 	typeObservationsEmitted = mustType(&eventv1alpha1.ObservationsEmitted{})
 	typeEventDeadLettered   = mustType(&eventv1alpha1.EventDeadLettered{})
+	typeLinkDecided         = mustType(&eventv1alpha1.LinkDecided{})
 )
 
 func mustType(m proto.Message) string {
@@ -37,10 +38,6 @@ func mustType(m proto.Message) string {
 	}
 	return typ
 }
-
-// staleWait is how long a worker waits before it resolves again after another
-// apply landed first.
-const staleWait = 100 * time.Millisecond
 
 // runWorkers reads the log until ctx ends. Each pass it finds the partitions
 // with events the group has not applied and gives each to a worker; a
@@ -63,13 +60,6 @@ func (s *Server) runWorkers(ctx context.Context) error {
 			go func() {
 				defer wg.Done()
 				err := s.drain(ctx, p)
-				if err != nil {
-					// The partition is read again from its committed offset, and
-					// that event may be one just given up on.
-					s.mu.Lock()
-					delete(s.resumed, p)
-					s.mu.Unlock()
-				}
 				s.release(p)
 				if err != nil && ctx.Err() == nil {
 					log.WarnContext(ctx, "applying a partition stopped; it is read again", "partition", string(p), "error", cleanErrorText(err.Error()))
@@ -85,7 +75,7 @@ func (s *Server) runWorkers(ctx context.Context) error {
 	}
 }
 
-func (s *Server) claim(p contracts.Partition) bool {
+func (s *Server) claim(p store.Partition) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.inflight[p] {
@@ -95,7 +85,7 @@ func (s *Server) claim(p contracts.Partition) bool {
 	return true
 }
 
-func (s *Server) release(p contracts.Partition) {
+func (s *Server) release(p store.Partition) {
 	s.mu.Lock()
 	delete(s.inflight, p)
 	s.mu.Unlock()
@@ -112,12 +102,12 @@ func (s *Server) wakeUp() {
 
 // duePartitions lists the partitions that hold events the group has not
 // applied, and records the age of the oldest of them.
-func (s *Server) duePartitions(ctx context.Context) ([]contracts.Partition, error) {
+func (s *Server) duePartitions(ctx context.Context) ([]store.Partition, error) {
 	parts, err := s.cfg.Log.Partitions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("partitions: %w", err)
 	}
-	var due []contracts.Partition
+	var due []store.Partition
 	var oldest time.Duration
 	now := s.clk.Now()
 	for _, p := range parts {
@@ -147,7 +137,7 @@ func (s *Server) duePartitions(ctx context.Context) ([]contracts.Partition, erro
 // drain applies a partition from the group's offset until nothing is left. It
 // commits an offset only after the event is applied or given up on, so a crash
 // repeats the event, which the processed-event mark makes harmless.
-func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
+func (s *Server) drain(ctx context.Context, p store.Partition) error {
 	after, err := s.cfg.Log.Committed(ctx, s.cfg.Group, p)
 	if err != nil {
 		return fmt.Errorf("committed %s: %w", p, err)
@@ -161,66 +151,40 @@ func (s *Server) drain(ctx context.Context, p contracts.Partition) error {
 			return nil
 		}
 		for _, e := range entries {
-			given, err := s.givenUp(ctx, e)
-			if err != nil {
-				return err
-			}
-			if given {
-				// Its dead letter was recorded and audited before the server
-				// stopped; only the commit is missing.
-				if err := s.cfg.Log.Commit(ctx, s.cfg.Group, p, e.Offset); err != nil {
-					return fmt.Errorf("commit %s at %d: %w", p, e.Offset, err)
-				}
-				after = e.Offset
-				continue
-			}
 			if err := s.process(ctx, e); err != nil {
 				return err
-			}
-			if err := s.cfg.Log.Commit(ctx, s.cfg.Group, p, e.Offset); err != nil {
-				return fmt.Errorf("commit %s at %d: %w", p, e.Offset, err)
 			}
 			after = e.Offset
 		}
 	}
 }
 
-// givenUp reports whether the entry was already given up on: the audit log
-// holds its dead-letter entry, which a server that stopped before the commit
-// left behind. Only the first entry a partition's worker meets after the start
-// can be in that state, since offsets are committed in order, so only that one
-// is looked up.
-func (s *Server) givenUp(ctx context.Context, e contracts.Entry) (bool, error) {
-	if s.cfg.Audit == nil {
-		return false, nil
+// process handles one entry, trying again when it fails, gives up on it
+// after MaxAttempts (a dead letter), and commits its offset. It returns nil
+// once the entry is applied or given up on, and an error only when the caller
+// should stop: the context ended or the log or store would not take the dead
+// letter or the commit. The commit is inside the event's span, so the log
+// calls it makes belong to the event's trace.
+func (s *Server) process(ctx context.Context, e store.Entry) error {
+	// Each event is its own trace, linked to the span that appended it.
+	ctx, span := tracer.Start(ctx, "worker.process", trace.WithNewRoot(), trace.WithLinks(linkTo(&e.Event)...),
+		trace.WithAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
+			attribute.String("bearing.event.id", e.ID), attribute.Int64("bearing.eventlog.offset", int64(e.Offset))))
+	defer span.End()
+	if err := s.attempt(ctx, span, e); err != nil {
+		return err
 	}
-	s.mu.Lock()
-	done := s.resumed[e.Partition]
-	s.mu.Unlock()
-	if done {
-		return false, nil
+	if err := s.cfg.Log.Commit(ctx, s.cfg.Group, e.Partition, e.Offset); err != nil {
+		err = fmt.Errorf("commit %s at %d: %w", e.Partition, e.Offset, err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "commit failed")
+		return err
 	}
-	recs, err := s.cfg.Audit.Query(ctx, contracts.AuditFilter{
-		EventID: e.ID, Limit: 1, Actions: []modelv1alpha1.AuditAction{modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED},
-	})
-	if err != nil {
-		return false, fmt.Errorf("audit lookup for %s: %w", e.ID, err)
-	}
-	s.mu.Lock()
-	s.resumed[e.Partition] = true
-	s.mu.Unlock()
-	return len(recs) > 0, nil
+	return nil
 }
 
-// process handles one entry, trying again when it fails, and gives up on it
-// after MaxAttempts (a dead letter). It returns nil once the entry is applied
-// or given up on, and an error only when the caller should stop: the context
-// ended or the log or store would not take the dead letter.
-func (s *Server) process(ctx context.Context, e contracts.Entry) error {
-	ctx, span := tracer.Start(ctx, "worker.process")
-	defer span.End()
-	span.SetAttributes(attrSourceName.String(string(e.Partition)), attribute.String("bearing.event.type", eventTypeLabel(e.Type)),
-		attribute.Int64("bearing.eventlog.offset", int64(e.Offset)))
+// attempt is process's retry loop.
+func (s *Server) attempt(ctx context.Context, span trace.Span, e store.Entry) error {
 	log := telemetry.Logger(pkgName)
 
 	attempts := 0
@@ -235,17 +199,12 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 			return ctx.Err()
 		}
 		workerEvents.Add(ctx, 1, workerAttrs(e.Type, workerRetried))
-		if errors.Is(err, contracts.ErrStale) {
-			// Another apply landed first: contention, not a fault in the event,
-			// so it does not count toward giving up.
-			if err := s.sleep(ctx, staleWait); err != nil {
-				return err
-			}
-			continue
-		}
 		attempts++
 		log.WarnContext(ctx, "handling an event failed", "event", e.ID, "partition", string(e.Partition),
 			"type", e.Type, "attempt", attempts, "error", cleanErrorText(err.Error()))
+		if errors.As(err, new(permanentError)) {
+			return s.deadLetter(ctx, span, e, attempts, err)
+		}
 		if attempts >= s.cfg.MaxAttempts {
 			if down := s.storeDown(ctx); down != nil {
 				// The failures may be the store's or the log's and not the
@@ -269,7 +228,7 @@ func (s *Server) process(ctx context.Context, e contracts.Entry) error {
 // under EventTimeout, and gives the slot back before the caller waits to try
 // again: an event that keeps failing, or a partition with a long backlog,
 // never keeps a slot from the other sources.
-func (s *Server) handleInSlot(ctx context.Context, e contracts.Entry) (string, error) {
+func (s *Server) handleInSlot(ctx context.Context, e store.Entry) (string, error) {
 	select {
 	case s.slots <- struct{}{}:
 	case <-ctx.Done():
@@ -291,12 +250,9 @@ func (s *Server) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// storeDown reports why the store or the log is not answering, or nil when
-// both are.
+// storeDown reports why the store is not answering, or nil when it is. The
+// graph and the event log share one database, so asking the log is enough.
 func (s *Server) storeDown(ctx context.Context) error {
-	if _, err := s.cfg.Graph.Head(ctx); err != nil {
-		return fmt.Errorf("graph store: %w", err)
-	}
 	if _, err := s.cfg.Log.Partitions(ctx); err != nil {
 		return fmt.Errorf("event log: %w", err)
 	}
@@ -306,8 +262,8 @@ func (s *Server) storeDown(ctx context.Context) error {
 // handle applies one entry and says what it did. Events the server has no
 // handler for yet are skipped, and counted, so a type added ahead of its
 // handler cannot hold a partition.
-func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, err error) {
-	// An in-process adapter, the resolver or a decoder that panics on one
+func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err error) {
+	// An in-process adapter, the store or a decoder that panics on one
 	// event must not take the server down: a restart would read the same
 	// event and panic again, and no event would ever reach its dead letter.
 	// The panic becomes an error that the retries and the dead letter handle.
@@ -323,6 +279,8 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 		return s.handleWebhook(ctx, e)
 	case typeObservationsEmitted:
 		return workerApplied, s.handleObservations(ctx, e)
+	case typeLinkDecided:
+		return workerApplied, s.handleLinkDecided(ctx, e)
 	case typeEventDeadLettered:
 		// A required group reads every partition, and a record of a dead
 		// letter has nothing to apply.
@@ -330,8 +288,8 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 	}
 	if e.Partition == manualPartition {
 		// An operator's request that nothing can carry out yet must not be
-		// acknowledged and dropped: it becomes a dead letter, with an audit
-		// entry, that a person sees.
+		// acknowledged and dropped: it becomes a dead letter that a
+		// person sees.
 		return "", fmt.Errorf("no handler for manual event type %q", model.Clip(e.Type))
 	}
 	s.mu.Lock()
@@ -345,11 +303,10 @@ func (s *Server) handle(ctx context.Context, e contracts.Entry) (result string, 
 	return workerSkipped, nil
 }
 
-// deadLetter gives up on an event in the three steps of docs/spec/contracts.md,
-// "Dead letters", in that order, so a crash between any two repeats safely:
-// the record, the audit entry with the processed mark, and then (by the
-// caller) the commit.
-func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.Entry, attempts int, cause error) error {
+// deadLetter gives up on an event in two steps, so a crash between
+// them repeats safely: the record, then (by the caller) the commit. Re-applying an observation
+// ID is a no-op, so the event needs no processed mark in the graph.
+func (s *Server) deadLetter(ctx context.Context, span trace.Span, e store.Entry, attempts int, cause error) error {
 	text := cleanErrorText(cause.Error())
 	span.SetAttributes(attribute.Bool("bearing.dead_letter", true))
 	msg := &eventv1alpha1.EventDeadLettered{
@@ -363,54 +320,26 @@ func (s *Server) deadLetter(ctx context.Context, span trace.Span, e contracts.En
 		return fmt.Errorf("encode dead letter: %w", err)
 	}
 	// 1. The record, kept until someone releases it.
-	got, err := s.cfg.Log.Append(ctx, []contracts.Event{{
+	dl := store.Event{
 		ID: string(deadLetterPartition) + "/" + hexSHA256(e.ID), Partition: deadLetterPartition,
 		Type: typ, Time: s.clk.Now().UTC(), Data: data, Retain: true,
-	}})
+	}
+	stamp(ctx, &dl)
+	got, err := s.cfg.Log.Append(ctx, []store.Event{dl})
 	if err != nil {
 		return fmt.Errorf("append dead letter: %w", err)
 	}
 	if len(got) == 1 && !got[0].Duplicate {
 		s.deadLetters.Add(1)
 	}
-	// 2. The audit entry, and the mark that the event is processed.
-	if err := s.auditDeadLetter(ctx, e, text); err != nil {
-		return fmt.Errorf("audit dead letter: %w", err)
-	}
 	workerEvents.Add(ctx, 1, workerAttrs(e.Type, workerDeadLettered))
-	telemetry.Logger(pkgName).WarnContext(ctx, "gave up on an event", "event", e.ID, "partition", string(e.Partition),
-		"type", e.Type, "attempts", attempts, "error", text)
+	_ = telemetry.Fail(ctx, span, telemetry.Logger(pkgName), "gave up on an event", errors.New(text),
+		attribute.String("event", e.ID), attribute.String("partition", string(e.Partition)),
+		attribute.String("type", e.Type), attribute.Int("attempts", attempts))
 	return nil
 }
 
-// auditDeadLetter applies a ChangeSet that changes nothing and carries one
-// audit entry, under the dead event's ID.
-func (s *Server) auditDeadLetter(ctx context.Context, e contracts.Entry, text string) error {
-	for range 16 {
-		head, err := s.cfg.Graph.Head(ctx)
-		if err != nil {
-			return err
-		}
-		cs := &modelv1alpha1.ChangeSet{EventId: e.ID, Audit: []*modelv1alpha1.AuditEntry{{
-			Action: modelv1alpha1.AuditAction_AUDIT_ACTION_EVENT_DEAD_LETTERED,
-			Actor:  &modelv1alpha1.AuditActor{Kind: modelv1alpha1.AuditActorKind_AUDIT_ACTOR_KIND_SYSTEM, Id: "system:worker"},
-			Target: &modelv1alpha1.AuditTarget{Kind: modelv1alpha1.AuditTargetKind_AUDIT_TARGET_KIND_EVENT, Id: e.ID},
-			Rule:   "attempts_exhausted", Reason: text,
-		}}}
-		if !head.IsZero() {
-			cs.BaseRecordedAt = timestamppb.New(head)
-		}
-		_, err = s.cfg.Graph.Apply(ctx, cs)
-		if errors.Is(err, contracts.ErrStale) {
-			continue
-		}
-		return err
-	}
-	return contracts.ErrStale
-}
-
-// maxErrorBytes bounds the error text that goes into a dead letter and its
-// audit entry.
+// maxErrorBytes bounds the error text that goes into a dead letter.
 const maxErrorBytes = 1024
 
 // cleanErrorText makes error text safe to store: valid UTF-8, no control
@@ -421,7 +350,7 @@ func cleanErrorText(s string) string {
 	s = strings.Map(func(r rune) rune {
 		// Control characters, and the format and separator characters that
 		// reorder or hide text (bidi overrides, zero-width, line and
-		// paragraph separators), since the audit reason is kept for good.
+		// paragraph separators), since the dead letter is kept for good.
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return ' '
 		}

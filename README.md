@@ -17,59 +17,72 @@ it to engineers and AI agents wherever they work.
 Bearing doesn't replace existing tools. It defines the data worth having and
 keeps the adapters that fetch it small.
 
-> Status: early scaffold. The schema, adapter protocol and component
-> contracts are drafts at version 0.1 and will change.
+> Status: restarting from a smaller scope (Go, DuckDB, gRPC adapters). See
+> the [roadmap](ROADMAP.md). Parts of this README still describe the code
+> from before the restart (tag `pre-pivot`) and are rewritten as that code
+> is replaced.
 
 ## What's here
 
 | Path | What it is |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | Guide for AI coding agents and new contributors: commands, layout, rules |
-| [`docs/spec/`](docs/spec/) | The specification: data model, adapter protocol, component contracts |
+| [`ROADMAP.md`](ROADMAP.md) | What the MVP builds now, and what waits |
+| [`docs/spec/`](docs/spec/) | The specification: concepts and the server API |
+| [`docs/architecture.md`](docs/architecture.md) | A tour of the running server: adapters, event log, workers, store and matcher |
+| [`docs/diagrams/`](docs/diagrams/) | Source and exported SVGs of the diagrams (`combine.sh` makes them follow dark mode) |
+| [`docs/edge-cases.md`](docs/edge-cases.md) | Cases left for later, each with an example and a proposed fix |
+| [`docs/identity-evaluation.md`](docs/identity-evaluation.md) | How well the matcher decides that two records are one thing |
+| [`docs/security/threat-model.md`](docs/security/threat-model.md) | Trust boundaries, controls and known gaps |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/brand/`](docs/brand/) | Logo, colors, type and the diagram-design profile |
+| [`docs/mcp.md`](docs/mcp.md) | Adding `bearing mcp` to Claude Code or Claude Desktop, and its tools |
 | [`docs/telemetry.md`](docs/telemetry.md) | Telemetry configuration, spans and metrics |
 | [`docs/review-process.md`](docs/review-process.md) | How pull requests are reviewed and merged |
-| [`docs/security/threat-model.md`](docs/security/threat-model.md) | Threat model: trust boundaries, threats and the controls that answer them |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability privately |
-| [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`, `bearing.resolver.v1alpha1`): the only source of truth for the data model, events, audit records and configuration |
+| [`proto/`](proto/) | Protobuf sources (`bearing.model.v1alpha1`, `bearing.adapter.v1alpha1`, `bearing.event.v1alpha1`, `bearing.config.v1alpha1`): the only source of truth for the data model, the adapter service, events and configuration |
 | [`gen/`](gen/) | Code generated from `proto/` by `make generate`: Go types in `gen/go`, JSON Schema in `gen/jsonschema` |
 | [`pkg/model`](pkg/model) | Helpers around the generated types: kind and predicate registry, keys, validation, `fact_id` |
-| [`pkg/adapter`](pkg/adapter) | The adapter protocol: server helper for adapter authors, client for the core |
-| [`pkg/contracts`](pkg/contracts) | Interfaces between components (graph store, vector index, judge, policy, executor, …) |
-| [`pkg/resolver`](pkg/resolver) | Turns validated observations into a ChangeSet: identity, claims, supports and status |
-| [`pkg/audit`](pkg/audit) | The audit log's hash chain, signed checkpoints and verifier |
-| [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, audit retention and checkpoints, the health checks and the API for callers |
-| [`docs/operations.md`](docs/operations.md) | Running `bearing server`: the settings file, secrets, what makes it refuse to start, and the limits to size |
+| [`pkg/adapter`](pkg/adapter) | The adapter service over gRPC: `Main` and `Serve` for adapter authors, `Start` and `Dial` for the core |
+| [`pkg/store`](pkg/store) | The store module: the `Store` interface (graph, event log, ping, close), the event log interface, opening a store from a URL through registered drivers (`mem://`, `duckdb:///path`), and telemetry for every store |
+| [`pkg/store/storetest`](pkg/store/storetest) | The suite every store implementation must pass |
+| [`pkg/graph`](pkg/graph) | The graph capabilities a store provides: ingest, entity, find, facts, walk and changes |
+| [`pkg/server`](pkg/server) | The server's parts: webhook ingest that checks each delivery's signature and logs it before answering, and the workers that apply the log, the scheduler, the health checks and the API for callers |
 | [`pkg/server/boot`](pkg/server/boot) | Builds and runs `bearing server` from its settings file |
-| [`pkg/auth`](pkg/auth) | OIDC bearer-token verification and the default `Authorizer`: IdP groups and client IDs to the `read`, `ingest` and `admin` roles |
-| [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers over a store, and requests a sync |
-| [`pkg/query`](pkg/query) | Answers questions from a graph store: get, owner, related and changes, each with its sources, events, confidence and observed times |
-| [`pkg/contracts/instrument`](pkg/contracts/instrument) | OpenTelemetry wrappers that give every backend the same spans and metrics |
+| [`pkg/apiclient`](pkg/apiclient) | The client of the server's API: asks a running server the questions `pkg/query` answers, and requests a sync |
+| [`pkg/query`](pkg/query) | Answers questions from the store: get, owner, related, changes and find, each fact with its sources |
+| [`pkg/match`](pkg/match) | The matcher: finds records that may describe one thing and writes `same_as` links, asserted by key rules and proposed with evidence otherwise |
 | [`pkg/telemetry`](pkg/telemetry) | OpenTelemetry setup: logs, traces, metrics and exporters |
-| [`pkg/contracts/conformance`](pkg/contracts/conformance) | Test suites every backend must pass |
-| [`pkg/store`](pkg/store) | Opens the graph store and vector index from URLs (`mem://`, `postgres://`) |
 | [`pkg/clock`](pkg/clock) | Clock interface for time, timers and tickers, so tests can drive time |
-| [`internal/memstore`](internal/memstore) | In-memory graph store, vector index and event log, the reference implementation; also the rule engine the PostgreSQL backend runs on |
-| [`internal/pgstore`](internal/pgstore) | PostgreSQL backend for the graph, the event log and, with pgvector, the vector index |
+| [`internal/duckstore`](internal/duckstore) | The DuckDB store: observations, entities, facts and the event log; registers `mem://` and `duckdb://` |
+| [`internal/e2e`](internal/e2e) | End-to-end tests on the fictional Acme org; [`testdata/questions/`](internal/e2e/testdata/questions) holds one golden answer, evidence included, for each of the five MVP questions |
+| [`internal/identityeval`](internal/identityeval) | A labelled set of record pairs from the Acme org, and tests that score the matcher's precision and recall on it |
 | [`internal/testkit`](internal/testkit) | Test fakes: clock, deterministic IDs, scripted and recorded HTTP servers, secret canaries and leak scanning |
 | [`internal/fakes`](internal/fakes) | Fake GitHub (REST and GraphQL), Authentik-like directory and Kubernetes API servers for one fictional company, with scripted timelines; their recorded feeds are in [`testdata/acme`](testdata/acme) |
-| [`adapters/github`](adapters/github) | The GitHub adapter |
-| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related` and `changes` from the store or from a running server, asks a server to sync a source, runs the server (`bearing server --settings`), and checks the audit log with `audit verify`, `audit checkpoint` and `audit reanchor` |
-| [`cmd/bearing-bench`](cmd/bearing-bench) | Store benchmark: a generated org loaded up to about 10 million facts, with the numbers in [`docs/benchmarks`](docs/benchmarks) |
+| [`adapters/github`](adapters/github) | The GitHub adapter: repositories, teams, members, CODEOWNERS and language versions from manifests |
+| [`adapters/kubernetes`](adapters/kubernetes) | The Kubernetes adapter: workloads, namespaces, team labels, source repositories and dependencies between workloads |
+| [`adapters/authentik`](adapters/authentik) | The Authentik directory adapter: users, groups, nested groups, time-bounded memberships and GitHub account links |
+| [`cmd/bearing`](cmd/bearing) | Developer CLI: runs and checks adapters, answers `get`, `owner`, `related`, `changes`, `find` and `runtimes` from the store or from a running server, asks a server to sync a source, serves the queries to agents as an MCP server (`bearing mcp`), and runs the server (`bearing server --settings`) |
+| [`cmd/bearing-adapter-github`](cmd/bearing-adapter-github), [`cmd/bearing-adapter-kubernetes`](cmd/bearing-adapter-kubernetes), [`cmd/bearing-adapter-authentik`](cmd/bearing-adapter-authentik) | The binaries that serve the GitHub, Kubernetes and Authentik adapters |
+| [`cmd/bearing-demo-fakes`](cmd/bearing-demo-fakes) | A demo tool, not a shipped binary: serves the fakes over HTTPS and plays the Acme story on request, for [`compose.yaml`](compose.yaml) and [`docs/demo.md`](docs/demo.md) |
+| [`compose.yaml`](compose.yaml), [`demo/Dockerfile`](demo/Dockerfile), [`demo/`](demo/) | Docker Compose demo: Bearing and the Acme fakes in one image; `demo/settings.json` is the server's settings file; `.env.example` holds the demo values |
+| [`testdata/`](testdata/) | Example observations, adapter declarations, events and configuration, and the recorded Acme feeds |
 | [`site/`](site/) | The project website: a small Go generator that renders an introduction, the roadmap and the spec for GitHub Pages |
 | [`tools`](tools) | Pinned developer tools (golangci-lint, govulncheck, buf and its plugins) and the coverage gate, in their own Go module |
 
 ## Try it
 
-Requires Go 1.27.2 or later (the `go` command downloads it automatically if needed).
+To see the five questions answered on a fictional company, run the Docker
+Compose demo: `cp .env.example .env && docker compose up -d --build`, then
+follow [`docs/demo.md`](docs/demo.md).
+
+To work on the code, you need Go 1.27.3 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build
 make generate      # after editing proto/: format, lint and regenerate gen/
 make test          # vet and run every test
-make test-postgres POSTGRES=postgres://postgres@127.0.0.1:5432/postgres POSTGRES_PASS=...   # also run the PostgreSQL suites
-make build         # builds bin/bearing, bin/bearing-adapter-github and bin/bearing-bench
+make build         # builds bin/bearing and the adapters, bin/bearing-adapter-*
 
 # What does the GitHub adapter emit and need?
 bin/bearing adapter describe -- bin/bearing-adapter-github
@@ -84,27 +97,20 @@ bin/bearing adapter sync --config github.json -- bin/bearing-adapter-github > ob
 
 Adapters read a source system and emit **observations**: CloudEvents that say
 "this entity exists, with these attributes and these relations", plus where
-the information came from. The core resolves keys from different systems to
-one entity, scores each relation's confidence, and stores the result as
-**facts** in a graph that is the source of truth. A semantic index sits beside
-the graph for fuzzy search. Every component talks through an interface in
-[`pkg/contracts`](pkg/contracts) with one default backend, and any other
-backend that passes the conformance suite can replace it.
+the information came from. The core keeps each source's records, joins the
+ones that describe one thing with identity links (asserted when a source or
+rule vouches for them, proposed with evidence otherwise), and stores what
+was said as **facts**, each with the observations behind it. See the
+[roadmap](ROADMAP.md) for where this is going.
 
-## One database to start
+## Storage
 
-The graph and the semantic index are separate contracts, but by default one
-PostgreSQL database serves both (the vectors use the pgvector extension), so
-there is one thing to run, or nothing.
-[`pkg/store`](pkg/store) opens a store from a URL:
-
-| Store URL | What runs |
-| --- | --- |
-| `mem://` | Nothing; in-memory, for tests and demos |
-| `postgres://bearing@localhost/bearing` | A PostgreSQL 16 server (add `?vector_dimensions=384` for the pgvector index, which an administrator installs with `CREATE EXTENSION vector`; set the password in `BEARING_STORE_PASSWORD`) |
-
-Larger installs can move vectors to a dedicated engine later by giving the
-vector index its own URL. See [ADR 14](docs/adr/0014-postgres-is-the-default-store.md).
+Bearing keeps its data in DuckDB, inside the server process
+([ADR 5](docs/adr/0005-duckdb-store.md), [concepts](docs/spec/concepts.md)).
+`store.url` is `duckdb:///var/lib/bearing/bearing.duckdb` for a file or `mem://`
+for a throwaway store. Only one process can write a DuckDB file, so while
+the server runs, ask it with `--server` rather than opening the file with
+`--store`.
 
 ## Telemetry
 

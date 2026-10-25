@@ -1,44 +1,59 @@
-// Package adapter implements the Bearing adapter protocol: JSON-RPC 2.0
-// messages, one per line, over an adapter process's stdin and stdout.
+// Package adapter is the Bearing adapter service (ADR 4) in Go: the Adapter
+// interface adapter authors implement, Main and Serve to serve it over gRPC,
+// and for the core, Start (a local adapter process on a private Unix socket),
+// Dial (a running adapter, local or remote) and SyncAll, which screens what
+// an adapter returns. An adapter answers three calls:
 //
-// An adapter answers three methods:
-//
-//	bearing.describe  what it emits, its config schema, the access it needs
-//	bearing.sync      one page of observations plus the cursor for the next
-//	bearing.handle    observations for one incoming webhook (optional)
+//	Describe  what it emits, its config schema, the access it needs
+//	Sync      one page of observations plus the cursor for the next
+//	Handle    observations for one incoming webhook (optional)
 //
 // Adapters are stateless between calls: config travels with every sync and
 // handle request, and the cursor carries all paging state. Logs and other
-// telemetry go to stderr or OTLP, never stdout.
+// telemetry go to stderr or OTLP.
 package adapter
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 )
 
-// ProtocolVersion is the adapter protocol version this package speaks.
-const ProtocolVersion = "0.2"
+// ProtocolVersion is the version of the adapter service this package speaks,
+// sent in every DescribeResponse. Additive changes to the proto (a new field
+// or method) do not change it; a change an older peer would misread does.
+const ProtocolVersion uint32 = 1
 
-// Method names.
-const (
-	MethodDescribe = "bearing.describe"
-	MethodSync     = "bearing.sync"
-	MethodHandle   = "bearing.handle"
-)
+var supportedProtocols = []uint32{1}
+
+// SupportedProtocolVersions returns the versions the core accepts from an
+// adapter. An adapter that reports none is taken to speak 1; once 1 is
+// dropped, such adapters are refused.
+func SupportedProtocolVersions() []uint32 { return slices.Clone(supportedProtocols) }
+
+// ErrProtocolMismatch matches the error for an adapter that speaks a
+// protocol version the core does not support.
+var ErrProtocolMismatch = errors.New("adapter protocol version not supported")
 
 // DescribeResult tells the core what an adapter is and what it needs.
 type DescribeResult struct {
-	Name            string          `json:"name"`
-	Version         string          `json:"version"`
-	ProtocolVersion string          `json:"protocol_version"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// ProtocolVersion is filled from the wire on the core's side (Serve
+	// always sends ProtocolVersion, whatever an adapter sets here), so an
+	// adapter leaves it zero.
+	ProtocolVersion uint32          `json:"protocol_version"`
 	Emits           []model.Kind    `json:"emits"`
 	ConfigSchema    json.RawMessage `json:"config_schema,omitempty"`
 	// Access lists the permissions the adapter needs in the source system,
@@ -47,14 +62,12 @@ type DescribeResult struct {
 	Webhooks bool     `json:"webhooks"`
 	// WebhookSignature says how the source signs its deliveries, so the
 	// host can verify one before it is logged. Absent when the source does
-	// not sign them. It travels over stdio only until M4 replaces this
-	// transport with the adapter service, whose declaration carries it.
+	// not sign them.
 	WebhookSignature *WebhookSignature `json:"webhook_signature,omitempty"`
 }
 
 // WebhookSignature is the JSON form of the declaration's WebhookSignature
-// message (docs/spec/adapter-protocol.md, "bearing.describe"), with the
-// scheme by its ProtoJSON name. It never holds a secret.
+// message, with the scheme by its ProtoJSON name. It never holds a secret.
 type WebhookSignature struct {
 	Scheme          string `json:"scheme"`
 	SignatureHeader string `json:"signature_header"`
@@ -90,82 +103,12 @@ type SyncResult struct {
 	NextCursor   string       `json:"next_cursor,omitempty"`
 	Done         bool         `json:"done"`
 	// CompleteSync is set only on the last page (Done): the sync visited
-	// every entity of these kinds the source can see
-	// (docs/spec/data-model.md, "Sync completeness").
+	// every entity of these kinds the source can see.
 	CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync,omitempty"`
-	// Undecodable describes each observation the client received but could
-	// not decode (an unknown field, a bad enum name), cut to model.MaxQuoted
-	// bytes. UnmarshalJSON sets it; adapters never do.
-	Undecodable []string `json:"-"`
 }
 
-// UnmarshalJSON implements json.Unmarshaler. An observation that fails to
-// decode is left out of Observations and described in Undecodable, so one of
-// them doesn't fail the page (see Observations.UnmarshalJSON for the strict
-// decoding used by Handle).
-func (r *SyncResult) UnmarshalJSON(b []byte) error {
-	var wire struct {
-		Observations []json.RawMessage           `json:"observations"`
-		NextCursor   string                      `json:"next_cursor"`
-		Done         bool                        `json:"done"`
-		CompleteSync *modelv1alpha1.CompleteSync `json:"complete_sync"`
-	}
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return err
-	}
-	out := SyncResult{NextCursor: wire.NextCursor, Done: wire.Done, CompleteSync: wire.CompleteSync, Observations: make(Observations, 0, len(wire.Observations))}
-	for i, raw := range wire.Observations {
-		o := &eventv1alpha1.Observation{}
-		if err := model.DecodeJSON(raw, o); err != nil {
-			out.Undecodable = append(out.Undecodable, fmt.Sprintf("observation %d: %s", i, model.Clip(err.Error())))
-			continue
-		}
-		out.Observations = append(out.Observations, o)
-	}
-	*r = out
-	return nil
-}
-
-// Observations is a list of observations that encodes as a JSON array of
-// ProtoJSON objects (proto field names, enum value names), so JSON-RPC
-// results carry the generated types on the wire.
+// Observations is a page of observations.
 type Observations []*eventv1alpha1.Observation
-
-// MarshalJSON implements json.Marshaler.
-func (o Observations) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('[')
-	for i, obs := range o {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		j, err := model.EncodeJSON(obs)
-		if err != nil {
-			return nil, fmt.Errorf("observation %d: %w", i, err)
-		}
-		b.Write(j)
-	}
-	b.WriteByte(']')
-	return b.Bytes(), nil
-}
-
-// UnmarshalJSON implements json.Unmarshaler. It decodes but doesn't
-// validate; SyncAll validates.
-func (o *Observations) UnmarshalJSON(b []byte) error {
-	var raw []json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	out := make(Observations, len(raw))
-	for i, r := range raw {
-		out[i] = &eventv1alpha1.Observation{}
-		if err := model.DecodeJSON(r, out[i]); err != nil {
-			return fmt.Errorf("observation %d: %w", i, err)
-		}
-	}
-	*o = out
-	return nil
-}
 
 // HandleParams carries one webhook delivery exactly as the core received it.
 type HandleParams struct {
@@ -180,7 +123,7 @@ type HandleResult struct {
 }
 
 // Adapter is what an adapter author implements. Serve exposes it over the
-// protocol; adapters that don't take webhooks return ErrNotSupported from
+// adapter service; adapters that don't take webhooks return ErrNotSupported from
 // Handle.
 type Adapter interface {
 	Describe(ctx context.Context) (DescribeResult, error)
@@ -188,7 +131,8 @@ type Adapter interface {
 	Handle(ctx context.Context, p HandleParams) (HandleResult, error)
 }
 
-// Error is a JSON-RPC error object.
+// Error is an error an adapter answers with. Its Code crosses the wire, so
+// the core can tell it from a call that failed in transit.
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -196,16 +140,22 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// ErrorType reports the JSON-RPC code as the OpenTelemetry error.type.
+// Is matches another *Error with the same Code, so errors.Is(err,
+// ErrNotSupported) holds for an error that crossed the wire.
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	return ok && t.Code == e.Code
+}
+
+// ErrorType reports the code as the OpenTelemetry error.type.
 func (e *Error) ErrorType() string { return strconv.Itoa(e.Code) }
 
-// Standard and protocol-specific error codes.
+// Error codes, from JSON-RPC, where the protocol began.
 const (
-	CodeParseError     = -32700
-	CodeInvalidRequest = -32600
-	CodeMethodNotFound = -32601
-	CodeInvalidParams  = -32602
-	CodeInternal       = -32603
+	// CodeInvalidParams means the config, cursor or delivery is not valid.
+	CodeInvalidParams = -32602
+	// CodeInternal is any other error the adapter returned.
+	CodeInternal = -32603
 	// CodeNotSupported means the adapter doesn't implement an optional method.
 	CodeNotSupported = -32001
 	// CodeUpstream means the source system failed or refused the request.
@@ -215,19 +165,36 @@ const (
 // ErrNotSupported is returned by adapters for optional methods they skip.
 var ErrNotSupported = &Error{Code: CodeNotSupported, Message: "not supported by this adapter"}
 
-type request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	// Meta carries W3C trace context ("traceparent", "tracestate") and
-	// baggage from the core so adapter spans join the caller's trace.
-	Meta map[string]string `json:"_meta,omitempty"`
+// envNamePattern is the shape of a variable an adapter's config may name.
+var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// CheckEnvName refuses a config setting (field, such as "token_env") that
+// names a variable outside the source's own: anything not shaped like a
+// variable name, and Bearing's own variables (a store password), which a
+// config pointing at another host could otherwise send there. A secret the
+// core hands an adapter arrives under its spec.secrets key, never a BEARING_
+// name.
+func CheckEnvName(field, name string) error {
+	if !envNamePattern.MatchString(name) || strings.HasPrefix(name, "BEARING_") {
+		return &Error{Code: CodeInvalidParams, Message: "config: " + field + " must be an upper-case variable name not starting with BEARING_"}
+	}
+	return nil
 }
 
-type response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result,omitempty"`
-	Error   *Error          `json:"error,omitempty"`
+// CheckAPIURL refuses a source URL (config field) a token would cross in
+// the clear: it must be https, or http to a loopback address, the rule Dial
+// applies, and must carry no userinfo. The URL is not echoed: it may hold
+// credentials.
+func CheckAPIURL(field, raw string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil, u.User != nil: // userinfo would send credentials along with every request
+	case u.Scheme == "https" && u.Host != "":
+		return nil
+	case u.Scheme == "http":
+		if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+	}
+	return &Error{Code: CodeInvalidParams, Message: "config: " + field + " must be an https URL (http only to a loopback address)"}
 }

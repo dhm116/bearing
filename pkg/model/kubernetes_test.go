@@ -16,6 +16,7 @@ const (
 	ppmAnnotation = 900000
 	ppmImage      = 300000
 	ppmLabel      = 800000
+	ppmDependsOn  = 900000
 )
 
 // secretLookalikes are the values of the fields the spec's sample Deployment
@@ -149,6 +150,10 @@ func checkWorkload(t *testing.T, id string, o *eventv1alpha1.Observation) {
 	for _, r := range d.GetRelations() {
 		seen[r.GetType()] = true
 		q := r.GetAttributes()
+		if r.GetType() == "depends_on" {
+			checkDependsOn(t, r)
+			continue
+		}
 		if len(q) > 1 {
 			t.Errorf("%s has qualifiers %v, want at most the one that names its source", r.GetType(), q)
 		}
@@ -179,5 +184,25 @@ func checkWorkload(t *testing.T, id string, o *eventv1alpha1.Observation) {
 	}
 	if !seen["deployed_to"] {
 		t.Error("a workload without deployed_to")
+	}
+}
+
+// checkDependsOn checks a depends_on claim: a workload at 900000 whose four
+// qualifiers say which Service, port and protocol the reference used and the
+// variable it came from, and nothing else.
+func checkDependsOn(t *testing.T, r *modelv1alpha1.Relation) {
+	t.Helper()
+	q := r.GetAttributes()
+	if !strings.HasPrefix(r.GetTo(), "kubernetes:workload/") || r.GetConfidencePpm() != ppmDependsOn {
+		t.Errorf("depends_on %q at %d, want a workload at %d", r.GetTo(), r.GetConfidencePpm(), ppmDependsOn)
+	}
+	for k := range q {
+		if !slices.Contains([]string{"protocol", "port", "service", "via"}, k) {
+			t.Errorf("depends_on qualifier %q, want protocol, port, service and via only", k)
+		}
+	}
+	if q["protocol"].GetStringValue() == "" || !strings.Contains(q["service"].GetStringValue(), "/") ||
+		!strings.HasPrefix(q["via"].GetStringValue(), "env:") || q["port"].GetNumberValue() < 1 {
+		t.Errorf("depends_on qualifiers %v, want protocol, port, <ns>/<svc> and env:<VAR>", q)
 	}
 }

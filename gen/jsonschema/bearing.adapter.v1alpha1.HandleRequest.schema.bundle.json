@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.HandleRequest.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "HandleRequest is one webhook delivery.",
+      "properties": {
+        "body": {
+          "default": null,
+          "description": "The delivery's body, as received.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "config": {
+          "default": null,
+          "description": "The source's adapter configuration, as JSON.",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/bearing.adapter.v1alpha1.HeaderValues.schema.json"
+          },
+          "description": "The delivery's HTTP headers.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "title": "Handle Request",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.HeaderValues.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "HeaderValues are the values of one HTTP header.",
+      "properties": {
+        "values": {
+          "description": "The values, in the order received.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Header Values",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.HandleRequest.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.HandleRequest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

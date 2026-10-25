@@ -6,31 +6,47 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
 
-// childEnv makes the test binary serve fakeAdapter on stdio instead of
-// running tests, so the CLI has a real adapter process to start. "serve"
-// exits 0 when stdin closes; "fail" serves the same way, then exits 1;
+// childEnv makes the test binary serve fakeAdapter instead of running tests,
+// so the CLI has a real adapter process to start. "serve" exits 0 when it is
+// stopped; "fail" serves the same way, then exits 1;
 // "reject" and "reject-claim" serve rejectingAdapter.
 const childEnv = "BEARING_CLI_TEST_ADAPTER"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(childEnv); mode != "" {
+		if v, ok := strings.CutPrefix(mode, "proto"); ok { // "proto2": answer Describe with that protocol version
+			n, _ := strconv.Atoi(v)
+			lis, err := adapter.Listen(os.Getenv(adapter.EnvListen), os.Getenv)
+			if err != nil {
+				os.Exit(1)
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+			_ = testkit.ServeAdapterProtocol(ctx, lis, uint32(n)) //nolint:gosec // G115: a small test value
+			stop()
+			os.Exit(0)
+		}
 		var a adapter.Adapter = fakeAdapter{}
 		if mode == "reject" || mode == "reject-claim" {
 			a = rejectingAdapter{claimOnly: mode == "reject-claim"}
 		}
-		if err := adapter.ServeStdio(context.Background(), a); err != nil || mode == "fail" {
-			os.Exit(1)
+		code := adapter.Main("fake", "test", a)
+		if mode == "fail" {
+			code = 1
 		}
-		os.Exit(0)
+		os.Exit(code)
 	}
 	os.Exit(m.Run())
 }
@@ -82,7 +98,7 @@ func TestRunAdapterCommands(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"describe", []string{"adapter", "describe", "--", os.Args[0]}, `"name": "fake"`},
+		{"describe", []string{"adapter", "describe", "--", os.Args[0]}, `"protocol_version": 1`},
 		{"sync", []string{"adapter", "sync", "--max-pages", "5", "--", os.Args[0]}, ""}, // checked below
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,9 +152,11 @@ func TestRunRejectsBadUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{"adapter", "describe", os.Args[0]},
 		{"adapter", "describe", "--"},
+		{"adapter", "sync", "--address", "https://a.example", "--", os.Args[0]},
+		{"adapter", "sync"},
 	} {
-		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") {
-			t.Errorf("run %q: got %v, want an error about the adapter command", args, err)
+		if err := run(context.Background(), args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "adapter command") || !errors.Is(err, errUsage) {
+			t.Errorf("run %q: got %v, want a usage error about the adapter command", args, err)
 		}
 	}
 }
@@ -181,5 +199,109 @@ func TestSyncFailsWhenOnlyClaimsAreRejected(t *testing.T) {
 	}
 	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 2 {
 		t.Fatalf("got %d observations written, want both (the second without its claim)", len(lines))
+	}
+}
+
+// serveRemote serves fakeAdapter over mutual TLS with f on a loopback
+// address and returns it.
+func serveRemote(t *testing.T, f testkit.TLSFiles) string {
+	t.Helper()
+	env := map[string]string{adapter.EnvTLSCert: f.ServerCert, adapter.EnvTLSKey: f.ServerKey, adapter.EnvTLSClientCA: f.CA}
+	lis, err := adapter.Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- adapter.Serve(ctx, fakeAdapter{}, lis) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return "https://" + lis.Addr().String()
+}
+
+func TestRunAdapterCommandsReachARunningAdapterOverMutualTLS(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	addr := serveRemote(t, f)
+	tlsArgs := []string{"--address", addr, "--tls-ca", f.CA, "--tls-cert", f.ClientCert, "--tls-key", f.ClientKey}
+	var out bytes.Buffer
+	if err := run(t.Context(), append([]string{"adapter", "describe"}, tlsArgs...), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"name": "fake"`) {
+		t.Fatalf("got %s, want the fake adapter described", out.String())
+	}
+	out.Reset()
+	if err := run(t.Context(), append([]string{"adapter", "sync"}, tlsArgs...), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "test:team/payments") {
+		t.Fatalf("got %q, want the fake adapter's observation", out.String())
+	}
+	// A client certificate from another CA is refused.
+	other := testkit.NewTLSFiles(t)
+	if err := run(t.Context(), []string{"adapter", "describe", "--address", addr, "--tls-ca", f.CA, "--tls-cert", other.ClientCert, "--tls-key", other.ClientKey}, &bytes.Buffer{}); err == nil {
+		t.Fatal("a call with an untrusted client certificate succeeded")
+	}
+	// --tls-peer-id reaches the dial: this certificate holds no SPIFFE ID.
+	if err := run(t.Context(), append([]string{"adapter", "describe", "--tls-peer-id", "spiffe://acme.test/adapter/fake"}, tlsArgs...), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "URI SANs") {
+		t.Fatalf("got %v, want the adapter refused for holding no SPIFFE ID", err)
+	}
+}
+
+func TestRunAdapterCommandsRefuseAnAddressAndACommandOrNeither(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"adapter", "describe", "--address", "http://127.0.0.1:1", "--", os.Args[0]}, "not both"},
+		{[]string{"adapter", "sync"}, "or give --address"},
+		{[]string{"adapter", "describe", "--address", "https://adapter.example:8443", "--tls-ca", "/ca.pem"}, "needs --tls-ca, --tls-cert and --tls-key"},
+	} {
+		if err := run(t.Context(), tt.args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("run %q: got %v, want an error containing %q", tt.args, err, tt.want)
+		}
+	}
+}
+
+func TestRunAdapterCommandsRefuseAnAdapterOnAnotherProtocolVersion(t *testing.T) {
+	t.Setenv(childEnv, "proto2")
+	for _, sub := range []string{"describe", "sync"} {
+		t.Run(sub, func(t *testing.T) {
+			var out bytes.Buffer
+			err := run(context.Background(), []string{"adapter", sub, "--", os.Args[0]}, &out)
+			if !errors.Is(err, adapter.ErrProtocolMismatch) || !strings.Contains(err.Error(), "version 2") || out.Len() != 0 {
+				t.Fatalf("got %v and output %q, want a protocol refusal and no output", err, out.String())
+			}
+		})
+	}
+}
+
+func TestSyncRefusesARunningAdapterOnAnotherProtocolVersion(t *testing.T) {
+	t.Parallel()
+	f := testkit.NewTLSFiles(t)
+	env := map[string]string{adapter.EnvTLSCert: f.ServerCert, adapter.EnvTLSKey: f.ServerKey, adapter.EnvTLSClientCA: f.CA}
+	lis, err := adapter.Listen("tcp://127.0.0.1:0", func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- testkit.ServeAdapterProtocol(ctx, lis, 2) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	var out bytes.Buffer
+	err = run(t.Context(), []string{"adapter", "sync", "--address", "https://" + lis.Addr().String(), "--tls-ca", f.CA, "--tls-cert", f.ClientCert, "--tls-key", f.ClientKey}, &out)
+	if !errors.Is(err, adapter.ErrProtocolMismatch) || out.Len() != 0 {
+		t.Fatalf("got %v and output %q, want a protocol refusal and no output", err, out.String())
 	}
 }

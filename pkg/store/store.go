@@ -1,28 +1,13 @@
-// Package store opens the graph store, vector index and event log Bearing
-// runs on, from connection URLs.
+// Package store opens the backing data store Bearing runs on from a URL and
+// defines the high-level interfaces a store serves: the graph (graph.Graph)
+// and the event log (EventLog), both on one database and both instrumented
+// with OpenTelemetry. Implementations register a Driver for a URL scheme;
+// the default is internal/duckstore, which the binary imports for its side
+// effect.
 //
-// By default one backend serves all three contracts, so a small install has
-// one database to run. Pointing Vectors or Events at a different URL splits
-// them, for example a graph in PostgreSQL and vectors in Qdrant, without
-// changing any code that uses the contracts.
-//
-//	URL                                    Backend
-//	mem://                                 In-memory reference store, for tests and demos
-//	postgres://user@host/db                PostgreSQL server (graph; add ?vector_dimensions=N for pgvector)
-//
-// PostgreSQL URLs (postgres:// or postgresql://) take ?schema=<name> (default
-// bearing), sslmode, sslrootcert, sslcert, sslkey, connect_timeout,
-// application_name, pool_max_conns, host=<socket directory> and
-// vector_dimensions=<1 to 2000>, which turns on the pgvector index (the
-// extension must be installed by an administrator and the number fixed for the
-// schema), and refuse every other parameter. A connection to a host other
-// than the local machine requires sslmode=verify-full unless
-// insecure_store_plaintext=true (C-STORE-6), and a role that can create roles
-// or databases is refused unless insecure_store_superuser=true (C-STORE-2);
-// pgstore.Provision makes a role and schema that pass.
-//
-// The password goes in BEARING_STORE_PASSWORD; Open rejects a URL that
-// carries one, so it never ends up in config files, process lists or logs.
+//	URL                            Database
+//	mem://                         In memory, for tests and demos
+//	duckdb:///absolute/path.duckdb A file, created if missing
 package store
 
 import (
@@ -30,209 +15,109 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
+	"slices"
+	"strings"
+	"sync"
+	"time"
 
-	"bearing.example/internal/memstore"
-	"bearing.example/pkg/contracts"
-	"bearing.example/pkg/contracts/instrument"
+	"bearing.example/pkg/graph"
 )
 
-// PasswordEnv is the environment variable that holds the password for the
-// user named in a store URL.
-const PasswordEnv = "BEARING_STORE_PASSWORD"
+// Store is a backing data store: the graph and the event log on one
+// database, and its connection.
+type Store interface {
+	// Graph returns the graph capabilities of the store.
+	Graph() graph.Graph
+	// Events returns the durable event log the server ingests through.
+	Events() EventLog
+	// Ping reports whether the database answers.
+	Ping(ctx context.Context) error
+	// Close releases the database.
+	Close() error
+}
 
-// Config names the backends. Vectors and Events default to Graph.
+// Config names the database.
 type Config struct {
-	Graph   string
-	Vectors string
-	Events  string
-	// Namespaces are the configured source namespaces, which telemetry
-	// names in metric labels; it labels any other namespace "other".
-	Namespaces []string
-	// Getenv reads PasswordEnv; nil means os.Getenv.
-	Getenv func(string) string
+	URL string
 }
 
-// Store is an open graph store, audit log, vector index and event log, all
-// instrumented with OpenTelemetry.
-type Store struct {
-	Graph contracts.GraphStore
-	// Audit is the graph store's audit log, which the graph store writes
-	// itself inside Apply (ADR 8); this reads it.
-	Audit contracts.AuditLog
-	// AuditRetention removes the audit log's oldest records. Only the
-	// server's retention job takes it, so the handlers that read the log hold
-	// nothing that can delete (threat model C-AUDIT-5).
-	AuditRetention contracts.AuditRetention
-	// Events is the durable event log (ADR 7).
-	Events contracts.EventLog
-	// Vectors is nil when the graph backend does not serve vectors (a
-	// PostgreSQL graph store without vector_dimensions) and no vector URL
-	// was given; check before use.
-	Vectors contracts.VectorIndex
-	lock    func(context.Context) (InstanceLock, error)
-	closers []func(context.Context) error
-}
+// Driver opens a Store for a URL whose scheme it registered.
+type Driver func(ctx context.Context, u *url.URL) (Store, error)
 
-// ErrInstanceLocked is returned by LockInstance when another server already
-// uses the store.
-var ErrInstanceLocked = errors.New("store: another server is using this store")
+var (
+	driversMu sync.RWMutex
+	drivers   = map[string]Driver{}
+)
 
-// InstanceLock is held by the one server that uses a store.
-type InstanceLock interface {
-	// Held reports an error when the lock is no longer certain to be held,
-	// for example because the database connection that holds it was lost. A
-	// server that cannot show it stops, since another may have started.
-	Held(ctx context.Context) error
-	// Release gives the lock up.
-	Release(ctx context.Context) error
-}
-
-// LockInstance takes the lock that keeps a second server from using the
-// graph store at the same time, without waiting. Until the event log has a
-// lease for each partition, a second server could apply a source's events
-// out of order (docs/spec/contracts.md, "EventLog"). It returns
-// ErrInstanceLocked when another server holds it. The in-memory store has
-// one user by construction, so its lock always succeeds.
-func (s *Store) LockInstance(ctx context.Context) (InstanceLock, error) {
-	return s.lock(ctx)
-}
-
-// Close releases every backend connection.
-func (s *Store) Close(ctx context.Context) error {
-	var errs []error
-	for _, c := range s.closers {
-		errs = append(errs, c(ctx))
+// Register makes d open URLs of the given scheme. It panics if the scheme is
+// registered twice, as database/sql does.
+func Register(scheme string, d Driver) {
+	driversMu.Lock()
+	defer driversMu.Unlock()
+	if _, dup := drivers[scheme]; dup {
+		panic("store: Register called twice for scheme " + scheme)
 	}
-	return errors.Join(errs...)
+	drivers[scheme] = d
 }
 
-// backend is what one URL opens to. A backend may implement one or both
-// contracts.
-type backend struct {
-	name   string // for telemetry: "memory", "postgresql"
-	graph  contracts.GraphStore
-	audit  contracts.AuditLog
-	retain contracts.AuditRetention
-	vector contracts.VectorIndex
-	events contracts.EventLog
-	lock   func(context.Context) (InstanceLock, error)
-	close  func(context.Context) error
-}
+// backend names the database in telemetry. shortcut: both registered drivers
+// are DuckDB, a driver for another engine should name itself.
+const backend = "duckdb"
 
-// Open connects to the backends in c.
-func Open(ctx context.Context, c Config) (*Store, error) {
-	if c.Graph == "" {
-		return nil, errors.New("store: a graph store URL is required, for example mem:// or postgres://bearing@localhost/bearing")
+// Open opens or creates the database c.URL names, through the driver
+// registered for its scheme. The Graph and Events of the result are
+// instrumented. Its errors never repeat the URL.
+func Open(ctx context.Context, c Config) (Store, error) {
+	if c.URL == "" {
+		return nil, errors.New("store: a store URL is required; " + usage())
 	}
-	if c.Getenv == nil {
-		c.Getenv = os.Getenv
-	}
-	explicitVectors := c.Vectors != ""
-	if c.Vectors == "" {
-		c.Vectors = c.Graph
-	}
-	s := &Store{}
-	g, err := open(ctx, c.Graph, c.Getenv)
+	u, err := url.Parse(c.URL)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("store: parse URL; " + usage())
 	}
-	s.closers = append(s.closers, g.close)
-	if g.graph == nil || g.audit == nil {
-		return nil, errors.Join(fmt.Errorf("store: %s can't be a graph store", redact(c.Graph)), s.Close(ctx))
+	driversMu.RLock()
+	d, ok := drivers[u.Scheme]
+	driversMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("store: unsupported URL with scheme %q; %s", u.Scheme, usage())
 	}
-	v := g
-	if c.Vectors != c.Graph {
-		if v, err = open(ctx, c.Vectors, c.Getenv); err != nil {
-			return nil, errors.Join(err, s.Close(ctx))
-		}
-		s.closers = append(s.closers, v.close)
-	}
-	// A backend that serves only the graph leaves Vectors nil unless a
-	// vector index was asked for by its own URL.
-	if v.vector == nil && (c.Vectors != c.Graph || explicitVectors) {
-		return nil, errors.Join(fmt.Errorf("store: %s can't be a vector index", redact(c.Vectors)), s.Close(ctx))
-	}
-	e := g
-	if c.Events != "" && c.Events != c.Graph {
-		if e, err = open(ctx, c.Events, c.Getenv); err != nil {
-			return nil, errors.Join(err, s.Close(ctx))
-		}
-		s.closers = append(s.closers, e.close)
-	}
-	s.Graph = instrument.GraphStore(g.graph, g.name, c.Namespaces...)
-	s.Audit = instrument.AuditLog(g.audit, g.name)
-	s.AuditRetention = instrument.AuditRetention(g.retain, g.name)
-	s.Events = instrument.EventLog(e.events, e.name)
-	s.lock = g.lock
-	if v.vector != nil {
-		s.Vectors = instrument.VectorIndex(v.vector, v.name)
-	}
-	return s, nil
-}
-
-func open(ctx context.Context, raw string, getenv func(string) string) (backend, error) {
-	u, err := parseURL(raw)
+	s, err := d(ctx, u)
 	if err != nil {
-		return backend{}, err
+		return nil, fmt.Errorf("store: %w", err)
 	}
-	switch u.Scheme {
-	case "mem":
-		m := memstore.New()
-		return backend{
-			name: "memory", graph: m, audit: m.AuditLog(), retain: m.AuditRetention(), vector: m, events: m, close: func(context.Context) error { return nil },
-			lock: func(context.Context) (InstanceLock, error) { return noLock{}, nil },
-		}, nil
-	case "postgres", "postgresql":
-		return openPostgres(ctx, u, getenv)
-	}
-	return backend{}, fmt.Errorf("store: unsupported URL scheme %q; use mem:// or postgres://", u.Scheme)
+	return &instrumented{Store: s, graph: instrumentGraph(s.Graph()), events: instrumentEventLog(s.Events(), backend)}, nil
 }
 
-// parseURL parses a store URL and rejects one with a password in it. Its
-// errors never repeat the URL, which may hold a secret.
-func parseURL(raw string) (*url.URL, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return nil, fmt.Errorf("store: parse URL: %w", err)
+// usage lists the registered schemes.
+func usage() string {
+	driversMu.RLock()
+	defer driversMu.RUnlock()
+	schemes := make([]string, 0, len(drivers))
+	for s := range drivers {
+		schemes = append(schemes, s+"://")
 	}
-	if _, ok := u.User.Password(); ok {
-		return nil, fmt.Errorf("store: %s URL has a password in it; remove it and set %s instead", safeName(u), PasswordEnv)
-	}
-	if u.Opaque != "" {
-		// "postgres:host:5432" parses with no host; say what's wrong
-		// rather than dialing somewhere unexpected. The opaque part may hold
-		// "user:password@", which Redacted does not hide, so only the
-		// scheme is named.
-		return nil, fmt.Errorf("store: %s: URL has no // after the scheme; use %s://host", u.Scheme, u.Scheme)
-	}
-	return u, nil
+	slices.Sort(schemes)
+	return "registered schemes: " + strings.Join(schemes, ", ")
 }
 
-// redact names a URL in error messages without anything that may be secret.
-func redact(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "the URL"
-	}
-	return safeName(u)
+// instrumented serves a Store's graph and event log through the telemetry
+// wrappers.
+type instrumented struct {
+	Store
+	graph  graph.Graph
+	events EventLog
 }
 
-// safeName is a URL's scheme and host. User info, path and query can hold
-// secrets, and URL.Redacted hides nothing in an opaque URL.
-func safeName(u *url.URL) string {
-	if u.Host == "" {
-		return u.Scheme + ":"
+// SetLinkEvery passes the spacing of ingest-made link deposits to a backend
+// that has one (internal/duckstore); others ignore it.
+func (i *instrumented) SetLinkEvery(d time.Duration) {
+	if l, ok := i.Store.(interface{ SetLinkEvery(time.Duration) }); ok {
+		l.SetLinkEvery(d)
 	}
-	return u.Scheme + "://" + u.Host
 }
 
-// noLock is the lock of a store that only one process can use.
-type noLock struct{}
+// Graph implements Store.
+func (i *instrumented) Graph() graph.Graph { return i.graph }
 
-func (noLock) Held(context.Context) error    { return nil }
-func (noLock) Release(context.Context) error { return nil }
+// Events implements Store.
+func (i *instrumented) Events() EventLog { return i.events }

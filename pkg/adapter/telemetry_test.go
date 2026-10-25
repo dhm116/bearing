@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -22,35 +25,21 @@ var (
 	metrics = sdkmetric.NewManualReader()
 )
 
-// childEnv makes the test binary serve pager on stdio instead of running
-// tests, so the Start tests have a real process to start. "serve" exits 0
-// when stdin closes; "fail" serves the same way, then exits 1.
-const childEnv = "BEARING_ADAPTER_TEST_CHILD"
-
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(childEnv); mode != "" {
-		var a Adapter = pager{n: 1}
-		switch mode {
-		case "env":
-			a = envAdapter{}
-		case "hang":
-			a = hangAdapter{}
-		}
-		if err := ServeStdio(context.Background(), a); err != nil || mode == "fail" {
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(serveChild(mode))
 	}
 	// The package's tracer and meter come from the global providers, which
 	// delegate to the first providers installed. Install test ones once.
 	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)))
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(metrics)))
 	otel.SetTextMapPropagator(propagation.TraceContext{})
+	logglobal.SetLoggerProvider(sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(logs))))
 	os.Exit(m.Run())
 }
 
 func TestTraceContextCrossesTheProtocol(t *testing.T) {
-	c := connect(t, pager{n: 2})
+	c := dialed(t, pager{n: 2})
 	// Other tests share the recorder, so scope this test to its own trace.
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
 	_, err := SyncAll(ctx, c, json.RawMessage(`{"Prefix":"x"}`), 10, func(*eventv1alpha1.Observation) error { return nil })
@@ -70,9 +59,9 @@ func TestTraceContextCrossesTheProtocol(t *testing.T) {
 		switch {
 		case s.Name() == "bearing.adapter.sync":
 			root = s.SpanContext()
-		case s.SpanKind() == trace.SpanKindClient && s.Name() == MethodSync:
+		case s.SpanKind() == trace.SpanKindClient && strings.HasSuffix(s.Name(), "/Sync"):
 			clients[s.SpanContext().SpanID()] = true
-		case s.SpanKind() == trace.SpanKindServer && s.Name() == MethodSync:
+		case s.SpanKind() == trace.SpanKindServer && strings.HasSuffix(s.Name(), "/Sync"):
 			servers = append(servers, s)
 		}
 	}
@@ -93,7 +82,7 @@ func TestTraceContextCrossesTheProtocol(t *testing.T) {
 }
 
 func TestSyncRecordsMetrics(t *testing.T) {
-	c := connect(t, pager{n: 3})
+	c := dialed(t, pager{n: 3})
 	if _, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +131,7 @@ func TestSyncReportsRejectedClaims(t *testing.T) {
 	}
 	before := count()
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
-	sum, err := SyncAll(ctx, connect(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	sum, err := SyncAll(ctx, dialed(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	test.End()
 	if err != nil {
 		t.Fatal(err)

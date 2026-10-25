@@ -289,6 +289,12 @@ func TestValidateChecksAttributeValues(t *testing.T) {
 		{"bad name", KindPerson, "Login", structpb.NewStringValue("x"), codeMalformed},
 		{"list element type", KindRepository, "topics", mustValue(t, []any{"a", 1.0}), codeTypeMismatch},
 		{"json list ok", KindCloudResource, "tags", mustValue(t, []any{"a", 1.0}), 0},
+		{"runtime ok", KindRepository, "runtime", mustValue(t, []any{map[string]any{"language": "go", "version": "1.22", "file": "go.mod"}, map[string]any{"language": "node", "version": ">=18"}}), 0},
+		{"runtime empty list ok", KindRepository, "runtime", mustValue(t, []any{}), 0},
+		{"runtime element not an object", KindRepository, "runtime", mustValue(t, []any{"go 1.22"}), codeTypeMismatch},
+		{"runtime without a version", KindComponent, "runtime", mustValue(t, []any{map[string]any{"language": "go"}}), codeTypeMismatch},
+		{"runtime version not a string", KindRepository, "runtime", mustValue(t, []any{map[string]any{"language": "go", "version": 1.22}}), codeTypeMismatch},
+		{"runtime file not a string", KindRepository, "runtime", mustValue(t, []any{map[string]any{"language": "go", "version": "1", "file": 3.0}}), codeTypeMismatch},
 		{"null ok", KindRepository, "language", structpb.NewNullValue(), 0},
 		{"canonical time ok", KindIncident, "started_at", TimeValue(time.Date(2026, 1, 2, 3, 4, 5, 6000, time.UTC)), 0},
 		{"time not a string", KindIncident, "started_at", structpb.NewNumberValue(1), codeTypeMismatch},
@@ -314,20 +320,6 @@ func TestValidateChecksAttributeValues(t *testing.T) {
 				t.Fatalf("got %v, want %v", err, tt.want)
 			}
 		})
-	}
-}
-
-func TestCheckObservedAt(t *testing.T) {
-	ingest := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	o := NewObservation("adapter/test", ingest.Add(5*time.Minute), &modelv1alpha1.ObservationData{})
-	if err := CheckObservedAt(o, ingest); err != nil {
-		t.Fatalf("got %v at exactly the limit, want nil", err)
-	}
-	o.Time = timestamppb.New(ingest.Add(5*time.Minute + time.Microsecond))
-	err := CheckObservedAt(o, ingest)
-	ve, ok := err.(*ValidationError) //nolint:errorlint // returned unwrapped
-	if !ok || !ve.Has(codeObservedAtInFuture) {
-		t.Fatalf("got %v, want observed_at_in_future", err)
 	}
 }
 
@@ -357,7 +349,6 @@ func TestShortName(t *testing.T) {
 		{modelv1alpha1.FactStatus_FACT_STATUS_ASSERTED, "asserted"},
 		{modelv1alpha1.ValueType_VALUE_TYPE_STRING, "string"},
 		{modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED, "not_declared"},
-		{modelv1alpha1.MergeRule_MERGE_RULE_CO_REPORTED_IDS, "co_reported_ids"},
 		{modelv1alpha1.KeyCase_KEY_CASE_INSENSITIVE, "insensitive"},
 	}
 	for _, tt := range tests {
@@ -461,27 +452,5 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 	}
 	if err := ValidateObservationWith(o, nil); err != nil {
 		t.Fatalf("got %v, want nil declarations to behave as ValidateObservation", err)
-	}
-}
-
-func TestJCSOrdersKeysAndRefusesWhatIsNotJSON(t *testing.T) {
-	a := mustValue(t, map[string]any{"b": 1.0, "a": []any{"x", true, nil}})
-	b := mustValue(t, map[string]any{"a": []any{"x", true, nil}, "b": 1.0})
-	got, err := JCS(a)
-	if err != nil || string(got) != `{"a":["x",true,null],"b":1}` {
-		t.Fatalf("got %s, %v, want keys sorted and 1.0 written as 1", got, err)
-	}
-	if again, _ := JCS(b); string(again) != string(got) {
-		t.Fatalf("got %s and %s, want one form for equal values", got, again)
-	}
-	nan := &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: math.NaN()}}
-	nested := structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{nan}})
-	inStruct := structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"x": nan}})
-	for name, v := range map[string]*structpb.Value{
-		"NaN": nan, "NaN in a list": nested, "NaN in an object": inStruct, "invalid UTF-8": structpb.NewStringValue("\xff"),
-	} {
-		if _, err := JCS(v); err == nil {
-			t.Errorf("%s: got no error, want one", name)
-		}
 	}
 }

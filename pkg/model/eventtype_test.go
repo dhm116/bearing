@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -19,8 +20,8 @@ func TestEventTypeNamesEveryEvent(t *testing.T) {
 		{&eventv1alpha1.SyncRequested{}, "dev.bearing.sync_requested.v1"},
 		{&eventv1alpha1.WebhookReceived{}, "dev.bearing.webhook_received.v1"},
 		{&eventv1alpha1.ObservationsEmitted{}, "dev.bearing.observations_emitted.v1"},
-		{&eventv1alpha1.ValidTimeBoundaryReached{}, "dev.bearing.valid_time_boundary_reached.v1"},
-		{&eventv1alpha1.ConfigApplied{}, "dev.bearing.config_applied.v1"},
+		{&eventv1alpha1.EventDeadLettered{}, "dev.bearing.event_dead_lettered.v1"},
+		{&eventv1alpha1.LinkDecided{}, "dev.bearing.link_decided.v1"},
 	}
 	for _, tt := range tests {
 		got, ok := EventType(tt.msg)
@@ -32,7 +33,7 @@ func TestEventTypeNamesEveryEvent(t *testing.T) {
 
 func TestEventTypeRejectsNonEvents(t *testing.T) {
 	t.Parallel()
-	for _, m := range []proto.Message{&eventv1alpha1.Observation{}, &eventv1alpha1.Actor{}, &eventv1alpha1.Header{}, &eventv1alpha1.ConfigChange{}, &modelv1alpha1.Entity{}} {
+	for _, m := range []proto.Message{&eventv1alpha1.Observation{}, &eventv1alpha1.Actor{}, &eventv1alpha1.Header{}, &modelv1alpha1.Entity{}} {
 		if got, ok := EventType(m); ok {
 			t.Errorf("EventType(%T) = %q, true, want false", m, got)
 		}
@@ -44,7 +45,7 @@ func TestEventTypeRejectsNonEvents(t *testing.T) {
 // can't reach the log without a CloudEvents type.
 func TestEveryEventMessageIsClassified(t *testing.T) {
 	t.Parallel()
-	parts := []string{"Observation", "Header", "Actor", "ConfigChange"}
+	parts := []string{"Observation", "Header", "Actor"}
 	msgs := eventv1alpha1.File_bearing_event_v1alpha1_event_proto.Messages()
 	seen := map[string]bool{}
 	for i := range msgs.Len() {
@@ -58,6 +59,23 @@ func TestEveryEventMessageIsClassified(t *testing.T) {
 	for _, n := range eventMessages {
 		if !seen[string(n)] {
 			t.Errorf("event message %s is not in event.proto", n)
+		}
+	}
+}
+
+// The pre-pivot messages had no writer and no handler; a message returns to
+// event.proto with the code that writes it.
+func TestEventProtoHoldsNoMessageWithoutAWriter(t *testing.T) {
+	t.Parallel()
+	msgs := eventv1alpha1.File_bearing_event_v1alpha1_event_proto.Messages()
+	for _, name := range []string{
+		"MergeRequested", "UnmergeRequested", "DistinctFromSet", "DistinctFromCleared", "ClaimWithdrawn",
+		"OverrideSet", "OverrideCleared", "ValidTimeBoundaryReached", "SubjectDeletionDerived",
+		"ConflictOpened", "ConflictResolved", "OverrideStale", "CompactionRequested", "DeclarationChanged",
+		"ConfigApplied", "ConfigChange",
+	} {
+		if msgs.ByName(protoreflect.Name(name)) != nil {
+			t.Errorf("event.proto still has %s, which nothing writes or handles", name)
 		}
 	}
 }

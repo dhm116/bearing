@@ -5,8 +5,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
@@ -29,6 +30,21 @@ const (
 var deliveries = must(meter.Int64Counter("bearing.ingest.deliveries",
 	metric.WithDescription("Webhook deliveries by configured source and result: accepted, duplicate, unauthorized, too_large, rate_limited, busy (over the limit on deliveries in flight), unavailable or bad_request. A rise in unauthorized for one source is a wrong or leaked key; unavailable means the event log refused and senders will retry."),
 	metric.WithUnit("{delivery}")))
+
+// stamp records ctx's span on e, so the work the event causes can link back
+// to it (store.Event.TraceParent).
+func stamp(ctx context.Context, e *store.Event) {
+	e.TraceParent, e.TraceState = store.TraceOf(ctx)
+}
+
+// linkTo returns the span link for the span that appended e, or none when e
+// carries no valid trace context.
+func linkTo(e *store.Event) []trace.Link {
+	if sc := store.SpanContextOf(e.TraceParent, e.TraceState); sc.IsValid() {
+		return []trace.Link{{SpanContext: sc}}
+	}
+	return nil
+}
 
 func deliveryAttrs(source, result string) metric.AddOption {
 	if source == "" {
@@ -54,7 +70,7 @@ const (
 
 // workerEvents counts the outcomes of the apply workers by event type and
 // result. A rise in retried is a source or the store failing; dead_lettered
-// is an event given up on (docs/spec/contracts.md, "Dead letters").
+// is an event given up on.
 var workerEvents = must(meter.Int64Counter("bearing.worker.events",
 	metric.WithDescription("Events handled by the apply workers by type and result: applied, skipped (a type the server does not handle yet), retried or dead_lettered."),
 	metric.WithUnit("{event}")))
@@ -76,21 +92,6 @@ var retentionTrimmed = must(meter.Int64Counter("bearing.retention.trimmed",
 	metric.WithDescription("Events removed from the log by the retention job."),
 	metric.WithUnit("{event}")))
 
-var auditCuts = must(meter.Int64Counter("bearing.retention.audit_cuts",
-	metric.WithDescription("Audit-log cuts made by the retention job by result: cut, or failed with the step that failed (key, read, choose, verify, marker or cut). A failure repeats at every run until someone acts; verify means the log or its checkpoints do not add up."),
-	metric.WithUnit("{cut}")))
-
-var auditCheckpoints = must(meter.Int64Counter("bearing.audit.checkpoints",
-	metric.WithDescription("Audit checkpoint writer runs by result: written, unchanged (the head had not moved), or failed with the step that failed (key, read, head, diverged, checkpoint or write). A failure repeats at every run until someone acts; key means a configured key does not load and nothing is written, head means the log's head does not match its newest record, diverged means it does not extend the newest checkpoint in the file."),
-	metric.WithUnit("{run}")))
-
-func resultStageAttrs(result, stage string) metric.AddOption {
-	if stage == "" {
-		return metric.WithAttributes(attrResult.String(result))
-	}
-	return metric.WithAttributes(attrResult.String(result), attribute.String("bearing.stage", stage))
-}
-
 // eventTypeLabel names an event type for a metric label: the types the
 // server knows, and "other" for any other, which a sender can choose.
 func eventTypeLabel(typ string) string {
@@ -103,6 +104,8 @@ func eventTypeLabel(typ string) string {
 		return "observations_emitted"
 	case typeEventDeadLettered:
 		return "event_dead_lettered"
+	case typeLinkDecided:
+		return "link_decided"
 	}
 	return "other"
 }
@@ -128,10 +131,10 @@ func (s *Server) observeGauges() (stop func()) {
 // apiRequests counts API requests by method and result. The method is one of
 // the API's fixed names, never a caller's value, and no label names a caller.
 var apiRequests = must(meter.Int64Counter("bearing.api.requests",
-	metric.WithDescription("API requests by method and result: ok, unauthenticated, unavailable (credentials or authorization could not be checked), denied, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated or denied is a client with the wrong credentials or role, or probing; error is a fault to read the logs for."),
+	metric.WithDescription("API requests by method and result: ok, unauthenticated, rate_limited, invalid, not_found, timeout or error. A rise in unauthenticated is a client with the wrong token, or probing; error is a fault to read the logs for."),
 	metric.WithUnit("{request}")))
 
-func apiAttrs(method contracts.Method, result string) metric.AddOption {
+func apiAttrs(method Method, result string) metric.AddOption {
 	return metric.WithAttributes(attribute.String("bearing.authz.method", string(method)), attrResult.String(result))
 }
 

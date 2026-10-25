@@ -3,13 +3,15 @@ package server
 import (
 	"context"
 
-	"bearing.example/pkg/contracts"
+	"go.opentelemetry.io/otel/trace"
+
+	"bearing.example/pkg/store"
 	"bearing.example/pkg/telemetry"
 )
 
 // runRetention trims the log every TrimEvery, and keeps the dead-letter gauge
 // current. Trim is told the apply group, so it keeps an event until the
-// workers have applied it (docs/spec/contracts.md, "Retention").
+// workers have applied it.
 func (s *Server) runRetention(ctx context.Context) error {
 	s.refreshDeadLetters(ctx)
 	t := s.clk.NewTicker(s.cfg.TrimEvery)
@@ -28,7 +30,7 @@ func (s *Server) runRetention(ctx context.Context) error {
 }
 
 func (s *Server) trim(ctx context.Context) {
-	ctx, span := tracer.Start(ctx, "retention.trim")
+	ctx, span := tracer.Start(ctx, "retention.trim", trace.WithNewRoot())
 	defer span.End()
 	n, err := s.cfg.Log.Trim(ctx, s.clk.Now().Add(-s.cfg.Retention), []string{s.cfg.Group})
 	if err != nil {
@@ -43,10 +45,10 @@ func (s *Server) trim(ctx context.Context) {
 // refreshDeadLetters counts the records in core/dead_letter, which all stay
 // until someone releases them.
 func (s *Server) refreshDeadLetters(ctx context.Context) {
-	var after contracts.Offset
+	var after store.Offset
 	var n int64
 	for {
-		entries, err := s.cfg.Log.Read(ctx, deadLetterPartition, after, contracts.MaxReadEntries)
+		entries, err := s.cfg.Log.Read(ctx, deadLetterPartition, after, store.MaxReadEntries)
 		if err != nil {
 			if ctx.Err() == nil {
 				telemetry.Logger(pkgName).WarnContext(ctx, "counting dead letters failed", "error", cleanErrorText(err.Error()))

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,97 +18,70 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
-	"bearing.example/pkg/auth"
-	"bearing.example/pkg/contracts"
+	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/query"
-	"bearing.example/pkg/resolver"
+	"bearing.example/pkg/store"
 )
 
-const apiDeclaration = `{
-  "name": "catalog", "issuer_type": "catalog",
-  "kinds": [
-    { "kind": "Repository", "keys": [ { "key_type": "repo", "class": "KEY_CLASS_ID" } ],
-      "fields": [ { "predicate": "name" }, { "predicate": "owned_by", "authority": { "authoritative": true } } ] },
-    { "kind": "Team", "keys": [ { "key_type": "team", "class": "KEY_CLASS_ID" } ], "fields": [ { "predicate": "name" } ] }
-  ]
-}`
-
-// fakeAuthn maps the bearer token a request carries to a caller, as a
-// verifier would: no token or an unknown one is not authenticated.
+// fakeAuthn maps the bearer token a request carries to a caller, so tests can
+// tell callers apart: no token or an unknown one is not authenticated.
 type fakeAuthn struct {
-	callers     map[string]contracts.Caller
-	unavailable bool
+	callers map[string]Caller
 }
 
-func (f fakeAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
-	if f.unavailable {
-		return contracts.Caller{}, ErrAuthUnavailable
-	}
-	token, err := auth.BearerToken(r.Header)
-	if err != nil {
-		return contracts.Caller{}, ErrUnauthenticated
+func (f fakeAuthn) Authenticate(r *http.Request) (Caller, error) {
+	token, ok := bearerToken(r.Header)
+	if !ok {
+		return Caller{}, ErrUnauthenticated
 	}
 	c, ok := f.callers[token]
 	if !ok {
-		return contracts.Caller{}, ErrUnauthenticated
+		return Caller{}, ErrUnauthenticated
 	}
 	return c, nil
 }
 
-// switchAuthz is an authorizer whose answer a test can change between calls,
-// and which can wait inside a call.
-type switchAuthz struct {
-	contracts.Authorizer
-	mu     sync.Mutex
-	deny   bool
-	err    error
-	enter  chan struct{}
-	resume chan struct{}
-}
-
-func (s *switchAuthz) Authorize(ctx context.Context, r contracts.Request) (contracts.AuthDecision, error) {
-	s.mu.Lock()
-	deny, err, enter, resume := s.deny, s.err, s.enter, s.resume
-	s.mu.Unlock()
-	if enter != nil {
-		enter <- struct{}{}
-		<-resume
-	}
-	if err != nil {
-		return contracts.AuthDecision{}, err
-	}
-	if deny {
-		return contracts.AuthDecision{Reason: "denied for the test"}, nil
-	}
-	return s.Authorizer.Authorize(ctx, r)
-}
-
-// apiGraph wraps the store a Querier reads, to hold or fail a changes page.
+// apiGraph wraps the store a Querier reads, to hold or fail a changes read.
 type apiGraph struct {
-	contracts.GraphStore
+	graph.Graph
 	mu    sync.Mutex
 	enter chan struct{}
 	hold  chan struct{}
 	err   error
 }
 
-func (g *apiGraph) ChangesPage(ctx context.Context, r contracts.ChangesRequest) (contracts.ChangesPage, error) {
+func (g *apiGraph) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Changes(ctx, r)
+}
+
+func (g *apiGraph) Find(ctx context.Context, q string, k model.Kind, limit int) ([]graph.Match, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Graph.Find(ctx, q, k, limit)
+}
+
+// wait fails or holds a read as the test has set up.
+func (g *apiGraph) wait(ctx context.Context) error {
 	g.mu.Lock()
 	enter, hold, err := g.enter, g.hold, g.err
 	g.mu.Unlock()
 	if err != nil {
-		return contracts.ChangesPage{}, err
+		return err
 	}
 	if enter != nil {
 		enter <- struct{}{}
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return contracts.ChangesPage{}, ctx.Err()
+			return ctx.Err()
 		}
 	}
-	return g.GraphStore.ChangesPage(ctx, r)
+	return nil
 }
 
 type apiWorld struct {
@@ -117,74 +89,56 @@ type apiWorld struct {
 	clk   *testkit.FakeClock
 	api   *API
 	h     http.Handler
-	az    *switchAuthz
 	graph *apiGraph
 	authn fakeAuthn
 	n     int
 }
 
 // newAPIWorld builds a server and an API over a store holding three
-// repositories, with a reader, an administrator, an ingest client and a
-// caller with no role.
+// repositories and a few callers.
 func newAPIWorld(t *testing.T, mod ...func(*APIConfig)) *apiWorld {
 	t.Helper()
 	clk := testkit.NewClock(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 	h := newHarness(t, func(c *Config) { c.Clock = clk })
-	h.mem.Now, h.mem.IDs = clk.Now, testkit.NewUUIDv7s(clk.Now)
+	h.now = clk.Now
 	w := &apiWorld{harness: h, clk: clk}
 	w.seed(t)
 
-	grants := []contracts.Grant{
-		{Group: "readers", Role: contracts.RoleRead},
-		{Group: "admins", Role: contracts.RoleAdmin},
-		{Client: "bot", Role: contracts.RoleIngest, Sources: []string{testSource}},
-	}
-	rbac, err := auth.NewRoleAuthorizer(grants)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.az = &switchAuthz{Authorizer: rbac}
-	w.graph = &apiGraph{GraphStore: h.mem}
-	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, Authorizer: w.az, CallerRate: RateLimit{PerMinute: -1}}
+	var err error
+	w.graph = &apiGraph{Graph: h.mem}
+	cfg := APIConfig{Server: h.s, Query: &query.Querier{Graph: w.graph, Now: clk.Now}, CallerRate: RateLimit{PerMinute: -1}, DecideRate: RateLimit{PerMinute: -1}}
 	for _, m := range mod {
 		m(&cfg)
 	}
 	if w.api, err = NewAPI(cfg); err != nil {
 		t.Fatal(err)
 	}
-	w.authn = fakeAuthn{callers: map[string]contracts.Caller{
-		"reader":  {Issuer: "https://idp", Subject: "alice", Groups: []string{"readers"}},
-		"reader2": {Issuer: "https://idp", Subject: "bob", Groups: []string{"readers"}},
-		"admin":   {Issuer: "https://idp", Subject: "carol", Groups: []string{"admins"}},
-		"bot":     {Issuer: "https://idp", Subject: "bot", ClientID: "bot"},
-		"nobody":  {Issuer: "https://idp", Subject: "dave", Groups: []string{"strangers"}},
+	w.authn = fakeAuthn{callers: map[string]Caller{
+		"reader":  {Subject: "alice"},
+		"reader2": {Subject: "bob"},
+		"admin":   {Subject: "carol", Local: true},
+		"bot":     {Subject: "bot"},
 	}}
 	w.h = w.api.Handler(w.authn)
 	return w
 }
 
-// seed puts three repositories through the resolver, an hour apart.
+// seed ingests three repositories, an hour apart; payments is owned by the
+// payments team.
 func (w *apiWorld) seed(t *testing.T) {
 	t.Helper()
-	d := &modelv1alpha1.AdapterDeclaration{}
-	if err := model.DecodeJSON([]byte(apiDeclaration), d); err != nil {
-		t.Fatal(err)
-	}
-	r, err := resolver.New(resolver.Config{
-		Declarations: []*modelv1alpha1.AdapterDeclaration{d},
-		Sources:      map[string]*resolver.Source{"catalog-acme": {Name: "catalog-acme", Adapter: "catalog"}},
-	}, w.mem)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range []string{"payments", "billing", "search"} {
 		w.n++
 		e := &modelv1alpha1.Entity{
 			Kind: "Repository", Key: "catalog:repo/" + name,
 			Attributes: map[string]*structpb.Value{"name": structpb.NewStringValue(name)},
 		}
-		o := model.NewObservation("adapter/catalog-acme", w.clk.Now(), &modelv1alpha1.ObservationData{Entity: e})
-		if _, err := r.Apply(t.Context(), resolver.Event{ID: "catalog-acme/" + strconv.Itoa(w.n), Source: "catalog-acme", Observation: o}); err != nil {
+		d := &modelv1alpha1.ObservationData{Entity: e}
+		if name == "payments" {
+			d.Relations = []*modelv1alpha1.Relation{{Type: "owned_by", End: &modelv1alpha1.Relation_To{To: "catalog:team/payments"}}}
+		}
+		o := model.NewObservation("adapter/catalog-acme", w.clk.Now(), d)
+		if _, err := w.mem.Ingest(t.Context(), graph.IngestRequest{Source: "catalog-acme", Observations: []*eventv1alpha1.Observation{o}}); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(time.Hour)
@@ -193,7 +147,19 @@ func (w *apiWorld) seed(t *testing.T) {
 
 // do makes a request as the caller who holds token ("" sends none).
 func (w *apiWorld) do(token, method, target string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, nil)
+	return w.doBody(token, method, target, "")
+}
+
+// doBody is do with a request body.
+func (w *apiWorld) doBody(token, method, target, body string) *httptest.ResponseRecorder {
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, rd)
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -214,78 +180,55 @@ func decodeError(t *testing.T, rec *httptest.ResponseRecorder) errorBody {
 	return e
 }
 
-func TestAPIEveryMethodHasARouteAndEveryRouteAMethod(t *testing.T) {
+func TestAPIRoutesAreUnique(t *testing.T) {
 	t.Parallel()
-	served := map[contracts.Method]bool{}
 	patterns := map[string]bool{}
 	for _, rt := range routes {
-		if _, known := contracts.RequiredRole(rt.method); !known {
-			t.Errorf("route %q is for %q, which has no role in the table, so every caller would be denied", rt.pattern, rt.method)
-		}
 		if patterns[rt.pattern] {
 			t.Errorf("route %q is listed twice", rt.pattern)
 		}
 		patterns[rt.pattern] = true
-		served[rt.method] = true
-	}
-	for _, m := range contracts.Methods() {
-		if !served[m] {
-			t.Errorf("method %q has a role but no route", m)
-		}
 	}
 }
 
-// The one table of every route: each is refused with a 401 without a token and
-// a 403 for a caller whose role does not reach it, and a write route is
-// refused to a read-only token.
-func TestAPIRefusesMissingAndInsufficientTokensOnEveryRoute(t *testing.T) {
+// The one table of every route: each is refused with a 401 without a token or
+// with a wrong one, and answers any authenticated caller.
+func TestAPIRefusesMissingAndWrongTokensOnEveryRoute(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	type probe struct {
 		method, target string
-		// ok is the status of a caller whose role reaches the route.
-		ok   int
-		role string // the token of a caller that reaches it
+		ok             int
+		body           string
 	}
 	table := map[string]probe{
-		"GET /v1/get":                    {http.MethodGet, "/v1/get?ref=catalog:repo/payments", http.StatusOK, "reader"},
-		"GET /v1/owner":                  {http.MethodGet, "/v1/owner?ref=catalog:repo/payments", http.StatusOK, "reader"},
-		"GET /v1/related":                {http.MethodGet, "/v1/related?ref=catalog:repo/payments", http.StatusOK, "reader"},
-		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK, "reader"},
-		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted, "bot"},
+		"GET /v1/get":                    {http.MethodGet, "/v1/get?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/owner":                  {http.MethodGet, "/v1/owner?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/related":                {http.MethodGet, "/v1/related?ref=catalog:repo/payments", http.StatusOK, ""},
+		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK, ""},
+		"GET /v1/find":                   {http.MethodGet, "/v1/find?q=payments", http.StatusOK, ""},
+		"GET /v1/runtimes":               {http.MethodGet, "/v1/runtimes?language=go&below=1.22", http.StatusOK, ""},
+		"GET /v1/links":                  {http.MethodGet, "/v1/links", http.StatusOK, ""},
+		"POST /v1/links/decisions":       {http.MethodPost, "/v1/links/decisions", http.StatusAccepted, `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/billing"}`},
+		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted, ""},
 	}
 	for _, rt := range routes {
 		p, ok := table[rt.pattern]
 		if !ok {
-			t.Errorf("route %q is not in the table: add it, with the token that reaches it", rt.pattern)
+			t.Errorf("route %q is not in the table: add it", rt.pattern)
 			continue
 		}
 		t.Run(rt.pattern, func(t *testing.T) {
-			if got := w.do("", p.method, p.target); got.Code != http.StatusUnauthorized {
+			if got := w.doBody("", p.method, p.target, p.body); got.Code != http.StatusUnauthorized {
 				t.Errorf("no token: got %d, want 401", got.Code)
 			} else {
 				decodeError(t, got)
 			}
-			if got := w.do("wrong", p.method, p.target); got.Code != http.StatusUnauthorized {
+			if got := w.doBody("wrong", p.method, p.target, p.body); got.Code != http.StatusUnauthorized {
 				t.Errorf("an unknown token: got %d, want 401", got.Code)
 			}
-			if got := w.do("nobody", p.method, p.target); got.Code != http.StatusForbidden {
-				t.Errorf("a caller with no role: got %d, want 403", got.Code)
-			} else {
-				decodeError(t, got)
-			}
-			if rt.write {
-				if got := w.do("reader", p.method, p.target); got.Code != http.StatusForbidden {
-					t.Errorf("a read-only token on a write route: got %d, want 403", got.Code)
-				}
-			} else if got := w.do("bot", p.method, p.target); got.Code != http.StatusForbidden {
-				t.Errorf("an ingest-only client on a read route: got %d, want 403", got.Code)
-			}
-			if got := w.do(p.role, p.method, p.target); got.Code != p.ok {
-				t.Errorf("a caller who may: got %d (%s), want %d", got.Code, got.Body.String(), p.ok)
-			}
-			if got := w.do("admin", p.method, p.target); got.Code != p.ok {
-				t.Errorf("an administrator: got %d (%s), want %d", got.Code, got.Body.String(), p.ok)
+			if got := w.doBody("admin", p.method, p.target, p.body); got.Code != p.ok {
+				t.Errorf("an authenticated caller: got %d (%s), want %d", got.Code, got.Body.String(), p.ok)
 			}
 		})
 	}
@@ -322,12 +265,15 @@ func TestAPIUnknownPathsAndMethodsAreRefusedBeforeCredentials(t *testing.T) {
 	}
 }
 
-// No route takes a body, so one is refused before anything is done for the
-// request, however large and however it is framed.
+// Only the decision route takes a body; the others refuse one before anything
+// is done for the request, however large and however it is framed.
 func TestAPIRefusesABodyOnEveryRoute(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	for _, rt := range routes {
+		if rt.body {
+			continue
+		}
 		target := strings.NewReplacer("{source}", testSource).Replace(strings.SplitN(rt.pattern, " ", 2)[1])
 		for name, body := range map[string]string{"a large body": strings.Repeat("x", 100<<10), "a small one": "{}"} {
 			req := httptest.NewRequest(strings.SplitN(rt.pattern, " ", 2)[0], target, strings.NewReader(body))
@@ -368,129 +314,36 @@ func TestAPIAnswersQueries(t *testing.T) {
 
 	rec := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/payments")
 	var e query.Entity
-	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != http.StatusOK || e.Subject.Name != "payments" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != http.StatusOK || e.Name != "payments" {
 		t.Fatalf("get: got %d %q (%v), want the entity payments", rec.Code, rec.Body.String(), err)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("got content type %q and cache control %q, want JSON that is not stored", ct, rec.Header().Get("Cache-Control"))
 	}
-	if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments"); got.Code != http.StatusOK {
-		t.Errorf("owner: got %d %s", got.Code, got.Body.String())
+	var o query.Ownership
+	if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &o) != nil || len(o.Owners) != 1 || o.Owners[0].Object.Key != "catalog:team/payments" {
+		t.Errorf("owner: got %d %s, want the payments team", got.Code, got.Body.String())
 	}
-	if got := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&predicate=owned_by"); got.Code != http.StatusOK {
-		t.Errorf("related: got %d %s", got.Code, got.Body.String())
+	var r query.Relations
+	if got := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:team/payments&predicate=owned_by&direction=in&depth=2"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &r) != nil || len(r.Steps) != 1 || r.Steps[0].Fact.Subject.Name != "payments" {
+		t.Errorf("related: got %d %s, want payments owned by the team", got.Code, got.Body.String())
 	}
-	// As of a time before the repository was known there is nothing.
-	before := w.clk.Now().Add(-100 * time.Hour).UTC().Format(time.RFC3339)
-	missing := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/payments&recorded_at="+before)
-	if missing.Code != http.StatusNotFound || decodeError(t, missing).Code != "not_found" {
-		t.Errorf("get in the past: got %d %s, want 404 not_found", missing.Code, missing.Body.String())
-	}
-	if got := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/nothing"); got.Code != http.StatusNotFound {
-		t.Errorf("an unknown subject: got %d, want 404", got.Code)
-	}
-}
-
-func TestAPIPagesThroughChangesWithTokens(t *testing.T) {
-	t.Parallel()
-	w := newAPIWorld(t)
-	seen := map[string]bool{}
-	target := "/v1/changes?limit=1&since=" + w.clk.Now().Add(-48*time.Hour).UTC().Format(time.RFC3339)
-	for pages := 0; target != ""; pages++ {
-		if pages > 10 {
-			t.Fatal("more than 10 pages for 3 repositories")
-		}
-		rec := w.do("reader", http.MethodGet, target)
-		var c query.Changes
-		if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || rec.Code != http.StatusOK {
-			t.Fatalf("page %d: got %d %q", pages, rec.Code, rec.Body.String())
-		}
-		for _, ch := range c.Changes {
-			seen[ch.Subject.Name] = true
-		}
-		target = ""
-		if c.NextPageToken != "" {
-			target = "/v1/changes?limit=1&page_token=" + c.NextPageToken
-		}
-	}
-	for _, name := range []string{"payments", "billing", "search"} {
-		if !seen[name] {
-			t.Errorf("paging never reached %s: saw %v", name, seen)
-		}
-	}
-}
-
-// A page token is only input. It is not signed, so the server authorizes the
-// request that carries it as it would one without, on every page (C-API-6).
-func TestAPIAuthorizesEveryPageAndTrustsNoToken(t *testing.T) {
-	t.Parallel()
-	w := newAPIWorld(t)
-	since := w.clk.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
-	first := w.do("reader", http.MethodGet, "/v1/changes?limit=1&since="+since)
 	var c query.Changes
-	if err := json.Unmarshal(first.Body.Bytes(), &c); err != nil || c.NextPageToken == "" {
-		t.Fatalf("got %d %q, want a first page with a token", first.Code, first.Body.String())
+	since := w.clk.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	if got := w.do("reader", http.MethodGet, "/v1/changes?limit=2&since="+since); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &c) != nil || len(c.Changes) != 1 || c.Changes[0].Kind != "opened" || c.Changes[0].Fact.Predicate != "owned_by" {
+		t.Errorf("changes: got %d %s, want the ownership opened", got.Code, got.Body.String())
 	}
-	next := "/v1/changes?limit=1&page_token="
-	token := c.NextPageToken
-
-	if got := w.do("reader", http.MethodGet, next+token); got.Code != http.StatusOK {
-		t.Fatalf("the next page: got %d %s", got.Code, got.Body.String())
+	var f findAnswer
+	if got := w.do("reader", http.MethodGet, "/v1/find?q=billing&kind=Repository"); got.Code != http.StatusOK ||
+		json.Unmarshal(got.Body.Bytes(), &f) != nil || len(f.Matches) == 0 || f.Matches[0].Name != "billing" {
+		t.Errorf("find: got %d %s, want billing first", got.Code, got.Body.String())
 	}
-	// Whoever holds a token still needs the role: the caller with none is
-	// refused before the token is read, even a garbled one.
-	for _, tok := range []string{token, "%21%21not-a-token"} {
-		if got := w.do("nobody", http.MethodGet, next+tok); got.Code != http.StatusForbidden {
-			t.Errorf("no role with token %q: got %d, want 403", tok, got.Code)
-		}
-		if got := w.do("", http.MethodGet, next+tok); got.Code != http.StatusUnauthorized {
-			t.Errorf("no credentials with token %q: got %d, want 401", tok, got.Code)
-		}
-	}
-	// A role withdrawn between two pages ends the paging.
-	w.az.mu.Lock()
-	w.az.deny = true
-	w.az.mu.Unlock()
-	if got := w.do("reader", http.MethodGet, next+token); got.Code != http.StatusForbidden {
-		t.Errorf("a role withdrawn after page one: got %d, want 403", got.Code)
-	}
-	w.az.mu.Lock()
-	w.az.deny = false
-	w.az.mu.Unlock()
-
-	// A tampered token is refused or asks only what the caller could ask.
-	raw, _ := base64.RawURLEncoding.DecodeString(token)
-	for name, bad := range map[string]struct{ token, code string }{
-		"flipped bytes":  {base64.RawURLEncoding.EncodeToString([]byte(strings.Replace(string(raw), `"v":1`, `"v":2`, 1))), "invalid_page_token"},
-		"a longer token": {token + strings.Repeat("A", 600), "invalid_request"},
-		"not base64":     {"%25%25%25", "invalid_page_token"},
-		"truncated":      {token[:len(token)/2], "invalid_page_token"},
-		"a bad escape":   {"%%%", "invalid_request"},
-	} {
-		if got := w.do("reader", http.MethodGet, next+bad.token); got.Code != http.StatusBadRequest || decodeError(t, got).Code != bad.code {
-			t.Errorf("%s: got %d %s, want 400 %s", name, got.Code, got.Body.String(), bad.code)
-		}
-	}
-	// A token carries its question, so it cannot be mixed with another.
-	for _, extra := range []string{"&ref=catalog:repo/payments", "&since=" + since, "&axis=record"} {
-		if got := w.do("reader", http.MethodGet, next+token+extra); got.Code != http.StatusBadRequest {
-			t.Errorf("a token with %s: got %d, want 400", extra, got.Code)
-		}
-	}
-	// A token forged to name another subject asks what a reader may ask, and
-	// no more than the subject's own changes come back.
-	var st map[string]any
-	if err := json.Unmarshal(raw, &st); err != nil {
-		t.Fatal(err)
-	}
-	st["subject"] = "catalog:repo/nothing"
-	forged, _ := json.Marshal(st)
-	got := w.do("reader", http.MethodGet, next+base64.RawURLEncoding.EncodeToString(forged))
-	if got.Code == http.StatusOK {
-		var fc query.Changes
-		if err := json.Unmarshal(got.Body.Bytes(), &fc); err != nil || len(fc.Changes) != 0 {
-			t.Errorf("a forged subject: got %q, want no changes", got.Body.String())
-		}
+	missing := w.do("reader", http.MethodGet, "/v1/get?ref=catalog:repo/nothing")
+	if missing.Code != http.StatusNotFound || decodeError(t, missing).Code != "not_found" {
+		t.Errorf("an unknown entity: got %d %s, want 404 not_found", missing.Code, missing.Body.String())
 	}
 }
 
@@ -499,20 +352,31 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 	w := newAPIWorld(t)
 	long := strings.Repeat("a", maxRefBytes+1)
 	for name, target := range map[string]string{
-		"no subject":             "/v1/get",
-		"an unknown parameter":   "/v1/get?ref=x&surprise=1",
-		"a repeated parameter":   "/v1/get?ref=x&ref=y",
-		"a long subject":         "/v1/get?ref=" + long,
-		"a control character":    "/v1/get?ref=a%00b",
-		"bad utf-8":              "/v1/get?ref=%ff%fe",
-		"a bad time":             "/v1/get?ref=x&valid_at=yesterday",
-		"a long predicate":       "/v1/related?ref=x&predicate=" + strings.Repeat("p", maxPredicateBytes+1),
-		"a limit of zero":        "/v1/changes?limit=0",
-		"a limit that is text":   "/v1/changes?limit=many",
-		"a limit over the max":   "/v1/changes?limit=" + strconv.Itoa(contracts.MaxChangesLimit+1),
-		"an unknown axis":        "/v1/changes?axis=sideways",
-		"a window that is empty": "/v1/changes?since=2026-10-02T00:00:00Z&until=2026-10-01T00:00:00Z",
-		"a long page token":      "/v1/changes?page_token=" + strings.Repeat("A", maxPageTokenBytes+1),
+		"no subject":                   "/v1/get",
+		"an unknown parameter":         "/v1/get?ref=x&surprise=1",
+		"a repeated parameter":         "/v1/get?ref=x&ref=y",
+		"a long subject":               "/v1/get?ref=" + long,
+		"a control character":          "/v1/get?ref=a%00b",
+		"bad utf-8":                    "/v1/get?ref=%ff%fe",
+		"a bad time":                   "/v1/get?ref=x&at=yesterday",
+		"a retired parameter":          "/v1/get?ref=x&recorded_at=2026-10-01T00:00:00Z",
+		"a depth of zero":              "/v1/related?ref=x&depth=0",
+		"a depth over the max":         "/v1/related?ref=x&depth=11",
+		"an unknown direction":         "/v1/related?ref=catalog:repo/payments&direction=up",
+		"a find without q":             "/v1/find?kind=Repository",
+		"a find limit too big":         "/v1/find?q=x&limit=101",
+		"a find text too long":         "/v1/find?q=" + strings.Repeat("a", query.MaxFindText+1),
+		"runtimes without a language":  "/v1/runtimes?below=1.22",
+		"runtimes below not a version": "/v1/runtimes?language=go&below=lts",
+		"runtimes below a range":       "/v1/runtimes?language=go&below=>=1.22",
+		"runtimes below a wildcard":    "/v1/runtimes?language=go&below=1.x",
+		"runtimes below with a v":      "/v1/runtimes?language=go&below=v1.22",
+		"a long predicate":             "/v1/related?ref=x&predicate=" + strings.Repeat("p", maxPredicateBytes+1),
+		"a limit of zero":              "/v1/changes?limit=0",
+		"a limit that is text":         "/v1/changes?limit=many",
+		"a limit over the max":         "/v1/changes?limit=" + strconv.Itoa(query.MaxChangesLimit+1),
+		"a page token":                 "/v1/changes?page_token=x",
+		"a window that is empty":       "/v1/changes?since=2026-10-02T00:00:00Z&until=2026-10-01T00:00:00Z",
 	} {
 		rec := w.do("reader", http.MethodGet, target)
 		if rec.Code != http.StatusBadRequest {
@@ -523,6 +387,18 @@ func TestAPIRejectsBadParameters(t *testing.T) {
 	}
 	if rec := w.do("admin", http.MethodPost, "/v1/sources/"+testSource+"/sync?x=1"); rec.Code != http.StatusBadRequest {
 		t.Errorf("a sync request with a parameter: got %d, want 400", rec.Code)
+	}
+}
+
+func TestAPIFindRefusesAnUnknownKind(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	rec := w.do("reader", http.MethodGet, "/v1/find?q=billing&kind=Repo")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if e := decodeError(t, rec); e.Code != "invalid_request" || !strings.Contains(e.Message, "kind") {
+		t.Errorf("got %+v, want invalid_request naming kind", e)
 	}
 }
 
@@ -554,8 +430,8 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 		t.Fatalf("got %d %q, want 202 and the event's ID", rec.Code, rec.Body.String())
 	}
 	reqs := syncRequests(t, w)
-	if len(reqs) != 1 || reqs[0].GetActor().GetSubject() != "bot" || !reqs[0].GetActor().GetAgent() || reqs[0].GetSource() != testSource {
-		t.Fatalf("got %v, want one request by the client bot, as an agent", reqs)
+	if len(reqs) != 1 || reqs[0].GetActor().GetSubject() != "bot" || reqs[0].GetSource() != testSource {
+		t.Fatalf("got %v, want one request by bot", reqs)
 	}
 	// While that request waits to be applied, another caller gets it back and
 	// nothing more is logged: a caller cannot queue syncs faster than they run.
@@ -568,16 +444,16 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 		t.Fatalf("got %d requests on the log, want only the first", n)
 	}
 	// Once it is applied, a new one is logged, by the person who asked.
-	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)); err != nil {
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, store.Offset(got.Offset)); err != nil {
 		t.Fatal(err)
 	}
 	if rec := w.do("admin", http.MethodPost, "/v1/sources/"+testSource+"/sync"); rec.Code != http.StatusAccepted {
 		t.Fatalf("admin: got %d", rec.Code)
 	}
-	if reqs := syncRequests(t, w); len(reqs) != 2 || reqs[1].GetActor().GetSubject() != "carol" || reqs[1].GetActor().GetAgent() {
-		t.Fatalf("got %v, want the second request by carol, a person", reqs)
+	if reqs := syncRequests(t, w); len(reqs) != 2 || reqs[1].GetActor().GetSubject() != "carol" {
+		t.Fatalf("got %v, want the second request by carol", reqs)
 	}
-	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, contracts.Offset(got.Offset)+1); err != nil {
+	if err := w.log.Commit(t.Context(), DefaultGroup, testSource, store.Offset(got.Offset)+1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -596,7 +472,7 @@ func TestAPISyncRequestIsLoggedBeforeItIsAcceptedAndNamesTheCaller(t *testing.T)
 func TestAPILocalCallerIsRecordedByUID(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
-	w.h = w.api.Handler(fakeAuthn{callers: map[string]contracts.Caller{"local": {Subject: "local:1000", Local: true}}})
+	w.h = w.api.Handler(fakeAuthn{callers: map[string]Caller{"local": {Subject: "local:1000", Local: true}}})
 	if rec := w.do("local", http.MethodPost, "/v1/sources/"+testSource+"/sync"); rec.Code != http.StatusAccepted {
 		t.Fatalf("got %d, want 202", rec.Code)
 	}
@@ -605,43 +481,15 @@ func TestAPILocalCallerIsRecordedByUID(t *testing.T) {
 	}
 }
 
-func TestAPIUnknownSourceIsNotFoundAndNeverAuthorized(t *testing.T) {
+func TestAPIUnknownSourceIsNotFound(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
-	asked := make(chan contracts.Request, 4)
-	w.api.cfg.Authorizer = authzFunc(func(_ context.Context, r contracts.Request) (contracts.AuthDecision, error) {
-		asked <- r
-		return contracts.AuthDecision{Allowed: true}, nil
-	})
 	rec := w.do("admin", http.MethodPost, "/v1/sources/nothing/sync")
 	if rec.Code != http.StatusNotFound || decodeError(t, rec).Code != "unknown_source" {
 		t.Fatalf("got %d %s, want 404 unknown_source", rec.Code, rec.Body.String())
 	}
-	if len(asked) != 0 || len(syncRequests(t, w)) != 0 {
-		t.Fatalf("the authorizer was asked %d times and %d requests were logged, want neither for a source that does not exist", len(asked), len(syncRequests(t, w)))
-	}
-}
-
-type authzFunc func(context.Context, contracts.Request) (contracts.AuthDecision, error)
-
-func (f authzFunc) Authorize(ctx context.Context, r contracts.Request) (contracts.AuthDecision, error) {
-	return f(ctx, r)
-}
-
-func TestAPIRefusesWhenItCannotCheckCredentialsOrRoles(t *testing.T) {
-	t.Parallel()
-	w := newAPIWorld(t)
-	w.h = w.api.Handler(fakeAuthn{unavailable: true})
-	if rec := w.do("reader", http.MethodGet, "/v1/changes"); rec.Code != http.StatusServiceUnavailable || decodeError(t, rec).Code != "auth_unavailable" {
-		t.Errorf("credentials that cannot be checked: got %d %s, want 503", rec.Code, rec.Body.String())
-	}
-	w = newAPIWorld(t)
-	w.az.mu.Lock()
-	w.az.err = errors.New("relationship store at 10.1.2.3 is down")
-	w.az.mu.Unlock()
-	rec := w.do("reader", http.MethodGet, "/v1/changes")
-	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "10.1.2.3") {
-		t.Errorf("an authorizer that cannot decide: got %d %s, want 503 that does not say why", rec.Code, rec.Body.String())
+	if n := len(syncRequests(t, w)); n != 0 {
+		t.Fatalf("%d requests were logged, want none for a source that does not exist", n)
 	}
 }
 
@@ -685,10 +533,10 @@ func TestAPILimitsEachCallersRate(t *testing.T) {
 func TestAPICapsRequestsInFlight(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t, func(c *APIConfig) { c.MaxInFlight = 1 })
-	w.az.mu.Lock()
-	w.az.enter, w.az.resume = make(chan struct{}), make(chan struct{})
-	enter, resume := w.az.enter, w.az.resume
-	w.az.mu.Unlock()
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{})
+	enter, hold := w.graph.enter, w.graph.hold
+	w.graph.mu.Unlock()
 	done := make(chan int)
 	go func() { done <- w.do("reader", http.MethodGet, "/v1/changes").Code }()
 	<-enter
@@ -696,14 +544,14 @@ func TestAPICapsRequestsInFlight(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" || decodeError(t, rec).Code != "busy" {
 		t.Errorf("a second request while one is held: got %d %s, want 503 busy", rec.Code, rec.Body.String())
 	}
-	resume <- struct{}{}
+	close(hold)
 	if code := <-done; code != http.StatusOK {
 		t.Errorf("the held request: got %d, want 200", code)
 	}
 	// The slot is free again.
-	w.az.mu.Lock()
-	w.az.enter = nil
-	w.az.mu.Unlock()
+	w.graph.mu.Lock()
+	w.graph.enter = nil
+	w.graph.mu.Unlock()
 	if rec := w.do("reader2", http.MethodGet, "/v1/changes"); rec.Code != http.StatusOK {
 		t.Errorf("after the slot freed: got %d, want 200", rec.Code)
 	}
@@ -743,14 +591,73 @@ func TestAPICapsAndTimesTheChangesReadsOfOneCaller(t *testing.T) {
 	}
 }
 
+func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{}) // never released: the deadline ends the reads
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+
+	done := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() { done <- w.do("reader", http.MethodGet, "/v1/find?q=billing") }()
+		<-enter
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/find?q=billing"); rec.Code != http.StatusTooManyRequests || decodeError(t, rec).Code != "too_many_reads" {
+		t.Errorf("a third find by the same caller: got %d %s, want 429 too_many_reads", rec.Code, rec.Body.String())
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&depth=2"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a deep related by the same caller: got %d, want 429", rec.Code)
+	}
+	for range 2 {
+		if rec := <-done; rec.Code != http.StatusGatewayTimeout {
+			t.Errorf("a held find: got %d %s, want 504 at the shorter deadline", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestAPILimitsAreKeptPerSubjectAndPeer(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesPerCaller = 1; c.ChangesTimeout = 200 * time.Millisecond })
+	w.graph.mu.Lock()
+	w.graph.enter, w.graph.hold = make(chan struct{}), make(chan struct{})
+	enter := w.graph.enter
+	w.graph.mu.Unlock()
+	from := func(addr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
+		req.Header.Set("Authorization", "Bearer reader")
+		req.RemoteAddr = addr
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, req)
+		return rec
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- from("192.0.2.1:1000") }()
+	<-enter
+	if rec := from("192.0.2.1:1001"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a second read from the same peer: got %d, want 429", rec.Code)
+	}
+	second := make(chan *httptest.ResponseRecorder, 1)
+	go func() { second <- from("192.0.2.2:1000") }()
+	select { // the other peer's read reaches the store: it has its own share
+	case <-enter:
+	case rec := <-second:
+		t.Fatalf("the other peer's read: got %d before it reached the store, want it to wait there", rec.Code)
+	}
+	<-first
+	if rec := <-second; rec.Code == http.StatusTooManyRequests {
+		t.Errorf("the other peer's read: got %d, want it not limited", rec.Code)
+	}
+}
+
 func TestNewAPIRefusesWhatItNeeds(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
-	good := APIConfig{Server: w.s, Query: w.api.cfg.Query, Authorizer: w.az}
+	good := APIConfig{Server: w.s, Query: w.api.cfg.Query}
 	for name, mod := range map[string]func(*APIConfig){
-		"no server":     func(c *APIConfig) { c.Server = nil },
-		"no querier":    func(c *APIConfig) { c.Query = nil },
-		"no authorizer": func(c *APIConfig) { c.Authorizer = nil },
+		"no server":  func(c *APIConfig) { c.Server = nil },
+		"no querier": func(c *APIConfig) { c.Query = nil },
 	} {
 		cfg := good
 		mod(&cfg)
@@ -767,80 +674,12 @@ func TestNewAPIRefusesWhatItNeeds(t *testing.T) {
 	}
 }
 
-func TestOIDCAuthenticatorRefusesWithoutAUsableToken(t *testing.T) {
-	t.Parallel()
-	a := OIDCAuthenticator{Verifier: tokenVerifier(func(string) (contracts.Caller, error) {
-		t.Error("the verifier was asked about a request with no usable token")
-		return contracts.Caller{}, nil
-	})}
-	for name, header := range map[string][]string{
-		"no header":      nil,
-		"not a bearer":   {"Basic dXNlcjpwYXNz"},
-		"two headers":    {"Bearer a.b.c", "Bearer d.e.f"},
-		"an empty token": {"Bearer "},
-	} {
-		r := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
-		r.Header["Authorization"] = header
-		if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) {
-			t.Errorf("%s: got %v, want ErrUnauthenticated", name, err)
-		}
-	}
-	// A token in the query string is not a token.
-	r := httptest.NewRequest(http.MethodGet, "/v1/changes?access_token=a.b.c", nil)
-	if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("a token in the URL: got %v, want ErrUnauthenticated", err)
-	}
-}
-
-type tokenVerifier func(token string) (contracts.Caller, error)
-
-func (f tokenVerifier) Verify(_ context.Context, token string) (contracts.Caller, error) {
-	return f(token)
-}
-
-func TestOIDCAuthenticatorMapsWhatTheVerifierSays(t *testing.T) {
-	t.Parallel()
-	alice := contracts.Caller{Issuer: "https://idp", Subject: "alice", Groups: []string{"readers"}}
-	for name, tt := range map[string]struct {
-		verdict error
-		want    error
-	}{
-		"a good token":            {nil, nil},
-		"a token that is refused": {auth.ErrInvalidToken, ErrUnauthenticated},
-		"keys that are missing":   {auth.ErrKeysUnavailable, ErrAuthUnavailable},
-		"a failure of any kind":   {errors.New("dial tcp 10.1.2.3: refused"), ErrAuthUnavailable},
-	} {
-		a := OIDCAuthenticator{Verifier: tokenVerifier(func(token string) (contracts.Caller, error) {
-			if token != "tok" {
-				t.Errorf("%s: the verifier got %q, want the token from the header", name, token)
-			}
-			if tt.verdict != nil {
-				return contracts.Caller{}, tt.verdict
-			}
-			return alice, nil
-		})}
-		r := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
-		r.Header.Set("Authorization", "Bearer tok")
-		got, err := a.Authenticate(r)
-		switch {
-		case tt.want == nil && (err != nil || got.Subject != "alice"):
-			t.Errorf("%s: got %+v, %v, want alice", name, got, err)
-		case tt.want != nil && !errors.Is(err, tt.want):
-			t.Errorf("%s: got %v, want %v", name, err, tt.want)
-		}
-		if err != nil && strings.Contains(err.Error(), "10.1.2.3") {
-			t.Errorf("%s: the error repeats the verifier's: %v", name, err)
-		}
-	}
-}
-
-// slowAuthn waits for its request's context, as an identity provider that
-// does not answer would make the verifier do.
+// slowAuthn waits for its request's context, as an authenticator that hangs.
 type slowAuthn struct{}
 
-func (slowAuthn) Authenticate(r *http.Request) (contracts.Caller, error) {
+func (slowAuthn) Authenticate(r *http.Request) (Caller, error) {
 	<-r.Context().Done()
-	return contracts.Caller{}, r.Context().Err()
+	return Caller{}, r.Context().Err()
 }
 
 // The deadline starts before the token is checked, so a check that hangs
@@ -859,7 +698,73 @@ func TestAPIDeadlineStartsBeforeAuthentication(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a hung authenticator held the request past its deadline")
 	}
-	if rec.Code != http.StatusServiceUnavailable || decodeError(t, rec).Code != "auth_unavailable" {
-		t.Fatalf("got %d %s, want 503 auth_unavailable", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized || decodeError(t, rec).Code != "unauthenticated" {
+		t.Fatalf("got %d %s, want 401 unauthenticated", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTokenAuthenticator(t *testing.T) {
+	t.Parallel()
+	bearer := func(v ...string) http.Header { return http.Header{"Authorization": v} }
+	for name, tt := range map[string]struct {
+		token  string
+		header http.Header
+		url    string
+		want   bool
+	}{
+		"the right token":          {"s3cret", bearer("Bearer s3cret"), "/v1/get", true},
+		"a lower-case scheme":      {"s3cret", bearer("bearer s3cret"), "/v1/get", true},
+		"a wrong token":            {"s3cret", bearer("Bearer s3creT"), "/v1/get", false},
+		"a prefix of the token":    {"s3cret", bearer("Bearer s3cre"), "/v1/get", false},
+		"no header":                {"s3cret", nil, "/v1/get", false},
+		"not a bearer":             {"s3cret", bearer("Basic czNjcmV0"), "/v1/get", false},
+		"an empty token":           {"s3cret", bearer("Bearer "), "/v1/get", false},
+		"a space in the token":     {"s3cret", bearer("Bearer s3cret x"), "/v1/get", false},
+		"two headers":              {"s3cret", bearer("Bearer s3cret", "Bearer s3cret"), "/v1/get", false},
+		"the token in the URL":     {"s3cret", nil, "/v1/get?access_token=s3cret", false},
+		"an empty configured one":  {"", bearer("Bearer x"), "/v1/get", false},
+		"empty against no header":  {"", nil, "/v1/get", false},
+		"empty against a bearer ":  {"", bearer("Bearer "), "/v1/get", false},
+		"empty against whitespace": {"", bearer("Bearer  "), "/v1/get", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			r.Header = tt.header
+			c, err := TokenAuthenticator{Token: tt.token}.Authenticate(r)
+			if tt.want {
+				if err != nil || c.Subject != "token" || c.Local {
+					t.Fatalf("got %+v, %v, want the caller token", c, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("got %+v, %v, want ErrUnauthenticated", c, err)
+			}
+		})
+	}
+}
+
+func TestAPITokenListenerAnswers401WithoutTheToken(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	h := w.api.Handler(TokenAuthenticator{Token: "s3cret"})
+	for token, want := range map[string]int{"s3cret": http.StatusOK, "wrong": http.StatusUnauthorized, "": http.StatusUnauthorized} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != want || strings.Contains(rec.Body.String(), "s3cret") {
+			t.Errorf("token %q: got %d %s, want %d", token, rec.Code, rec.Body.String(), want)
+		}
+	}
+	h = w.api.Handler(TokenAuthenticator{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/changes", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("an empty configured token: got %d, want 401", rec.Code)
 	}
 }

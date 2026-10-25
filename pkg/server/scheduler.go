@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/pkg/telemetry"
@@ -53,7 +54,7 @@ func (s *Server) scheduleSource(ctx context.Context, src Source) {
 // still has the last request waiting, which RequestSync answers instead of
 // piling up another.
 func (s *Server) scheduledSync(ctx context.Context, source string) {
-	ctx, span := tracer.Start(ctx, "scheduler.sync")
+	ctx, span := tracer.Start(ctx, "scheduler.sync", trace.WithNewRoot())
 	defer span.End()
 	span.SetAttributes(attrSourceName.String(source))
 	log := telemetry.Logger(pkgName)

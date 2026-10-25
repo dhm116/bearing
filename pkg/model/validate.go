@@ -21,9 +21,6 @@ import (
 // MaxConfidence is 1.0 in parts per million.
 const MaxConfidence = 1_000_000
 
-// MaxFutureSkew is how far observed_at may be after ingest time.
-const MaxFutureSkew = 5 * time.Minute
-
 // Limits on google.protobuf.Value trees (attributes, qualifiers, claim
 // values), so validating one is linear in its size and bounded.
 const (
@@ -49,7 +46,7 @@ const (
 	// ScopeObservation rejects the whole observation.
 	ScopeObservation Scope = iota
 	// ScopeClaim rejects only the claim the problem is in; the rest of the
-	// observation applies (see "Audit" in docs/spec/data-model.md).
+	// observation applies.
 	ScopeClaim
 )
 
@@ -275,17 +272,16 @@ func (p *vpath) String() string {
 }
 
 const (
-	codeMalformed          = modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED
-	codeNotDeclared        = modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED
-	codeDuplicateClaim     = modelv1alpha1.RejectionCode_REJECTION_CODE_DUPLICATE_CLAIM
-	codeCardinality        = modelv1alpha1.RejectionCode_REJECTION_CODE_CARDINALITY_MISMATCH
-	codeDomainMismatch     = modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH
-	codeTypeMismatch       = modelv1alpha1.RejectionCode_REJECTION_CODE_TYPE_MISMATCH
-	codeCorePredicate      = modelv1alpha1.RejectionCode_REJECTION_CODE_CORE_PREDICATE
-	codeInvalidValue       = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_VALUE
-	codeInvalidInterval    = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_INTERVAL
-	codeInvalidOperation   = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_OPERATION
-	codeObservedAtInFuture = modelv1alpha1.RejectionCode_REJECTION_CODE_OBSERVED_AT_IN_FUTURE
+	codeMalformed        = modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED
+	codeNotDeclared      = modelv1alpha1.RejectionCode_REJECTION_CODE_NOT_DECLARED
+	codeDuplicateClaim   = modelv1alpha1.RejectionCode_REJECTION_CODE_DUPLICATE_CLAIM
+	codeCardinality      = modelv1alpha1.RejectionCode_REJECTION_CODE_CARDINALITY_MISMATCH
+	codeDomainMismatch   = modelv1alpha1.RejectionCode_REJECTION_CODE_DOMAIN_MISMATCH
+	codeTypeMismatch     = modelv1alpha1.RejectionCode_REJECTION_CODE_TYPE_MISMATCH
+	codeCorePredicate    = modelv1alpha1.RejectionCode_REJECTION_CODE_CORE_PREDICATE
+	codeInvalidValue     = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_VALUE
+	codeInvalidInterval  = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_INTERVAL
+	codeInvalidOperation = modelv1alpha1.RejectionCode_REJECTION_CODE_INVALID_OPERATION
 )
 
 // ValidateObservation checks what can be checked of an observation without
@@ -418,18 +414,6 @@ func filterIndex[T any](s []T, keep func(int) bool) []T {
 		}
 	}
 	return out
-}
-
-// CheckObservedAt rejects an observation whose observed_at is more than
-// MaxFutureSkew after ingestedAt.
-func CheckObservedAt(o *eventv1alpha1.Observation, ingestedAt time.Time) error {
-	if o.GetTime().AsTime().After(ingestedAt.Add(MaxFutureSkew)) {
-		return &ValidationError{Problems: []Problem{{
-			Code: codeObservedAtInFuture, Path: "time",
-			Message: fmt.Sprintf("is more than %s after ingest time %s", MaxFutureSkew, ingestedAt.UTC().Format(time.RFC3339)),
-		}}}
-	}
-	return nil
 }
 
 // claim is a claim's effective times, confidence and state, with the
@@ -748,6 +732,10 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 		}
 	case *structpb.Value_ListValue:
 		switch {
+		case name == "runtime":
+			for i, e := range k.ListValue.GetValues() {
+				c.runtimeDeclaration(fmt.Sprintf("%s[%d]", path, i), e)
+			}
 		case reg.Type == tJSON:
 		case !list && reg.Cardinality == many:
 			c.add(codeCardinality, path, "each claim is one value; send one claim per value of %q", clip(name))
@@ -759,7 +747,30 @@ func (c *checker) attribute(path string, entity Kind, name string, v *structpb.V
 			}
 		}
 	default:
+		if name == "runtime" {
+			c.runtimeDeclaration(path, v)
+			return
+		}
 		c.typedValue(path, reg.Type, v)
+	}
+}
+
+// runtimeDeclaration checks one element of a runtime value: an object with
+// string language and version, and an optional string file.
+func (c *checker) runtimeDeclaration(path string, v *structpb.Value) {
+	o := v.GetStructValue()
+	if o == nil {
+		c.add(codeTypeMismatch, path, "want an object {language, version, file}")
+		return
+	}
+	for _, f := range []string{"language", "version", "file"} {
+		x, ok := o.GetFields()[f]
+		if !ok && f == "file" {
+			continue
+		}
+		if _, isStr := x.GetKind().(*structpb.Value_StringValue); !isStr {
+			c.add(codeTypeMismatch, path+"."+f, "want a string")
+		}
 	}
 }
 

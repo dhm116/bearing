@@ -1,0 +1,10 @@
+.git
+.worktrees
+.env
+bin
+site
+cover*.out
+.env.*
+!.env.example
+*.duckdb
+demo-ca.pem

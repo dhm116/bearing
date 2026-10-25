@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,8 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
-	"bearing.example/pkg/auth"
-	"bearing.example/pkg/contracts"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/telemetry"
 )
@@ -28,25 +27,25 @@ import (
 const (
 	// DefaultRequestTimeout is how long a request may run.
 	DefaultRequestTimeout = 30 * time.Second
-	// DefaultChangesTimeout is the deadline of a "what changed" page, which
-	// scans fact rows (C-STORE-9).
+	// DefaultChangesTimeout is the deadline of a slow read: "what changed",
+	// find, or related deeper than one hop (C-STORE-9).
 	DefaultChangesTimeout = 15 * time.Second
 	// DefaultMaxInFlight is how many requests are handled at once.
 	DefaultMaxInFlight = 256
-	// DefaultChangesPerCaller is how many "what changed" reads one caller may
-	// have in flight.
+	// DefaultChangesPerCaller is how many slow reads one caller may have in
+	// flight.
 	DefaultChangesPerCaller = 2
 	// DefaultCallerRate is each caller's requests a minute, with a burst of a
 	// tenth of it.
 	DefaultCallerRate = 600
+	// DefaultDecideRate is each caller's link decisions a minute, on top of
+	// the caller rate, with a burst of a tenth of it.
+	DefaultDecideRate = 30
 
-	// maxRefBytes bounds a subject reference, a key or an ID.
+	// maxRefBytes bounds a reference (a key or an entity ID) or a find query.
 	maxRefBytes = 1024
 	// maxPredicateBytes bounds a predicate name.
 	maxPredicateBytes = 256
-	// maxPageTokenBytes bounds a page token a caller hands back. It is the
-	// query package's bound.
-	maxPageTokenBytes = 512
 	// maxCallerKeys bounds the per-caller tables.
 	maxCallerKeys = 10_000
 )
@@ -55,51 +54,40 @@ const (
 // token on the TCP listener, the peer's UID on the Unix socket.
 type Authenticator interface {
 	// Authenticate returns the caller the request proves. An error wraps
-	// ErrUnauthenticated when the credentials are missing or wrong, or
-	// ErrAuthUnavailable when they could not be checked.
-	Authenticate(r *http.Request) (contracts.Caller, error)
+	// ErrUnauthenticated when the credentials are missing or wrong.
+	Authenticate(r *http.Request) (Caller, error)
 }
 
-var (
-	// ErrUnauthenticated means the request carried no acceptable credentials
-	// (a 401).
-	ErrUnauthenticated = errors.New("server: not authenticated")
-	// ErrAuthUnavailable means the credentials could not be checked, for
-	// example because the identity provider's keys are not available (a 503):
-	// the caller may have done nothing wrong.
-	ErrAuthUnavailable = errors.New("server: authentication is not available")
-)
+// ErrUnauthenticated means the request carried no acceptable credentials
+// (a 401).
+var ErrUnauthenticated = errors.New("server: not authenticated")
 
-// TokenVerifier checks a bearer token and returns the caller it proves;
-// *auth.Verifier is the one the server uses.
-type TokenVerifier interface {
-	Verify(ctx context.Context, token string) (contracts.Caller, error)
+// TokenAuthenticator accepts requests whose bearer token equals Token.
+type TokenAuthenticator struct{ Token string }
+
+// Authenticate implements Authenticator. The token is read from the
+// Authorization header and nowhere else, and compared in constant time. An
+// empty Token rejects every request.
+func (a TokenAuthenticator) Authenticate(r *http.Request) (Caller, error) {
+	token, ok := bearerToken(r.Header)
+	if !ok || a.Token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(a.Token)) != 1 {
+		return Caller{}, ErrUnauthenticated
+	}
+	return Caller{Subject: "token"}, nil
 }
 
-// OIDCAuthenticator authenticates a bearer token against the identity
-// provider (threat model C-IDP-1). The token is read from the Authorization
-// header and nowhere else.
-type OIDCAuthenticator struct{ Verifier TokenVerifier }
-
-var _ TokenVerifier = (*auth.Verifier)(nil)
-
-// Authenticate implements Authenticator.
-func (a OIDCAuthenticator) Authenticate(r *http.Request) (contracts.Caller, error) {
-	token, err := auth.BearerToken(r.Header)
-	if err != nil {
-		return contracts.Caller{}, ErrUnauthenticated
+// bearerToken returns the token of an Authorization header that is exactly
+// one "Bearer <token>" value.
+func bearerToken(h http.Header) (string, bool) {
+	values := h.Values("Authorization")
+	if len(values) != 1 {
+		return "", false
 	}
-	c, err := a.Verifier.Verify(r.Context(), token)
-	switch {
-	case err == nil:
-		return c, nil
-	case errors.Is(err, auth.ErrKeysUnavailable):
-		return contracts.Caller{}, ErrAuthUnavailable
-	case errors.Is(err, auth.ErrInvalidToken):
-		return contracts.Caller{}, ErrUnauthenticated
-	default:
-		return contracts.Caller{}, ErrAuthUnavailable
+	scheme, token, ok := strings.Cut(values[0], " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" || strings.ContainsAny(token, " \t\r\n") {
+		return "", false
 	}
+	return token, true
 }
 
 // APIConfig configures an API. Zero fields take the defaults above.
@@ -108,57 +96,66 @@ type APIConfig struct {
 	Server *Server
 	// Query answers the read methods.
 	Query *query.Querier
-	// Authorizer decides, for each request, whether the caller may make it
-	// (C-API-4). Wrap it with instrument.Authorizer to count decisions.
-	Authorizer contracts.Authorizer
 
 	// RequestTimeout and ChangesTimeout are the deadlines of a request and of
-	// a "what changed" page.
+	// a slow read.
 	RequestTimeout, ChangesTimeout time.Duration
 	// MaxInFlight caps the requests handled at once; more get a 503.
 	MaxInFlight int
-	// ChangesPerCaller caps one caller's "what changed" reads in flight.
+	// ChangesPerCaller caps one caller's slow reads in flight.
 	ChangesPerCaller int
 	// CallerRate is each caller's request rate; a PerMinute of zero takes
 	// DefaultCallerRate, and a negative one turns the limit off.
 	CallerRate RateLimit
+	// DecideRate is each caller's rate of link decisions, as CallerRate.
+	DecideRate RateLimit
+	// LinkDecisions says who may decide identity links; empty means
+	// LinkDecisionsSocket.
+	LinkDecisions LinkDecisions
 	// NewRequestID returns a request ID; nil means 128 random bits in hex.
 	NewRequestID func() string
 }
 
 // API is the HTTP surface for callers: the read methods and sync requests,
-// each checked by the Authorizer (threat model C-API-4, C-API-5). It serves
+// each authenticated. It serves
 // the routes below on any number of listeners, each with its own
 // Authenticator.
 type API struct {
 	cfg  APIConfig
 	slot chan struct{}
 	rate *limiter
+	// decideRate limits link decisions per caller, after rate.
+	decideRate *limiter
 
 	mu       sync.Mutex
 	inflight map[string]int
 }
 
 // route is one method of the API. Handlers are only reached through serve,
-// which authenticates, rate-limits and authorizes first, so a route cannot
-// skip a check, and a route without a Method the Authorizer knows is denied
-// (C-API-5).
+// which authenticates and rate-limits first, so a route cannot skip a check.
 type route struct {
 	pattern string
-	method  contracts.Method
-	// write marks a route that changes state, which the 401 and 403 table
-	// test covers.
-	write  bool
-	handle func(a *API, w http.ResponseWriter, r *http.Request, c contracts.Caller)
+	method  Method
+	// write marks a route that changes state, which the 401 table test
+	// covers.
+	write bool
+	// body marks a route that takes a JSON request body, read only after the
+	// caller is authenticated; no other route takes one.
+	body   bool
+	handle func(a *API, w http.ResponseWriter, r *http.Request, c Caller)
 }
 
 // routes is the API's one table of methods.
 var routes = []route{
-	{pattern: "GET /v1/get", method: contracts.MethodGet, handle: (*API).get},
-	{pattern: "GET /v1/owner", method: contracts.MethodOwner, handle: (*API).owner},
-	{pattern: "GET /v1/related", method: contracts.MethodRelated, handle: (*API).related},
-	{pattern: "GET /v1/changes", method: contracts.MethodChanges, handle: (*API).changesPage},
-	{pattern: "POST /v1/sources/{source}/sync", method: contracts.MethodSyncRequest, write: true, handle: (*API).sync},
+	{pattern: "GET /v1/get", method: MethodGet, handle: (*API).get},
+	{pattern: "GET /v1/owner", method: MethodOwner, handle: (*API).owner},
+	{pattern: "GET /v1/related", method: MethodRelated, handle: (*API).related},
+	{pattern: "GET /v1/changes", method: MethodChanges, handle: (*API).changes},
+	{pattern: "GET /v1/find", method: MethodFind, handle: (*API).find},
+	{pattern: "GET /v1/runtimes", method: MethodRuntimes, handle: (*API).runtimes},
+	{pattern: "GET /v1/links", method: MethodLinks, handle: (*API).links},
+	{pattern: "POST /v1/links/decisions", method: MethodDecide, write: true, body: true, handle: (*API).decide},
+	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
 }
 
 // NewAPI returns an API for cfg.
@@ -168,19 +165,16 @@ func NewAPI(cfg APIConfig) (*API, error) {
 		return nil, errors.New("server: the API needs a Server")
 	case cfg.Query == nil:
 		return nil, errors.New("server: the API needs a Querier")
-	case cfg.Authorizer == nil:
-		return nil, errors.New("server: the API needs an Authorizer")
 	}
 	cfg.RequestTimeout = orDefault(cfg.RequestTimeout, DefaultRequestTimeout)
 	cfg.ChangesTimeout = orDefault(cfg.ChangesTimeout, DefaultChangesTimeout)
 	cfg.MaxInFlight = orDefault(cfg.MaxInFlight, DefaultMaxInFlight)
 	cfg.ChangesPerCaller = orDefault(cfg.ChangesPerCaller, DefaultChangesPerCaller)
-	if cfg.CallerRate.PerMinute == 0 {
-		cfg.CallerRate = RateLimit{PerMinute: DefaultCallerRate, Burst: DefaultCallerRate / 10}
+	if !cfg.LinkDecisions.Valid() {
+		return nil, fmt.Errorf("server: link decisions must be off, socket or token, not %q", cfg.LinkDecisions)
 	}
-	if cfg.CallerRate.Burst <= 0 {
-		cfg.CallerRate.Burst = max(1, cfg.CallerRate.PerMinute/10)
-	}
+	cfg.CallerRate = cfg.CallerRate.withDefault(DefaultCallerRate)
+	cfg.DecideRate = cfg.DecideRate.withDefault(DefaultDecideRate)
 	if cfg.NewRequestID == nil {
 		cfg.NewRequestID = randomID
 	}
@@ -188,7 +182,22 @@ func NewAPI(cfg APIConfig) (*API, error) {
 	if cfg.CallerRate.PerMinute > 0 {
 		a.rate = newLimiter(cfg.CallerRate.PerMinute, cfg.CallerRate.Burst, maxCallerKeys, cfg.Server.clk.Now)
 	}
+	if cfg.DecideRate.PerMinute > 0 {
+		a.decideRate = newLimiter(cfg.DecideRate.PerMinute, cfg.DecideRate.Burst, maxCallerKeys, cfg.Server.clk.Now)
+	}
 	return a, nil
+}
+
+// withDefault fills a zero rate with perMinute and a missing burst with a
+// tenth of the rate; a negative rate stays off.
+func (l RateLimit) withDefault(perMinute int) RateLimit {
+	if l.PerMinute == 0 {
+		l.PerMinute = perMinute
+	}
+	if l.Burst <= 0 {
+		l.Burst = max(1, l.PerMinute/10)
+	}
+	return l
 }
 
 // Handler returns the API for one listener: the routes, each behind authn,
@@ -245,8 +254,6 @@ func (c *statusCapture) WriteHeader(code int) {
 const (
 	apiOK              = "ok"
 	apiUnauthenticated = "unauthenticated"
-	apiUnavailable     = "unavailable"
-	apiDenied          = "denied"
 	apiLimited         = "rate_limited"
 	apiInvalid         = "invalid"
 	apiNotFound        = "not_found"
@@ -255,8 +262,8 @@ const (
 )
 
 // serve wraps a route: request ID, in-flight cap, authentication, rate limit,
-// authorization, then the handler, in that order. Nothing a caller sent is
-// looked at before authorization, other than the credentials and the source
+// then the handler, in that order. Nothing a caller sent is
+// looked at before authentication, other than the credentials and the source
 // the path names.
 func (a *API) serve(authn Authenticator, rt route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -275,9 +282,15 @@ func (a *API) serve(authn Authenticator, rt route) http.Handler {
 
 // handle runs the checks and the handler and returns the result label.
 func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request, rt route, authn Authenticator, reqID string) string {
-	// No route takes a body. Refuse one before anything else is done for the
-	// request, since Go would otherwise read and discard up to 256 KiB of it.
-	if r.ContentLength != 0 {
+	// Only a body route takes a body. Refuse one before anything else is done
+	// for the request, since Go would otherwise read and discard up to 256 KiB
+	// of it. A body route refuses one that announces more than it reads.
+	if rt.body && r.ContentLength > maxDecisionBytes {
+		w.Header().Set("Connection", "close")
+		apiFail(w, http.StatusRequestEntityTooLarge, "too_large", "the request body is too large", reqID)
+		return apiInvalid
+	}
+	if !rt.body && r.ContentLength != 0 {
 		w.Header().Set("Connection", "close")
 		apiFail(w, http.StatusBadRequest, "invalid_request", "this route takes no request body", reqID)
 		return apiInvalid
@@ -291,67 +304,59 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiLimited
 	}
 
-	// The deadline starts here, before the token is checked: a slow identity
-	// provider or authorizer cannot hold a request, and its slot, past it.
-	timeout := a.cfg.RequestTimeout
-	if rt.method == contracts.MethodChanges {
-		timeout = a.cfg.ChangesTimeout
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// The deadline starts here, before the token is checked: a slow
+	// authenticator cannot hold a request, and its slot, past it.
+	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
 
 	caller, err := authn.Authenticate(r)
-	switch {
-	case errors.Is(err, ErrUnauthenticated):
+	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Bearer`)
 		apiFail(w, http.StatusUnauthorized, "unauthenticated", "a valid bearer token is required", reqID)
 		return apiUnauthenticated
-	case err != nil:
-		w.Header().Set("Retry-After", "5")
-		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "credentials cannot be checked right now; try again", reqID)
-		return apiUnavailable
 	}
-	who := callerKey(caller)
-	if !a.rate.allow(who) {
+	who := callerKey(caller, r)
+	if !a.rate.allow(who) || rt.method == MethodDecide && !a.decideRate.allow(who) {
 		w.Header().Set("Retry-After", "10")
 		apiFail(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down", reqID)
 		return apiLimited
 	}
 
-	req := contracts.Request{Caller: caller, Method: rt.method}
-	if rt.method == contracts.MethodSyncRequest {
-		// Only a configured source is ever put to the Authorizer, and the
-		// path's value is not used again after this check.
-		req.Source = r.PathValue("source")
-		if !a.cfg.Server.HasSource(req.Source) {
-			apiFail(w, http.StatusNotFound, "unknown_source", "no such source", reqID)
-			return apiNotFound
-		}
-	}
-	d, err := a.cfg.Authorizer.Authorize(ctx, req)
-	switch {
-	case err != nil:
-		telemetry.Logger(pkgName).WarnContext(ctx, "authorization could not be decided", "request_id", reqID, "method", string(rt.method), "error", cleanErrorText(err.Error()))
-		w.Header().Set("Retry-After", "5")
-		apiFail(w, http.StatusServiceUnavailable, "auth_unavailable", "the request cannot be authorized right now; try again", reqID)
-		return apiUnavailable
-	case !d.Allowed:
-		apiFail(w, http.StatusForbidden, "forbidden", "the caller may not do this", reqID)
-		return apiDenied
+	if rt.method == MethodSyncRequest && !a.cfg.Server.HasSource(r.PathValue("source")) {
+		apiFail(w, http.StatusNotFound, "unknown_source", "no such source", reqID)
+		return apiNotFound
 	}
 
-	if rt.method == contracts.MethodChanges {
+	if slowRead(rt.method, r) {
 		if !a.enter(who) {
 			w.Header().Set("Retry-After", "1")
-			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many changes reads in flight for this caller", reqID)
+			apiFail(w, http.StatusTooManyRequests, "too_many_reads", "too many slow reads in flight for this caller", reqID)
 			return apiLimited
 		}
 		defer a.leave(who)
+		// A shorter deadline than the request's; a longer one never replaces it.
+		ctx, cancel = context.WithTimeout(ctx, a.cfg.ChangesTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
 	}
 	rec := &statusRecorder{ResponseWriter: w}
 	rt.handle(a, rec, r.WithContext(context.WithValue(ctx, reqIDKey{}, reqID)), caller)
 	return rec.result()
+}
+
+// slowRead reports whether a request is one of the reads that scan the
+// graph: "what changed", a name search, or a walk deeper than one hop. They
+// share a per-caller cap and a shorter deadline (C-STORE-9).
+func slowRead(m Method, r *http.Request) bool {
+	switch m {
+	case MethodChanges, MethodFind, MethodLinks, MethodRuntimes:
+		return true
+	case MethodRelated:
+		d, err := strconv.Atoi(r.URL.Query().Get("depth"))
+		return err == nil && d > 1
+	}
+	return false
 }
 
 // reqIDKey carries the request ID to a handler.
@@ -362,7 +367,7 @@ func requestID(ctx context.Context) string {
 	return id
 }
 
-// enter counts a "what changed" read for who and reports whether they may
+// enter counts a slow read for who and reports whether they may
 // have another in flight.
 func (a *API) enter(who string) bool {
 	a.mu.Lock()
@@ -387,31 +392,22 @@ func (a *API) leave(who string) {
 	a.inflight[who]--
 }
 
-// callerKey names a caller for the per-caller tables. It never reaches a
-// metric label or a log.
-func callerKey(c contracts.Caller) string {
-	switch {
-	case c.Local:
+// callerKey names a caller for the per-caller tables. A TCP caller is a
+// subject at a peer address (the /64 rule of the connection limits), so one
+// remote client cannot use up another's share of a shared token. It never
+// reaches a metric label or a log.
+func callerKey(c Caller, r *http.Request) string {
+	if c.Local {
 		return "local\x00" + c.Subject
-	case c.ClientID != "":
-		return "client\x00" + c.Issuer + "\x00" + c.ClientID
-	default:
-		return "sub\x00" + c.Issuer + "\x00" + c.Subject
 	}
+	return "sub\x00" + c.Subject + "\x00" + peerOf(r)
 }
 
 // actorOf is who a sync request is recorded as asked by: the subject the
-// authenticator gave, a client's client ID, or local:<uid> (C-AUDIT-6). It
-// comes from the Caller, never from anything the request said.
-func actorOf(c contracts.Caller) *eventv1alpha1.Actor {
-	switch {
-	case c.Local:
-		return &eventv1alpha1.Actor{Subject: c.Subject}
-	case c.ClientID != "":
-		return &eventv1alpha1.Actor{Subject: c.ClientID, Agent: true}
-	default:
-		return &eventv1alpha1.Actor{Subject: c.Subject}
-	}
+// authenticator gave, or local:<uid>. It comes from the
+// Caller, never from anything the request said.
+func actorOf(c Caller) *eventv1alpha1.Actor {
+	return &eventv1alpha1.Actor{Subject: c.Subject, Agent: c.Agent}
 }
 
 // statusRecorder notes what a handler answered, for the result label.
@@ -482,8 +478,6 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 		apiFail(w, http.StatusNotFound, "not_found", "nothing matches", reqID)
 	case errors.Is(err, query.ErrInvalidRequest):
 		apiFail(w, http.StatusBadRequest, "invalid_request", clipN(strings.Replace(err.Error(), query.ErrInvalidRequest.Error()+": ", "", 1), 200), reqID)
-	case errors.Is(err, query.ErrBadPageToken):
-		apiFail(w, http.StatusBadRequest, "invalid_page_token", "the page token is not one this server issued; start again without it", reqID)
 	case errors.Is(err, context.DeadlineExceeded):
 		apiFail(w, http.StatusGatewayTimeout, "timeout", "the question took too long; narrow it", reqID)
 	case errors.Is(err, context.Canceled):
@@ -563,12 +557,21 @@ func (p *params) when(name string) time.Time {
 	return t.UTC()
 }
 
-// point reads the pair of times a question is asked at.
-func (p *params) point() query.Point {
-	return query.Point{Valid: p.when("valid_at"), Recorded: p.when("recorded_at")}
+// number reads an optional whole-number parameter from 1 to most; zero means
+// it was not given.
+func (p *params) number(name string, most int) int {
+	v := p.text(name, 8)
+	if v == "" || p.err != "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > most {
+		p.err = fmt.Sprintf("parameter %s must be a number from 1 to %d", name, most)
+	}
+	return n
 }
 
-// subject reads the required subject reference.
+// subject reads the required reference.
 func (p *params) subject() string {
 	v := p.text("ref", maxRefBytes)
 	if v == "" && p.err == "" {
@@ -577,78 +580,95 @@ func (p *params) subject() string {
 	return v
 }
 
-func (a *API) get(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "valid_at", "recorded_at")
-	ref, at := p.subject(), p.point()
+// answer writes a query's answer, or fails with its error.
+func (a *API) answer(w http.ResponseWriter, r *http.Request, v any, err error) {
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (a *API) get(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "ref", "at")
+	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
 	e, err := a.cfg.Query.Get(r.Context(), ref, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, e)
+	a.answer(w, r, e, err)
 }
 
-func (a *API) owner(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "valid_at", "recorded_at")
-	ref, at := p.subject(), p.point()
+func (a *API) owner(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "ref", "at")
+	ref, at := p.subject(), p.when("at")
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
 	o, err := a.cfg.Query.Owners(r.Context(), ref, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, o)
+	a.answer(w, r, o, err)
 }
 
-func (a *API) related(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "predicate", "valid_at", "recorded_at")
-	ref, predicate, at := p.subject(), p.text("predicate", maxPredicateBytes), p.point()
+func (a *API) related(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "ref", "predicate", "direction", "depth", "at")
+	ref, predicate, at := p.subject(), p.text("predicate", maxPredicateBytes), p.when("at")
+	direction, depth := p.text("direction", 8), p.number("depth", query.MaxDepth)
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	rel, err := a.cfg.Query.Related(r.Context(), ref, predicate, at)
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, rel)
+	rel, err := a.cfg.Query.Related(r.Context(), ref, predicate, direction, depth, at)
+	a.answer(w, r, rel, err)
 }
 
-// changes answers one page of "what changed". The authorization it follows
-// ran on this request, so a page token never stands in for it: a caller whose
-// role was withdrawn between pages is refused on the next one, and the token
-// is only input, bounded and decoded by the query layer (C-API-6).
-func (a *API) changesPage(w http.ResponseWriter, r *http.Request, _ contracts.Caller) {
-	p := parseParams(r, "ref", "since", "until", "axis", "limit", "page_token")
-	req := query.ChangesRequest{
-		Ref: p.text("ref", maxRefBytes), Since: p.when("since"), Until: p.when("until"),
-		Axis: query.Axis(p.text("axis", 16)), PageToken: p.text("page_token", maxPageTokenBytes),
+func (a *API) changes(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "ref", "since", "until", "limit")
+	ref, since, until := p.text("ref", maxRefBytes), p.when("since"), p.when("until")
+	limit := p.number("limit", query.MaxChangesLimit)
+	if p.err != "" {
+		badRequest(w, r, "invalid_request", p.err)
+		return
 	}
-	if v := p.text("limit", 8); v != "" && p.err == "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > contracts.MaxChangesLimit {
-			p.err = fmt.Sprintf("parameter limit must be a number from 1 to %d", contracts.MaxChangesLimit)
-		}
-		req.Limit = n
+	c, err := a.cfg.Query.Changes(r.Context(), ref, since, until, limit)
+	a.answer(w, r, c, err)
+}
+
+// findAnswer is the answer to /v1/find: an object, so fields can be added.
+type findAnswer struct {
+	Matches []query.Match `json:"matches"`
+}
+
+func (a *API) find(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "q", "kind", "limit")
+	text, kind, limit := p.text("q", maxRefBytes), p.text("kind", maxPredicateBytes), p.number("limit", query.MaxFindLimit)
+	if text == "" && p.err == "" {
+		p.err = "parameter q is required"
 	}
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	c, err := a.cfg.Query.Changes(r.Context(), req)
-	if err != nil {
-		a.fail(w, r, err)
+	ms, err := a.cfg.Query.Find(r.Context(), text, kind, limit)
+	a.answer(w, r, findAnswer{Matches: ms}, err)
+}
+
+func (a *API) runtimes(w http.ResponseWriter, r *http.Request, _ Caller) {
+	p := parseParams(r, "language", "below", "kind", "limit", "at")
+	req := query.RuntimesRequest{
+		Language: p.text("language", maxPredicateBytes), Below: p.text("below", maxPredicateBytes),
+		Kind: p.text("kind", maxPredicateBytes), At: p.when("at"), Limit: p.number("limit", query.MaxRuntimesLimit),
+	}
+	if req.Language == "" && p.err == "" {
+		p.err = "parameter language is required"
+	}
+	if p.err != "" {
+		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	rt, err := a.cfg.Query.Runtimes(r.Context(), req)
+	a.answer(w, r, rt, err)
 }
 
 // syncAccepted is the answer to a sync request.
@@ -659,7 +679,7 @@ type syncAccepted struct {
 
 // sync puts a sync request on the log. It answers 202 only after the event is
 // there, and 503 when the log refuses, as a webhook does (C-INGEST-1).
-func (a *API) sync(w http.ResponseWriter, r *http.Request, c contracts.Caller) {
+func (a *API) sync(w http.ResponseWriter, r *http.Request, c Caller) {
 	if p := parseParams(r); p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return

@@ -1,0 +1,110 @@
+// The service every adapter serves (ADR 4). The core calls it over gRPC
+// (Connect), on a Unix socket for an adapter it starts and over TLS for a
+// remote one; the service is the same either way.
+
+syntax = "proto3";
+
+package bearing.adapter.v1alpha1;
+
+import "bearing/event/v1alpha1/event.proto";
+import "bearing/model/v1alpha1/observation.proto";
+
+option go_package = "bearing.example/gen/go/bearing/adapter/v1alpha1;adapterv1alpha1";
+
+// AdapterService reads one kind of source system and reports what it sees
+// as observations. Adapters are stateless and read-only against their
+// source.
+service AdapterService {
+  // Describe says what the adapter is, what it emits and what access it
+  // needs. The core calls it once after connecting.
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+  // Sync reads one page of the source. The core calls it again with the
+  // returned cursor until done is set.
+  rpc Sync(SyncRequest) returns (SyncResponse);
+  // Handle turns one webhook delivery into observations. The core has
+  // already checked the delivery's signature. Adapters without webhooks
+  // answer with the Unimplemented code.
+  rpc Handle(HandleRequest) returns (HandleResponse);
+}
+
+// DescribeRequest is empty.
+message DescribeRequest {}
+
+// DescribeResponse describes the adapter.
+message DescribeResponse {
+  // The adapter's name, such as "github".
+  string name = 1;
+  // The adapter's version, such as "0.3.0".
+  string version = 2;
+  // The kinds the adapter emits, such as "Repository".
+  repeated string emits = 3;
+  // A JSON Schema for the adapter's configuration, as JSON; empty if it
+  // takes none.
+  bytes config_schema = 4;
+  // The access the adapter needs in the source, in words, such as
+  // "read repository metadata".
+  repeated string access = 5;
+  // Whether the adapter handles webhooks.
+  bool webhooks = 6;
+  // How deliveries are signed; set when webhooks is.
+  WebhookSignature webhook_signature = 7;
+  // The major version of this service the adapter speaks. The adapter
+  // library fills it in; the core refuses an adapter whose version it does
+  // not support. Absent (0) means 1, the version before this field; once 1
+  // is dropped, an adapter that sends nothing is refused.
+  uint32 protocol_version = 8;
+}
+
+// WebhookSignature says how a source signs its webhook deliveries, so the
+// core can check them before the adapter sees them.
+message WebhookSignature {
+  // The scheme, as a model.v1alpha1.WebhookScheme name, such as
+  // "WEBHOOK_SCHEME_HMAC_SHA256".
+  string scheme = 1;
+  // The header that carries the signature.
+  string signature_header = 2;
+  // Text before the signature in that header, such as "sha256=".
+  string signature_prefix = 3;
+}
+
+// SyncRequest asks for one page.
+message SyncRequest {
+  // The source's adapter configuration, as JSON.
+  bytes config = 1;
+  // The cursor from the previous page; empty for the first.
+  string cursor = 2;
+}
+
+// SyncResponse is one page.
+message SyncResponse {
+  // What the page saw.
+  repeated bearing.event.v1alpha1.Observation observations = 1;
+  // The cursor for the next page; ignored when done is set.
+  string next_cursor = 2;
+  // Whether this is the last page.
+  bool done = 3;
+  // Set on the last page of a sync that listed every entity of these kinds.
+  bearing.model.v1alpha1.CompleteSync complete_sync = 4;
+}
+
+// HandleRequest is one webhook delivery.
+message HandleRequest {
+  // The source's adapter configuration, as JSON.
+  bytes config = 1;
+  // The delivery's HTTP headers.
+  map<string, HeaderValues> headers = 2;
+  // The delivery's body, as received.
+  bytes body = 3;
+}
+
+// HeaderValues are the values of one HTTP header.
+message HeaderValues {
+  // The values, in the order received.
+  repeated string values = 1;
+}
+
+// HandleResponse is what the delivery says.
+message HandleResponse {
+  // What the delivery says.
+  repeated bearing.event.v1alpha1.Observation observations = 1;
+}

@@ -24,6 +24,9 @@ var (
 	// sync cadence of an hour or so to tell this from [NamespaceExcludedAt],
 	// 16 hours later: the spec's "every few minutes" is fine, 8 hours is not.
 	WorkloadDeletedAt = time.Date(2026, 10, 9, 16, 0, 0, 0, time.UTC)
+	// DependencyRemovedAt is when billing-api's LEDGER_URL is removed, so it
+	// no longer depends on the ledger.
+	DependencyRemovedAt = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	// NamespaceExcludedAt is when the billing namespace is added to the
 	// adapter's exclude_namespaces. The cluster doesn't change; the
 	// adapter's settings do, so the step has no Apply.
@@ -68,6 +71,9 @@ func KubernetesStory() []ClusterStep {
 		}},
 		{At: AnnotationEditedAt, Name: "edit payments-api's repository annotation to TODO", Apply: func(k *Cluster) error {
 			return k.SetAnnotation(payments, "github.com/project-slug", "TODO")
+		}},
+		{At: DependencyRemovedAt, Name: "billing-api stops calling the ledger", Apply: func(k *Cluster) error {
+			return k.RemoveEnv(Ref{KindDeployment, "billing", "billing-api"}, "LEDGER_URL")
 		}},
 		{At: WorkloadDeletedAt, Name: "delete legacy-billing", Apply: func(k *Cluster) error {
 			return k.DeleteWorkload(Ref{KindDeployment, "billing", "legacy-billing"})
@@ -133,6 +139,35 @@ func seedCluster(k *Cluster) {
 			}},
 		},
 		{
+			// Calls the ledger over HTTP with a bare Service name in a URL
+			// whose credentials are a canary, and the database through a
+			// full cluster DNS name. PAYMENTS_API_KEY is a canary that names
+			// nothing, and PAYMENTS_API_SERVICE_HOST is a variable
+			// Kubernetes injects for every Service: its value would be a
+			// reference, and is skipped on its name.
+			Kind: KindDeployment, Namespace: "billing", Name: "billing-api", Replicas: 2,
+			Labels: map[string]string{"team": "billing"},
+			Containers: []Container{{
+				Name: "api", Image: "ghcr.io/acme/billing-api:0.9.0",
+				Env: map[string]string{
+					"DATABASE_URL":              "postgres://postgres.billing.svc.cluster.local:5432/ledger",
+					"LEDGER_URL":                "http://billing-api:" + CanaryURLPassword + "@ledger:8080/v1",
+					"PAYMENTS_API_KEY":          CanaryAPIKey,
+					"PAYMENTS_API_SERVICE_HOST": "payments-api.payments",
+				},
+			}},
+		},
+		{
+			Kind: KindDeployment, Namespace: "billing", Name: "ledger", Replicas: 2,
+			Labels:     map[string]string{"team": "billing"},
+			Containers: []Container{{Name: "ledger", Image: "ghcr.io/acme/ledger:1.2.0"}},
+		},
+		{
+			Kind: KindStatefulSet, Namespace: "billing", Name: "postgres", Replicas: 1,
+			Labels:     map[string]string{"team": "billing"},
+			Containers: []Container{{Name: "postgres", Image: "docker.io/library/postgres:16"}},
+		},
+		{
 			// A system workload in an excluded namespace; a DaemonSet has
 			// no replica count.
 			Kind: KindDaemonSet, Namespace: "kube-system", Name: "svclb-traefik",
@@ -150,5 +185,17 @@ func seedCluster(k *Cluster) {
 		w.CreatedAt, w.UpdatedAt, w.ResourceVersion = ClusterCreatedAt, ClusterCreatedAt, k.bump()
 		cp := copyWorkload(&w)
 		k.workloads = append(k.workloads, &cp)
+	}
+	// Services select pod template labels, and every workload's is
+	// app=<name>.
+	for _, sv := range []Service{
+		{Namespace: "payments", Name: "payments-api", Ports: []ServicePort{{Name: "http", Port: 8080}}},
+		{Namespace: "billing", Name: "billing-api", Ports: []ServicePort{{Name: "http", Port: 8080}}},
+		{Namespace: "billing", Name: "ledger", Ports: []ServicePort{{Name: "http", Port: 8080}}},
+		{Namespace: "billing", Name: "postgres", Ports: []ServicePort{{Name: "postgres", Port: 5432}}},
+	} {
+		sv.Selector = map[string]string{"app": sv.Name}
+		sv.UID, sv.CreatedAt, sv.ResourceVersion = k.uid(), ClusterCreatedAt, k.bump()
+		k.services = append(k.services, &sv)
 	}
 }
