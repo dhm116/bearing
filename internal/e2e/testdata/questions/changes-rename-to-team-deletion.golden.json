@@ -24,7 +24,7 @@
         "subject": {
           "key": "github:team/acme/reliability",
           "kind": "Team",
-          "name": "sre"
+          "name": "Reliability"
         },
         "valid_from": "2026-09-28T01:30:00Z",
         "valid_to": "2026-10-03T10:00:00Z",
@@ -56,7 +56,7 @@
         "subject": {
           "key": "github:team/acme/reliability",
           "kind": "Team",
-          "name": "sre"
+          "name": "Reliability"
         },
         "valid_from": "2026-10-03T10:00:00Z",
         "value": "reliability"
@@ -70,7 +70,7 @@
         "object": {
           "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
           "kind": "Team",
-          "name": "payments"
+          "name": "Payments"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -111,7 +111,7 @@
         "object": {
           "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
           "kind": "Team",
-          "name": "platform"
+          "name": "Platform"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -167,7 +167,7 @@
         "subject": {
           "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
           "kind": "Team",
-          "name": "payments"
+          "name": "Payments"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -196,7 +196,7 @@
         "subject": {
           "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
           "kind": "Team",
-          "name": "platform"
+          "name": "Platform"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -295,7 +295,7 @@
         "subject": {
           "key": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
           "kind": "Person",
-          "name": "jdoe"
+          "name": "Jane Doe"
         },
         "valid_from": "2026-10-02T06:00:00Z",
         "value": "jdoe@acme.example"

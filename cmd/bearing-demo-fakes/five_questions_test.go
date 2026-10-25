@@ -155,7 +155,7 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 
 	syncAll()
 	// 1. Which team owns payments-api?
-	eventuallyEqual(t, "payments-api's owner", owner, "payments")
+	eventuallyEqual(t, "payments-api's owner", owner, "Payments")
 	// 2. Which services use Go below 1.22?
 	eventually(t, "payments-api among the services on Go below 1.22", func() error {
 		rt, err := c.Runtimes(ctx, query.RuntimesRequest{Language: "go", Below: "1.22"})
@@ -178,7 +178,7 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 	advance()
 	syncAll()
 	// 1 again.
-	eventuallyEqual(t, "payments-api's owner after the move", owner, "platform")
+	eventuallyEqual(t, "payments-api's owner after the move", owner, "Platform")
 	// 3. What changed since then?
 	eventually(t, "payments-api's ownership change", func() error {
 		ch, err := c.Changes(ctx, payments, before, time.Time{}, 0)
@@ -192,7 +192,7 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 			}
 		}
 		slices.Sort(kinds)
-		if want := []string{"closed payments", "opened platform"}; !slices.Equal(kinds, want) {
+		if want := []string{"closed Payments", "opened Platform"}; !slices.Equal(kinds, want) {
 			return errors.New("approves_changes changes: " + strings.Join(kinds, ", "))
 		}
 		return nil

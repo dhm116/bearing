@@ -86,14 +86,18 @@ func entities(ctx context.Context, db querier, clusters []string) (map[string]gr
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range recs { // oldest first
+	described := map[string]bool{} // the cluster's name came from a record of a kind
+	for _, r := range recs {       // oldest first
 		e := out[string(r.Cluster)]
 		e.ID = r.Cluster
 		if e.Kind == "" {
 			e.Kind = r.Kind
 		}
-		if e.Name == "" {
+		// A kindless record is a placeholder named after its key's tail
+		// ("jdoe"), so a described record's name ("Jane Doe") wins.
+		if e.Name == "" || (!described[string(r.Cluster)] && r.Kind != "") {
 			e.Name = r.Name
+			described[string(r.Cluster)] = r.Kind != ""
 		}
 		e.Keys = append(e.Keys, r.Keys...)
 		e.Records = append(e.Records, r)

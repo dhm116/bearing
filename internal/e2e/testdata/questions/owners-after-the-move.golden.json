@@ -5,7 +5,7 @@
       "object": {
         "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
         "kind": "Team",
-        "name": "platform"
+        "name": "Platform"
       },
       "predicate": "approves_changes",
       "qualifiers": {
