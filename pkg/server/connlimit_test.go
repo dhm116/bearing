@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -185,14 +186,21 @@ func TestAPITCPListenerLimitsAPeerBeforeAuthentication(t *testing.T) {
 	}
 
 	// Two idle connections are a peer's share; a third is closed unread.
-	keep1, keep2 := dial(t, addr), dial(t, addr)
-	for _, c := range []net.Conn{keep1, keep2} {
-		// A kept connection stays open and silent: the read times out
-		// instead of ending.
-		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		if _, err := c.Read(make([]byte, 1)); !errors.Is(err, os.ErrDeadlineExceeded) {
-			t.Fatalf("got %v, want a connection within the peer's share to be kept", err)
-		}
+	// The requests above closed their connections, but the server gives a
+	// slot back only once it has closed its side, a moment after answering,
+	// so retry a connection the share turns away until those slots are back.
+	for i := range 2 {
+		waitFor(t, fmt.Sprintf("connection %d to be kept", i+1), func() bool {
+			c := dial(t, addr)
+			// A kept connection stays open and silent: the read times out
+			// instead of ending.
+			_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			if _, err := c.Read(make([]byte, 1)); errors.Is(err, os.ErrDeadlineExceeded) {
+				return true
+			}
+			_ = c.Close()
+			return false
+		})
 	}
 	if !refused(t, dial(t, addr)) {
 		t.Error("a third connection from the same peer was kept")
