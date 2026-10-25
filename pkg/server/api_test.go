@@ -312,9 +312,15 @@ func TestAPIOwnerListsMembersOnlyForMembersTrue(t *testing.T) {
 	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &o) != nil || len(o.Teams) != 1 || o.Teams[0].Team.Key != "catalog:team/payments" {
 		t.Errorf("members=true: got %d %s, want the payments team listed", got.Code, got.Body.String())
 	}
-	for _, v := range []string{"false", "yes", "1", ""} {
-		if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments&members="+v); v != "" && got.Code != http.StatusBadRequest {
-			t.Errorf("members=%q: got %d, want 400", v, got.Code)
+	got = w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments&members=false")
+	o = query.Ownership{}
+	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &o) != nil || o.Teams != nil {
+		t.Errorf("members=false: got %d %s, want 200 and no teams field", got.Code, got.Body.String())
+	}
+	for _, v := range []string{"yes", "1", "", "TRUE"} {
+		got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments&members="+v)
+		if got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "true or false") {
+			t.Errorf("members=%q: got %d %s, want 400 naming true or false", v, got.Code, got.Body.String())
 		}
 	}
 }

@@ -603,9 +603,10 @@ func (a *API) get(w http.ResponseWriter, r *http.Request, _ Caller) {
 func (a *API) owner(w http.ResponseWriter, r *http.Request, _ Caller) {
 	p := parseParams(r, "ref", "at", "members")
 	ref, at := p.subject(), p.when("at")
-	members := p.text("members", 8) == "true"
-	if p.err == "" && p.vals["members"] != "" && !members {
-		p.err = "parameter members must be true when given"
+	v, given := p.vals["members"]
+	members := v == "true"
+	if p.err == "" && given && v != "true" && v != "false" {
+		p.err = "parameter members must be true or false"
 	}
 	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
