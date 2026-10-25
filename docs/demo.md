@@ -83,7 +83,7 @@ people on Payments [Team …] authentik:group/…
 ```
 
 This lists who is on the team and their role there. It does not say who is
-on call or available today; that needs an on-call adapter, which is on the
+on call or available today; that needs a PagerDuty adapter (on-call schedules), which is on the
 [roadmap](../ROADMAP.md). An agent gets the people by default: `owners`
 returns them unless called with `members: false`.
 
