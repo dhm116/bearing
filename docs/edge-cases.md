@@ -280,7 +280,7 @@ Each entry:
 - **Found in:** link review, round 2 (`pkg/server/apilisten.go`, C-API-8)
 - **Area:** security
 - **Example:** a local adapter (same UID as the server) double-forks a process that re-parents to init and connects to the API socket.
-- **Impact:** the socket admits it as an administrator and, with `api.link_decisions: socket`, it can join or split records. The server refuses its own descendants by PID (Linux), but a detached one is no longer a descendant.
+- **Impact:** the socket admits it as an administrator and, with `api.link_decisions: socket`, it can join or split records. The server refuses its own descendants by PID (Linux and macOS), but a detached one is no longer a descendant. macOS widens this a little: an ancestor that is still exiting already reads as gone, and the peer's PID is the last process to use its socket, so an adapter can hand a connected socket to a detached process.
 - **Proposed fix:** run local adapters under their own UID (`SysProcAttr.Credential`), so the socket's UID check refuses them outright. A cheaper partial fix is to make the server a child subreaper (`PR_SET_CHILD_SUBREAPER`), so a detached process is re-parented to the server and stays its descendant.
 
 ## Role history is not versioned

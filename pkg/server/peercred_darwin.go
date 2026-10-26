@@ -11,7 +11,8 @@ import (
 
 // peerCred returns the UID and PID of the process at the other end of a Unix
 // socket connection, from the kernel (LOCAL_PEERCRED and LOCAL_PEERPID), not
-// from anything the peer said. The PID is the process that connected.
+// from anything the peer said. The PID is the process that last used the
+// peer's socket, usually the one that connected; Linux records the connector.
 func peerCred(c net.Conn) (uid, pid int, err error) {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
@@ -23,13 +24,11 @@ func peerCred(c net.Conn) (uid, pid int, err error) {
 	}
 	var cred *unix.Xucred
 	var credErr, pidErr error
-	if err := raw.Control(func(fd uintptr) {
+	ctrlErr := raw.Control(func(fd uintptr) {
 		cred, credErr = unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
 		pid, pidErr = unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERPID)
-	}); err != nil {
-		return 0, 0, err
-	}
-	if err := errors.Join(credErr, pidErr); err != nil {
+	})
+	if err := errors.Join(ctrlErr, credErr, pidErr); err != nil {
 		return 0, 0, err
 	}
 	return int(cred.Uid), pid, nil
@@ -37,8 +36,9 @@ func peerCred(c net.Conn) (uid, pid int, err error) {
 
 // procStatus returns the real UID and the parent PID of pid from the kernel's
 // process table (sysctl kern.proc.pid), as /proc/<pid>/status does on Linux.
-// A PID with no process gets an empty answer, which x/sys reports as EIO;
-// that is fs.ErrNotExist here, so descendant treats it as an exited ancestor.
+// A PID with no process, or one that is exiting, gets an empty answer, which
+// x/sys reports as EIO; that is fs.ErrNotExist here, so descendant treats it
+// as an exited ancestor.
 func procStatus(pid int) (uid, ppid int, err error) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if errors.Is(err, unix.EIO) {

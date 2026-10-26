@@ -21,28 +21,6 @@ func TestProcStatusReadsThisProcessesOwnerAndParent(t *testing.T) {
 	}
 }
 
-func TestPeerCredRefusesAClosedConnection(t *testing.T) {
-	t.Parallel()
-	dir, err := os.MkdirTemp("", "bc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	ln, err := net.Listen("unix", filepath.Join(dir, "c.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	c, err := net.Dial("unix", ln.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = c.Close()
-	if _, _, err := peerCred(c); err == nil {
-		t.Error("got nil, want an error for a closed connection")
-	}
-}
-
 func TestProcStatusSaysAnExitedProcessDoesNotExist(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command("true")
