@@ -140,7 +140,8 @@ credentials; the server never sends it any.
   kernel names the peer's UID, not the person. The local adapters the server
   starts run as the service user too, so the socket refuses a peer whose
   line of parents reaches the server (an adapter or its child), and one whose
-  parents it cannot read (Linux, from `/proc/<pid>/status`). The walk stops
+  parents it cannot read (Linux, from `/proc/<pid>/status`; macOS, from
+  `sysctl kern.proc.pid`). The walk stops
   at the first process owned by another user (the server's adapters run as
   the service user; a root server walks on), at one it cannot see, and after
   4,096 steps, which refuses the peer. The `reason`
@@ -186,7 +187,8 @@ credentials; the server never sends it any.
 - **C-SECRET-3** An adapter gets only the environment described above. The
   server marks itself non-dumpable at start (Linux, `PR_SET_DUMPABLE`), so an
   adapter running as the same user can neither ptrace it nor read its
-  `/proc/<pid>/environ`.
+  `/proc/<pid>/environ`. macOS has no such flag, so there a same-user adapter
+  can read the server's environment; run a server with real secrets on Linux.
 
 **MCP**
 - **C-MCP-1** `bearing mcp` has no authority of its own: its caller is whoever

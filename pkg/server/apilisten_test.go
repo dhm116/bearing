@@ -47,7 +47,12 @@ func serveAPI(t *testing.T, w *apiWorld, l ListenConfig) {
 // privateDir returns a directory that only this user can enter.
 func privateDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "run")
+	base, err := os.MkdirTemp("", "bs") // short, not t.TempDir: macOS caps a socket path at 104 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	dir := filepath.Join(base, "run")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
