@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Acme cast</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #11191C;
+      --color-ink:    #E4ECEA;
+      --color-muted:  #98A8AD;
+      --color-accent: #7FC0D6;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1320px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Demo · who and what is in the fake org</p>
+    <h1>The Acme cast</h1>
+    <div class="diagram-container">
+<svg viewBox="0 96 1280 624" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="demo-cast-dark-title demo-cast-dark-desc">
+<title id="demo-cast-dark-title">The Acme cast</title>
+<desc id="demo-cast-dark-desc">The fake Acme org the demo reads: an Authentik directory with five users and the engineering, payments and platform groups; a GitHub org with five users, the engineering, payments, platform, sre and legacy-ops teams and five repositories; and a k3d cluster with the billing and payments namespaces. OAuth connections link Jane Doe, Raj Patel and Mei Chen across the directory and GitHub, Tom Becker only by a recorded login, a join rule matches the groups to the teams, CODEOWNERS points payments-api at the payments team, and the payments-api workload points at its repository and team.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#98A8AD"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7FC0D6"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#A4A9E3"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#98A8AD" stroke-width="1.2"/></marker></defs>
+<rect x="0" y="0" width="1280" height="720" fill="#11191C"/>
+<!-- zones -->
+<rect x="40" y="128" width="320" height="480" rx="8" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><rect x="52" y="122" width="140" height="12" rx="2" fill="#11191C"/><text x="122.0" y="131" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.14em">DIRECTORY · AUTHENTIK</text>
+<rect x="440" y="128" width="400" height="480" rx="8" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><rect x="452" y="122" width="116" height="12" rx="2" fill="#11191C"/><text x="510.0" y="131" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.14em">GITHUB · ORG ACME</text>
+<rect x="920" y="128" width="320" height="480" rx="8" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><rect x="932" y="122" width="140" height="12" rx="2" fill="#11191C"/><text x="1002.0" y="131" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.14em">KUBERNETES · K3D-ACME</text>
+<!-- arrows -->
+<path d="M 328,192 L 472,192" fill="none" stroke="#A4A9E3" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 328,224 L 472,224" fill="none" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 200,256 L 200,336" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 328,384 L 472,384" fill="none" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 640,256 L 640,336" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 640,432 L 640,480" fill="none" stroke="#7FC0D6" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+<path d="M 952,384 L 808,384" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 1080,432 V 520 Q 1080,528 1072,528 H 808" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<!-- labels -->
+<rect x="368.0" y="172" width="64" height="12" rx="2" fill="#11191C"/><text x="400" y="181" fill="#A4A9E3" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">OAUTH LINK</text>
+<rect x="368.0" y="232" width="64" height="12" rx="2" fill="#11191C"/><text x="400" y="241" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">LOGIN ONLY</text>
+<rect x="212.0" y="290" width="56" height="12" rx="2" fill="#11191C"/><text x="240" y="299" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">MEMBER OF</text>
+<rect x="372.0" y="364" width="56" height="12" rx="2" fill="#11191C"/><text x="400" y="373" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">JOIN RULE</text>
+<rect x="652.0" y="290" width="56" height="12" rx="2" fill="#11191C"/><text x="680" y="299" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">MEMBER OF</text>
+<rect x="652.0" y="450" width="64" height="12" rx="2" fill="#11191C"/><text x="684" y="459" fill="#7FC0D6" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">CODEOWNERS</text>
+<rect x="848.0" y="364" width="64" height="12" rx="2" fill="#11191C"/><text x="880" y="373" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">TEAM LABEL</text>
+<rect x="848.0" y="508" width="64" height="12" rx="2" fill="#11191C"/><text x="880" y="517" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">ANNOTATION</text>
+<!-- nodes -->
+<rect x="72" y="160" width="256" height="96" rx="6" fill="#11191C"/><rect x="72" y="160" width="256" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="80" y="166" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="96.0" y="175" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">USERS</text><text x="200.0" y="205.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Directory users</text><text x="200.0" y="220.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">jdoe · rpatel · mchen</text><text x="200.0" y="233.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">tbecker · lfischer (manager)</text>
+<rect x="72" y="336" width="256" height="96" rx="6" fill="#11191C"/><rect x="72" y="336" width="256" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="80" y="342" width="40" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="100.0" y="351" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">GROUPS</text><text x="200.0" y="381.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Directory groups</text><text x="200.0" y="396.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">engineering</text><text x="200.0" y="409.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">› payments · platform</text>
+<rect x="472" y="160" width="336" height="96" rx="6" fill="#11191C"/><rect x="472" y="160" width="336" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="480" y="166" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="496.0" y="175" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">USERS</text><text x="640.0" y="205.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">GitHub users</text><text x="640.0" y="220.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">jdoe · rpatel · meichen</text><text x="640.0" y="233.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">tbecker · sokafor-ext (contractor)</text>
+<rect x="472" y="336" width="336" height="96" rx="6" fill="#11191C"/><rect x="472" y="336" width="336" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="480" y="342" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="496.0" y="351" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">TEAMS</text><text x="640.0" y="381.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">GitHub teams</text><text x="640.0" y="396.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">engineering › payments · platform · sre</text><text x="640.0" y="409.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">legacy-ops</text>
+<rect x="472" y="480" width="336" height="96" rx="6" fill="#11191C"/><rect x="472" y="480" width="336" height="96" rx="6" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><rect x="480" y="486" width="32" height="12" rx="2" fill="none" stroke="rgba(127,192,214,0.50)" stroke-width="0.8"/><text x="496.0" y="495" fill="#7FC0D6" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">REPOS</text><text x="640.0" y="525.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Repositories</text><text x="640.0" y="540.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">payments-api (go 1.21) · web</text><text x="640.0" y="553.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">handbook · sandbox · ops-scripts (archived)</text>
+<rect x="952" y="160" width="256" height="96" rx="6" fill="#11191C"/><rect x="952" y="160" width="256" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="960" y="166" width="20" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="970.0" y="175" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">NS</text><text x="1080.0" y="205.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Namespace billing</text><text x="1080.0" y="220.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">billing-api → ledger, postgres</text><text x="1080.0" y="233.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">billing-core · legacy-billing</text>
+<rect x="952" y="336" width="256" height="96" rx="6" fill="#11191C"/><rect x="952" y="336" width="256" height="96" rx="6" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><rect x="960" y="342" width="20" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="970.0" y="351" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">NS</text><text x="1080.0" y="381.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Namespace payments</text><text x="1080.0" y="396.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">payments-api · 2 replicas</text><text x="1080.0" y="409.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">image 1.4.1 · team=payments</text>
+<line x1="40" y1="640" x2="1240" y2="640" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="40" y="668" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><rect x="112" y="660" width="14" height="10" rx="2" fill="rgba(228,236,234,0.03)" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><text x="132" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Source records</text><rect x="228" y="660" width="14" height="10" rx="2" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><text x="248" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Demo subject</text><line x1="332" y1="665" x2="360" y2="665" stroke="#A4A9E3" stroke-width="1.2" marker-end="url(#arrow-link)"/><text x="368" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Authoritative link</text><line x1="484" y1="665" x2="512" y2="665" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/><text x="520" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Weaker evidence</text><line x1="620" y1="665" x2="648" y2="665" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/><text x="656" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Points at</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>
