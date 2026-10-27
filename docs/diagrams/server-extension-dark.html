@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Where new parts plug in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #11191C;
+      --color-ink:    #E4ECEA;
+      --color-muted:  #98A8AD;
+      --color-accent: #7FC0D6;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1320px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · extension points</p>
+    <h1>Where new parts plug in</h1>
+    <div class="diagram-container">
+<svg viewBox="0 96 1280 624" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="server-extension-dark-title server-extension-dark-desc">
+<title id="server-extension-dark-title">Where new parts plug in</title>
+<desc id="server-extension-dark-desc">The two seams where Bearing grows: the AdapterService gRPC contract (Describe, Sync, Handle), which today's GitHub, Authentik and Kubernetes adapters speak and later AWS, PagerDuty and Backstage adapters, sandboxed or remote, will speak too; and the store interface, which DuckDB implements today and Quack or DuckLake could implement for more than one writer. Clients ask the server through the API: the CLI, REST and MCP over stdio today, and an HTTP MCP endpoint, GraphQL and OIDC later.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#98A8AD"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7FC0D6"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#A4A9E3"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#98A8AD" stroke-width="1.2"/></marker></defs>
+<rect x="0" y="0" width="1280" height="720" fill="#11191C"/>
+<!-- zones -->
+<!-- arrows -->
+<path d="M 260,164 H 412 Q 420,164 420,172 V 272" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 260,452 H 412 Q 420,452 420,444 V 344" fill="none" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 640,308 L 520,308" fill="none" stroke="#A4A9E3" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 1080,200 V 288 Q 1080,296 1072,296 H 840" fill="none" stroke="#A4A9E3" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 1080,416 V 328 Q 1080,320 1072,320 H 840" fill="none" stroke="#A4A9E3" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
+<path d="M 740,344 L 740,416" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 707,488 V 500 Q 707,508 699,508 H 648 Q 640,508 640,516 V 528" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 773,488 V 500 Q 773,508 781,508 H 832 Q 840,508 840,516 V 528" fill="none" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<!-- labels -->
+<rect x="316.0" y="144" width="40" height="12" rx="2" fill="#11191C"/><text x="336" y="153" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SPEAKS</text>
+<rect x="296.0" y="460" width="80" height="12" rx="2" fill="#11191C"/><text x="336" y="469" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SAME CONTRACT</text>
+<rect x="540.0" y="288" width="80" height="12" rx="2" fill="#11191C"/><text x="580" y="297" fill="#A4A9E3" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SYNC · HANDLE</text>
+<rect x="1012.0" y="238" width="48" height="12" rx="2" fill="#11191C"/><text x="1036" y="247" fill="#A4A9E3" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">QUERIES</text>
+<rect x="1000.0" y="366" width="72" height="12" rx="2" fill="#11191C"/><text x="1036" y="375" fill="#A4A9E3" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SAME QUERIES</text>
+<rect x="748.0" y="374" width="72" height="12" rx="2" fill="#11191C"/><text x="784" y="383" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">READ · WRITE</text>
+<!-- nodes -->
+<rect x="40" y="128" width="220" height="72" rx="6" fill="#11191C"/><rect x="40" y="128" width="220" height="72" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="48" y="134" width="44" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="70.0" y="143" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">ADAPTER</text><text x="150.0" y="161.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Adapters today</text><text x="150.0" y="176.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">github · authentik · kubernetes</text><text x="150.0" y="189.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">own process · socket or mTLS</text>
+<rect x="40" y="416" width="220" height="72" rx="6" fill="#11191C"/><rect x="40" y="416" width="220" height="72" rx="6" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="48" y="422" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="64.0" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">LATER</text><text x="150.0" y="449.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Adapters later</text><text x="150.0" y="464.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">AWS · PagerDuty · Backstage</text><text x="150.0" y="477.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">WASM sandbox · own UID</text>
+<rect x="320" y="272" width="200" height="72" rx="6" fill="#11191C"/><rect x="320" y="272" width="200" height="72" rx="6" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><rect x="328" y="278" width="28" height="12" rx="2" fill="none" stroke="rgba(127,192,214,0.50)" stroke-width="0.8"/><text x="342.0" y="287" fill="#7FC0D6" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">GRPC</text><text x="420.0" y="305.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">AdapterService</text><text x="420.0" y="320.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">Describe · Sync · Handle</text><text x="420.0" y="333.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">proto/bearing/adapter</text><circle cx="508" cy="284" r="3" fill="#7FC0D6"/>
+<rect x="640" y="272" width="200" height="72" rx="6" fill="#11191C"/><rect x="640" y="272" width="200" height="72" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="648" y="278" width="28" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="662.0" y="287" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text><text x="740.0" y="305.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Bearing server</text><text x="740.0" y="320.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">log · workers · matcher</text><text x="740.0" y="333.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">pkg/query</text>
+<rect x="980" y="128" width="200" height="72" rx="6" fill="#11191C"/><rect x="980" y="128" width="200" height="72" rx="6" fill="rgba(152,168,173,0.10)" stroke="#7C8F94" stroke-width="1"/><rect x="988" y="134" width="40" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="1008.0" y="143" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text><text x="1080.0" y="161.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Clients today</text><text x="1080.0" y="176.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">bearing CLI · REST /v1</text><text x="1080.0" y="189.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">MCP over stdio</text>
+<rect x="980" y="416" width="200" height="72" rx="6" fill="#11191C"/><rect x="980" y="416" width="200" height="72" rx="6" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="988" y="422" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="1004.0" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">LATER</text><text x="1080.0" y="449.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Clients later</text><text x="1080.0" y="464.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">HTTP MCP · GraphQL</text><text x="1080.0" y="477.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">OIDC sign-in</text>
+<rect x="640" y="416" width="200" height="72" rx="6" fill="#11191C"/><rect x="640" y="416" width="200" height="72" rx="6" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><rect x="648" y="422" width="32" height="12" rx="2" fill="none" stroke="rgba(127,192,214,0.50)" stroke-width="0.8"/><text x="664.0" y="431" fill="#7FC0D6" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">IFACE</text><text x="740.0" y="449.5" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Store interface</text><text x="740.0" y="464.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">pkg/store · graph.Graph</text><text x="740.0" y="477.5" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">conformance suite later</text><circle cx="828" cy="428" r="3" fill="#7FC0D6"/>
+<rect x="560" y="528" width="160" height="64" rx="6" fill="#11191C"/><rect x="560" y="528" width="160" height="64" rx="6" fill="rgba(228,236,234,0.05)" stroke="#98A8AD" stroke-width="1"/><rect x="568" y="534" width="20" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="578.0" y="543" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">DB</text><text x="640.0" y="564" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">DuckDB file</text><text x="640.0" y="579" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">:memory: in tests</text>
+<rect x="760" y="528" width="160" height="64" rx="6" fill="#11191C"/><rect x="760" y="528" width="160" height="64" rx="6" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="768" y="534" width="32" height="12" rx="2" fill="none" stroke="rgba(228,236,234,0.22)" stroke-width="0.8"/><text x="784.0" y="543" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">LATER</text><text x="840.0" y="564" fill="#E4ECEA" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Quack or DuckLake</text><text x="840.0" y="579" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">more than one writer</text>
+<text x="40" y="560" fill="#98A8AD" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">A new source needs only an adapter:</text>
+<text x="40" y="578" fill="#98A8AD" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">the server does not change for it.</text>
+<line x1="40" y1="640" x2="1240" y2="640" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="40" y="668" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><rect x="112" y="660" width="14" height="10" rx="2" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><text x="132" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Seam (focal)</text><rect x="216" y="660" width="14" height="10" rx="2" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><text x="236" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Built</text><rect x="288" y="660" width="14" height="10" rx="2" fill="rgba(152,168,173,0.10)" stroke="#7C8F94" stroke-width="1"/><text x="308" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Client</text><rect x="364" y="660" width="14" height="10" rx="2" fill="rgba(228,236,234,0.05)" stroke="#98A8AD" stroke-width="1"/><text x="384" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Storage</text><rect x="444" y="660" width="14" height="10" rx="2" fill="rgba(228,236,234,0.02)" stroke="rgba(228,236,234,0.3)" stroke-width="1" stroke-dasharray="4,3"/><text x="464" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Later</text><line x1="516" y1="665" x2="544" y2="665" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#arrow)"/><text x="552" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Call</text><line x1="596" y1="665" x2="624" y2="665" stroke="#A4A9E3" stroke-width="1.2" marker-end="url(#arrow-link)"/><text x="632" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">gRPC or HTTP</text><line x1="716" y1="665" x2="744" y2="665" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/><text x="752" y="668" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Later</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>

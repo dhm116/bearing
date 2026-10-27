@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What is planned, and where it plugs in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #F5F7F6;
+      --color-ink:    #18242A;
+      --color-muted:  #55646B;
+      --color-accent: #1D5E74;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1320px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · the roadmap on the diagram</p>
+    <h1>What is planned, and where it plugs in</h1>
+    <div class="diagram-container">
+<svg viewBox="0 112 1280 608" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="server-planned-title server-planned-desc">
+<title id="server-planned-title">What is planned, and where it plugs in</title>
+<desc id="server-planned-desc">Today's flow, adapters to the event log and workers to the DuckDB store to the API, with the matcher writing links, and the planned parts around it: inference reads READMEs and runbooks and sends proposed facts into ingest; search indexes the store for lookups through the API; automation acts on fact changes; a model matcher adds same-or-not judgements to the matcher. Also planned are an HTTP MCP endpoint, OIDC and GraphQL on the API, and attestation of provenance.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#55646B"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1D5E74"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4B5198"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#55646B" stroke-width="1.2"/></marker></defs>
+<rect x="0" y="0" width="1280" height="720" fill="#F5F7F6"/>
+<!-- zones -->
+<!-- arrows -->
+<path d="M 240,356 L 320,356" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 520,356 L 600,356" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 800,356 L 880,356" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 504,392 V 512 Q 504,520 512,520 H 600" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
+<path d="M 700,496 L 700,392" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 480,544 L 600,544" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 420,216 L 420,320" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 140,320 V 188 Q 140,180 148,180 H 320" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 700,320 L 700,216" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 800,180 H 972 Q 980,180 980,188 V 320" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 800,380 H 832 Q 840,380 840,388 V 524 Q 840,532 848,532 H 880" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<!-- labels -->
+<rect x="244.0" y="334" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="280" y="343" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">OBSERVATIONS</text>
+<rect x="540.0" y="334" width="40" height="12" rx="2" fill="#F5F7F6"/><text x="560" y="343" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">INGEST</text>
+<rect x="822.0" y="334" width="36" height="12" rx="2" fill="#F5F7F6"/><text x="840" y="343" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">FACTS</text>
+<rect x="520.0" y="450" width="56" height="12" rx="2" fill="#F5F7F6"/><text x="548" y="459" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SYNC DONE</text>
+<rect x="714.0" y="438" width="36" height="12" rx="2" fill="#F5F7F6"/><text x="732" y="447" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">LINKS</text>
+<rect x="508.0" y="552" width="64" height="12" rx="2" fill="#F5F7F6"/><text x="540" y="561" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">JUDGEMENTS</text>
+<rect x="436.0" y="262" width="56" height="12" rx="2" fill="#F5F7F6"/><text x="464" y="271" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">PROPOSALS</text>
+<rect x="184.0" y="160" width="100" height="12" rx="2" fill="#F5F7F6"/><text x="234" y="169" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">READMES, RUNBOOKS</text>
+<rect x="714.0" y="262" width="36" height="12" rx="2" fill="#F5F7F6"/><text x="732" y="271" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">INDEX</text>
+<rect x="866.0" y="160" width="48" height="12" rx="2" fill="#F5F7F6"/><text x="890" y="169" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">LOOKUPS</text>
+<rect x="760.0" y="464" width="72" height="12" rx="2" fill="#F5F7F6"/><text x="796" y="473" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">FACT CHANGES</text>
+<!-- nodes -->
+<rect x="40" y="320" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="40" y="320" width="200" height="72" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="48" y="326" width="44" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="70.0" y="335" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">ADAPTER</text><text x="140.0" y="360" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Adapters</text><text x="140.0" y="375" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">GitHub · Authentik · Kubernetes</text>
+<rect x="320" y="320" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="320" y="320" width="200" height="72" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="328" y="326" width="40" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="348.0" y="335" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">INGEST</text><text x="420.0" y="360" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Event log + workers</text><text x="420.0" y="375" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">logged first, then ingested</text>
+<rect x="600" y="320" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="600" y="320" width="200" height="72" rx="6" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><rect x="608" y="326" width="32" height="12" rx="2" fill="none" stroke="rgba(29,94,116,0.50)" stroke-width="0.8"/><text x="624.0" y="335" fill="#1D5E74" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text><text x="700.0" y="360" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Store</text><text x="700.0" y="375" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">DuckDB · facts + provenance</text>
+<rect x="880" y="320" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="880" y="320" width="200" height="72" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="888" y="326" width="24" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="900.0" y="335" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">API</text><text x="980.0" y="360" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">API</text><text x="980.0" y="375" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">CLI · REST · MCP (stdio)</text>
+<rect x="600" y="496" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="600" y="496" width="200" height="72" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="608" y="502" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="624.0" y="511" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">MATCH</text><text x="700.0" y="536" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Matcher</text><text x="700.0" y="551" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">key rules · transparent</text>
+<rect x="320" y="144" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="320" y="144" width="200" height="72" rx="6" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="328" y="150" width="44" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="350.0" y="159" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PLANNED</text><text x="420.0" y="177.5" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Inference</text><text x="420.0" y="192.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">extraction model + check</text><text x="420.0" y="205.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">proposed facts, quoted span</text>
+<rect x="600" y="144" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="600" y="144" width="200" height="72" rx="6" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="608" y="150" width="44" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="630.0" y="159" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PLANNED</text><text x="700.0" y="184" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Search</text><text x="700.0" y="199" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">DuckDB full-text + vector</text>
+<rect x="880" y="496" width="200" height="72" rx="6" fill="#F5F7F6"/><rect x="880" y="496" width="200" height="72" rx="6" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="888" y="502" width="44" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="910.0" y="511" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PLANNED</text><text x="980.0" y="529.5" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Automation</text><text x="980.0" y="544.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">act on type, value</text><text x="980.0" y="557.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">or confidence</text>
+<rect x="320" y="496" width="160" height="72" rx="6" fill="#F5F7F6"/><rect x="320" y="496" width="160" height="72" rx="6" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.3)" stroke-width="1" stroke-dasharray="4,3"/><rect x="328" y="502" width="44" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="350.0" y="511" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PLANNED</text><text x="400.0" y="529.5" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Model matcher</text><text x="400.0" y="544.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">System One</text><text x="400.0" y="557.5" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">same-or-not judge</text>
+<text x="1100" y="168" fill="#55646B" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">Also planned on the API:</text>
+<text x="1100" y="186" fill="#55646B" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">an HTTP MCP endpoint,</text>
+<text x="1100" y="204" fill="#55646B" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">OIDC beyond one token,</text>
+<text x="1100" y="222" fill="#55646B" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">GraphQL.</text>
+<text x="40" y="600" fill="#55646B" font-size="13" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">Attestation would sign the provenance facts already carry. Proposals stay apart from asserted facts.</text>
+<line x1="40" y1="640" x2="1240" y2="640" stroke="rgba(24,36,42,0.1)" stroke-width="0.8"/><text x="40" y="668" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><rect x="112" y="660" width="14" height="10" rx="2" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><text x="132" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Built</text><rect x="184" y="660" width="14" height="10" rx="2" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><text x="204" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Store (focal)</text><rect x="292" y="660" width="14" height="10" rx="2" fill="rgba(24,36,42,0.02)" stroke="rgba(24,36,42,0.3)" stroke-width="1" stroke-dasharray="4,3"/><text x="312" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Planned</text><line x1="372" y1="665" x2="400" y2="665" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/><text x="408" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Flow today</text><line x1="484" y1="665" x2="512" y2="665" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/><text x="520" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Planned flow</text><line x1="604" y1="665" x2="632" y2="665" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/><text x="640" y="668" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Async signal</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>

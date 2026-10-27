@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The demo story, step by step</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #11191C;
+      --color-ink: #E4ECEA;
+      --color-muted: #98A8AD;
+      --color-soft: #7C8F94;
+      --color-accent: #7FC0D6;
+      --color-rule: rgba(228,236,234,0.12);
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans: 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+      --motion-fast: 160ms;
+      --motion-step: 480ms;
+      --motion-hold: 900ms;
+      --motion-total: 6300ms;
+      --motion-ease: cubic-bezier(.2,.8,.2,1);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 48px 32px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font-family: var(--font-sans);
+    }
+    [data-motion-root] { width: min(100%, 1320px); max-width: 100%; min-width: 0; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-muted);
+      font: 500 0.66rem/1.4 var(--font-mono);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 24px; font: 700 1.75rem/1.15 var(--font-display); letter-spacing: -0.015em; }
+    svg { display: block; width: 100%; min-width: 1280px; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    /* Static source is complete. Only an initialized enhancement hides items. */
+    .motion-ready [data-motion-item] {
+      opacity: .12;
+      transform: translateY(8px);
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity var(--motion-step) var(--motion-ease),
+                  transform var(--motion-step) var(--motion-ease);
+    }
+    .motion-ready [data-motion-item].is-visible,
+    .motion-ready[data-frame="end"] [data-motion-item],
+    .motion-ready[data-frame="static"] [data-motion-item] {
+      opacity: 1;
+      transform: none;
+    }
+    .motion-ready [data-motion-item].is-current .ring { stroke: var(--color-accent); stroke-width: 2.4; }
+
+    [data-motion-controls] {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-rule);
+    }
+    .motion-ready [data-motion-controls] { display: flex; }
+    [data-motion-controls][hidden] { display: none !important; }
+    [data-motion-controls] button {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-muted);
+      border-radius: 4px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+    [data-motion-controls] button:hover { border-color: var(--color-accent); }
+    [data-motion-controls] button:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    [data-motion-controls] button:disabled { cursor: not-allowed; opacity: .45; }
+    .keyboard-help { color: var(--color-soft); font: 400 12px/1.4 var(--font-mono); }
+    [data-motion-status-visible] {
+      margin-left: auto;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    noscript p {
+      margin: 12px 0 0;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+
+    html[data-motion="static"] [data-motion-controls],
+    html[data-motion="static"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="static"] [data-motion-item] {
+      opacity: 1 !important;
+      transform: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-motion="step"] [data-motion-controls],
+    html[data-motion="step"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="step"] [data-motion-item] {
+      animation: none !important;
+      transition: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
+      [data-motion-item] { opacity: 1 !important; transform: none !important; }
+      [data-motion-decorative] { display: none !important; }
+      [data-motion-controls] { display: none !important; }
+    }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+      [data-motion-controls], [data-motion-decorative] { display: none !important; }
+      [data-motion-item] {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main data-motion-root data-motion-mode="step" data-step-count="7" data-step-current="7" data-frame="static" data-static-frame="complete">
+    <p class="eyebrow">Demo · what changes, and when</p>
+    <h1>The demo story, step by step</h1>
+
+    <div class="diagram-container">
+<svg viewBox="0 80 1280 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="demo-story-dark-title demo-story-dark-desc">
+<title id="demo-story-dark-title">The demo story, step by step</title>
+<desc id="demo-story-dark-desc">Timeline of the changes the demo fakes play on request, on the fake clock: first syncs on 28 September; on GitHub the payments-api repository is renamed (1 Oct) and its CODEOWNERS moves from payments to platform (2 Oct), sre is renamed Reliability (3 Oct) and legacy-ops is deleted (5 Oct); in Kubernetes payments-api scales to 3 replicas and moves to image 1.4.2 (6 Oct), billing-core loses its team label (7 Oct), payments-api's repository annotation becomes TODO (8 Oct), billing-api drops LEDGER_URL and legacy-billing is deleted (9 Oct); in the directory Lena Fischer's engineering membership ends on 1 November with no event.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#98A8AD"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7FC0D6"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#A4A9E3"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#98A8AD" stroke-width="1.2"/></marker></defs>
+<rect x="0" y="0" width="1280" height="680" fill="#11191C"/>
+<!-- zones -->
+<!-- arrows -->
+<!-- labels -->
+<!-- nodes -->
+<line x1="56" y1="176" x2="116" y2="176" stroke="#E4ECEA" stroke-width="1"/>
+<line x1="140" y1="176" x2="1092" y2="176" stroke="#E4ECEA" stroke-width="1"/>
+<line x1="1116" y1="176" x2="1224" y2="176" stroke="#E4ECEA" stroke-width="1"/>
+<line x1="118.8" y1="181" x2="127.2" y2="171" stroke="#98A8AD" stroke-width="1"/>
+<line x1="126.8" y1="181" x2="135.2" y2="171" stroke="#98A8AD" stroke-width="1"/>
+<line x1="1094.8" y1="181" x2="1103.2" y2="171" stroke="#98A8AD" stroke-width="1"/>
+<line x1="1102.8" y1="181" x2="1111.2" y2="171" stroke="#98A8AD" stroke-width="1"/>
+<line x1="176" y1="176" x2="176" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="176" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 1</text>
+<line x1="272" y1="176" x2="272" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="272" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 2</text>
+<line x1="368" y1="176" x2="368" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="368" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 3</text>
+<line x1="464" y1="176" x2="464" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="464" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 4</text>
+<line x1="560" y1="176" x2="560" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="560" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 5</text>
+<line x1="656" y1="176" x2="656" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="656" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 6</text>
+<line x1="752" y1="176" x2="752" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="752" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 7</text>
+<line x1="848" y1="176" x2="848" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="848" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 8</text>
+<line x1="944" y1="176" x2="944" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="944" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 9</text>
+<line x1="1040" y1="176" x2="1040" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="1040" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">OCT 10</text>
+<line x1="80" y1="176" x2="80" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="80" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">SEP 28</text>
+<line x1="1184" y1="176" x2="1184" y2="182" stroke="#98A8AD" stroke-width="1"/>
+<text x="1184" y="196" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">NOV 1</text>
+<text x="40" y="112" fill="#7C8F94" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.14em">THE FAKE CLOCK · UTC · ONE DAY = ONE TICK</text>
+<g data-motion-item data-step="1" aria-label="0. SEP 28 · 01:30: first syncs, GitHub, directory and cluster read in full"><circle cx="80" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="80" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">0</text><rect x="40" y="240" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="60" cy="260" r="10" fill="#E4ECEA" stroke="none"/><text x="60" y="263.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">0</text><text x="78" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">SEP 28 · 01:30</text><text x="218" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">ALL</text><text x="52" y="294" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">first syncs</text><text x="52" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">GitHub, directory and</text><text x="52" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">cluster read in full</text><line x1="52" y1="350" x2="216" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="52" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ Q1 Q2 Q4 Q5 answer</text></g>
+<g data-motion-item data-step="2" aria-label="1. OCT 1 · 12:00: repo-rename, payments-api renamed to payments"><circle cx="224" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="224" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">1</text><rect x="240" y="240" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="260" cy="260" r="10" fill="#E4ECEA" stroke="none"/><text x="260" y="263.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">1</text><text x="278" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 1 · 12:00</text><text x="418" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">GITHUB</text><text x="252" y="294" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">repo-rename</text><text x="252" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">payments-api renamed</text><text x="252" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">to payments</text><line x1="252" y1="350" x2="416" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="252" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ old name still finds it</text></g>
+<g data-motion-item data-step="2" aria-label="2. OCT 2 · 08:30: codeowners-move, CODEOWNERS moves from @acme/payments to platform"><circle cx="306" cy="176" r="6" fill="#7FC0D6" stroke="#11191C" stroke-width="1.5"/><text x="306" y="160" fill="#7FC0D6" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">2</text><rect x="440" y="240" width="188" height="144" rx="6" fill="rgba(127,192,214,0.1)" stroke="#7FC0D6" stroke-width="1"/><circle class="ring" cx="460" cy="260" r="10" fill="#7FC0D6" stroke="none"/><text x="460" y="263.5" fill="#0C1316" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">2</text><text x="478" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 2 · 08:30</text><text x="618" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">GITHUB</text><text x="452" y="294" fill="#7FC0D6" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">codeowners-move</text><text x="452" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">CODEOWNERS moves from</text><text x="452" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">@acme/payments to platform</text><line x1="452" y1="350" x2="616" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="452" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ Q1 changes · Q3 answers</text></g>
+<g data-motion-item data-step="3" aria-label="3. OCT 3 · 10:00: team-rename, sre renamed Reliability; handbook still names sre"><circle cx="408" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="408" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">3</text><rect x="640" y="240" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="660" cy="260" r="10" fill="#E4ECEA" stroke="none"/><text x="660" y="263.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">3</text><text x="678" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 3 · 10:00</text><text x="818" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">GITHUB</text><text x="652" y="294" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">team-rename</text><text x="652" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">sre renamed Reliability;</text><text x="652" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">handbook still names sre</text><line x1="652" y1="350" x2="816" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="652" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ name facts close, open</text></g>
+<g data-motion-item data-step="3" aria-label="4. OCT 5 · 15:00: team-delete, legacy-ops deleted; ops-scripts still names it"><circle cx="620" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="620" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">4</text><rect x="840" y="240" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="860" cy="260" r="10" fill="#E4ECEA" stroke="none"/><text x="860" y="263.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">4</text><text x="878" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 5 · 15:00</text><text x="1018" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">GITHUB</text><text x="852" y="294" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">team-delete</text><text x="852" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">legacy-ops deleted;</text><text x="852" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">ops-scripts still names it</text><line x1="852" y1="350" x2="1016" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="852" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ closed on a full sync</text></g>
+<g data-motion-item data-step="4" aria-label="5. OCT 6 · 09:30: replicas, payments-api scaled from 2 to 3 replicas"><circle cx="694" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="694" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">5</text><rect x="1040" y="240" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="1060" cy="260" r="10" fill="#E4ECEA" stroke="none"/><text x="1060" y="263.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">5</text><text x="1078" y="263" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 6 · 09:30</text><text x="1218" y="263" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="1052" y="294" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">replicas</text><text x="1052" y="318" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">payments-api scaled</text><text x="1052" y="334" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">from 2 to 3 replicas</text><line x1="1052" y1="350" x2="1216" y2="350" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="1052" y="368" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ Q3 lists the change</text></g>
+<g data-motion-item data-step="4" aria-label="6. OCT 6 · 14:10: image, payments-api image 1.4.1 → 1.4.2"><circle cx="712.7" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="712.7" y="146" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">6</text><rect x="40" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="60" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="60" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">6</text><text x="78" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 6 · 14:10</text><text x="218" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="52" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">image</text><text x="52" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">payments-api image</text><text x="52" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">1.4.1 → 1.4.2</text><line x1="52" y1="518" x2="216" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="52" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ Q3 lists the change</text></g>
+<g data-motion-item data-step="5" aria-label="7. OCT 7 · 10:00: team-label, billing-core's team label set to empty"><circle cx="792" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="792" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">7</text><rect x="240" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="260" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="260" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">7</text><text x="278" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 7 · 10:00</text><text x="418" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="252" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">team-label</text><text x="252" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">billing-core's team</text><text x="252" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">label set to empty</text><line x1="252" y1="518" x2="416" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="252" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ its owned_by closes</text></g>
+<g data-motion-item data-step="5" aria-label="8. OCT 8 · 11:00: annotation, payments-api's repo annotation becomes TODO"><circle cx="892" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="892" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">8</text><rect x="440" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="460" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="460" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">8</text><text x="478" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 8 · 11:00</text><text x="618" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="452" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">annotation</text><text x="452" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">payments-api's repo</text><text x="452" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">annotation becomes TODO</text><line x1="452" y1="518" x2="616" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="452" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ image hint still links it</text></g>
+<g data-motion-item data-step="6" aria-label="9. OCT 9 · 12:00: dependency, billing-api drops LEDGER_URL"><circle cx="992" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="992" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">9</text><rect x="640" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="660" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="660" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">9</text><text x="678" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 9 · 12:00</text><text x="818" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="652" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">dependency</text><text x="652" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">billing-api drops</text><text x="652" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">LEDGER_URL</text><line x1="652" y1="518" x2="816" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="652" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ Q4 loses ledger</text></g>
+<g data-motion-item data-step="6" aria-label="10. OCT 9 · 16:00: workload-delete, legacy-billing Deployment deleted"><circle cx="1008" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="1008" y="146" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">10</text><rect x="840" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="860" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="860" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">10</text><text x="878" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">OCT 9 · 16:00</text><text x="1018" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">K8S</text><text x="852" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">workload-delete</text><text x="852" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">legacy-billing</text><text x="852" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">Deployment deleted</text><line x1="852" y1="518" x2="1016" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="852" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ closed on a full sync</text></g>
+<g data-motion-item data-step="7" aria-label="11. NOV 1 · 00:00: membership-end, Lena Fischer leaves engineering; no event"><circle cx="1184" cy="176" r="4" fill="#E4ECEA" stroke="#11191C" stroke-width="1.5"/><text x="1184" y="160" fill="#E4ECEA" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">11</text><rect x="1040" y="408" width="188" height="144" rx="6" fill="#172226" stroke="rgba(228,236,234,0.3)" stroke-width="1"/><circle class="ring" cx="1060" cy="428" r="10" fill="#E4ECEA" stroke="none"/><text x="1060" y="431.5" fill="#11191C" font-size="9" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">11</text><text x="1078" y="431" fill="#98A8AD" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">NOV 1 · 00:00</text><text x="1218" y="431" fill="#7C8F94" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="end" letter-spacing="0.12em">DIRECTORY</text><text x="1052" y="462" fill="#E4ECEA" font-size="11" font-weight="500" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">membership-end</text><text x="1052" y="486" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">Lena Fischer leaves</text><text x="1052" y="502" fill="#E4ECEA" font-size="11" font-family="'IBM Plex Sans', system-ui, sans-serif">engineering; no event</text><line x1="1052" y1="518" x2="1216" y2="518" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="1052" y="536" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace">→ closed on the next sync</text></g>
+<line x1="40" y1="600" x2="1240" y2="600" stroke="rgba(228,236,234,0.1)" stroke-width="0.8"/><text x="40" y="628" fill="#98A8AD" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><circle cx="119" cy="625" r="4" fill="#E4ECEA"/><text x="132" y="628" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">A change the fakes play</text><circle cx="279" cy="625" r="6" fill="#7FC0D6"/><text x="292" y="628" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">The headline change</text><rect x="412" y="620" width="14" height="10" rx="2" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><text x="432" y="628" fill="#98A8AD" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Step card: what changes, and what Bearing then answers</text>
+</svg>
+    </div>
+
+    <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <button type="button" data-motion-action="prev">Previous</button>
+      <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
+      <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+      <button type="button" data-motion-action="next">Next</button>
+      <button type="button" data-motion-action="replay">Replay</button>
+      <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+      <span data-motion-status-visible aria-hidden="true">Step <span data-motion-step-label>7</span> of 7</span>
+    </div>
+    <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p>Animation controls require JavaScript. The complete final diagram is shown above.</p></noscript>
+  </main>
+
+  <script data-diagram-controls>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const staticOverride = params.get('motion') === 'static' || document.documentElement.dataset.motion === 'static';
+      const requestedStep = params.get('step');
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+      document.fonts.ready.then(() => { document.documentElement.dataset.fontsReady = 'true'; });
+
+      document.querySelectorAll('[data-motion-root]').forEach((root) => {
+        const count = Number(root.dataset.stepCount);
+        const hold = parseFloat(getComputedStyle(root).getPropertyValue('--motion-hold')) || 720;
+        const parsedStep = requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+        const exactStep = params.get('motion') === 'step' && Number.isSafeInteger(parsedStep) && parsedStep >= 0 && parsedStep <= count ? parsedStep : null;
+        const items = [...root.querySelectorAll('[data-motion-item]')];
+        const labels = Array.from({ length: count + 1 }, (_, index) => index === 0
+          ? 'Ready'
+          : items.filter((item) => !item.hasAttribute('data-motion-decorative') && Number(item.dataset.step) === index)
+              .map((item) => item.getAttribute('aria-label')).join('; '));
+        const controls = root.querySelector('[data-motion-controls]');
+        const status = root.querySelector('[data-motion-status]');
+        const visibleStep = root.querySelector('[data-motion-step-label]');
+        let step = count;
+        let timer = 0;
+        let playing = false;
+        let stepBeforeReduce = 0;
+        let resumeAfterReduce = root.dataset.motionMode === 'reveal';
+
+        const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+        const clearClock = () => { window.clearTimeout(timer); timer = 0; };
+        const announce = () => { status.textContent = `Step ${step} of ${count}: ${labels[step] || 'Complete'}`; };
+        const setControlsAvailable = (available) => {
+          controls.hidden = !available;
+          controls.setAttribute('aria-hidden', String(!available));
+          controls.dataset.playbackDisabled = String(!available);
+          controls.querySelectorAll('button').forEach((control) => { control.disabled = !available; });
+        };
+
+        function render(next, userInitiated = false) {
+          step = Math.max(0, Math.min(count, next));
+          root.dataset.stepCurrent = String(step);
+          root.dataset.frame = step === count ? 'end' : step === 0 ? 'start' : 'step';
+          items.forEach((item) => {
+            const itemStep = Number(item.dataset.step);
+            item.classList.toggle('is-visible', itemStep <= step);
+            item.classList.toggle('is-current', itemStep === step);
+          });
+          if (visibleStep) visibleStep.textContent = String(step);
+          const unavailable = controls.dataset.playbackDisabled === 'true';
+          buttons('prev').disabled = unavailable || step === 0;
+          buttons('next').disabled = unavailable || step === count;
+          if (userInitiated) announce();
+        }
+
+        function pause(userInitiated = false) {
+          clearClock();
+          playing = false;
+          root.classList.remove('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'false');
+          buttons('pause').setAttribute('aria-pressed', 'true');
+          if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+        }
+
+        function finish() {
+          pause(false);
+          root.dataset.frame = 'end';
+          status.textContent = `Complete · step ${count} of ${count}`;
+        }
+
+        function tick() {
+          if (!playing) return;
+          if (step >= count) { finish(); return; }
+          render(step + 1, false);
+          if (step >= count) { finish(); return; }
+          timer = window.setTimeout(tick, hold);
+        }
+
+        function play(fromStart = false, userInitiated = false) {
+          clearClock();
+          if (fromStart || step >= count) render(0, userInitiated);
+          playing = true;
+          root.classList.add('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'true');
+          buttons('pause').setAttribute('aria-pressed', 'false');
+          timer = window.setTimeout(tick, hold);
+        }
+
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-motion-action]');
+          if (!button) return;
+          const action = button.dataset.motionAction;
+          if (action === 'play') play(false, true);
+          if (action === 'pause') pause(true);
+          if (action === 'replay') play(true, true);
+          if (action === 'prev') { pause(false); render(step - 1, true); }
+          if (action === 'next') { pause(false); render(step + 1, true); }
+        });
+
+        root.addEventListener('keydown', (event) => {
+          if (event.target.matches('input, textarea, select, a[href]')) return;
+          const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+          if (event.code === 'Space' && !event.target.closest('button')) {
+            event.preventDefault();
+            playing ? pause(true) : play(false, true);
+            return;
+          }
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            play(true, true);
+            return;
+          }
+          if (!(event.key in keys)) return;
+          event.preventDefault();
+          pause(false);
+          render(keys[event.key], true);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden' && playing) pause(false);
+        });
+        reduce.addEventListener('change', (event) => {
+          if (event.matches && root.dataset.motionState !== 'reduced') {
+            stepBeforeReduce = step;
+            resumeAfterReduce = playing;
+          }
+          pause(false);
+          if (event.matches) {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'reduced';
+            status.textContent = 'Reduced motion · complete static frame · playback controls unavailable';
+          } else if (staticOverride || root.dataset.motionMode === 'none') {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'static';
+            status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+          } else {
+            delete root.dataset.motionState;
+            if (exactStep !== null) {
+              setControlsAvailable(false);
+              render(exactStep, false);
+              root.dataset.frame = 'step';
+              root.dataset.motionState = 'test';
+              status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+            } else {
+              setControlsAvailable(true);
+              render(stepBeforeReduce, false);
+              status.textContent = `Ready · step ${step} of ${count}`;
+              if (resumeAfterReduce && root.dataset.motionMode === 'reveal') {
+                play(false, false);
+              }
+            }
+            resumeAfterReduce = false;
+          }
+        });
+
+        if (staticOverride) {
+          document.documentElement.dataset.motion = 'static';
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = 'static';
+          status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+        } else if (reduce.matches || root.dataset.motionMode === 'none') {
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = reduce.matches ? 'reduced' : 'static';
+          status.textContent = reduce.matches
+            ? 'Reduced motion · complete static frame · playback controls unavailable'
+            : 'Static frame · complete diagram · playback controls unavailable';
+        } else if (exactStep !== null) {
+          document.documentElement.dataset.motion = 'step';
+          pause(false);
+          setControlsAvailable(false);
+          render(exactStep, false);
+          root.dataset.frame = 'step';
+          root.dataset.motionState = 'test';
+          status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+        } else if (root.dataset.motionMode === 'reveal') {
+          setControlsAvailable(true);
+          render(0, false);
+          play(false, false);
+        } else {
+          pause(false);
+          setControlsAvailable(true);
+          render(0, false);
+          status.textContent = `Ready · step 0 of ${count}`;
+        }
+        root.classList.add('motion-ready');
+      });
+    })();
+  </script>
+</body>
+</html>

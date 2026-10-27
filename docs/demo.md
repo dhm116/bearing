@@ -6,6 +6,13 @@ them with its real adapters, and you ask it the five questions of the MVP and
 see the evidence behind each answer. Then you change the org, ask again, and
 see what changed.
 
+The fake org, the cast of the story below:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/demo-cast-dark.svg">
+  <img src="diagrams/demo-cast.svg" alt="The fake Acme org the demo reads: an Authentik directory with five users and the engineering, payments and platform groups; a GitHub org with five users, the engineering, payments, platform, sre and legacy-ops teams and five repositories; and a k3d cluster with the billing and payments namespaces. OAuth connections link Jane Doe, Raj Patel and Mei Chen across the directory and GitHub, Tom Becker only by a recorded login, a join rule matches the groups to the teams, CODEOWNERS points payments-api at the payments team, and the payments-api workload points at its repository and team.">
+</picture>
+
 Everything here is for demos: the certificates, tokens and settings are made
 up and shared by every copy of this repository
 ([threat model](security/threat-model.md)). Never point this setup at a real
@@ -47,6 +54,13 @@ seconds. (`docker compose logs bearing` shows the server working.)
 
 Output is trimmed (times, IDs and some evidence lines are dropped) and yours
 will differ in those.
+
+Which question Bearing can answer depends on what it has read so far:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/demo-readiness-dark.svg">
+  <img src="diagrams/demo-readiness.svg" alt="Matrix of the demo questions against the moments the data arrives. After the first GitHub sync Bearing answers who owns payments-api (payments, from CODEOWNERS) and which services use Go below 1.22 (payments-api, 1.21), and lists team members as GitHub logins only; after the directory sync the people are joined by name; after the Kubernetes sync it answers what billing-api depends on (ledger and postgres) and what depends on postgres (billing-api). &quot;What changed&quot; first has an answer after the codeowners-move step, when ownership moves to platform; the dependency step leaves billing-api depending on postgres only.">
+</picture>
 
 **1. Which team owns payments-api?**
 
@@ -143,7 +157,16 @@ depth 1
 
 ## Change the org and ask again
 
-The fakes play the org's story on request. Move payments-api's CODEOWNERS
+The fakes play the org's story on request, in this order (the dates are the
+fakes' clock, not yours):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/demo-story-dark.svg">
+  <img src="diagrams/demo-story.svg" alt="Timeline of the changes the demo fakes play on request, on the fake clock: first syncs on 28 September; on GitHub the payments-api repository is renamed (1 Oct) and its CODEOWNERS moves from payments to platform (2 Oct), sre is renamed Reliability (3 Oct) and legacy-ops is deleted (5 Oct); in Kubernetes payments-api scales to 3 replicas and moves to image 1.4.2 (6 Oct), billing-core loses its team label (7 Oct), payments-api's repository annotation becomes TODO (8 Oct), billing-api drops LEDGER_URL and legacy-billing is deleted (9 Oct); in the directory Lena Fischer's engineering membership ends on 1 November with no event.">
+</picture>
+
+Each step is played by name; [`diagrams/demo-story.html`](diagrams/demo-story.html)
+steps through them in a browser. Move payments-api's CODEOWNERS
 from the payments team to the platform team (this also plays the repository
 rename that comes first, and sends GitHub's signed webhook deliveries to
 Bearing):
