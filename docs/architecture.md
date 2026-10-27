@@ -8,8 +8,8 @@ diagram and the packages to read next. The decisions behind it are in
 ## The big picture
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/architecture-overview-dark.svg">
-  <img src="diagrams/architecture-overview.svg" alt="Architecture of the Bearing server. Source systems (GitHub, Kubernetes, a directory) send webhooks to the webhook route, and adapters, one process each, read them. The route appends to the event log; apply workers take events from it in order, call the adapters over gRPC for observations and ingest them into the store (DuckDB). After each sync the workers signal the matcher, which writes links to the store. The CLI and MCP ask questions through the API, which reads the store.">
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/server-flow-dark.svg">
+  <img src="diagrams/server-flow.svg" alt="Architecture of the Bearing server with a sync traced through it: a schedule or bearing source sync asks the API, which logs a request in the event log; the source's apply worker takes it in order and calls the adapter's Sync over gRPC; the adapter reads the source system and returns a page, which is logged and then ingested into the DuckDB store, the last page closing what the source stopped listing; the worker then signals the matcher, which writes identity links. Webhooks take the same path after the webhook route checks and logs them, and the CLI and MCP read asserted facts through the API.">
 </picture>
 
 - **Adapters** (`adapters/*`, `pkg/adapter`) only read a source and turn
@@ -25,6 +25,8 @@ diagram and the packages to read next. The decisions behind it are in
 - **The store** (`internal/duckstore`, behind `pkg/store` and `pkg/graph`)
   keeps observations, records, identity links and facts, and answers
   questions.
+- The numbers trace one sync, 1 to 6; 7 is a webhook joining the same path
+  and 8 a question.
 - **The matcher** (`pkg/match`) looks for records that describe the same
   thing after each sync and proposes links between them.
 
@@ -103,3 +105,40 @@ and `pkg/query` reads only asserted facts from the store and answers in JSON
 with one fact per statement and every source behind it.
 
 Read next: `pkg/server/api.go`, `pkg/query`, [the API spec](spec/api.md).
+
+## What is planned
+
+The parts on the [roadmap](../ROADMAP.md) plug into the same flow. Dashed
+boxes are not built yet.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/server-planned-dark.svg">
+  <img src="diagrams/server-planned.svg" alt="Today's flow, adapters to the event log and workers to the DuckDB store to the API, with the matcher writing links, and the planned parts around it: inference reads READMEs and runbooks and sends proposed facts into ingest; search indexes the store for lookups through the API; automation acts on fact changes; a model matcher adds same-or-not judgements to the matcher. Also planned are an HTTP MCP endpoint, OIDC and GraphQL on the API, and attestation of provenance.">
+</picture>
+
+- **Inference** reads text (READMEs, runbooks) and sends **proposed** facts,
+  with the quoted span as evidence, through ingest like any other page.
+  Proposals never become answers on their own.
+- **A model matcher** is one more matcher: its judgements feed the same
+  proposals a person reviews.
+- **Search** and **automation** read the store; neither changes how facts get
+  in.
+
+## Where new parts plug in
+
+Bearing grows at two seams, so new sources and stores don't change the
+server.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/server-extension-dark.svg">
+  <img src="diagrams/server-extension.svg" alt="The two seams where Bearing grows: the AdapterService gRPC contract (Describe, Sync, Handle), which today's GitHub, Authentik and Kubernetes adapters speak and later AWS, PagerDuty and Backstage adapters, sandboxed or remote, will speak too; and the store interface, which DuckDB implements today and Quack or DuckLake could implement for more than one writer. Clients ask the server through the API: the CLI, REST and MCP over stdio today, and an HTTP MCP endpoint, GraphQL and OIDC later.">
+</picture>
+
+- **A new source is a new adapter.** It speaks the `AdapterService` gRPC
+  contract (`proto/bearing/adapter`), locally or remotely over mutual TLS.
+- **A new store implements the store interface** (`pkg/store`,
+  `pkg/graph`). DuckDB is the only one today ([ADR 8](adr/0008-ducklake-not-now.md)).
+- **New clients ask the same API.**
+
+Open [`diagrams/server-flow.html`](diagrams/server-flow.html) in a browser to
+step through the numbered sync above one stage at a time.
