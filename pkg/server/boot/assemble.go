@@ -198,10 +198,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		l.Webhooks = in
 	}
-	q := &query.Querier{Graph: st.Graph()}
-	if scfg.Matching != nil {
-		q.HalfLife = scfg.Matching.Config.HalfLifeOf // review scores decay as the matcher's do
-	}
+	q := &query.Querier{Graph: st.Graph(), HalfLife: scfg.Matching.Config.HalfLifeOf} // review scores decay as the matcher's do
 	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q, LinkDecisions: server.LinkDecisions(s.API.LinkDecisions)})
 	if err != nil {
 		return nil, err
@@ -523,7 +520,7 @@ func loopbackAddr(addr string) bool {
 
 // serverConfig is the server's configuration from the settings: what each
 // source's declaration and the operator's authority overrides allow, and
-// matching only when the settings have a matching block.
+// matching, with the defaults when the settings have no matching block.
 func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
 	declared := map[string]map[string]model.Predicate{}
 	authorities := map[string]func(model.Key) bool{}
@@ -536,17 +533,15 @@ func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []ser
 		Links:   st.Graph(),
 		Sources: sources, Clock: clk,
 	}
-	if s.Matching != nil {
-		matchCfg, err := s.Matching.config()
-		if err != nil {
-			return cfg, err
-		}
-		cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
-		// Ingest spaces its own link deposits by the shortest half-life, so a
-		// proposal it made does not decay between them.
-		if l, ok := st.(interface{ SetLinkEvery(time.Duration) }); ok {
-			l.SetLinkEvery(matchCfg.ShortestHalfLife())
-		}
+	matchCfg, err := s.Matching.config()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Matching = &server.Matching{Graph: st.Graph(), Config: matchCfg}
+	// Ingest spaces its own link deposits by the shortest half-life, so a
+	// proposal it made does not decay between them.
+	if l, ok := st.(interface{ SetLinkEvery(time.Duration) }); ok {
+		l.SetLinkEvery(matchCfg.ShortestHalfLife())
 	}
 	return cfg, nil
 }

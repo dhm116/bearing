@@ -504,11 +504,11 @@ func TestAssembleLogsTheWarningsForWhatTheSettingsGaveUp(t *testing.T) {
 func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		matching  *MatchingSettings
+		matching  MatchingSettings
 		wantRules int
 	}{
-		{"with a matching block", &MatchingSettings{Rules: []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}}}, 1},
-		{"without one", nil, 0},
+		{"with a matching block", MatchingSettings{Rules: []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}}}, 1},
+		{"without one", MatchingSettings{}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWorld(t, func(s *Settings) {
@@ -536,10 +536,10 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if (cfg.Matching != nil) != (tc.matching != nil) {
-				t.Fatalf("got matching %v, want it set only with a block", cfg.Matching)
+			if cfg.Matching == nil {
+				t.Fatal("got no matching, want it on with or without a block")
 			}
-			if cfg.Matching != nil && len(cfg.Matching.Config.Rules) != tc.wantRules {
+			if len(cfg.Matching.Config.Rules) != tc.wantRules {
 				t.Errorf("got %d rules, want %d", len(cfg.Matching.Config.Rules), tc.wantRules)
 			}
 			applier, ok := cfg.Applier.(server.StoreApplier)
@@ -716,4 +716,25 @@ func (w *world) writeSettings(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return file
+}
+
+// Matching always runs, so bad matching settings are refused whether or not
+// the rest of the settings were checked first.
+func TestBadMatchingSettingsAreRefused(t *testing.T) {
+	t.Parallel()
+	s, err := Parse([]byte(strings.Replace(goodSettings, `"sources"`, `"matching": {"floor": 1.5}, "sources"`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "matching") {
+		t.Errorf("Validate: got %v, want a refusal naming matching", err)
+	}
+	st, err := store.Open(t.Context(), store.Config{URL: "mem://"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := serverConfig(s, st, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "matching") {
+		t.Errorf("serverConfig: got %v, want a refusal naming matching", err)
+	}
 }
