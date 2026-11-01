@@ -28,7 +28,7 @@ operating-system `Service` are different things.
   policy) and its relations (domain and range). The server builds one
   vocabulary from both at boot; config changes take a restart.
 - A configured kind is `<namespace>.<Kind>`, matching
-  `^[a-z][a-z0-9-]*\.[A-Z][A-Za-z0-9]*$`, as in `k8s.Service` or
+  `^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$`, as in `k8s.Service` or
   `systemd.Service`. The namespace names the vocabulary that defines the
   kind, not a category; nothing reads meaning from it. Core kinds are bare
   (`Person`) and that is their only spelling: the `bearing` namespace is
@@ -68,7 +68,8 @@ operating-system `Service` are different things.
   correctly. Adapters may use it to skip work; they never call Bearing for
   it, which keeps the calls one-way (ADR 4). It is a new field, with no
   protocol version change. A source with no active kinds is neither
-  synced nor sent webhooks, so an empty list never means "none".
+  synced nor sent webhooks, and is logged once at boot, so an empty list
+  never means "none".
 
 **Ingest and the store**
 
@@ -78,10 +79,11 @@ operating-system `Service` are different things.
   kinds are kept; their targets stay records without a kind until the
   kind is enabled.
 - Closing ignores what Bearing didn't keep. The core intersects
-  `CompleteSync.kinds` with the active kinds, and facts whose subject is
-  a record of an inactive kind are exempt from complete and snapshot
-  closing, so a disabled kind never reads as deleted. A relation an
-  active record sends closes as usual, whatever its target's kind.
+  `CompleteSync.kinds` with the active kinds, and a fact is exempt from
+  complete and snapshot closing when the record whose observation sent it
+  has an inactive kind, so a disabled kind never reads as deleted. A
+  relation an active record sends closes as usual, in either direction
+  and whatever the other end's kind.
 - At boot the vocabulary is written to a `kind` table. A kind dropped from
   config is marked retired, not deleted; re-adding it un-retires it.
   Reads resolve parents and shapes from the table, so stored facts of a
