@@ -28,7 +28,7 @@ operating-system `Service` are different things.
   policy) and its relations (domain and range). The server builds one
   vocabulary from both at boot; config changes take a restart.
 - A configured kind is `<namespace>.<Kind>`, matching
-  `^[a-z][a-z0-9]*\.[A-Z][A-Za-z0-9]*$`, as in `k8s.Service` or
+  `^[a-z][a-z0-9-]*\.[A-Z][A-Za-z0-9]*$`, as in `k8s.Service` or
   `systemd.Service`. The namespace names the vocabulary that defines the
   kind, not a category; nothing reads meaning from it. Core kinds are bare
   (`Person`) and that is their only spelling: the `bearing` namespace is
@@ -46,6 +46,8 @@ operating-system `Service` are different things.
 - Configured kinds only grow. Boot compares config with the stored
   vocabulary and refuses a changed parent, a changed attribute shape or a
   narrowed domain or range; changing one means defining a new kind.
+  Adapter-declared shapes are stored and checked the same way. A core
+  change ships as a store migration, so it never trips the check.
 
 **Adapters**
 
@@ -65,7 +67,8 @@ operating-system `Service` are different things.
   server booted with. Empty means no filter, so an older core is read
   correctly. Adapters may use it to skip work; they never call Bearing for
   it, which keeps the calls one-way (ADR 4). It is a new field, with no
-  protocol version change.
+  protocol version change. A source with no active kinds is neither
+  synced nor sent webhooks, so an empty list never means "none".
 
 **Ingest and the store**
 
@@ -75,9 +78,10 @@ operating-system `Service` are different things.
   kinds are kept; their targets stay records without a kind until the
   kind is enabled.
 - Closing ignores what Bearing didn't keep. The core intersects
-  `CompleteSync.kinds` with the active kinds, and facts on records of
-  inactive kinds are exempt from complete and snapshot closing, so a
-  disabled kind never reads as deleted.
+  `CompleteSync.kinds` with the active kinds, and facts whose subject is
+  a record of an inactive kind are exempt from complete and snapshot
+  closing, so a disabled kind never reads as deleted. A relation an
+  active record sends closes as usual, whatever its target's kind.
 - At boot the vocabulary is written to a `kind` table. A kind dropped from
   config is marked retired, not deleted; re-adding it un-retires it.
   Reads resolve parents and shapes from the table, so stored facts of a
@@ -98,8 +102,9 @@ operating-system `Service` are different things.
 - Code that compares kinds exactly learns the hierarchy: the cluster check
   (`internal/duckstore/links.go`), complete closing and `Records`
   (descendants count), `match` candidate blocking (pairs along one line
-  of descent), and `Predicate.InDomain` and `InRange` (a descendant is in
-  its parent's domain).
+  of descent), `Predicate.InDomain` and `InRange` (a descendant is in
+  its parent's domain), and the matching half-life by kind (the nearest
+  ancestor that has one).
 - `proto/` gains `optional` on the declared kind and `enabled_kinds` on
   the two requests; `pkg/adapter` passes the list to adapters.
 - Enabling a kind later takes a full sync from that source; webhook-only
