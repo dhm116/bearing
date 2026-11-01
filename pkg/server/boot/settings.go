@@ -46,8 +46,8 @@ type Settings struct {
 	Secrets  SecretSettings    `json:"secrets"`
 	Adapters []AdapterSettings `json:"adapters"`
 	// Matching tunes how records are joined after each sync (pkg/match);
-	// absent, no matching runs.
-	Matching *MatchingSettings `json:"matching,omitempty"`
+	// absent, matching runs with the defaults and no key rules.
+	Matching MatchingSettings `json:"matching"`
 	// Authority overrides, per source, which linked keys the source vouches
 	// for beyond its adapter's declaration: source name, then
 	// "<issuer_type>:<key_type>", for example
@@ -364,10 +364,8 @@ func (s *Settings) check() (*checked, error) {
 			}
 		}
 	}
-	if s.Matching != nil {
-		if _, err := s.Matching.config(); err != nil {
-			return nil, err
-		}
+	if _, err := s.Matching.config(); err != nil {
+		return nil, err
 	}
 	return c, nil
 }
