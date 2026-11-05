@@ -314,3 +314,19 @@ Each entry:
 - **Example:** `owner --as-of` a date in March for a fact that a later sync in June observed again.
 - **Impact:** the answer's values are right for March, but its sources and observed times include the June observation. Pre-existing.
 - **Proposed fix:** limit the sources of an as-of answer to observations recorded at or before the as-of time (or label the later ones).
+
+## An abstract record linked to two kinds that can't share a cluster
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review ([dhm116/bearing#301](https://github.com/dhm116/bearing/pull/301))
+- **Area:** identity
+- **Example:** a Vault record of a parent kind (say a principal) has asserted `same_as` links to `ana` (a Person) and to `payments` (a Team).
+- **Impact:** the cluster takes whichever link is older (`internal/duckstore/links.go`, oldest first) and silently skips the other; if the older link closes, the record moves to the other side. Records without a kind already behave this way. Needs an adapter that emits parent kinds.
+- **Proposed fix:** show skipped asserted links as conflicts in `Links`, for review.
+
+## A kind enabled later starts its history late
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review ([dhm116/bearing#301](https://github.com/dhm116/bearing/pull/301))
+- **Area:** ingest
+- **Example:** an operator enables `systemd.Service` a month after the adapter started; until then its observations were dropped.
+- **Impact:** after the next full sync its facts open at the sync time, not when they began, and a webhook-only source can't backfill at all.
+- **Proposed fix:** accept and document it, or keep dropped pages so they can be replayed once the kind is enabled.
