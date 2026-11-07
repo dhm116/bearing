@@ -75,12 +75,26 @@ func TestValidateDeclarationRejects(t *testing.T) {
 		{"webhook scheme below zero", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: -1, SignatureHeader: "X-Sig"}), codeMalformed},
 		{"webhook signature in Authorization", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "authorization"}), codeMalformed},
 		{"webhook signature in Content-Length", withWebhook(&modelv1alpha1.WebhookSignature{Scheme: hmacScheme, SignatureHeader: "Content-Length"}), codeMalformed},
+		{"required kind the registry lacks", kind(&modelv1alpha1.KindDeclaration{Kind: "k8s.Service"}), codeNotDeclared},
+		{"optional kind declared twice", &modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Kinds: []*modelv1alpha1.KindDeclaration{{Kind: "k8s.Service", Optional: true}, {Kind: "k8s.Service", Optional: true}}}, codeMalformed},
+		{"one attribute name with two shapes", &modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Kinds: []*modelv1alpha1.KindDeclaration{
+			{Kind: "Team", Fields: []*modelv1alpha1.FieldDeclaration{{Predicate: "zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_ONE}}},
+			{Kind: "Person", Fields: []*modelv1alpha1.FieldDeclaration{{Predicate: "zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY}}},
+		}}, codeMalformed},
 		{"bad link", kind(&modelv1alpha1.KindDeclaration{Kind: "Team", Links: []*modelv1alpha1.LinkDeclaration{{IssuerType: "saml"}}}), codeMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantCode(t, ValidateDeclaration(Core(), tt.d), tt.want)
 		})
+	}
+}
+
+func TestValidateDeclarationAcceptsAnOptionalKindTheRegistryLacks(t *testing.T) {
+	t.Parallel()
+	d := &modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Kinds: []*modelv1alpha1.KindDeclaration{{Kind: "k8s.Service", Optional: true}}}
+	if err := ValidateDeclaration(Core(), d); err != nil {
+		t.Fatal(err)
 	}
 }
 
