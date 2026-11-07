@@ -68,7 +68,7 @@ says how they relate.
      score first, with the score decayed to the answer's time and the
      link's features (for example the share of members in common).
   4. Otherwise: no relation, and the pair is left out.
-  
+
   Objects in one cluster need no relation, because their hops already show
   the asserted links that join them.
 - **Order.** Claims are never merged or chosen between. They are sorted
@@ -84,11 +84,16 @@ says how they relate.
     matching record.
   - **Q3 (changes):** lists the facts that opened or closed in the
     window, per record. It also lists asserted joins and splits in the
-    window, each with its justification: the source observation, the
+    window, read from the link rows:
+    - a join is an asserted `same_as` opening or an asserted
+      `distinct_from` closing;
+    - a split is an asserted `same_as` closing or an asserted
+      `distinct_from` opening.
+
+    Each carries its row's justification: the source observation, the
     settings rule, or a person's decision with its actor and reason. A
-    split's justification is the `distinct_from` opened for the same pair
-    when the `same_as` closed. Proposals are conjecture and never appear
-    here.
+    `same_as` closed by a split decision points to the `distinct_from`
+    opened with it. Proposals are conjecture and never appear here.
   - **Q4 and Q5 (dependencies):** walk facts from, or to, the service's
     records.
 - **Past times.** An answer as of a past time uses the facts valid then.
@@ -127,9 +132,10 @@ says how they relate.
   one entity" entry. It also marks ADR 7 "superseded in part by ADR 11".
 - A promoted proposal must keep its history: promotion closes the
   proposed link and opens an asserted one at the promotion time, with the
-  promoting rule or decision. Today the store updates the row in place,
-  which loses when the join became asserted. The implementing PR changes
-  that, and confirms that a link a settings rule asserts keeps the rule's
-  name.
+  promoting rule or decision, and a reference to the proposal it promoted
+  so the matcher's evidence stays with the join. Today the store updates
+  the row in place, which loses when the join became asserted. The
+  implementing PR changes that, and confirms that a link a settings rule
+  asserts keeps the rule's name.
 - The record-level read must not list every path: it finds reachable
   clusters first, then rebuilds each chosen fact's record path.
