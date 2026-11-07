@@ -37,6 +37,11 @@ type Store interface {
 	Close() error
 }
 
+// ErrVocabularyChanged means the booted vocabulary changes a stored kind's
+// parent or a predicate's shape, or narrows a predicate's domain or range.
+// Configured kinds only grow (ADR 10); define a new kind instead.
+var ErrVocabularyChanged = errors.New("vocabulary changed")
+
 // Config names the database.
 type Config struct {
 	URL string
@@ -123,6 +128,18 @@ func (i *instrumented) SetRegistry(r *model.Registry) {
 	if s, ok := i.Store.(interface{ SetRegistry(*model.Registry) }); ok {
 		s.SetRegistry(r)
 	}
+}
+
+// SyncVocabulary writes the booted vocabulary to a backend that keeps one
+// (internal/duckstore) and returns the registry to read with; others return
+// reg unchanged.
+func (i *instrumented) SyncVocabulary(ctx context.Context, reg *model.Registry, now time.Time) (*model.Registry, error) {
+	if s, ok := i.Store.(interface {
+		SyncVocabulary(context.Context, *model.Registry, time.Time) (*model.Registry, error)
+	}); ok {
+		return s.SyncVocabulary(ctx, reg, now)
+	}
+	return reg, nil
 }
 
 // Graph implements Store.
