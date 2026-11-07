@@ -101,6 +101,10 @@ type Fact struct {
 	Confidence float64    `json:"confidence"`
 	ValidFrom  time.Time  `json:"valid_from"`
 	ValidTo    *time.Time `json:"valid_to,omitempty"`
+	// AsOf is when the subject's kind was retired, set on current answers
+	// only: the fact is true as of then, and no source has been asked for
+	// it since. History answers (Changes) leave it unset.
+	AsOf *time.Time `json:"as_of,omitempty"`
 	// Sources are oldest first: per source, the first and the latest
 	// observation. SourceCount is how many observations there are in all.
 	Sources     []Source `json:"sources"`
@@ -140,6 +144,8 @@ type Member struct {
 	Role string `json:"role,omitempty"`
 	// Since is when the membership was first observed.
 	Since time.Time `json:"since"`
+	// AsOf is when the person's kind was retired, as for Fact.AsOf.
+	AsOf *time.Time `json:"as_of,omitempty"`
 	// Sources are the observations behind the membership, as for a Fact.
 	Sources []Source `json:"sources"`
 }
@@ -189,7 +195,7 @@ func (q *Querier) Get(ctx context.Context, ref string, at time.Time) (*Entity, e
 	if err != nil {
 		return nil, fmt.Errorf("facts of %s: %w", e.ID, err)
 	}
-	l := q.labeler()
+	l := q.currentLabeler(at)
 	out := &Entity{Ref: l.add(e), Keys: make([]string, len(e.Keys))}
 	for i, k := range e.Keys {
 		out.Keys[i] = string(k)
@@ -219,7 +225,7 @@ func (q *Querier) Owners(ctx context.Context, ref string, at time.Time, members 
 			break
 		}
 	}
-	l := q.labeler()
+	l := q.currentLabeler(at)
 	out := &Ownership{Subject: l.add(e)}
 	if out.Owners, err = l.facts(ctx, merge(facts)); err != nil {
 		return nil, err
@@ -259,7 +265,7 @@ func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.
 			if err != nil {
 				return nil, err
 			}
-			people = append(people, Member{Ref: r, Role: roleOf(facts, f.Subject), Since: vf.ValidFrom, Sources: vf.Sources})
+			people = append(people, Member{Ref: r, Role: roleOf(facts, f.Subject), Since: vf.ValidFrom, AsOf: vf.AsOf, Sources: vf.Sources})
 		}
 		slices.SortFunc(people, func(a, b Member) int {
 			return cmp.Or(cmp.Compare(rank(a.Role), rank(b.Role)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
@@ -326,7 +332,7 @@ func (q *Querier) Related(ctx context.Context, ref, predicate, direction string,
 	if err != nil {
 		return nil, fmt.Errorf("walk from %s: %w", e.ID, err)
 	}
-	l := q.labeler()
+	l := q.currentLabeler(at)
 	out := &Relations{Subject: l.add(e), Direction: direction, Steps: []Step{}}
 	// One fact per statement at each depth.
 	for d, group := range groupBy(steps, func(s graph.Step) int { return s.Depth }) {
@@ -450,6 +456,17 @@ func (q *Querier) entity(ctx context.Context, ref string) (graph.Entity, error) 
 type labeler struct {
 	q     *Querier
 	cache map[graph.EntityID]Ref
+	// current is set for answers at a time (Get, Owners, Related): facts of
+	// a kind retired by then get AsOf.
+	current bool
+	at      time.Time
+}
+
+// currentLabeler is a labeler for answers at at (zero is now).
+func (q *Querier) currentLabeler(at time.Time) *labeler {
+	l := q.labeler()
+	l.current, l.at = true, at
+	return l
 }
 
 func (q *Querier) labeler() *labeler {
@@ -502,6 +519,9 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	}
 	for i, s := range f.Sources {
 		out.Sources[i] = Source{Source: s.Source, ObservationID: s.ObservationID, URL: s.URL, ObservedAt: s.ObservedAt}
+	}
+	if t, ok := l.q.Registry.Retired(model.Kind(sub.Kind)); ok && l.current && (l.at.IsZero() || !l.at.Before(t)) {
+		out.AsOf = &t
 	}
 	return out, nil
 }

@@ -67,6 +67,8 @@ type Declaration struct {
 	ValidTo     *time.Time `json:"valid_to,omitempty"`
 	Sources     []Source   `json:"sources"`
 	SourceCount int        `json:"source_count"`
+	// AsOf is when the subject's kind was retired, as for Fact.AsOf.
+	AsOf *time.Time `json:"as_of,omitempty"`
 }
 
 // RuntimeEntity is an entity with every declaration of the language.
@@ -121,7 +123,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		return nil, fmt.Errorf("runtime facts: %w", err)
 	}
 	reg := q.Registry
-	l := q.labeler()
+	l := q.currentLabeler(req.At)
 	out := &Runtimes{Language: lang}
 	atOrAbove := 0
 	if below != nil {
@@ -164,7 +166,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 				return nil, err
 			}
 			text := str(v["version"])
-			d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount}
+			d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount, AsOf: lf.AsOf}
 			if low, ok := lowerBound(text); ok {
 				d.Lower = low.String()
 				d.IsBelow = below != nil && low.compare(below) < 0
