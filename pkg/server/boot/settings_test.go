@@ -305,7 +305,7 @@ func TestMatchingSettingsBecomeAMatchConfig(t *testing.T) {
 	cfg, err := MatchingSettings{
 		Rules:     []MatchRule{{Name: "team", A: "a:team/{name}", B: "b:team/{name}"}},
 		ProposeAt: 0.7, HalfLife: map[string]string{"Team": "P90D"},
-	}.config()
+	}.config(model.Core())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestMatchingSettingsBecomeAMatchConfig(t *testing.T) {
 		"an unknown kind":          {HalfLife: map[string]string{"Widget": "P1D"}},
 		"a bad duration":           {HalfLife: map[string]string{"Team": "90 days"}},
 	} {
-		if _, err := m.config(); err == nil {
+		if _, err := m.config(model.Core()); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}

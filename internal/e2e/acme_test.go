@@ -101,7 +101,7 @@ func (w *world) syncDirectory() graph.IngestResult {
 func (w *world) ingest(source string, obs []*eventv1alpha1.Observation) graph.IngestResult {
 	w.t.Helper()
 	for _, o := range obs {
-		if err := model.ValidateObservation(o); err != nil {
+		if err := model.ValidateObservation(model.Core(), o); err != nil {
 			w.t.Fatalf("%s: %v", o.GetId(), err)
 		}
 	}

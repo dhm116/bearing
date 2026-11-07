@@ -179,14 +179,16 @@ func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit i
 		if limit <= 0 {
 			limit = 20
 		}
+		kinds := s.reg.Descendants(kind) // a kind includes its descendants
+		kp, kargs := placeholders(len(kinds)), anySlice(kinds)
 		// Every record yields one row for its name and one per key; the best
 		// row (lowest tier, highest score) stands for its cluster.
 		rows, err := db.QueryContext(ctx, `
 WITH cand AS (
-  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind = ?)
+  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind IN (`+kp+`))
   UNION ALL
   SELECT e.cluster_id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
-  WHERE (? = '' OR e.kind = ?)
+  WHERE (? = '' OR e.kind IN (`+kp+`))
 ), scored AS (
   SELECT id,
     CASE WHEN lower(txt) = lower(?) THEN 0 WHEN contains(lower(txt), lower(?)) THEN 1
@@ -198,8 +200,8 @@ WITH cand AS (
 )
 SELECT id, max(score) FROM scored WHERE tier < 3 GROUP BY id
 ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
-			string(kind), string(kind), string(kind), string(kind),
-			query, query, query, query, query, query, query, limit)
+			slices.Concat([]any{string(kind)}, kargs, []any{string(kind)}, kargs,
+				[]any{query, query, query, query, query, query, query, limit})...)
 		if err != nil {
 			return nil, fmt.Errorf("find %q: %w", query, err)
 		}

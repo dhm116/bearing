@@ -19,7 +19,7 @@ func TestReferenceDeclarationsValidate(t *testing.T) {
 			if err := DecodeJSON(readFixture(t, file), d); err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidateDeclaration(d); err != nil {
+			if err := ValidateDeclaration(Core(), d); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -79,7 +79,7 @@ func TestValidateDeclarationRejects(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wantCode(t, ValidateDeclaration(tt.d), tt.want)
+			wantCode(t, ValidateDeclaration(Core(), tt.d), tt.want)
 		})
 	}
 }
@@ -91,7 +91,7 @@ func TestValidateDeclarationAcceptsAWebhook(t *testing.T) {
 		"bare":      {Scheme: modelv1alpha1.WebhookScheme_WEBHOOK_SCHEME_HMAC_SHA256, SignatureHeader: "X-Signature"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidateDeclaration(&modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Webhook: w}); err != nil {
+			if err := ValidateDeclaration(Core(), &modelv1alpha1.AdapterDeclaration{Name: "x", IssuerType: "x", Webhook: w}); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -105,11 +105,11 @@ func TestDeclaredAttributesKeepsOnlyUnregisteredFields(t *testing.T) {
 			{Predicate: "cluster_zone", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING},
 		},
 	}}}
-	got := DeclaredAttributes(d)
+	got := DeclaredAttributes(Core(), d)
 	if len(got) != 1 || got["cluster_zone"].Type != modelv1alpha1.ValueType_VALUE_TYPE_STRING {
 		t.Fatalf("got %v, want only cluster_zone, a string", got)
 	}
-	if n := len(DeclaredAttributes(nil)); n != 0 {
+	if n := len(DeclaredAttributes(Core(), nil)); n != 0 {
 		t.Fatalf("got %d attributes from no declaration, want 0", n)
 	}
 }

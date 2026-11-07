@@ -127,6 +127,10 @@ type Config struct {
 	// of them for at most EventTimeout per attempt.
 	EventTimeout time.Duration
 
+	// Registry is the vocabulary observations are checked against; nil means
+	// model.Core().
+	Registry *model.Registry
+
 	// Clock is the time source; nil means clock.Real.
 	Clock clock.Clock
 	// NewID returns a fresh unique ID for a requested sync; nil means 16
@@ -195,6 +199,9 @@ func New(cfg Config) (*Server, error) {
 	cfg.TrimEvery = orDefault(cfg.TrimEvery, DefaultTrimEvery)
 	if cfg.Retention == 0 {
 		cfg.Retention = DefaultRetention
+	}
+	if cfg.Registry == nil {
+		cfg.Registry = model.Core()
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = clock.Real{}

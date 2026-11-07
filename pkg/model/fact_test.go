@@ -80,7 +80,7 @@ func TestCanonicalJSON(t *testing.T) {
 }
 
 func TestEncodeJSONKeepsExplicitNull(t *testing.T) {
-	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/1-repository-codeowners.json"))
+	o, err := DecodeObservation(Core(), readFixture(t, "../../testdata/observations/valid/1-repository-codeowners.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ type RuntimesRequest struct {
 	// lower bound is under it; it must be a version such as 1.22. Empty lists
 	// every declaration.
 	Below string `json:"below,omitzero"`
-	// Kind limits the answer to entities of this kind.
+	// Kind limits the answer to entities of this kind or its descendants.
 	Kind string `json:"kind,omitempty"`
 	// At asks what held then; zero means now.
 	At time.Time `json:"at,omitzero"`
@@ -102,7 +102,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		return nil, fmt.Errorf("%w: a language is required", ErrInvalidRequest)
 	case req.Limit < 0 || req.Limit > MaxRuntimesLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxRuntimesLimit)
-	case req.Kind != "" && !model.Kind(req.Kind).Valid():
+	case req.Kind != "" && !q.registry().Valid(model.Kind(req.Kind)):
 		return nil, fmt.Errorf("%w: kind %q is not a kind", ErrInvalidRequest, model.Clip(req.Kind))
 	}
 	if req.Below != "" {
@@ -120,6 +120,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	if err != nil {
 		return nil, fmt.Errorf("runtime facts: %w", err)
 	}
+	reg := q.registry()
 	l := q.labeler()
 	out := &Runtimes{Language: lang}
 	atOrAbove := 0
@@ -148,7 +149,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		if err != nil {
 			return nil, err
 		}
-		if req.Kind != "" && ref.Kind != req.Kind {
+		if req.Kind != "" && !reg.IsA(model.Kind(ref.Kind), model.Kind(req.Kind)) {
 			continue
 		}
 		ent := RuntimeEntity{Subject: ref}

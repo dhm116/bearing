@@ -66,7 +66,7 @@ func TestNewObservationValidates(t *testing.T) {
 			Type: string(RelMemberOf), End: &modelv1alpha1.Relation_To{To: "github:team/acme/engineering"},
 		}},
 	})
-	if err := ValidateObservation(o); err != nil {
+	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatal(err)
 	}
 	if want := "github:team/acme/payments@2026-09-28T00:30:00.123456Z"; o.GetId() != want {
@@ -122,7 +122,7 @@ func TestValidObservationsDecodeAndRoundTrip(t *testing.T) {
 	}
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
-			o, err := DecodeObservation(readFixture(t, file))
+			o, err := DecodeObservation(Core(), readFixture(t, file))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +130,7 @@ func TestValidObservationsDecodeAndRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			again, err := DecodeObservation(b)
+			again, err := DecodeObservation(Core(), b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,7 +144,7 @@ func TestValidObservationsDecodeAndRoundTrip(t *testing.T) {
 // An empty linked_ids with linked_ids_complete is "read, and there are none":
 // the flag survives a round trip through ProtoJSON, which drops the empty list.
 func TestLinkedIDsCompleteSurvivesWithAnEmptyList(t *testing.T) {
-	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/8-person-links-cleared.json"))
+	o, err := DecodeObservation(Core(), readFixture(t, "../../testdata/observations/valid/8-person-links-cleared.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestLinkedIDsCompleteSurvivesWithAnEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := DecodeObservation(b)
+	again, err := DecodeObservation(Core(), b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestLinkedIDsCompleteSurvivesWithAnEmptyList(t *testing.T) {
 
 // Unflagged, a list only adds evidence.
 func TestLinkedIDsAreAddOnlyByDefault(t *testing.T) {
-	o, err := DecodeObservation(readFixture(t, "../../testdata/observations/valid/5-person-linked-ids.json"))
+	o, err := DecodeObservation(Core(), readFixture(t, "../../testdata/observations/valid/5-person-linked-ids.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestInvalidObservationsAreRejected(t *testing.T) {
 			if err := DecodeJSON(b, &eventv1alpha1.Observation{}); (err != nil) != (name == "unknown-field.json") {
 				t.Fatalf("decoding: got %v", err)
 			}
-			_, err := DecodeObservation(b)
+			_, err := DecodeObservation(Core(), b)
 			ve, ok := err.(*ValidationError) //nolint:errorlint // ValidateObservation returns it unwrapped
 			if !ok {
 				t.Fatalf("got %v, want a *ValidationError", err)
@@ -262,7 +262,7 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 		Entity:    &modelv1alpha1.Entity{Kind: "Widget", Key: "nope"},
 		Relations: []*modelv1alpha1.Relation{{Type: "likes", End: &modelv1alpha1.Relation_To{To: "also-nope"}}},
 	}}
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	if err == nil {
 		t.Fatal("got no error, want one")
 	}
@@ -308,7 +308,7 @@ func TestValidateChecksAttributeValues(t *testing.T) {
 					Attributes: map[string]*structpb.Value{tt.attr: tt.v},
 				},
 			})
-			err := ValidateObservation(o)
+			err := ValidateObservation(Core(), o)
 			if tt.want == 0 {
 				if err != nil {
 					t.Fatalf("got %v, want no error", err)
@@ -361,27 +361,29 @@ func TestShortName(t *testing.T) {
 	}
 }
 
-func TestRegistry(t *testing.T) {
-	name, ok := LookupPredicate("name")
-	if !ok || name.Relation || name.Type != tString || !name.InDomain(KindTeam) || name.InDomain(KindComponent) {
+func TestCoreRegistryHoldsTheCoreVocabulary(t *testing.T) {
+	t.Parallel()
+	reg := Core()
+	name, ok := reg.Predicate("name")
+	if !ok || name.Relation || name.Type != tString || !reg.InDomain(name, KindTeam) || reg.InDomain(name, KindComponent) {
 		t.Fatalf("got %+v, want a string attribute of Team and not Component", name)
 	}
-	owned, ok := LookupPredicate(string(RelOwnedBy))
-	if !ok || !owned.Relation || !owned.InDomain(KindDocument) || owned.InRange(KindRepository) || owned.Conflict != setC {
+	owned, ok := reg.Predicate(string(RelOwnedBy))
+	if !ok || !owned.Relation || !reg.InDomain(owned, KindDocument) || reg.InRange(owned, KindRepository) || owned.Conflict != setC {
 		t.Fatalf("got %+v, want owned_by: any to Team or Person, conflict set", owned)
 	}
-	if p, _ := LookupPredicate("default_branch"); p.Conflict != oneC {
+	if p, _ := reg.Predicate("default_branch"); p.Conflict != oneC {
 		t.Fatalf("default_branch conflict got %v, want one", p.Conflict)
 	}
-	if _, ok := LookupPredicate(PredicateSameAs); ok || !IsCorePredicate(PredicateSameAs) {
+	if _, ok := reg.Predicate(PredicateSameAs); ok || !IsCorePredicate(PredicateSameAs) {
 		t.Fatal("same_as must be a core predicate outside the registry")
 	}
-	for _, k := range Kinds {
-		if !k.Valid() {
+	for _, k := range coreKinds {
+		if !reg.Valid(k) {
 			t.Errorf("%s is not valid", k)
 		}
 	}
-	if Kind("Widget").Valid() {
+	if reg.Valid("Widget") {
 		t.Error("Widget is valid, want invalid")
 	}
 }
@@ -432,7 +434,7 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateObservationWith(tt.obs, declared)
+			err := ValidateObservationWith(Core(), tt.obs, declared)
 			if tt.want == 0 {
 				if err != nil {
 					t.Fatalf("got %v, want no error", err)
@@ -447,10 +449,10 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 	}
 	// Without the declaration the same observation is checked as before.
 	o := build([]*modelv1alpha1.AttributeClaim{claim("score", structpb.NewStringValue("high"))})
-	if err := ValidateObservation(o); err != nil {
+	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatalf("got %v, want an unregistered attribute left unchecked", err)
 	}
-	if err := ValidateObservationWith(o, nil); err != nil {
+	if err := ValidateObservationWith(Core(), o, nil); err != nil {
 		t.Fatalf("got %v, want nil declarations to behave as ValidateObservation", err)
 	}
 }

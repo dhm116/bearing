@@ -30,6 +30,8 @@ type Config struct {
 	HalfLife map[model.Kind]time.Duration
 	// Rules assert links from key patterns.
 	Rules []KeyRule
+	// Registry knows the kind hierarchy; nil means model.Core().
+	Registry *model.Registry
 }
 
 const defaultHalfLife = 30 * 24 * time.Hour
@@ -53,15 +55,29 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
+// halfLife is the setting for k, else the nearest ancestor's, else the default.
 func (c Config) halfLife(k model.Kind) time.Duration {
-	if h, ok := c.HalfLife[k]; ok {
-		return h
+	if len(c.HalfLife) == 0 {
+		return defaultHalfLife
+	}
+	reg := c.registry()
+	for ; k != ""; k = reg.Parent(k) {
+		if h, ok := c.HalfLife[k]; ok {
+			return h
+		}
 	}
 	return defaultHalfLife
 }
 
+func (c Config) registry() *model.Registry {
+	if c.Registry == nil {
+		return model.Core()
+	}
+	return c.Registry
+}
+
 // HalfLifeOf is how fast evidence for records of kind k fades: the setting
-// for the kind, else the default.
+// for the kind or its nearest ancestor that has one, else the default.
 func (c Config) HalfLifeOf(k model.Kind) time.Duration { return c.halfLife(k) }
 
 // ShortestHalfLife is the fastest any kind's evidence fades: the default
@@ -118,6 +134,7 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 		return Result{}, err
 	}
 	cfg = cfg.withDefaults()
+	reg := cfg.registry()
 	now := cfg.Now()
 	recs, err := g.Records(ctx, "")
 	if err != nil {
@@ -180,7 +197,7 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 	res.Asserted = len(ps)
 
 	ev := gather(facts)
-	cands := Candidates(recs, ev.Members, func(a, b graph.EntityID) bool { return skip(a, b) || seen[pairOf(a, b)] })
+	cands := Candidates(reg, recs, ev.Members, func(a, b graph.EntityID) bool { return skip(a, b) || seen[pairOf(a, b)] })
 	for _, m := range cfg.Matchers {
 		js, err := m.Match(ctx, cands, ev)
 		if err != nil {
@@ -202,7 +219,7 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 				prev, at = graph.Deposit{}, laterOf(at, u)
 			}
 			if j.Score < cfg.ProposeAt || at.IsZero() || !at.After(prev.At) ||
-				maps.Equal(f, prev.Features) && at.Sub(prev.At) < cfg.halfLife(c.A.Kind) {
+				maps.Equal(f, prev.Features) && at.Sub(prev.At) < cfg.halfLife(reg.Deeper(c.A.Kind, c.B.Kind)) {
 				continue
 			}
 			ps = append(ps, graph.Proposal{
@@ -232,7 +249,7 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 		kinds[r.ID] = r.Kind
 	}
 	for _, l := range open {
-		s := ScoreOf(l.Deposits, now, cfg.halfLife(kinds[l.A]))
+		s := ScoreOf(l.Deposits, now, cfg.halfLife(reg.Deeper(kinds[l.A], kinds[l.B])))
 		switch {
 		case s.Strength < cfg.Floor:
 			if err := g.CloseLink(ctx, l.ID, now); err != nil {

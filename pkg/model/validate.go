@@ -140,6 +140,7 @@ func (e *ValidationError) Codes() []modelv1alpha1.RejectionCode {
 
 // checker collects problems.
 type checker struct {
+	reg      *Registry
 	problems []Problem
 	more     int
 	codes    []modelv1alpha1.RejectionCode
@@ -157,7 +158,7 @@ type checker struct {
 // shape looks up a predicate in the registry, then among the attributes the
 // source declares.
 func (c *checker) shape(name string) (Predicate, bool) {
-	if p, ok := LookupPredicate(name); ok {
+	if p, ok := c.reg.Predicate(name); ok {
 		return p, true
 	}
 	p, ok := c.declared[name]
@@ -290,8 +291,8 @@ const (
 // duplicate claims and cardinality within the observation. The core checks
 // declarations, namespaces and identity on apply. It returns a
 // *ValidationError.
-func ValidateObservation(o *eventv1alpha1.Observation) error {
-	c := &checker{}
+func ValidateObservation(reg *Registry, o *eventv1alpha1.Observation) error {
+	c := &checker{reg: reg}
 	c.observation(o)
 	return c.err()
 }
@@ -300,16 +301,16 @@ func ValidateObservation(o *eventv1alpha1.Observation) error {
 // source that declares attributes the registry doesn't have: declared maps
 // each such attribute's name (without the namespace) to its Type and
 // Cardinality, which the checks then apply as they do to registered ones.
-func ValidateObservationWith(o *eventv1alpha1.Observation, declared map[string]Predicate) error {
-	c := &checker{declared: declared}
+func ValidateObservationWith(reg *Registry, o *eventv1alpha1.Observation, declared map[string]Predicate) error {
+	c := &checker{reg: reg, declared: declared}
 	c.observation(o)
 	return c.err()
 }
 
 // ValidateAdapterObservation is ValidateObservation for observations an
 // adapter returned: it also rejects bearingsource, which only the core sets.
-func ValidateAdapterObservation(o *eventv1alpha1.Observation) error {
-	c := &checker{}
+func ValidateAdapterObservation(reg *Registry, o *eventv1alpha1.Observation) error {
+	c := &checker{reg: reg}
 	if o.GetBearingsource() != "" {
 		c.add(codeMalformed, "bearingsource", "is set by the core, never by adapters")
 	}
@@ -466,7 +467,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 	switch {
 	case kind == "":
 		c.add(codeMalformed, ep+".kind", "is required")
-	case !kind.Valid():
+	case !c.reg.Valid(kind):
 		c.add(codeNotDeclared, ep+".kind", "%q is not a registered kind", clip(kind))
 	}
 	c.key(ep+".key", e.GetKey())
@@ -496,7 +497,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 			c.add(codeDuplicateClaim, rp, "claims the same fact as an earlier relation with different times, confidence or absent")
 		}
 		seenRel[id] = cl
-		if reg, ok := LookupPredicate(r.GetType()); ok && reg.Relation && reg.Cardinality == one && !isFrom(r) && cl.asserting() {
+		if reg, ok := c.reg.Predicate(r.GetType()); ok && reg.Relation && reg.Cardinality == one && !isFrom(r) && cl.asserting() {
 			oneRels[r.GetType()] = append(oneRels[r.GetType()], cl)
 		}
 	}
@@ -670,7 +671,7 @@ func (c *checker) relation(path string, entity Kind, r *modelv1alpha1.Relation) 
 	default:
 		c.add(codeMalformed, path, "needs to or from")
 	}
-	switch reg, ok := LookupPredicate(name); {
+	switch reg, ok := c.reg.Predicate(name); {
 	case name == "":
 		c.add(codeMalformed, path+".type", "is required")
 	case IsCorePredicate(name):
@@ -679,9 +680,9 @@ func (c *checker) relation(path string, entity Kind, r *modelv1alpha1.Relation) 
 		c.add(codeNotDeclared, path+".type", "%q is not a registered relation", clip(name))
 	case !reg.Relation:
 		c.add(codeTypeMismatch, path+".type", "%q is an attribute, not a relation", clip(name))
-	case entity.Valid() && isFrom(r) && !reg.InRange(entity):
+	case c.reg.Valid(entity) && isFrom(r) && !c.reg.InRange(reg, entity):
 		c.add(codeDomainMismatch, path+".type", "a %s can't be the object of %q", clip(string(entity)), clip(name))
-	case entity.Valid() && !isFrom(r) && !reg.InDomain(entity):
+	case c.reg.Valid(entity) && !isFrom(r) && !c.reg.InDomain(reg, entity):
 		c.add(codeDomainMismatch, path+".type", "a %s can't be the subject of %q", clip(string(entity)), clip(name))
 	}
 	for _, q := range sortedKeys(r.GetAttributes()) {
@@ -709,7 +710,7 @@ func (c *checker) attributeName(path string, entity Kind, name string) (Predicat
 	case ok && reg.Relation:
 		c.add(codeTypeMismatch, path, "%q is a relation, not an attribute", clip(name))
 		return reg, false
-	case ok && entity.Valid() && !reg.InDomain(entity):
+	case ok && c.reg.Valid(entity) && !c.reg.InDomain(reg, entity):
 		c.add(codeDomainMismatch, path, "%q is not an attribute of %s", clip(name), clip(string(entity)))
 		return reg, false
 	case !ok && !ValidAttributeName(name):

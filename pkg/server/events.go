@@ -61,7 +61,7 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	// server's time would close every record when the adapter's clock runs
 	// behind. A sync that observed nothing claims no completeness.
 	var earliest time.Time
-	sum, err := adapter.SyncPages(ctx, src.Adapter, src.Config, s.cfg.MaxPages, func(p adapter.Page) error {
+	sum, err := adapter.SyncPages(ctx, s.cfg.Registry, src.Adapter, src.Config, s.cfg.MaxPages, func(p adapter.Page) error {
 		if len(p.Observations) == 0 && !p.Done {
 			return nil
 		}
@@ -107,7 +107,7 @@ func (s *Server) handleWebhook(ctx context.Context, e store.Entry) (string, erro
 	for _, h := range msg.GetHeaders() {
 		headers[h.GetName()] = append(headers[h.GetName()], h.GetValue())
 	}
-	res, err := adapter.HandleChecked(ctx, src.Adapter, src.Name, adapter.HandleParams{Config: src.Config, Headers: headers, Body: msg.GetBody()})
+	res, err := adapter.HandleChecked(ctx, s.cfg.Registry, src.Adapter, src.Name, adapter.HandleParams{Config: src.Config, Headers: headers, Body: msg.GetBody()})
 	// A protocol mismatch carries CodeNotSupported too, but it is a fault to retry, not an adapter without webhooks.
 	if errors.Is(err, adapter.ErrNotSupported) && !errors.Is(err, adapter.ErrProtocolMismatch) {
 		return workerSkipped, nil

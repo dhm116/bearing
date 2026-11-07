@@ -12,8 +12,8 @@ import (
 // ValidateDeclaration checks an adapter's declarations against the registry.
 // Checks that need other adapters' declarations or source configuration happen at
 // configuration apply. It returns a *ValidationError.
-func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
-	c := &checker{}
+func ValidateDeclaration(reg *Registry, d *modelv1alpha1.AdapterDeclaration) error {
+	c := &checker{reg: reg}
 	c.enums("", d)
 	if d.GetName() == "" {
 		c.add(codeMalformed, "name", "is required")
@@ -27,7 +27,7 @@ func ValidateDeclaration(d *modelv1alpha1.AdapterDeclaration) error {
 		switch {
 		case kind == "":
 			c.add(codeMalformed, kp+".kind", "is required")
-		case !kind.Valid():
+		case !c.reg.Valid(kind):
 			c.add(codeNotDeclared, kp+".kind", "%q is not a registered kind", clip(string(kind)))
 		case kinds[kind]:
 			c.add(codeMalformed, kp+".kind", "%q is declared twice", clip(string(kind)))
@@ -139,7 +139,7 @@ func (c *checker) keyType(path, adapterIssuer string, kind Kind, k *modelv1alpha
 
 func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaration) {
 	name := f.GetPredicate()
-	reg, registered := LookupPredicate(name)
+	pred, registered := c.reg.Predicate(name)
 	in := direction(f) == modelv1alpha1.Direction_DIRECTION_IN
 	switch {
 	case name == "":
@@ -151,12 +151,12 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 	case name == PredicateExists:
 		c.add(codeMalformed, path+".predicate", "exists is implicit; don't declare it")
 		return
-	case registered && reg.Relation:
-		if in && kind.Valid() && !reg.InRange(kind) || !in && kind.Valid() && !reg.InDomain(kind) {
+	case registered && pred.Relation:
+		if in && c.reg.Valid(kind) && !c.reg.InRange(pred, kind) || !in && c.reg.Valid(kind) && !c.reg.InDomain(pred, kind) {
 			c.add(codeDomainMismatch, path+".predicate", "%q doesn't take a %s with direction %s", clip(name), clip(string(kind)), ShortName(direction(f)))
 		}
 	case registered:
-		if kind.Valid() && !reg.InDomain(kind) {
+		if c.reg.Valid(kind) && !c.reg.InDomain(pred, kind) {
 			c.add(codeDomainMismatch, path+".predicate", "%q is not an attribute of %s", clip(name), clip(string(kind)))
 		}
 	case !ValidAttributeName(name):
@@ -165,16 +165,16 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 	switch {
 	case !registered && f.GetType() == modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED:
 		c.add(codeMalformed, path+".type", "is required for an unregistered attribute")
-	case registered && f.GetType() != modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED && f.GetType() != reg.Type:
-		c.add(codeTypeMismatch, path+".type", "%q is registered as %s", clip(name), ShortName(reg.Type))
+	case registered && f.GetType() != modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED && f.GetType() != pred.Type:
+		c.add(codeTypeMismatch, path+".type", "%q is registered as %s", clip(name), ShortName(pred.Type))
 	}
 	switch {
 	case !registered && f.GetCardinality() == modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED:
 		c.add(codeMalformed, path+".cardinality", "is required for an unregistered attribute")
-	case registered && f.GetCardinality() != modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED && f.GetCardinality() != reg.Cardinality:
-		c.add(codeMalformed, path+".cardinality", "%q is registered as %s", clip(name), ShortName(reg.Cardinality))
+	case registered && f.GetCardinality() != modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED && f.GetCardinality() != pred.Cardinality:
+		c.add(codeMalformed, path+".cardinality", "%q is registered as %s", clip(name), ShortName(pred.Cardinality))
 	}
-	if in && (!registered || !reg.Relation) {
+	if in && (!registered || !pred.Relation) {
 		c.add(codeMalformed, path+".direction", "only relations can be declared in")
 	}
 	if f.GetMatch() == modelv1alpha1.MatchMethod_MATCH_METHOD_MEMBERS && (name != string(RelMemberOf) || !in) {
@@ -185,11 +185,11 @@ func (c *checker) field(path string, kind Kind, f *modelv1alpha1.FieldDeclaratio
 // DeclaredAttributes returns the attributes d declares that the registry
 // doesn't have, in the form ValidateObservationWith takes. A nil d declares
 // none.
-func DeclaredAttributes(d *modelv1alpha1.AdapterDeclaration) map[string]Predicate {
+func DeclaredAttributes(reg *Registry, d *modelv1alpha1.AdapterDeclaration) map[string]Predicate {
 	out := map[string]Predicate{}
 	for _, k := range d.GetKinds() {
 		for _, f := range k.GetFields() {
-			if _, registered := LookupPredicate(f.GetPredicate()); !registered {
+			if _, registered := reg.Predicate(f.GetPredicate()); !registered {
 				out[f.GetPredicate()] = Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality()}
 			}
 		}
