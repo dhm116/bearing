@@ -1,17 +1,22 @@
 package server
 
 import (
-	"google.golang.org/protobuf/proto"
-
 	"context"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
 )
+
+func cloneObs(o *eventv1alpha1.Observation) *eventv1alpha1.Observation {
+	c, _ := proto.Clone(o).(*eventv1alpha1.Observation)
+	return c
+}
 
 func TestSchedulerGivesASourceWithNoActiveKindsNoSync(t *testing.T) {
 	const idle = "idle-source"
@@ -41,7 +46,7 @@ func TestServerDropsAnOptionalKindWithoutFailingTheSyncOrWebhook(t *testing.T) {
 	foreign.GetData().GetEntity().Key = "vault:group/x"
 	// A fresh copy per call: the host stamps the source on what it takes.
 	page := func() []*eventv1alpha1.Observation {
-		return []*eventv1alpha1.Observation{proto.Clone(ok).(*eventv1alpha1.Observation), proto.Clone(foreign).(*eventv1alpha1.Observation)}
+		return []*eventv1alpha1.Observation{cloneObs(ok), cloneObs(foreign)}
 	}
 	h := newHarness(t, func(c *Config) { c.Active = map[string][]model.Kind{testSource: {kind}} })
 	h.s.cfg.Applier = StoreApplier{Store: h.mem, Active: h.cfg.Active}
