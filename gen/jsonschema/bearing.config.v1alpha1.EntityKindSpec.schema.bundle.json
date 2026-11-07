@@ -101,12 +101,12 @@
         },
         "extends": {
           "default": "",
-          "description": "The parent kind, core or configured, such as \"Component\". Empty: none,\n so the kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
+          "description": "The parent kind, core or configured, such as \"Component\"; boot refuses\n an unknown parent or a cycle. Empty: none,\n so the kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
           "type": "string"
         },
         "name": {
           "default": "",
-          "description": "The kind, \"\u003cnamespace\u003e.\u003cKind\u003e\" such as \"k8s.Service\". The namespace names\n the vocabulary that defines the kind; \"bearing\" is reserved. Required.",
+          "description": "The kind, \"\u003cnamespace\u003e.\u003cKind\u003e\" such as \"k8s.Service\". The namespace names\n the vocabulary that defines the kind; \"bearing\" is reserved. It is the\n kind's identity in the store. Required.",
           "type": "string"
         },
         "relations": {
@@ -123,7 +123,7 @@
     "bearing.config.v1alpha1.RelationSpec.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "RelationSpec declares one relation predicate. A predicate that already\n exists must repeat its shape; its domain and range grow by these kinds.",
+      "description": "RelationSpec declares one relation predicate. A predicate that already\n exists must repeat its shape; its domain and range grow by these kinds,\n and a core predicate grows only by configured kinds. Boot refuses a kind\n the vocabulary doesn't hold.",
       "properties": {
         "cardinality": {
           "anyOf": [

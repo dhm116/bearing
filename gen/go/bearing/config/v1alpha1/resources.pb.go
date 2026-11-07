@@ -257,7 +257,8 @@ type EntityKind struct {
 	ApiVersion string `protobuf:"bytes,1,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
 	// "EntityKind".
 	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	// The resource's name, for example "k8s-service".
+	// Names the resource only, for example "k8s-service"; the kind's identity
+	// is spec.name, so renaming the resource changes nothing in the store.
 	Metadata *Metadata `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	// The kind.
 	Spec          *EntityKindSpec `protobuf:"bytes,4,opt,name=spec,proto3" json:"spec,omitempty"`
@@ -327,9 +328,11 @@ func (x *EntityKind) GetSpec() *EntityKindSpec {
 type EntityKindSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The kind, "<namespace>.<Kind>" such as "k8s.Service". The namespace names
-	// the vocabulary that defines the kind; "bearing" is reserved. Required.
+	// the vocabulary that defines the kind; "bearing" is reserved. It is the
+	// kind's identity in the store. Required.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// The parent kind, core or configured, such as "Component". Empty: none,
+	// The parent kind, core or configured, such as "Component"; boot refuses
+	// an unknown parent or a cycle. Empty: none,
 	// so the kind answers Get, Related, Find and Changes but none of the MVP
 	// questions.
 	Extends string `protobuf:"bytes,2,opt,name=extends,proto3" json:"extends,omitempty"`
@@ -474,7 +477,9 @@ func (x *AttributeSpec) GetConflict() v1alpha1.ConflictPolicy {
 }
 
 // RelationSpec declares one relation predicate. A predicate that already
-// exists must repeat its shape; its domain and range grow by these kinds.
+// exists must repeat its shape; its domain and range grow by these kinds,
+// and a core predicate grows only by configured kinds. Boot refuses a kind
+// the vocabulary doesn't hold.
 type RelationSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Lowercase letters, digits and "_". Required.
