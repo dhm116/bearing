@@ -462,7 +462,16 @@ func TestAPIJoinChecksKindsAlongOneLineOfDescent(t *testing.T) {
 	w.start()
 	decisionLogged(t, w.decide("admin", `{"decision":"join","a":"catalog:svc/parent","b":"catalog:svc/child"}`))
 	waitFor(t, "the join to be applied", func() bool { return w.drained(identityPartition) })
-	rec := w.decide("admin", `{"decision":"join","a":"catalog:svc/child","b":"catalog:svc/sibling"}`)
+	parent, err := w.mem.Entity(t.Context(), "catalog:svc/parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child, err := w.mem.Entity(t.Context(), "catalog:svc/child"); err != nil || child.ID != parent.ID {
+		t.Fatalf("the first join: got child %+v, %v, want one cluster with the parent %s", child, err, parent.ID)
+	}
+	// The parent alone lies on a line with the sibling, but the cluster it
+	// now belongs to holds k8s.Service, which does not.
+	rec := w.decide("admin", `{"decision":"join","a":"catalog:svc/parent","b":"catalog:svc/sibling"}`)
 	if rec.Code != http.StatusBadRequest || decodeError(t, rec).Code != "invalid_request" {
 		t.Errorf("sibling join: got %d %s, want 400", rec.Code, rec.Body.String())
 	}

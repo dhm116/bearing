@@ -339,6 +339,30 @@ Each entry:
 - **Impact:** every fact of the cluster, including ones the active record's source keeps current, carries `as_of` the retirement time, which understates how fresh they are.
 - **Proposed fix:** label only facts whose sending record has a retired kind, not facts of the whole cluster.
 
+## Adapter-declared attributes are any-kind on purpose
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `pkg/server/boot/assemble.go`)
+- **Area:** vocabulary
+- **Example:** the GitHub adapter declares `zone` on Team. A Person observation carrying `zone` is accepted, because a declared attribute has no domain.
+- **Impact:** the shape (type, cardinality) is checked, the kind is not. Declarations carry no per-kind domain, and facts carry no kind, so a stray attribute lands on whichever kind sent it.
+- **Proposed fix:** if it matters, give declared attributes a domain of the kinds that declare them, and refuse an observation that sends one elsewhere.
+
+## An adapter unreachable at boot skips the emits check
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `checkProtocols`)
+- **Area:** boot
+- **Example:** a remote adapter is down when the server starts; its `Describe` fails, so `emits` is never compared with its declaration.
+- **Impact:** the server starts, and an adapter that emits an undeclared kind is only caught when its observations are rejected on ingest.
+- **Proposed fix:** repeat the emits check on the first sync's `Describe`, and refuse that sync.
+
+## A source dropped for no active kinds reports "unknown source" when synced by name
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `Assemble`)
+- **Area:** boot, API
+- **Example:** `bearing source sync` for a source whose adapter declares only optional kinds, none enabled.
+- **Impact:** the source is not registered with the server, so the answer says the source is unknown instead of that it has no active kinds. The start log names the cause once.
+- **Proposed fix:** keep such a source registered but paused, and answer "no active kinds" with the kind to enable.
+
 ## Facts backed only by a kind that is now inactive never close
 
 - **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))

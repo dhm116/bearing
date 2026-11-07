@@ -56,6 +56,10 @@ type Settings struct {
 	// Sources are Source resources in ProtoJSON (kind Source, apiVersion
 	// bearing/v1alpha1): the same objects a later config store would hold.
 	Sources []json.RawMessage `json:"sources"`
+	// EntityKinds are EntityKind resources in ProtoJSON (kind EntityKind,
+	// apiVersion bearing/v1alpha1): the kinds added to the vocabulary beside
+	// the core kinds (ADR 10). Changing them takes a restart.
+	EntityKinds []json.RawMessage `json:"entity_kinds,omitempty"`
 }
 
 // StoreSettings names the store (pkg/store): mem:// or
@@ -306,8 +310,101 @@ type checked struct {
 
 // Validate checks the settings that need no environment, file or network.
 func (s *Settings) Validate() error {
-	_, err := s.check(model.Core())
+	reg, err := s.Registry()
+	if err != nil {
+		return err
+	}
+	_, err = s.check(reg)
 	return err
+}
+
+// Registry builds the vocabulary the settings define: the core kinds and the
+// EntityKind resources. Assemble extends it with the adapters' declared
+// attributes, which live in files.
+func (s *Settings) Registry() (*model.Registry, error) {
+	var defs []model.KindDef
+	var entries [][]model.Predicate
+	seen := map[string]bool{}
+	for i, raw := range s.EntityKinds {
+		ek := &configv1alpha1.EntityKind{}
+		if err := model.DecodeJSON(raw, ek); err != nil {
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
+		}
+		name := ek.GetMetadata().GetName()
+		switch {
+		case ek.GetKind() != "EntityKind" || ek.GetApiVersion() != "bearing/v1alpha1":
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: apiVersion bearing/v1alpha1 and kind EntityKind are required, not %q and %q", i, model.Clip(ek.GetApiVersion()), model.Clip(ek.GetKind()))
+		case !resourceName.MatchString(name):
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: metadata.name %q must be lowercase letters, digits, - and _", i, model.Clip(name))
+		case seen[name]:
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: the name %q is used twice", i, name)
+		}
+		seen[name] = true
+		kind := model.Kind(ek.GetSpec().GetName())
+		preds, err := kindPredicates(kind, ek.GetSpec())
+		if err != nil {
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
+		}
+		defs = append(defs, model.KindDef{Name: kind, Parent: model.Kind(ek.GetSpec().GetExtends())})
+		entries = append(entries, preds)
+	}
+	if len(defs) == 0 {
+		return model.Core(), nil
+	}
+	// Kinds first, so a parent, domain or range may be defined later in the list.
+	reg, err := model.Core().Extend(defs, nil)
+	if err != nil {
+		return nil, fmt.Errorf("boot: settings: entity_kinds%s: %w", kindIndex(defs, err), err)
+	}
+	for i, preds := range entries {
+		if reg, err = reg.Extend(nil, preds); err != nil {
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
+		}
+	}
+	return reg, nil
+}
+
+// kindIndex is "[i]" for the first EntityKind whose name err quotes, so a
+// kinds-phase error points at its resource like the others do.
+func kindIndex(defs []model.KindDef, err error) string {
+	for i, d := range defs {
+		if strings.Contains(err.Error(), fmt.Sprintf("kind %q", model.Clip(string(d.Name)))) {
+			return fmt.Sprintf("[%d]", i)
+		}
+	}
+	return ""
+}
+
+// kindPredicates turns an EntityKind's attributes and relations into
+// predicates with the kind in their domain.
+func kindPredicates(kind model.Kind, spec *configv1alpha1.EntityKindSpec) ([]model.Predicate, error) {
+	var preds []model.Predicate
+	names := map[string]bool{}
+	for _, a := range spec.GetAttributes() {
+		if names[a.GetName()] {
+			return nil, fmt.Errorf("spec: %q is declared twice", model.Clip(a.GetName()))
+		}
+		names[a.GetName()] = true
+		preds = append(preds, model.Predicate{Name: a.GetName(), Type: a.GetType(), Cardinality: a.GetCardinality(), Conflict: a.GetConflict(), Domain: []model.Kind{kind}})
+	}
+	for _, r := range spec.GetRelations() {
+		if names[r.GetName()] {
+			return nil, fmt.Errorf("spec: %q is declared twice", model.Clip(r.GetName()))
+		}
+		names[r.GetName()] = true
+		if len(r.GetRange()) == 0 {
+			return nil, fmt.Errorf("spec: relation %q needs a range", model.Clip(r.GetName()))
+		}
+		p := model.Predicate{Name: r.GetName(), Relation: true, Cardinality: r.GetCardinality(), Conflict: r.GetConflict(), Domain: []model.Kind{kind}}
+		for _, k := range r.GetDomain() {
+			p.Domain = append(p.Domain, model.Kind(k))
+		}
+		for _, k := range r.GetRange() {
+			p.Range = append(p.Range, model.Kind(k))
+		}
+		preds = append(preds, p)
+	}
+	return preds, nil
 }
 
 func (s *Settings) check(reg *model.Registry) (*checked, error) {

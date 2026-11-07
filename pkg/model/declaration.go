@@ -21,16 +21,17 @@ func ValidateDeclaration(reg *Registry, d *modelv1alpha1.AdapterDeclaration) err
 	c.namespaceLike("issuer_type", d.GetIssuerType(), true)
 	kinds := map[Kind]bool{}
 	keyKinds := map[string]Kind{}
+	shapes := map[string]*modelv1alpha1.FieldDeclaration{}
 	for i, k := range d.GetKinds() {
 		kp := fmt.Sprintf("kinds[%d]", i)
 		kind := Kind(k.GetKind())
 		switch {
 		case kind == "":
 			c.add(codeMalformed, kp+".kind", "is required")
-		case !c.reg.Valid(kind):
-			c.add(codeNotDeclared, kp+".kind", "%q is not a registered kind", clip(string(kind)))
 		case kinds[kind]:
 			c.add(codeMalformed, kp+".kind", "%q is declared twice", clip(string(kind)))
+		case !c.reg.Valid(kind) && !k.GetOptional():
+			c.add(codeNotDeclared, kp+".kind", "%q is not a registered kind: define it with an EntityKind in the settings, or mark it optional", clip(string(kind)))
 		}
 		kinds[kind] = true
 		for j, key := range k.GetKeys() {
@@ -45,6 +46,7 @@ func ValidateDeclaration(reg *Registry, d *modelv1alpha1.AdapterDeclaration) err
 			}
 			fields[id] = true
 			c.field(fp, kind, f)
+			c.sameShape(fp, f, shapes)
 		}
 		for j, l := range k.GetLinks() {
 			lp := fmt.Sprintf("%s.links[%d]", kp, j)
@@ -82,6 +84,22 @@ func (c *checker) webhook(path string, w *modelv1alpha1.WebhookSignature) {
 	}
 	if p := w.GetSignaturePrefix(); len(p) > MaxSignaturePrefixBytes || strings.ContainsFunc(p, func(r rune) bool { return r <= ' ' || r >= 0x7f || r == ',' }) {
 		c.add(codeMalformed, path+".signature_prefix", "must be at most %d printable ASCII characters without spaces or commas", MaxSignaturePrefixBytes)
+	}
+}
+
+// sameShape refuses an unregistered attribute declared with a second type or
+// cardinality by another kind of the declaration: a name has one shape.
+func (c *checker) sameShape(path string, f *modelv1alpha1.FieldDeclaration, shapes map[string]*modelv1alpha1.FieldDeclaration) {
+	if _, registered := c.reg.Predicate(f.GetPredicate()); registered || f.GetPredicate() == "" {
+		return
+	}
+	prev, seen := shapes[f.GetPredicate()]
+	if !seen {
+		shapes[f.GetPredicate()] = f
+		return
+	}
+	if prev.GetType() != f.GetType() || prev.GetCardinality() != f.GetCardinality() {
+		c.add(codeMalformed, path, "%q is declared with another type or cardinality than an earlier kind gave it", clip(f.GetPredicate()))
 	}
 }
 

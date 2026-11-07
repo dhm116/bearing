@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	configv1alpha1 "bearing.example/gen/go/bearing/config/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/clock"
@@ -48,6 +50,11 @@ type Env struct {
 // Running is a server that has been assembled and not yet run: its store is
 // open and its listeners are configured.
 type Running struct {
+	// ActiveKinds maps every source to the kinds its adapter declares that
+	// the vocabulary holds. A source with none is not run, and its entry is
+	// empty: empty here means no kinds, unlike an empty enabled_kinds.
+	ActiveKinds map[string][]model.Kind
+
 	srv    *server.Server
 	api    *server.API
 	listen server.ListenConfig
@@ -93,18 +100,29 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		env.Clock = clock.Real{}
 	}
 	log := telemetry.Logger(pkgName)
-	reg := model.Core()
-	c, err := s.check(reg)
+	cfgReg, err := s.Registry()
 	if err != nil {
 		return nil, err
 	}
-	decls, err := loadDeclarations(s, reg)
+	c, err := s.check(cfgReg)
 	if err != nil {
 		return nil, err
 	}
+	decls, err := loadDeclarations(s, cfgReg)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := extendDeclared(cfgReg, s, decls)
+	if err != nil {
+		return nil, err
+	}
+	active := activeKinds(log, reg, c, decls)
 	if err := checkCommands(s, os.Stat); err != nil {
 		return nil, err
 	}
+	c.sources = slices.DeleteFunc(c.sources, func(src *configv1alpha1.Source) bool {
+		return len(active[src.GetMetadata().GetName()]) == 0 // neither synced nor sent webhooks
+	})
 	plans, err := planSources(s, c, decls, env.Getenv)
 	if err != nil {
 		return nil, err
@@ -143,8 +161,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
-	if r, ok := st.(interface{ SetRegistry(*model.Registry) }); ok {
-		r.SetRegistry(reg)
+	if err := giveRegistry(st, reg); err != nil {
+		_ = st.Close()
+		return nil, err
 	}
 	procCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})) // no span: adapters outlive server.start
 	var procs []*managed
@@ -177,7 +196,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		sources = append(sources, server.Source{Name: p.name, Adapter: a, Config: p.config, Interval: p.every})
 	}
-	if err = checkProtocols(ctx, sources); err != nil {
+	if err = checkProtocols(ctx, sources, plans); err != nil {
 		return nil, err
 	}
 	scfg, err := serverConfig(s, reg, st, plans, sources, env.Clock)
@@ -207,7 +226,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, err
 	}
-	return &Running{srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
+	return &Running{ActiveKinds: active, srv: srv, api: api, listen: l, st: st, procs: procs, remotes: remotes, sockets: sockets, cancel: cancel}, nil
 }
 
 // protocolCheckTimeout bounds the Describe that checks an adapter's protocol
@@ -222,7 +241,7 @@ const protocolCheckTimeout = 15 * time.Second
 // before anything else and so refuses it then. Local adapters have already
 // answered a Describe when they started at boot, so this reaches the remote
 // ones in effect.
-func checkProtocols(ctx context.Context, sources []server.Source) error {
+func checkProtocols(ctx context.Context, sources []server.Source, plans []sourcePlan) error {
 	errs := make([]error, len(sources))
 	var wg sync.WaitGroup
 	for i, src := range sources {
@@ -231,8 +250,11 @@ func checkProtocols(ctx context.Context, sources []server.Source) error {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, protocolCheckTimeout)
 			defer cancel()
-			if _, err := src.Adapter.Describe(cctx); errors.Is(err, adapter.ErrProtocolMismatch) {
+			d, err := src.Adapter.Describe(cctx)
+			if errors.Is(err, adapter.ErrProtocolMismatch) {
 				errs[i] = fmt.Errorf("boot: source %s: %w", src.Name, err)
+			} else if err == nil {
+				errs[i] = checkEmits(src.Name, d.Emits, plans[i].decl)
 			}
 		}()
 	}
@@ -243,6 +265,93 @@ func checkProtocols(ctx context.Context, sources []server.Source) error {
 		}
 	}
 	return nil
+}
+
+// checkEmits refuses an adapter that says it emits a kind its declaration
+// does not declare.
+func checkEmits(source string, emits []model.Kind, decl *modelv1alpha1.AdapterDeclaration) error {
+	declared := map[model.Kind]bool{}
+	for _, k := range decl.GetKinds() {
+		declared[model.Kind(k.GetKind())] = true
+	}
+	for _, k := range emits {
+		if !declared[k] {
+			return fmt.Errorf("boot: source %s: the adapter emits %q, which its declaration does not declare", source, model.Clip(string(k)))
+		}
+	}
+	return nil
+}
+
+// giveRegistry hands the vocabulary to the store. A store that cannot take
+// it would validate against the core only, so with a vocabulary beyond the
+// core that is a start failure, not a silent fallback.
+func giveRegistry(st store.Store, reg *model.Registry) error {
+	r, ok := st.(interface{ SetRegistry(*model.Registry) })
+	switch {
+	case ok:
+		r.SetRegistry(reg)
+	case reg != model.Core():
+		return errors.New("boot: the store cannot take a vocabulary, and the settings define one beyond the core kinds")
+	}
+	return nil
+}
+
+// extendDeclared adds the attributes the adapters declare to reg, one shape
+// per name across the core, the configured kinds and every adapter.
+// Declarations were validated against reg, so a name already in reg has been
+// checked; two adapters that disagree meet here. With nothing to add it
+// returns reg itself.
+func extendDeclared(reg *model.Registry, s *Settings, decls map[string]*modelv1alpha1.AdapterDeclaration) (*model.Registry, error) {
+	out := reg
+	for i := range s.Adapters {
+		// Attributes under a kind the registry lacks (an inactive optional
+		// kind) never reach the store, so they join no shape check.
+		active := &modelv1alpha1.AdapterDeclaration{}
+		for _, k := range decls[s.Adapters[i].Name].GetKinds() {
+			if reg.Valid(model.Kind(k.GetKind())) {
+				active.Kinds = append(active.Kinds, k)
+			}
+		}
+		declared := model.DeclaredAttributes(reg, active)
+		var preds []model.Predicate
+		for _, name := range slices.Sorted(maps.Keys(declared)) {
+			p := declared[name]
+			p.Conflict = modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE // a declaration gives none
+			preds = append(preds, p)
+		}
+		if len(preds) == 0 {
+			continue
+		}
+		var err error
+		if out, err = out.Extend(nil, preds); err != nil {
+			return nil, fmt.Errorf("boot: settings: adapters[%d].declaration: %w", i, err)
+		}
+	}
+	return out, nil
+}
+
+// activeKinds says, per source, which of the kinds its adapter declares the
+// vocabulary holds, and logs once what is inactive: each optional kind the
+// vocabulary lacks, and a source left with none. A required kind the
+// vocabulary lacks was already refused by ValidateDeclaration.
+func activeKinds(log *slog.Logger, reg *model.Registry, c *checked, decls map[string]*modelv1alpha1.AdapterDeclaration) map[string][]model.Kind {
+	out := map[string][]model.Kind{}
+	for _, src := range c.sources {
+		name := src.GetMetadata().GetName()
+		active := []model.Kind{}
+		for _, k := range decls[src.GetSpec().GetAdapter()].GetKinds() {
+			if kind := model.Kind(k.GetKind()); reg.Valid(kind) {
+				active = append(active, kind)
+			} else {
+				log.Info("an optional kind is not enabled, so its records are dropped", "bearing.source", name, "bearing.kind", model.Clip(string(kind)))
+			}
+		}
+		if len(active) == 0 {
+			log.Warn("a source has no active kinds, so it is neither synced nor sent webhooks; enable a kind it declares with an EntityKind", "bearing.source", name)
+		}
+		out[name] = active
+	}
+	return out
 }
 
 // Run serves until ctx ends or the server or a listener fails, then stops
