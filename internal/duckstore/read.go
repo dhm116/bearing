@@ -33,7 +33,7 @@ func (s *Store) Entity(ctx context.Context, ref string) (graph.Entity, error) {
 			return graph.Entity{}, err
 		}
 		if ok {
-			ents, err := entities(ctx, db, []string{cluster})
+			ents, err := entities(ctx, db, s.reg, []string{cluster})
 			if err != nil {
 				return graph.Entity{}, err
 			}
@@ -78,7 +78,7 @@ func resolveID(ctx context.Context, db querier, id graph.EntityID) (graph.Entity
 // entities loads the given clusters: each one's ID, kind, name (the oldest
 // record with a kind and a name, else the oldest record's), every key,
 // sorted, and its records.
-func entities(ctx context.Context, db querier, clusters []string) (map[string]graph.Entity, error) {
+func entities(ctx context.Context, db querier, reg *model.Registry, clusters []string) (map[string]graph.Entity, error) {
 	out := map[string]graph.Entity{}
 	if len(clusters) == 0 {
 		return out, nil
@@ -90,9 +90,7 @@ func entities(ctx context.Context, db querier, clusters []string) (map[string]gr
 	for _, r := range recs { // oldest first
 		e := out[string(r.Cluster)]
 		e.ID = r.Cluster
-		if e.Kind == "" {
-			e.Kind = r.Kind
-		}
+		e.Kind = reg.Deeper(e.Kind, r.Kind) // the cluster's kind is its deepest, as recluster keeps it
 		e.Keys = append(e.Keys, r.Keys...)
 		e.Records = append(e.Records, r)
 		out[string(r.Cluster)] = e
@@ -179,14 +177,16 @@ func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit i
 		if limit <= 0 {
 			limit = 20
 		}
+		kinds := s.reg.Descendants(kind) // a kind includes its descendants
+		kp, kargs := placeholders(len(kinds)), anySlice(kinds)
 		// Every record yields one row for its name and one per key; the best
 		// row (lowest tier, highest score) stands for its cluster.
 		rows, err := db.QueryContext(ctx, `
 WITH cand AS (
-  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind = ?)
+  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind IN (`+kp+`))
   UNION ALL
   SELECT e.cluster_id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
-  WHERE (? = '' OR e.kind = ?)
+  WHERE (? = '' OR e.kind IN (`+kp+`))
 ), scored AS (
   SELECT id,
     CASE WHEN lower(txt) = lower(?) THEN 0 WHEN contains(lower(txt), lower(?)) THEN 1
@@ -198,8 +198,8 @@ WITH cand AS (
 )
 SELECT id, max(score) FROM scored WHERE tier < 3 GROUP BY id
 ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
-			string(kind), string(kind), string(kind), string(kind),
-			query, query, query, query, query, query, query, limit)
+			slices.Concat([]any{string(kind)}, kargs, []any{string(kind)}, kargs,
+				[]any{query, query, query, query, query, query, query, limit})...)
 		if err != nil {
 			return nil, fmt.Errorf("find %q: %w", query, err)
 		}
@@ -221,7 +221,7 @@ ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
 		if len(ids) == 0 {
 			return nil, nil
 		}
-		byID, err := entities(ctx, db, ids)
+		byID, err := entities(ctx, db, s.reg, ids)
 		if err != nil {
 			return nil, fmt.Errorf("find %q: %w", query, err)
 		}

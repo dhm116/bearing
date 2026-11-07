@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/model"
 )
 
 // Decide implements graph.Graph. It runs in one transaction and notes the
@@ -103,7 +104,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 		if err := assert(a, b, graph.SameAs); err != nil {
 			return err
 		}
-		moved, err := recluster(ctx, tx, []string{a, b})
+		moved, err := recluster(ctx, tx, s.reg, []string{a, b})
 		if err != nil {
 			return err
 		}
@@ -163,13 +164,13 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 			if err := closeOpen(l.a, l.b, graph.DistinctFrom); err != nil {
 				return res, err
 			}
-			moved, err := recluster(ctx, tx, []string{l.a, l.b})
+			moved, err := recluster(ctx, tx, s.reg, []string{l.a, l.b})
 			if err != nil {
 				return res, err
 			}
 			return res, checkNoneLeft(ctx, tx, "undoing distinct_from "+d.LinkID, l.a, l.b, before, moved)
 		}
-		_, err = recluster(ctx, tx, []string{l.a, l.b})
+		_, err = recluster(ctx, tx, s.reg, []string{l.a, l.b})
 		return res, err
 	case graph.Join, graph.Split:
 		a, err := recordOf(ctx, tx, d.A)
@@ -191,7 +192,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 			if sameAs && !distinct {
 				return res, checkJoined(ctx, tx, a, b) // already asserted
 			}
-			if err := checkSameKind(ctx, tx, a, b); err != nil {
+			if err := checkSameKind(ctx, tx, s.reg, a, b); err != nil {
 				return res, err
 			}
 			return res, join(a, b)
@@ -206,7 +207,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 		if err := assert(a, b, graph.DistinctFrom); err != nil {
 			return res, err
 		}
-		_, err = recluster(ctx, tx, []string{a, b})
+		_, err = recluster(ctx, tx, s.reg, []string{a, b})
 		return res, err
 	}
 	return res, fmt.Errorf("decision kind %q: %w", d.Kind, graph.ErrInvalidDecision)
@@ -239,18 +240,40 @@ func recordOf(ctx context.Context, tx *sql.Tx, ref string) (string, error) {
 }
 
 // checkSameKind refuses a join of two records whose clusters are of
-// different kinds, which clusters never hold; a kindless cluster joins any.
+// kinds off one line of descent, which clusters never hold; a kindless cluster joins any.
 // A kindless record takes its cluster's kind.
-func checkSameKind(ctx context.Context, tx *sql.Tx, a, b string) error {
-	const kindOf = `(SELECT max(kind) FILTER (WHERE kind <> '') FROM entity WHERE cluster_id = (SELECT cluster_id FROM entity WHERE id = ?))`
-	var ka, kb sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT `+kindOf+`, `+kindOf, a, b).Scan(&ka, &kb); err != nil {
-		return wrapErr("kind", err)
+func checkSameKind(ctx context.Context, tx *sql.Tx, reg *model.Registry, a, b string) error {
+	ka, err := clusterKind(ctx, tx, reg, a)
+	if err != nil {
+		return err
 	}
-	if ka.Valid && kb.Valid && ka.String != kb.String {
-		return fmt.Errorf("%w: %s is in a %s cluster and %s in a %s cluster", graph.ErrInvalidDecision, a, ka.String, b, kb.String)
+	kb, err := clusterKind(ctx, tx, reg, b)
+	if err != nil {
+		return err
+	}
+	if ka != "" && kb != "" && !reg.OneLine(ka, kb) {
+		return fmt.Errorf("%w: %s is in a %s cluster and %s in a %s cluster", graph.ErrInvalidDecision, a, ka, b, kb)
 	}
 	return nil
+}
+
+// clusterKind is the deepest kind in the cluster of record id, or "" for a
+// kindless cluster.
+func clusterKind(ctx context.Context, tx *sql.Tx, reg *model.Registry, id string) (model.Kind, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT kind FROM entity WHERE kind <> '' AND cluster_id = (SELECT cluster_id FROM entity WHERE id = ?) ORDER BY kind`, id)
+	if err != nil {
+		return "", wrapErr("kind", err)
+	}
+	kinds, err := collect(rows, func(sc scanner) (model.Kind, error) {
+		var k string
+		err := sc.Scan(&k)
+		return model.Kind(k), err
+	})
+	var deepest model.Kind
+	for _, k := range kinds {
+		deepest = reg.Deeper(deepest, k)
+	}
+	return deepest, wrapErr("kind", err)
 }
 
 // pairDistinct returns the open distinct_from between a and b, or "".

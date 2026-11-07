@@ -132,7 +132,7 @@ func (w *world) ingest(source string, at time.Time, data ...*modelv1alpha1.Obser
 	obs := make([]*eventv1alpha1.Observation, len(data))
 	for i, d := range data {
 		obs[i] = model.NewObservation("adapter/"+source, at, d)
-		if err := model.ValidateObservation(obs[i]); err != nil {
+		if err := model.ValidateObservation(model.Core(), obs[i]); err != nil {
 			w.t.Fatalf("observation %d: %v", i, err)
 		}
 	}

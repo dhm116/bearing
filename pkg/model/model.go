@@ -122,7 +122,7 @@ func DecodeJSON(b []byte, m proto.Message) error {
 // Decoding is strict (unknown fields, including CloudEvents extension
 // attributes, are an error), and a decoding failure is a *ValidationError
 // with the malformed code.
-func DecodeObservation(b []byte) (*eventv1alpha1.Observation, error) {
+func DecodeObservation(reg *Registry, b []byte) (*eventv1alpha1.Observation, error) {
 	o := &eventv1alpha1.Observation{}
 	if err := DecodeJSON(b, o); err != nil {
 		return nil, &ValidationError{
@@ -131,5 +131,5 @@ func DecodeObservation(b []byte) (*eventv1alpha1.Observation, error) {
 			observation: true,
 		}
 	}
-	return o, ValidateObservation(o)
+	return o, ValidateObservation(reg, o)
 }

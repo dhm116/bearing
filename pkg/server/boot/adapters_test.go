@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"bearing.example/pkg/model"
+
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/adapter"
 )
@@ -199,11 +201,11 @@ func mustPlans(t *testing.T, w *world) []sourcePlan {
 }
 
 func plans(w *world) ([]sourcePlan, error) {
-	c, err := w.settings.check()
+	c, err := w.settings.check(model.Core())
 	if err != nil {
 		return nil, err
 	}
-	decls, err := loadDeclarations(w.settings)
+	decls, err := loadDeclarations(w.settings, model.Core())
 	if err != nil {
 		return nil, err
 	}

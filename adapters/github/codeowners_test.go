@@ -119,7 +119,7 @@ func TestDescribeAndConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("webhook signature: %v", err)
 	}
-	if err := model.ValidateDeclaration(&modelv1alpha1.AdapterDeclaration{Name: "github", IssuerType: "github", Webhook: w}); err != nil {
+	if err := model.ValidateDeclaration(model.Core(), &modelv1alpha1.AdapterDeclaration{Name: "github", IssuerType: "github", Webhook: w}); err != nil {
 		t.Errorf("declared webhook is invalid: %v", err)
 	}
 	if w.GetSignatureHeader() != "X-Hub-Signature-256" || w.GetSignaturePrefix() != "sha256=" {

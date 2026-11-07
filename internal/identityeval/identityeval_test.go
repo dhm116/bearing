@@ -51,7 +51,7 @@ func TestGenerateLabelsAreBalancedAndKeysResolve(t *testing.T) {
 	}
 	kinds := map[model.Key]model.Kind{}
 	for _, o := range s.Observations {
-		if err := model.ValidateObservation(o); err != nil {
+		if err := model.ValidateObservation(model.Core(), o); err != nil {
 			t.Fatalf("%s: %v", o.GetId(), err)
 		}
 		kinds[model.Key(o.GetData().GetEntity().GetKey())] = model.Kind(o.GetData().GetEntity().GetKind())
@@ -80,7 +80,7 @@ func TestScenariosValidateAndStopEvidence(t *testing.T) {
 		}
 		for _, r := range sc.Rounds {
 			for _, o := range r.Observations {
-				if err := model.ValidateObservation(o); err != nil {
+				if err := model.ValidateObservation(model.Core(), o); err != nil {
 					t.Fatalf("%s: %s: %v", sc.Name, o.GetId(), err)
 				}
 			}

@@ -29,7 +29,7 @@ func TestCandidatesFindsCandidatePairs(t *testing.T) {
 	skip := func(a, b graph.EntityID) bool { return a == "d-pay" && b == "g-roll" }
 
 	var got []string
-	for _, c := range Candidates(recs, members, skip) {
+	for _, c := range Candidates(model.Core(), recs, members, skip) {
 		got = append(got, string(c.A.ID)+"+"+string(c.B.ID))
 	}
 	want := []string{"d-pay+g-pay", "g-sre+k-rel", "d-pay+t-pay"}
@@ -51,18 +51,18 @@ func TestCandidatesFindsCandidatePairs(t *testing.T) {
 func TestCandidatesSkipsSameClusterAndOtherKinds(t *testing.T) {
 	a, b := rec("a", "payments", model.KindTeam), rec("b", "payments", model.KindTeam)
 	b.Cluster = "a"
-	if got := Candidates([]graph.Record{a, b}, nil, nil); len(got) != 0 {
+	if got := Candidates(model.Core(), []graph.Record{a, b}, nil, nil); len(got) != 0 {
 		t.Fatalf("same cluster: got %v", got)
 	}
 	c := rec("c", "payments", model.KindPerson)
-	if got := Candidates([]graph.Record{a, c}, nil, nil); len(got) != 0 {
+	if got := Candidates(model.Core(), []graph.Record{a, c}, nil, nil); len(got) != 0 {
 		t.Fatalf("other kind: got %v", got)
 	}
 }
 
 func TestCandidatesSkipKindlessRecords(t *testing.T) {
 	a, b := rec("a", "payments", ""), rec("b", "payments", "")
-	if got := Candidates([]graph.Record{a, b}, nil, nil); len(got) != 0 {
+	if got := Candidates(model.Core(), []graph.Record{a, b}, nil, nil); len(got) != 0 {
 		t.Fatalf("got %v, want no pairs of kindless records", got)
 	}
 }

@@ -121,9 +121,10 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 	}
 	halfLife := q.HalfLife
 	if halfLife == nil {
-		halfLife = match.Config{}.HalfLifeOf
+		halfLife = match.Config{Registry: q.Registry}.HalfLifeOf
 	}
 	at := now()
+	reg := q.Registry
 	var ids []graph.EntityID
 	for _, l := range ls {
 		ids = append(ids, l.A, l.B)
@@ -157,7 +158,7 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 			continue
 		}
 		a, b := record(l.A), record(l.B)
-		s := match.ScoreOf(l.Deposits, at, halfLife(model.Kind(a.Kind)))
+		s := match.ScoreOf(l.Deposits, at, halfLife(reg.Deeper(model.Kind(a.Kind), model.Kind(b.Kind))))
 		o := Link{
 			ID: l.ID, Kind: string(l.Kind), Status: string(l.Status), Rule: l.Rule, A: a, B: b, ValidFrom: l.ValidFrom,
 			Score:    LinkScore{Strength: s.Strength, Certainty: s.Certainty, Support: s.Support, Contrary: s.Contrary},

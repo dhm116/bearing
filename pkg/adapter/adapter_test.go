@@ -56,7 +56,7 @@ func dialed(t *testing.T, a Adapter) *Remote {
 func TestSyncAllPagesUntilDone(t *testing.T) {
 	c := dialed(t, pager{n: 3})
 	var keys []model.Key
-	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
+	sum, err := SyncAll(context.Background(), model.Core(), c, json.RawMessage(`{"Prefix":"t"}`), 10, func(o *eventv1alpha1.Observation) error {
 		keys = append(keys, model.Key(o.GetData().GetEntity().GetKey()))
 		return nil
 	})
@@ -76,7 +76,7 @@ func TestSyncAllPagesUntilDone(t *testing.T) {
 
 func TestSyncAllStopsRunawayAdapters(t *testing.T) {
 	c := dialed(t, pager{n: 1000})
-	_, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
+	_, err := SyncAll(context.Background(), model.Core(), c, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 	if !errors.Is(err, ErrTooManyPages) {
 		t.Fatalf("got %v, want ErrTooManyPages", err)
 	}
@@ -112,7 +112,7 @@ func TestSyncAllSkipsAndCountsRejections(t *testing.T) {
 	c := dialed(t, mixed{})
 	var keys []string
 	var rels []int
-	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
+	sum, err := SyncAll(context.Background(), model.Core(), c, json.RawMessage(`{}`), 10, func(o *eventv1alpha1.Observation) error {
 		keys = append(keys, o.GetData().GetEntity().GetKey())
 		rels = append(rels, len(o.GetData().GetRelations()))
 		return nil
@@ -159,7 +159,7 @@ func TestSyncResultCarriesCompleteSyncOnTheLastPage(t *testing.T) {
 
 func TestSyncSummaryCompleteIgnoresRejectedClaims(t *testing.T) {
 	c := dialed(t, mixed{})
-	sum, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	sum, err := SyncAll(context.Background(), model.Core(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	if err != nil || sum.Complete() {
 		t.Fatalf("got %+v (%v), want a sync that skipped observations to be incomplete", sum, err)
 	}
@@ -189,7 +189,7 @@ func TestSyncAllErrorsNameThePackageAndPage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := SyncAll(context.Background(), tt.s, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
+			_, err := SyncAll(context.Background(), model.Core(), tt.s, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 			if err == nil || err.Error() != tt.want {
 				t.Fatalf("got %v, want %q", err, tt.want)
 			}
@@ -225,7 +225,7 @@ func TestSyncPagesKeepsAPageTogetherAndNumbersEveryOne(t *testing.T) {
 		done   bool
 	}
 	var got []seen
-	sum, err := SyncPages(context.Background(), completingMixed{}, json.RawMessage(`{}`), 10, func(p Page) error {
+	sum, err := SyncPages(context.Background(), model.Core(), completingMixed{}, json.RawMessage(`{}`), 10, func(p Page) error {
 		var keys []string
 		for _, o := range p.Observations {
 			keys = append(keys, o.GetData().GetEntity().GetKey())
@@ -266,7 +266,7 @@ func (c completingMixed) Sync(ctx context.Context, sp SyncParams) (SyncResult, e
 
 func TestSyncPagesKeepsCompleteSyncWhenNothingWasRejected(t *testing.T) {
 	var last Page
-	_, err := SyncPages(context.Background(), completer{pager{n: 2}}, json.RawMessage(`{"prefix":"p"}`), 10, func(p Page) error {
+	_, err := SyncPages(context.Background(), model.Core(), completer{pager{n: 2}}, json.RawMessage(`{"prefix":"p"}`), 10, func(p Page) error {
 		last = p
 		return nil
 	})
@@ -281,7 +281,7 @@ func TestSyncPagesKeepsCompleteSyncWhenNothingWasRejected(t *testing.T) {
 func TestSyncPagesStopsWhenEmitFails(t *testing.T) {
 	boom := errors.New("log is full")
 	calls := 0
-	_, err := SyncPages(context.Background(), pager{n: 5}, json.RawMessage(`{}`), 10, func(Page) error {
+	_, err := SyncPages(context.Background(), model.Core(), pager{n: 5}, json.RawMessage(`{}`), 10, func(Page) error {
 		calls++
 		return boom
 	})
@@ -292,19 +292,19 @@ func TestSyncPagesStopsWhenEmitFails(t *testing.T) {
 
 func TestHandleCheckedValidatesAndTruncates(t *testing.T) {
 	a := coreFields{}
-	_, err := HandleChecked(context.Background(), a, "x", HandleParams{Body: []byte("bad")})
+	_, err := HandleChecked(context.Background(), model.Core(), a, "x", HandleParams{Body: []byte("bad")})
 	var ve *model.ValidationError
 	if !errors.As(err, &ve) || !ve.Has(modelv1alpha1.RejectionCode_REJECTION_CODE_MALFORMED) {
 		t.Fatalf("got %v, want a malformed-key rejection", err)
 	}
-	res, err := HandleChecked(context.Background(), a, "x", HandleParams{Body: []byte("ok")})
+	res, err := HandleChecked(context.Background(), model.Core(), a, "x", HandleParams{Body: []byte("ok")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := res.Observations[0].GetTime().GetNanos(); got != 123_456_000 {
 		t.Fatalf("got nanos %d, want 123456000", got)
 	}
-	if _, err := HandleChecked(context.Background(), pager{}, "x", HandleParams{}); !errors.Is(err, ErrNotSupported) {
+	if _, err := HandleChecked(context.Background(), model.Core(), pager{}, "x", HandleParams{}); !errors.Is(err, ErrNotSupported) {
 		t.Fatalf("got %v, want ErrNotSupported passed through", err)
 	}
 }

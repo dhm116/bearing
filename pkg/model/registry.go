@@ -2,7 +2,6 @@ package model
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -11,7 +10,7 @@ import (
 )
 
 // Kind is a subject kind. Kinds are strings on the wire and come only from
-// the registry.
+// a Registry.
 type Kind string
 
 // The registered subject kinds.
@@ -28,16 +27,6 @@ const (
 	KindSchedule      Kind = "Schedule"
 	KindDocument      Kind = "Document"
 )
-
-// Kinds lists every registered subject kind.
-var Kinds = []Kind{
-	KindPerson, KindTeam, KindRepository, KindComponent, KindPackage,
-	KindEnvironment, KindCloudResource, KindChange, KindIncident,
-	KindSchedule, KindDocument,
-}
-
-// Valid reports whether k is a registered kind.
-func (k Kind) Valid() bool { return slices.Contains(Kinds, k) }
 
 // RelationType is a registered relation predicate.
 type RelationType string
@@ -80,12 +69,6 @@ type Predicate struct {
 	Cardinality modelv1alpha1.Cardinality
 	Conflict    modelv1alpha1.ConflictPolicy
 }
-
-// InDomain reports whether k may be the subject of p.
-func (p Predicate) InDomain(k Kind) bool { return p.Domain == nil || slices.Contains(p.Domain, k) }
-
-// InRange reports whether k may be the object of relation p.
-func (p Predicate) InRange(k Kind) bool { return p.Range == nil || slices.Contains(p.Range, k) }
 
 const (
 	one     = modelv1alpha1.Cardinality_CARDINALITY_ONE
@@ -151,42 +134,6 @@ var attributeShapes = map[string]Predicate{
 	"tags":           {Type: tJSON, Cardinality: one, Conflict: noneC},
 	"at":             {Type: tTime, Cardinality: one, Conflict: noneC},
 	"started_at":     {Type: tTime, Cardinality: one, Conflict: noneC},
-}
-
-var predicates = buildRegistry()
-
-func buildRegistry() map[string]Predicate {
-	reg := map[string]Predicate{}
-	for _, p := range relations {
-		reg[p.Name] = p
-	}
-	exists := attributeShapes[PredicateExists]
-	exists.Name = PredicateExists
-	reg[PredicateExists] = exists
-	for _, k := range Kinds {
-		for _, name := range kindAttributes[k] {
-			p, ok := reg[name]
-			if !ok {
-				p = attributeShapes[name]
-				if p.Type == modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED {
-					p = Predicate{Type: tString, Cardinality: one, Conflict: noneC}
-				}
-				p.Name = name
-				p.Domain = []Kind{}
-			}
-			p.Domain = append(p.Domain, k)
-			reg[name] = p
-		}
-	}
-	return reg
-}
-
-// LookupPredicate returns a registered predicate. Core predicates (same_as,
-// distinct_from) are not in the registry; unregistered attributes are
-// adapter-declared.
-func LookupPredicate(name string) (Predicate, bool) {
-	p, ok := predicates[name]
-	return p, ok
 }
 
 // IsCorePredicate reports whether only the core may claim name.

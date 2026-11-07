@@ -112,7 +112,7 @@ func candidatePairs(ctx context.Context, t testing.TB, g graph.Graph, cases []Ca
 	}
 	lab := labelledKeys(cases)
 	var out []Pair
-	for _, c := range match.Candidates(recs, members, nil) {
+	for _, c := range match.Candidates(model.Core(), recs, members, nil) {
 		out = append(out, NewPair(keyOf(c.A, lab), keyOf(c.B, lab)))
 	}
 	return out

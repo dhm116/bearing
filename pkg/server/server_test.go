@@ -44,7 +44,7 @@ func validObservation(t testing.TB) *eventv1alpha1.Observation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := model.DecodeObservation(b)
+	o, err := model.DecodeObservation(model.Core(), b)
 	if err != nil {
 		t.Fatal(err)
 	}

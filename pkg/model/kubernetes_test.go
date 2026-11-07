@@ -55,7 +55,7 @@ func TestKubernetesFixturesStayInsideTheDeclaration(t *testing.T) {
 					t.Errorf("fixture contains %q, which the adapter must never send", s)
 				}
 			}
-			o, err := DecodeObservation(raw)
+			o, err := DecodeObservation(Core(), raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,11 +79,11 @@ func checkAgainstKubernetesDeclaration(t *testing.T, kinds map[string]*modelv1al
 		})
 	}
 	for _, f := range k.GetFields() {
-		if _, registered := LookupPredicate(f.GetPredicate()); !registered {
+		if _, registered := Core().Predicate(f.GetPredicate()); !registered {
 			declared[f.GetPredicate()] = Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality()}
 		}
 	}
-	if err := ValidateObservationWith(o, declared); err != nil {
+	if err := ValidateObservationWith(Core(), o, declared); err != nil {
 		t.Fatalf("declared attribute types not respected: %v", err)
 	}
 
