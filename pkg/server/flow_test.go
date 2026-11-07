@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -799,5 +800,50 @@ func TestServerDeadLettersAWebhookToAnAdapterOnAnotherProtocolVersion(t *testing
 	waitFor(t, "the delivery to be given up on", func() bool { return h.drained(testSource) })
 	if n := len(h.entries("core/dead_letter")); n != 1 {
 		t.Fatalf("%d dead letters, want 1 (a skipped delivery leaves none)", n)
+	}
+}
+
+// The source's active kinds go to its adapter on sync and webhook; a source
+// that keeps no kind is not called at all.
+func TestServerSendsTheActiveKindsToTheAdapterAndSkipsASourceWithNone(t *testing.T) {
+	active := []model.Kind{model.KindPerson, model.KindTeam}
+	sent := []model.Kind{model.KindTeam, model.KindPerson, model.KindTeam} // unsorted, with a repeat
+	for _, tt := range []struct {
+		name   string
+		active map[string][]model.Kind
+		want   []model.Kind
+		calls  bool
+	}{
+		{"active kinds, sorted and once each", map[string][]model.Kind{testSource: sent}, active, true},
+		{"unlisted source", nil, nil, true},
+		{"no active kinds", map[string][]model.Kind{testSource: {}}, nil, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, func(c *Config) { c.Active = tt.active })
+			var got []model.Kind
+			h.ad.syncFn = func(_ context.Context, p adapter.SyncParams) (adapter.SyncResult, error) {
+				got = p.EnabledKinds
+				return adapter.SyncResult{Done: true}, nil
+			}
+			h.ad.handleFn = func(context.Context, adapter.HandleParams) (adapter.HandleResult, error) {
+				return adapter.HandleResult{}, nil
+			}
+			h.append(testSource, "d1", &eventv1alpha1.WebhookReceived{Source: testSource, Body: []byte(`{}`)})
+			if _, err := h.s.RequestSync(t.Context(), testSource, nil); err != nil {
+				t.Fatal(err)
+			}
+			h.start()
+			waitFor(t, "the events to be handled", func() bool { return h.drained(testSource) })
+			h.ad.mu.Lock()
+			defer h.ad.mu.Unlock()
+			if called := h.ad.syncCalls > 0 || len(h.ad.handled) > 0; called != tt.calls {
+				t.Fatalf("adapter called = %v, want %v", called, tt.calls)
+			}
+			if tt.calls {
+				if !slices.Equal(got, tt.want) || !slices.Equal(h.ad.handled[0].EnabledKinds, tt.want) {
+					t.Errorf("sync got %v, handle got %v, want %v", got, h.ad.handled[0].EnabledKinds, tt.want)
+				}
+			}
+		})
 	}
 }

@@ -39,7 +39,7 @@ below), and the adapters trust the demo CA through `SSL_CERT_FILE`. Do not point
 source system, and do not reuse any of it in a deployment.
 
 Adapter output is untrusted even from first-party adapters: the server
-validates every observation with `pkg/model` before it is stored.
+validates every observation with `pkg/model` before it is stored. Observations of a kind the source does not keep are dropped unvalidated and never stored; the dropped counter labels only registered kinds.
 
 Adapters are trusted code. They run as the service user's child processes,
 not in a sandbox (WASM sandboxing is deferred, see the roadmap), and they are
