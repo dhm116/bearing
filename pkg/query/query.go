@@ -518,6 +518,9 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	for i, s := range f.Sources {
 		out.Sources[i] = Source{Source: s.Source, ObservationID: s.ObservationID, URL: s.URL, ObservedAt: s.ObservedAt}
 	}
+	if t, ok := l.q.Registry.Retired(model.Kind(sub.Kind)); ok && l.current && (l.at.IsZero() || !l.at.Before(t)) {
+		out.AsOf = &t
+	}
 	return out, nil
 }
 
@@ -527,9 +530,6 @@ func (l *labeler) facts(ctx context.Context, fs []graph.Fact) ([]Fact, error) {
 		v, err := l.fact(ctx, f)
 		if err != nil {
 			return nil, err
-		}
-		if t, ok := l.q.Registry.Retired(model.Kind(v.Subject.Kind)); ok && l.current && (l.at.IsZero() || !l.at.Before(t)) {
-			v.AsOf = &t
 		}
 		out = append(out, v)
 	}

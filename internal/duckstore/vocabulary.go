@@ -24,7 +24,9 @@ import (
 //
 // It returns the registry to read with: reg plus the retired kinds, with the
 // stored domains and ranges merged in, so facts of a retired kind still
-// resolve parents and shapes. Call it before the first Ingest and pass the
+// resolve parents and shapes. It counts retired kinds as valid, so a caller
+// must still drop observations of them: the active kinds are the ones in the
+// booted reg. Call it before the first Ingest and pass the
 // result to SetRegistry.
 func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now time.Time) (*model.Registry, error) {
 	if reg == nil {
@@ -142,10 +144,10 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 			}
 			var bad model.Kind
 			if out.Domain, bad = mergeKinds(reg, old.domain, p.Domain); bad != "" {
-				return nil, fmt.Errorf("predicate %s: %w: domain no longer covers %s", p.Name, store.ErrVocabularyChanged, bad)
+				return nil, fmt.Errorf("predicate %s: %w: domain no longer covers %s: add it back to the domain of %s", p.Name, store.ErrVocabularyChanged, bad, p.Name)
 			}
 			if out.Range, bad = mergeKinds(reg, old.rng, p.Range); bad != "" {
-				return nil, fmt.Errorf("predicate %s: %w: range no longer covers %s", p.Name, store.ErrVocabularyChanged, bad)
+				return nil, fmt.Errorf("predicate %s: %w: range no longer covers %s: add it back to the range of %s", p.Name, store.ErrVocabularyChanged, bad, p.Name)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO kind_predicate (name, relation, type, cardinality, conflict, domain, range)
@@ -163,11 +165,15 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 	// its shape for reading old facts.
 	for name, old := range stored {
 		if _, ok := reg.Predicate(name); !ok {
+			vt, ok1 := modelv1alpha1.ValueType_value[old.typ]
+			card, ok2 := modelv1alpha1.Cardinality_value[old.cardinality]
+			conf, ok3 := modelv1alpha1.ConflictPolicy_value[old.conflict]
+			if !ok1 && old.typ != "" || !ok2 || !ok3 {
+				return nil, fmt.Errorf("predicate %s: stored shape (%q, %q, %q) names an unknown enum value", name, old.typ, old.cardinality, old.conflict)
+			}
 			merged[name] = model.Predicate{
 				Name: name, Relation: old.relation, Domain: old.domain, Range: old.rng,
-				Type:        modelv1alpha1.ValueType(modelv1alpha1.ValueType_value[old.typ]),
-				Cardinality: modelv1alpha1.Cardinality(modelv1alpha1.Cardinality_value[old.cardinality]),
-				Conflict:    modelv1alpha1.ConflictPolicy(modelv1alpha1.ConflictPolicy_value[old.conflict]),
+				Type: modelv1alpha1.ValueType(vt), Cardinality: modelv1alpha1.Cardinality(card), Conflict: modelv1alpha1.ConflictPolicy(conf),
 			}
 		}
 	}

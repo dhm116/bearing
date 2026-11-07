@@ -37,8 +37,8 @@ func retiredQuerier(t *testing.T) *query.Querier {
 		t.Fatal(err)
 	}
 	obs := []*eventv1alpha1.Observation{
-		ob("s1", 1, "acme.Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), attr("language", "Go")),
-		ob("s2", 1, "Component", "kubernetes:service/acme/job", attr("name", "checkout job"), attr("language", "Go")),
+		ob("s1", 1, "acme.Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), attr("language", "Go"), attr("runtime", []any{runtimeVal("go", "1.19", "go.mod")})),
+		ob("s2", 1, "Component", "kubernetes:service/acme/job", attr("name", "checkout job"), attr("language", "Go"), attr("runtime", []any{runtimeVal("go", "1.19", "go.mod")})),
 	}
 	if _, err := s.Ingest(ctx, graph.IngestRequest{Source: "k8s", Observations: obs}); err != nil {
 		t.Fatal(err)
@@ -139,6 +139,26 @@ func TestFindAcceptsARetiredKindAndAncestorsStillCountItsFactsButNeverHeldKindsF
 				t.Errorf("got %d matches, want %d", len(ms), tc.want)
 			}
 		})
+	}
+}
+
+func TestRuntimesLabelsDeclarationsOfARetiredKindAsOfItsRetirement(t *testing.T) {
+	t.Parallel()
+	q := retiredQuerier(t)
+	r, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Entities) != 2 {
+		t.Fatalf("got %d entities, want 2", len(r.Entities))
+	}
+	for _, e := range r.Entities {
+		wantRetired := e.Subject.Kind == "acme.Api"
+		for _, d := range e.Declarations {
+			if (d.AsOf != nil) != wantRetired || wantRetired && !d.AsOf.Equal(at(50)) {
+				t.Errorf("got %s declaration as_of %v, want retired=%v at %v", e.Subject.Key, d.AsOf, wantRetired, at(50))
+			}
+		}
 	}
 }
 

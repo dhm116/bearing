@@ -145,6 +145,26 @@ func TestSyncVocabularyRefusesAChangeToAStoredKindOrPredicate(t *testing.T) {
 	}
 }
 
+func TestSyncVocabularyRefusalRollsBackKindWritesMadeBeforeIt(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Config{})
+	syncOK(t, s, vocab(t, []model.KindDef{svc, unit}, attrP, relP), 1)
+	many := attrP
+	many.Cardinality, many.Conflict = modelv1alpha1.Cardinality_CARDINALITY_MANY, modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_SET
+	// Adds acme.New and drops systemd.Unit (kind writes), then fails on pager_rota.
+	_, err := s.SyncVocabulary(t.Context(), vocab(t, []model.KindDef{svc, {Name: "acme.New", Parent: model.KindComponent}}, many, anyRel), at(2))
+	if !errors.Is(err, store.ErrVocabularyChanged) {
+		t.Fatalf("got %v, want ErrVocabularyChanged", err)
+	}
+	var n int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM kind WHERE name = 'acme.New'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("got %d acme.New rows, %v, want the insert rolled back", n, err)
+	}
+	if !retiredNull(t, s, "systemd.Unit") {
+		t.Fatal("got systemd.Unit retired, want the retirement rolled back")
+	}
+}
+
 func TestSyncVocabularyAllowsWideningAndADomainKindDroppedWithItsRetirement(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
@@ -176,6 +196,18 @@ func TestSyncVocabularyKeepsADroppedAdapterAttributeShapeForReads(t *testing.T) 
 	p, ok := read.Predicate("pager_rota")
 	if !ok || p.Cardinality != attrP.Cardinality || p.Type != attrP.Type || p.Conflict != attrP.Conflict {
 		t.Fatalf("got %+v, %v, want the stored shape of pager_rota", p, ok)
+	}
+}
+
+func TestSyncVocabularyErrorsOnAStoredShapeWithAnUnknownEnumName(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Config{})
+	if _, err := s.db.ExecContext(t.Context(), `INSERT INTO kind_predicate (name, relation, type, cardinality, conflict) VALUES ('old_attr', false, 'NOPE', 'CARDINALITY_ONE', 'CONFLICT_POLICY_ONE')`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.SyncVocabulary(t.Context(), model.Core(), at(1))
+	if err == nil || !strings.Contains(err.Error(), "old_attr") {
+		t.Fatalf("got %v, want an error naming old_attr", err)
 	}
 }
 
