@@ -86,14 +86,16 @@ says how they relate.
     window, per record. It also lists asserted joins and splits in the
     window, read from the link rows:
     - a join is an asserted `same_as` opening or an asserted
-      `distinct_from` closing;
+      `distinct_from` closing that joins two clusters;
     - a split is an asserted `same_as` closing or an asserted
-      `distinct_from` opening.
+      `distinct_from` opening that splits one.
 
-    Each carries its row's justification: the source observation, the
-    settings rule, or a person's decision with its actor and reason. A
-    `same_as` closed by a split decision points to the `distinct_from`
-    opened with it. Proposals are conjecture and never appear here.
+    Rows one decision changed (same pair, same time) are one event. Each
+    event carries its justification: the source observation, the settings
+    rule, or a person's decision with its actor and reason. An asserted
+    `same_as` the store refused to apply is listed as asserted but not
+    joined, as in Relations. Proposals are conjecture and never appear
+    here.
   - **Q4 and Q5 (dependencies):** walk facts from, or to, the service's
     records.
 - **Past times.** An answer as of a past time uses the facts valid then.
