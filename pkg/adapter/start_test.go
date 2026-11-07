@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/pkg/model"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/testkit"
 )
@@ -113,7 +115,7 @@ func TestStartRunsAnAdapterThatSyncsAndStopsOnClose(t *testing.T) {
 	if d, err := p.Describe(t.Context()); err != nil || d.Name != "pager" {
 		t.Fatalf("got %+v, %v, want pager", d, err)
 	}
-	sum, err := SyncAll(t.Context(), p, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
+	sum, err := SyncAll(t.Context(), model.Core(), p, json.RawMessage(`{}`), 5, func(*eventv1alpha1.Observation) error { return nil })
 	if err != nil || sum.Accepted != 1 {
 		t.Fatalf("got %+v, %v, want one observation", sum, err)
 	}

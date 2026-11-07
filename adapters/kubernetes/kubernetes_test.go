@@ -136,7 +136,7 @@ func TestSyncMatchesTheSpecSamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := model.DecodeObservation(raw)
+		want, err := model.DecodeObservation(model.Core(), raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,10 +170,10 @@ func TestSyncStaysInsideTheDeclarationAndLeaksNothing(t *testing.T) {
 	if err := model.DecodeJSON(raw, decl); err != nil {
 		t.Fatal(err)
 	}
-	declared := model.DeclaredAttributes(decl)
+	declared := model.DeclaredAttributes(model.Core(), decl)
 	var all strings.Builder
 	for _, o := range obs {
-		if err := model.ValidateObservationWith(o, declared); err != nil {
+		if err := model.ValidateObservationWith(model.Core(), o, declared); err != nil {
 			t.Errorf("%s: %v", o.GetId(), err)
 		}
 		b, err := model.EncodeJSON(o)

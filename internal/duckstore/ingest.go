@@ -29,7 +29,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 	g := &ingest{
-		tx: tx, s: s, source: source, authoritative: r.Authoritative,
+		tx: tx, s: s, source: source, authoritative: r.Authoritative, declared: r.Declared,
 		recorded: s.now().UTC().Truncate(time.Microsecond),
 	}
 	for _, o := range obs {
@@ -40,7 +40,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	if err := g.complete(ctx, r.Complete, r.SyncStarted); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)
 	}
-	if _, err := recluster(ctx, tx, g.dirty); err != nil {
+	if _, err := recluster(ctx, tx, g.s.reg, g.dirty); err != nil {
 		return graph.IngestResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -55,6 +55,7 @@ type ingest struct {
 	s             *Store
 	source        string
 	authoritative func(model.Key) bool
+	declared      map[string]model.Predicate
 	recorded      time.Time
 	res           graph.IngestResult
 	// dirty are records whose cluster may have changed; recomputed before commit.
@@ -450,8 +451,11 @@ func (g *ingest) target(ctx context.Context, key string) (string, error) {
 // ends every value from this source; a list for a many-valued predicate is
 // the complete set.
 func (g *ingest) attribute(ctx context.Context, pred string, v *structpb.Value, from, to *time.Time, conf float64, absent bool) error {
-	p, registered := model.LookupPredicate(pred)
-	many := registered && p.Cardinality == modelv1alpha1.Cardinality_CARDINALITY_MANY
+	p, found := g.s.reg.Predicate(pred)
+	if !found {
+		p, found = g.declared[pred]
+	}
+	many := found && p.Cardinality == modelv1alpha1.Cardinality_CARDINALITY_MANY
 	if _, isNull := v.GetKind().(*structpb.Value_NullValue); isNull {
 		return g.closeWhere(ctx, `subject_id = ? AND predicate = ? AND source = ? AND object_id IS NULL`, g.entity, pred, g.source)
 	}
@@ -662,13 +666,15 @@ func (g *ingest) snapshot(ctx context.Context, sc *modelv1alpha1.SnapshotScope) 
 }
 
 // complete ends what a complete listing no longer shows: records of those
-// kinds that this source observed before started and not since have their
-// open facts from this source (as subject or object) closed at started. A
-// fact some observation since started supports is left open.
+// kinds (and their descendants) that this source observed before started and
+// not since have their open facts from this source (as subject or object)
+// closed at started. A fact some observation since started supports is left
+// open.
 func (g *ingest) complete(ctx context.Context, kinds []model.Kind, started time.Time) error {
 	if len(kinds) == 0 {
 		return nil
 	}
+	kinds = g.s.reg.WithDescendants(kinds)
 	started = started.UTC().Truncate(time.Microsecond)
 	gone := `SELECT a.entity_id FROM observation o JOIN alias a ON a.key = o.key JOIN entity e ON e.id = a.entity_id
 		WHERE o.source = ? AND e.kind IN (` + placeholders(len(kinds)) + `)

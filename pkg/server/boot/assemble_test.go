@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"bearing.example/pkg/model"
+
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -515,11 +517,11 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 				s.Matching = tc.matching
 				s.Authority = map[string]map[string]bool{"github-acme": {"authentik:user": true}}
 			})
-			c, err := w.settings.check()
+			c, err := w.settings.check(model.Core())
 			if err != nil {
 				t.Fatal(err)
 			}
-			decls, err := loadDeclarations(w.settings)
+			decls, err := loadDeclarations(w.settings, model.Core())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -532,7 +534,7 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = st.Close() })
-			cfg, err := serverConfig(w.settings, st, plans, nil, nil)
+			cfg, err := serverConfig(w.settings, model.Core(), st, plans, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -734,7 +736,7 @@ func TestBadMatchingSettingsAreRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := serverConfig(s, st, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "matching") {
+	if _, err := serverConfig(s, model.Core(), st, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "matching") {
 		t.Errorf("serverConfig: got %v, want a refusal naming matching", err)
 	}
 }

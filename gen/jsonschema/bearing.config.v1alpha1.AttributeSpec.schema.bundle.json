@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.AttributeSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "AttributeSpec declares one attribute. A name has one shape across the whole\n vocabulary, so an attribute that already exists must repeat its shape.",
+      "properties": {
+        "cardinality": {
+          "anyOf": [
+            {
+              "pattern": "^CARDINALITY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CARDINALITY_ONE",
+                "CARDINALITY_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Required.",
+          "title": "Cardinality"
+        },
+        "conflict": {
+          "anyOf": [
+            {
+              "pattern": "^CONFLICT_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CONFLICT_POLICY_NONE",
+                "CONFLICT_POLICY_ONE",
+                "CONFLICT_POLICY_SET"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Required.",
+          "title": "Conflict Policy"
+        },
+        "name": {
+          "default": "",
+          "description": "Lowercase letters, digits and \"_\". Required.",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Required.",
+          "title": "Value Type"
+        }
+      },
+      "title": "Attribute Spec",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.AttributeSpec.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.AttributeSpec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

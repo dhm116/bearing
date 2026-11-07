@@ -16,6 +16,7 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/internal/testkit"
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/model"
 )
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -386,4 +387,26 @@ func TestOwnersRoleIgnoresAStaleObservation(t *testing.T) {
 	if got := facts[0].Qualifiers["role"]; got != "maintainer" {
 		t.Errorf("got role %v, want maintainer", got)
 	}
+}
+
+func TestIngestKeepsDeclaredManyAttributesAsASetOfValues(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	declared := map[string]model.Predicate{"image": {
+		Name: "image", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY,
+	}}
+	for _, o := range []*eventv1alpha1.Observation{
+		obs("o1", 0, "Repository", "k:repo/api", attrs("image", []any{"a", "b"})),
+		obs("o2", 5, "Repository", "k:repo/api", attrs("image", []any{"b", "c"})),
+	} {
+		r := graph.IngestRequest{Source: "k8s", Observations: []*eventv1alpha1.Observation{o}, Declared: declared}
+		if _, err := s.Ingest(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantFacts(t, s,
+		`api image "a" [0,5) x1`,
+		`api image "b" [0,open) x2`,
+		`api image "c" [5,open) x1`,
+	)
 }

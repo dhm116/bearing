@@ -286,7 +286,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
 	n := 0
-	sum, err := adapter.SyncAll(ctx, a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(ctx, model.Core(), a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
 		b, err := model.EncodeJSON(o)
 		if err != nil {

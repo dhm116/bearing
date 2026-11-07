@@ -93,11 +93,12 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		env.Clock = clock.Real{}
 	}
 	log := telemetry.Logger(pkgName)
-	c, err := s.check()
+	reg := model.Core()
+	c, err := s.check(reg)
 	if err != nil {
 		return nil, err
 	}
-	decls, err := loadDeclarations(s)
+	decls, err := loadDeclarations(s, reg)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +143,9 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
+	if r, ok := st.(interface{ SetRegistry(*model.Registry) }); ok {
+		r.SetRegistry(reg)
+	}
 	procCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})) // no span: adapters outlive server.start
 	var procs []*managed
 	var remotes []*adapter.Remote
@@ -176,7 +180,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err = checkProtocols(ctx, sources); err != nil {
 		return nil, err
 	}
-	scfg, err := serverConfig(s, st, plans, sources, env.Clock)
+	scfg, err := serverConfig(s, reg, st, plans, sources, env.Clock)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +202,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		l.Webhooks = in
 	}
-	q := &query.Querier{Graph: st.Graph(), HalfLife: scfg.Matching.Config.HalfLifeOf} // review scores decay as the matcher's do
+	q := &query.Querier{Graph: st.Graph(), HalfLife: scfg.Matching.Config.HalfLifeOf, Registry: reg} // review scores decay as the matcher's do
 	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q, LinkDecisions: server.LinkDecisions(s.API.LinkDecisions)})
 	if err != nil {
 		return nil, err
@@ -393,7 +397,7 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // loadDeclarations reads and validates each adapter's declaration.
-func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration, error) {
+func loadDeclarations(s *Settings, reg *model.Registry) (map[string]*modelv1alpha1.AdapterDeclaration, error) {
 	decls := map[string]*modelv1alpha1.AdapterDeclaration{}
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
@@ -405,7 +409,7 @@ func loadDeclarations(s *Settings) (map[string]*modelv1alpha1.AdapterDeclaration
 		if err := model.DecodeJSON(b, d); err != nil {
 			return nil, fmt.Errorf("boot: settings: adapters[%d].declaration: %w", i, err)
 		}
-		if err := model.ValidateDeclaration(d); err != nil {
+		if err := model.ValidateDeclaration(reg, d); err != nil {
 			return nil, fmt.Errorf("boot: settings: adapters[%d].declaration: %w", i, err)
 		}
 		if d.GetName() != a.Name {
@@ -521,19 +525,19 @@ func loopbackAddr(addr string) bool {
 // serverConfig is the server's configuration from the settings: what each
 // source's declaration and the operator's authority overrides allow, and
 // matching, with the defaults when the settings have no matching block.
-func serverConfig(s *Settings, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
+func serverConfig(s *Settings, reg *model.Registry, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
 	declared := map[string]map[string]model.Predicate{}
 	authorities := map[string]func(model.Key) bool{}
 	for _, p := range plans {
-		declared[p.name] = model.DeclaredAttributes(p.decl)
+		declared[p.name] = model.DeclaredAttributes(reg, p.decl)
 		authorities[p.name] = authority(model.LinkAuthority(p.decl), s.Authority[p.name])
 	}
 	cfg := server.Config{
-		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Declared: declared, Authority: authorities},
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Registry: reg, Declared: declared, Authority: authorities},
 		Links:   st.Graph(),
-		Sources: sources, Clock: clk,
+		Sources: sources, Clock: clk, Registry: reg,
 	}
-	matchCfg, err := s.Matching.config()
+	matchCfg, err := s.Matching.config(reg)
 	if err != nil {
 		return cfg, err
 	}

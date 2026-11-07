@@ -35,11 +35,11 @@ func observationWith(attrs map[string]*structpb.Value) *eventv1alpha1.Observatio
 
 func TestValidateObservationRejectsDeepValues(t *testing.T) {
 	ok := observationWith(map[string]*structpb.Value{"deep": nested(MaxValueDepth, structpb.NewNumberValue(1))})
-	if err := ValidateObservation(ok); err != nil {
+	if err := ValidateObservation(Core(), ok); err != nil {
 		t.Fatalf("got %v at the depth limit, want nil", err)
 	}
 	deep := observationWith(map[string]*structpb.Value{"deep": nested(100_000, structpb.NewNumberValue(1))})
-	err := ValidateObservation(deep)
+	err := ValidateObservation(Core(), deep)
 	wantCode(t, err, codeMalformed)
 	if !strings.Contains(err.Error(), "nested more than 32 deep") {
 		t.Fatalf("got %v, want the depth limit named", err)
@@ -52,7 +52,7 @@ func TestValidateObservationRejectsDeepValues(t *testing.T) {
 	for i := range wide {
 		wide[i] = structpb.NewNullValue()
 	}
-	err = ValidateObservation(observationWith(map[string]*structpb.Value{
+	err = ValidateObservation(Core(), observationWith(map[string]*structpb.Value{
 		"deep": structpb.NewListValue(&structpb.ListValue{Values: wide}),
 	}))
 	wantCode(t, err, codeMalformed)
@@ -89,7 +89,7 @@ func TestValidateObservationIsLinear(t *testing.T) {
 	}
 	bytesFor := func(o *eventv1alpha1.Observation) float64 {
 		return bytesPerRun(func() {
-			if err := ValidateObservation(o); err != nil {
+			if err := ValidateObservation(Core(), o); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -119,7 +119,7 @@ func TestValidationErrorIsCapped(t *testing.T) {
 		Entity:    &modelv1alpha1.Entity{Kind: string(KindTeam), Key: "x:team/a"},
 		Relations: rels,
 	})
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	ve, ok := err.(*ValidationError) //nolint:errorlint // returned unwrapped
 	if !ok || len(ve.Problems) != MaxProblems || ve.More != 30 || !strings.HasSuffix(err.Error(), "; and 30 more") {
 		t.Fatalf("got %v, want %d problems listed and 30 more", err, MaxProblems)
@@ -131,20 +131,20 @@ func TestValidationErrorIsCapped(t *testing.T) {
 
 func TestValidateAdapterObservationRejectsBearingSource(t *testing.T) {
 	o := observationWith(nil)
-	if err := ValidateAdapterObservation(o); err != nil {
+	if err := ValidateAdapterObservation(Core(), o); err != nil {
 		t.Fatal(err)
 	}
 	o.Bearingsource = "github-acme"
-	if err := ValidateObservation(o); err != nil {
+	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatalf("got %v from the core's own check, want nil", err)
 	}
-	wantCode(t, ValidateAdapterObservation(o), codeMalformed)
+	wantCode(t, ValidateAdapterObservation(Core(), o), codeMalformed)
 }
 
 func TestValidateRejectsInvalidUTF8(t *testing.T) {
 	o := observationWith(map[string]*structpb.Value{"description": structpb.NewStringValue("\xff")})
 	o.Data.Entity.Aliases = []string{"test:repo/\xff"}
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	wantCode(t, err, codeMalformed)
 	if !strings.Contains(err.Error(), "aliases[0]: is not valid UTF-8") || !strings.Contains(err.Error(), `attributes["description"]: is not valid UTF-8`) {
 		t.Fatalf("got %v, want both the alias and the attribute named", err)

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"bearing.example/pkg/model"
+
 	"go.opentelemetry.io/otel"
 	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
@@ -42,7 +44,7 @@ func TestTraceContextCrossesTheProtocol(t *testing.T) {
 	c := dialed(t, pager{n: 2})
 	// Other tests share the recorder, so scope this test to its own trace.
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
-	_, err := SyncAll(ctx, c, json.RawMessage(`{"Prefix":"x"}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	_, err := SyncAll(ctx, model.Core(), c, json.RawMessage(`{"Prefix":"x"}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	test.End()
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +85,7 @@ func TestTraceContextCrossesTheProtocol(t *testing.T) {
 
 func TestSyncRecordsMetrics(t *testing.T) {
 	c := dialed(t, pager{n: 3})
-	if _, err := SyncAll(context.Background(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil }); err != nil {
+	if _, err := SyncAll(context.Background(), model.Core(), c, json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	var rm metricdata.ResourceMetrics
@@ -131,7 +133,7 @@ func TestSyncReportsRejectedClaims(t *testing.T) {
 	}
 	before := count()
 	ctx, test := otel.Tracer("test").Start(context.Background(), "test")
-	sum, err := SyncAll(ctx, dialed(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
+	sum, err := SyncAll(ctx, model.Core(), dialed(t, mixed{}), json.RawMessage(`{}`), 10, func(*eventv1alpha1.Observation) error { return nil })
 	test.End()
 	if err != nil {
 		t.Fatal(err)

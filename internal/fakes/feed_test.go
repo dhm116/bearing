@@ -67,7 +67,7 @@ func readFeed(t *testing.T) []*eventv1alpha1.Observation {
 	var obs []*eventv1alpha1.Observation
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	for n := 1; sc.Scan(); n++ {
-		o, err := model.DecodeObservation(sc.Bytes())
+		o, err := model.DecodeObservation(model.Core(), sc.Bytes())
 		if err != nil {
 			t.Fatalf("%s:%d: %v", feedPath, n, err)
 		}

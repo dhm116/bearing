@@ -184,7 +184,7 @@ func checkGolden(t *testing.T, name string, obs adapter.Observations) {
 		if err := model.DecodeJSON(l, o); err != nil {
 			t.Fatalf("%s:%d: %v", path, i+1, err)
 		}
-		if err := model.ValidateAdapterObservation(o); err != nil {
+		if err := model.ValidateAdapterObservation(model.Core(), o); err != nil {
 			t.Errorf("%s:%d: %v", path, i+1, err)
 		}
 		if !proto.Equal(o, obs[i]) {

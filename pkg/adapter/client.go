@@ -29,17 +29,17 @@ type Handler interface {
 // then validates every observation, failing on the first invalid one (a
 // delivery is one event, not a sweep to carry on with), and truncates its
 // times to microseconds. name labels the adapter in telemetry.
-func HandleChecked(ctx context.Context, h Handler, name string, p HandleParams) (HandleResult, error) {
+func HandleChecked(ctx context.Context, reg *model.Registry, h Handler, name string, p HandleParams) (HandleResult, error) {
 	res, err := h.Handle(ctx, p)
 	if err != nil {
 		return res, err
 	}
-	return checkHandled(ctx, name, res)
+	return checkHandled(ctx, reg, name, res)
 }
 
-func checkHandled(ctx context.Context, name string, res HandleResult) (HandleResult, error) {
+func checkHandled(ctx context.Context, reg *model.Registry, name string, res HandleResult) (HandleResult, error) {
 	for i, o := range res.Observations {
-		if err := checkObservation(ctx, name, o); err != nil {
+		if err := checkObservation(ctx, reg, name, o); err != nil {
 			return HandleResult{}, fmt.Errorf("handle: observation %d: %w", i, err)
 		}
 	}
@@ -50,8 +50,8 @@ func checkHandled(ctx context.Context, name string, res HandleResult) (HandleRes
 // (model.ValidateAdapterObservation), counting failures, and only then
 // truncates its times to microseconds, so an invalid timestamp is rejected
 // rather than repaired.
-func checkObservation(ctx context.Context, adapterName string, o *eventv1alpha1.Observation) error {
-	if err := model.ValidateAdapterObservation(o); err != nil {
+func checkObservation(ctx context.Context, reg *model.Registry, adapterName string, o *eventv1alpha1.Observation) error {
+	if err := model.ValidateAdapterObservation(reg, o); err != nil {
 		observationsInvalid.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(adapterName)))
 		return err
 	}
@@ -100,8 +100,8 @@ const maxRejectionLogs = 20
 // doesn't discard a whole sync. Times are truncated to microseconds only
 // after validation, so an invalid timestamp is rejected rather than
 // repaired.
-func screenObservation(ctx context.Context, log *slog.Logger, adapterName string, o *eventv1alpha1.Observation, warn bool) (keep bool, claims int) {
-	err := model.ValidateAdapterObservation(o)
+func screenObservation(ctx context.Context, reg *model.Registry, log *slog.Logger, adapterName string, o *eventv1alpha1.Observation, warn bool) (keep bool, claims int) {
+	err := model.ValidateAdapterObservation(reg, o)
 	if err == nil {
 		model.TruncateTimes(o)
 		return true, 0
@@ -147,8 +147,8 @@ type Page struct {
 // summary counts both and the sync goes on. maxPages guards
 // against adapters that never finish. The whole sync runs in one span, with
 // each page as a child.
-func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
-	return SyncPages(ctx, a, config, maxPages, func(p Page) error {
+func SyncAll(ctx context.Context, reg *model.Registry, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
+	return SyncPages(ctx, reg, a, config, maxPages, func(p Page) error {
 		for _, o := range p.Observations {
 			if err := emit(o); err != nil {
 				return err
@@ -162,7 +162,7 @@ func SyncAll(ctx context.Context, a Syncer, config json.RawMessage, maxPages int
 // server does when it puts a page on the event log: emit gets each page once
 // it is screened, in order, and a page with no accepted observation is still
 // passed on, since it may be the last one. An error from emit stops the sync.
-func SyncPages(ctx context.Context, a Syncer, config json.RawMessage, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
+func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, config json.RawMessage, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -200,7 +200,7 @@ func SyncPages(ctx context.Context, a Syncer, config json.RawMessage, maxPages i
 		kept := make([]*eventv1alpha1.Observation, 0, len(res.Observations))
 		for _, o := range res.Observations {
 			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
-			keep, claims := screenObservation(ctx, log, name, o, warn)
+			keep, claims := screenObservation(ctx, reg, log, name, o, warn)
 			sum.RejectedClaims += claims
 			if claims > 0 {
 				claimsRejected.Add(ctx, int64(claims), metric.WithAttributes(attrAdapter.String(name)))

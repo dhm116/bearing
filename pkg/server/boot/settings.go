@@ -138,13 +138,13 @@ type MatchRule struct {
 }
 
 // config checks the matching settings and returns them as a match.Config.
-func (m MatchingSettings) config() (match.Config, error) {
-	cfg := match.Config{ProposeAt: m.ProposeAt, Floor: m.Floor, ReviewAt: m.ReviewAt}
+func (m MatchingSettings) config(reg *model.Registry) (match.Config, error) {
+	cfg := match.Config{ProposeAt: m.ProposeAt, Floor: m.Floor, ReviewAt: m.ReviewAt, Registry: reg}
 	for _, r := range m.Rules {
 		cfg.Rules = append(cfg.Rules, match.KeyRule{Name: r.Name, A: r.A, B: r.B})
 	}
 	for k, v := range m.HalfLife {
-		if !model.Kind(k).Valid() {
+		if !reg.Valid(model.Kind(k)) {
 			return cfg, fmt.Errorf("boot: settings: matching.half_life: %q is not a kind", model.Clip(k))
 		}
 		d, err := parseISO(v, time.Hour, 3650*24*time.Hour)
@@ -306,11 +306,11 @@ type checked struct {
 
 // Validate checks the settings that need no environment, file or network.
 func (s *Settings) Validate() error {
-	_, err := s.check()
+	_, err := s.check(model.Core())
 	return err
 }
 
-func (s *Settings) check() (*checked, error) {
+func (s *Settings) check(reg *model.Registry) (*checked, error) {
 	c := &checked{schedule: map[string]time.Duration{}, adapters: map[string]*AdapterSettings{}}
 	if s.Store.URL == "" {
 		return nil, errors.New("boot: settings: store.url is required, for example duckdb:///var/lib/bearing/bearing.duckdb")
@@ -364,7 +364,7 @@ func (s *Settings) check() (*checked, error) {
 			}
 		}
 	}
-	if _, err := s.Matching.config(); err != nil {
+	if _, err := s.Matching.config(reg); err != nil {
 		return nil, err
 	}
 	return c, nil

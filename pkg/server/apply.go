@@ -15,6 +15,8 @@ var _ Applier = StoreApplier{}
 // observation and ingests the page into Store in one transaction.
 type StoreApplier struct {
 	Store graph.Graph
+	// Registry is the vocabulary to validate against; nil means model.Core().
+	Registry *model.Registry
 	// Declared maps a source to the attributes its adapter declares beyond
 	// the registry (model.DeclaredAttributes); a source not listed has none.
 	Declared map[string]map[string]model.Predicate
@@ -28,12 +30,13 @@ type StoreApplier struct {
 // failed write does, so the page is retried and then dead-lettered.
 func (a StoreApplier) Apply(ctx context.Context, source string, obs []*eventv1alpha1.Observation, done Completion) error {
 	for i, o := range obs {
-		if err := model.ValidateObservationWith(o, a.Declared[source]); err != nil {
+		if err := model.ValidateObservationWith(a.Registry, o, a.Declared[source]); err != nil {
 			return fmt.Errorf("observation %d: %w", i+1, err)
 		}
 	}
 	_, err := a.Store.Ingest(ctx, graph.IngestRequest{
 		Source: source, Observations: obs, Authoritative: a.Authority[source],
+		Declared: a.Declared[source],
 		Complete: done.Kinds, SyncStarted: done.Started,
 	})
 	return err

@@ -218,17 +218,21 @@ func (x *WebhookSignature) GetSignaturePrefix() string {
 	return ""
 }
 
-// KindDeclaration declares one registered kind an adapter emits.
+// KindDeclaration declares one kind an adapter emits.
 type KindDeclaration struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A registered subject kind, e.g. "Repository".
+	// A core kind, e.g. "Repository", or a configured one, e.g. "k8s.Service".
 	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
 	// The kind's key types.
 	Keys []*KeyTypeDeclaration `protobuf:"bytes,2,rep,name=keys,proto3" json:"keys,omitempty"`
 	// Every predicate claimed with this kind as the observed entity.
 	Fields []*FieldDeclaration `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`
 	// Key types of other systems this system records for the entity.
-	Links         []*LinkDeclaration `protobuf:"bytes,4,rep,name=links,proto3" json:"links,omitempty"`
+	Links []*LinkDeclaration `protobuf:"bytes,4,rep,name=links,proto3" json:"links,omitempty"`
+	// When set, the adapter runs without this kind if the vocabulary lacks it:
+	// the kind is inactive and its observations are dropped. When unset, a
+	// kind the vocabulary lacks refuses the adapter (ADR 10).
+	Optional      bool `protobuf:"varint,5,opt,name=optional,proto3" json:"optional,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -289,6 +293,13 @@ func (x *KindDeclaration) GetLinks() []*LinkDeclaration {
 		return x.Links
 	}
 	return nil
+}
+
+func (x *KindDeclaration) GetOptional() bool {
+	if x != nil {
+		return x.Optional
+	}
+	return false
 }
 
 // KeyTypeDeclaration declares one key type.
@@ -554,12 +565,13 @@ const file_bearing_model_v1alpha1_declaration_proto_rawDesc = "" +
 	"\x10WebhookSignature\x12=\n" +
 	"\x06scheme\x18\x01 \x01(\x0e2%.bearing.model.v1alpha1.WebhookSchemeR\x06scheme\x12)\n" +
 	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +
-	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\"\xe6\x01\n" +
+	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\"\x82\x02\n" +
 	"\x0fKindDeclaration\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12>\n" +
 	"\x04keys\x18\x02 \x03(\v2*.bearing.model.v1alpha1.KeyTypeDeclarationR\x04keys\x12@\n" +
 	"\x06fields\x18\x03 \x03(\v2(.bearing.model.v1alpha1.FieldDeclarationR\x06fields\x12=\n" +
-	"\x05links\x18\x04 \x03(\v2'.bearing.model.v1alpha1.LinkDeclarationR\x05links\"\xa0\x02\n" +
+	"\x05links\x18\x04 \x03(\v2'.bearing.model.v1alpha1.LinkDeclarationR\x05links\x12\x1a\n" +
+	"\boptional\x18\x05 \x01(\bR\boptional\"\xa0\x02\n" +
 	"\x12KeyTypeDeclaration\x12\x1f\n" +
 	"\vissuer_type\x18\x01 \x01(\tR\n" +
 	"issuerType\x12\x19\n" +
