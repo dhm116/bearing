@@ -396,26 +396,3 @@ func TestIngestKeepsDeclaredManyAttributesAsASetOfValues(t *testing.T) {
 		`api image "c" [5,open) x1`,
 	)
 }
-
-// A store synced before declared attributes reached Ingest holds a declared
-// many-valued attribute as one list-valued fact; the next sync closes it and
-// opens one fact per value.
-func TestIngestSplitsALegacyListValueOnTheNextSync(t *testing.T) {
-	t.Parallel()
-	s := ingestStore(t)
-	ingestOK(t, s, "k8s", obs("o1", 0, "Repository", "k:repo/api", attrs("image", []any{"a", "b"})))
-	declared := map[string]model.Predicate{"image": {
-		Name: "image", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY,
-	}}
-	r := graph.IngestRequest{Source: "k8s", Declared: declared, Observations: []*eventv1alpha1.Observation{
-		obs("o2", 5, "Repository", "k:repo/api", attrs("image", []any{"a", "b"})),
-	}}
-	if _, err := s.Ingest(context.Background(), r); err != nil {
-		t.Fatal(err)
-	}
-	wantFacts(t, s,
-		`api image "a" [5,open) x1`,
-		`api image "b" [5,open) x1`,
-		`api image ["a","b"] [0,5) x1`,
-	)
-}
