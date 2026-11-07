@@ -99,6 +99,12 @@ type Config struct {
 	Links LinkDecider
 	// Sources are the configured sources.
 	Sources []Source
+	// Active maps a source to the kinds it keeps (core and configured, among
+	// those its adapter declares). A source not listed (or a nil map) keeps
+	// everything. One listed with no kinds keeps nothing: it is neither
+	// synced nor sent webhooks, and the applier ingests nothing for it. The
+	// host sends the kinds to the adapter sorted, each once.
+	Active map[string][]model.Kind
 
 	// Group is the consumer group of the apply workers: the one group
 	// Trim waits for.
@@ -273,6 +279,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.failed.Store(&err)
 	return err
+}
+
+// idle reports whether source keeps no kind: it is neither synced nor sent
+// webhooks, since nothing it said would be kept.
+func (s *Server) idle(source string) bool {
+	k, listed := s.cfg.Active[source]
+	return listed && len(k) == 0
 }
 
 // HasSource reports whether name is a configured source.

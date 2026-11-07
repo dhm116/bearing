@@ -265,6 +265,12 @@ type IngestRequest struct {
 	// source close.
 	Complete    []model.Kind
 	SyncStarted time.Time
+	// Active are the kinds the source keeps; empty means all, so a caller
+	// whose source keeps none must not call Ingest. Complete is expanded to
+	// descendants and then narrowed to them, and a fact is exempt from complete and snapshot
+	// closing unless an observation of an active kind backs it, so a kind
+	// that is switched off never reads as deleted.
+	Active []model.Kind
 }
 
 // LinkKind is what an identity link says about two records.

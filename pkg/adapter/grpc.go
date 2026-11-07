@@ -93,7 +93,7 @@ func (s grpcServer) Describe(ctx context.Context, _ *connect.Request[adapterv1al
 
 func (s grpcServer) Sync(ctx context.Context, req *connect.Request[adapterv1alpha1.SyncRequest]) (*connect.Response[adapterv1alpha1.SyncResponse], error) {
 	start := time.Now()
-	res, err := s.a.Sync(ctx, SyncParams{Config: json.RawMessage(req.Msg.GetConfig()), Cursor: req.Msg.GetCursor()})
+	res, err := s.a.Sync(ctx, SyncParams{Config: json.RawMessage(req.Msg.GetConfig()), Cursor: req.Msg.GetCursor(), EnabledKinds: kindsOf(req.Msg.GetEnabledKinds())})
 	recordRPC(ctx, rpcServerDuration, "sync", start, err)
 	if err != nil {
 		return nil, toConnect(err)
@@ -110,7 +110,7 @@ func (s grpcServer) Handle(ctx context.Context, req *connect.Request[adapterv1al
 	for k, v := range req.Msg.GetHeaders() {
 		headers[k] = v.GetValues()
 	}
-	res, err := s.a.Handle(ctx, HandleParams{Config: json.RawMessage(req.Msg.GetConfig()), Headers: headers, Body: req.Msg.GetBody()})
+	res, err := s.a.Handle(ctx, HandleParams{Config: json.RawMessage(req.Msg.GetConfig()), Headers: headers, Body: req.Msg.GetBody(), EnabledKinds: kindsOf(req.Msg.GetEnabledKinds())})
 	recordRPC(ctx, rpcServerDuration, "handle", start, err)
 	if err != nil {
 		return nil, toConnect(err)
@@ -395,7 +395,7 @@ func (r *Remote) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
 		return SyncResult{}, err
 	}
 	start := time.Now()
-	res, err := r.client.Sync(ctx, connect.NewRequest(&adapterv1alpha1.SyncRequest{Config: p.Config, Cursor: p.Cursor}))
+	res, err := r.client.Sync(ctx, connect.NewRequest(&adapterv1alpha1.SyncRequest{Config: p.Config, Cursor: p.Cursor, EnabledKinds: kindStrings(p.EnabledKinds)}))
 	recordRPC(ctx, rpcClientDuration, "sync", start, err)
 	if err != nil {
 		err = fmt.Errorf("adapter %s: sync: %w", r.name, fromConnect(err))
@@ -417,7 +417,7 @@ func (r *Remote) Handle(ctx context.Context, p HandleParams) (HandleResult, erro
 	for k, v := range p.Headers {
 		headers[k] = &adapterv1alpha1.HeaderValues{Values: v}
 	}
-	res, err := r.client.Handle(ctx, connect.NewRequest(&adapterv1alpha1.HandleRequest{Config: p.Config, Headers: headers, Body: p.Body}))
+	res, err := r.client.Handle(ctx, connect.NewRequest(&adapterv1alpha1.HandleRequest{Config: p.Config, Headers: headers, Body: p.Body, EnabledKinds: kindStrings(p.EnabledKinds)}))
 	recordRPC(ctx, rpcClientDuration, "handle", start, err)
 	if connect.CodeOf(err) == connect.CodeUnimplemented {
 		return HandleResult{}, &Error{Code: CodeNotSupported, Message: fmt.Sprintf("adapter %s does not handle webhooks", r.name)}
@@ -438,3 +438,20 @@ type probingKey struct{}
 func probing(ctx context.Context) context.Context { return context.WithValue(ctx, probingKey{}, true) }
 
 func isProbing(ctx context.Context) bool { v, _ := ctx.Value(probingKey{}).(bool); return v }
+
+func kindsOf(in []string) []model.Kind {
+	out := make([]model.Kind, len(in))
+	for i, k := range in {
+		out[i] = model.Kind(k)
+	}
+	return out
+}
+
+// kindStrings is the wire form of enabled kinds.
+func kindStrings(in []model.Kind) []string {
+	out := make([]string, len(in))
+	for i, k := range in {
+		out[i] = string(k)
+	}
+	return out
+}

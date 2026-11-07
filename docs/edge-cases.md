@@ -362,3 +362,11 @@ Each entry:
 - **Example:** `bearing source sync` for a source whose adapter declares only optional kinds, none enabled.
 - **Impact:** the source is not registered with the server, so the answer says the source is unknown instead of that it has no active kinds. The start log names the cause once.
 - **Proposed fix:** keep such a source registered but paused, and answer "no active kinds" with the kind to enable.
+
+## Facts backed only by a kind that is now inactive never close
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))
+- **Area:** ingest
+- **Example:** `vault.Group` was active and sent a membership; the operator then disables it. Its group is deleted at the source.
+- **Impact:** complete and snapshot closing exempt a fact unless an observation of an active kind backs it, and the check goes by the kind each observation was sent with. Facts only the old, now inactive kind backed stay open until the kind is enabled again.
+- **Proposed fix:** accept it (the kind is off, so Bearing does not watch it), or close such facts when a kind is disabled at boot.

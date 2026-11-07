@@ -225,7 +225,7 @@ func TestSyncPagesKeepsAPageTogetherAndNumbersEveryOne(t *testing.T) {
 		done   bool
 	}
 	var got []seen
-	sum, err := SyncPages(context.Background(), model.Core(), completingMixed{}, json.RawMessage(`{}`), 10, func(p Page) error {
+	sum, err := SyncPages(context.Background(), model.Core(), completingMixed{}, "", json.RawMessage(`{}`), nil, 10, func(p Page) error {
 		var keys []string
 		for _, o := range p.Observations {
 			keys = append(keys, o.GetData().GetEntity().GetKey())
@@ -266,7 +266,7 @@ func (c completingMixed) Sync(ctx context.Context, sp SyncParams) (SyncResult, e
 
 func TestSyncPagesKeepsCompleteSyncWhenNothingWasRejected(t *testing.T) {
 	var last Page
-	_, err := SyncPages(context.Background(), model.Core(), completer{pager{n: 2}}, json.RawMessage(`{"prefix":"p"}`), 10, func(p Page) error {
+	_, err := SyncPages(context.Background(), model.Core(), completer{pager{n: 2}}, "", json.RawMessage(`{"prefix":"p"}`), nil, 10, func(p Page) error {
 		last = p
 		return nil
 	})
@@ -281,7 +281,7 @@ func TestSyncPagesKeepsCompleteSyncWhenNothingWasRejected(t *testing.T) {
 func TestSyncPagesStopsWhenEmitFails(t *testing.T) {
 	boom := errors.New("log is full")
 	calls := 0
-	_, err := SyncPages(context.Background(), model.Core(), pager{n: 5}, json.RawMessage(`{}`), 10, func(Page) error {
+	_, err := SyncPages(context.Background(), model.Core(), pager{n: 5}, "", json.RawMessage(`{}`), nil, 10, func(Page) error {
 		calls++
 		return boom
 	})

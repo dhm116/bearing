@@ -95,6 +95,10 @@ type SyncParams struct {
 	// Cursor is empty on the first call and otherwise the NextCursor the
 	// adapter returned last time. Its contents are private to the adapter.
 	Cursor string `json:"cursor,omitempty"`
+	// EnabledKinds are the kinds the source keeps, among those the adapter
+	// declares. Empty means no filter. An adapter may skip work for the
+	// others; it never has to.
+	EnabledKinds []model.Kind `json:"enabled_kinds,omitempty"`
 }
 
 // SyncResult is one page of a sync.
@@ -115,6 +119,8 @@ type HandleParams struct {
 	Config  json.RawMessage     `json:"config"`
 	Headers map[string][]string `json:"headers"`
 	Body    []byte              `json:"body"`
+	// EnabledKinds is as in SyncParams.
+	EnabledKinds []model.Kind `json:"enabled_kinds,omitempty"`
 }
 
 // HandleResult holds the observations derived from a webhook.
