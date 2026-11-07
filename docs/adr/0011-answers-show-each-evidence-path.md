@@ -45,9 +45,8 @@ says how they relate.
   fact to its object, and stops there.
   - A `same_as` hop moves between records of one cluster. It is one hop
     however long the chain of links behind it. Link rows the store refused
-    to cluster (ADR 7, ADR 10) are never followed. Clusters are today's,
-    also for answers as of a past time, until membership is computed from
-    the links open then (`docs/edge-cases.md`).
+    to cluster (ADR 7, ADR 10) are never followed. Clusters are always
+    today's.
   - A path takes at most one `same_as` hop before each fact, and as many
     facts as the question walks (dependencies use `Walk`'s depth).
   - A fact reached by several paths is one claim, with its shortest path:
@@ -83,11 +82,17 @@ says how they relate.
   - **Q1 (owners):** starts at the service's records.
   - **Q2 (runtimes):** one claim per runtime fact, starting at each
     matching record.
-  - **Q3 (changes):** lists facts per record. It also lists the identity
-    links opened and closed in the window, since a join or split changes
-    answers without any fact changing.
+  - **Q3 (changes):** lists the facts that opened or closed in the
+    window, per record. It also lists asserted joins and splits in the
+    window, each with its justification: the source observation, the
+    settings rule, or a person's decision with its actor and reason.
+    Proposals are conjecture and never appear here.
   - **Q4 and Q5 (dependencies):** walk facts from, or to, the service's
     records.
+- **Past times.** An answer as of a past time uses the facts valid then.
+  When today's facts give a different answer, it also says what changed
+  and when, for example "In April, Payments owned payments-api. That
+  changed to Platform on 3 June."
 - **ADR 2 holds.** Claims read only asserted facts. A proposed link never
   adds a claim; it only describes how two claims relate.
 - **Rendering.** The API and MCP return claims and relations as data;
