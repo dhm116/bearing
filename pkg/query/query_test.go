@@ -216,6 +216,13 @@ func TestQuestionsRefuseWhatTheyCannotAnswer(t *testing.T) {
 		want error
 	}{
 		{"unknown ref", func() error { _, err := q.Get(ctx, "github:repo/acme/none", time.Time{}); return err }, query.ErrNotFound},
+		{"related of an unknown ref", func() error { _, err := q.Related(ctx, "github:repo/acme/none", "", "out", 1, time.Time{}); return err }, query.ErrNotFound},
+		{"related with a cancelled context", func() error {
+			cctx, cancel := context.WithCancel(ctx)
+			cancel()
+			_, err := q.Related(cctx, payments, "", "out", 1, time.Time{})
+			return err
+		}, context.Canceled},
 		{"no ref", func() error { _, err := q.Owners(ctx, "", time.Time{}, false); return err }, query.ErrInvalidRequest},
 		{"bad direction", func() error { _, err := q.Related(ctx, payments, "", "up", 1, time.Time{}); return err }, query.ErrInvalidRequest},
 		{"too deep", func() error { _, err := q.Related(ctx, payments, "", "out", 11, time.Time{}); return err }, query.ErrInvalidRequest},
