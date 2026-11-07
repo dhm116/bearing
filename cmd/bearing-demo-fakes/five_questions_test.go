@@ -116,21 +116,6 @@ func TestDemoSettingsAnswerTheFiveQuestions(t *testing.T) {
 // runFiveQuestions asks the five MVP questions of a server whose sources have
 // been asked to sync (syncAll asks again), plays the story's CODEOWNERS move
 // (advance), and asks questions 1 and 3 again.
-// teamName accepts either source's spelling of a joined team. GitHub says
-// "Payments" and the directory "payments"; the joined entity takes the name of
-// whichever record was stored first, which depends on which sync's page lands
-// first. shortcut: accepts both spellings until answers name the record on
-// each evidence path (ADR 11), then the test asserts each claim exactly.
-func teamName(name string) string {
-	switch name {
-	case "payments":
-		return "Payments"
-	case "platform":
-		return "Platform"
-	}
-	return name
-}
-
 func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, syncAll, advance func()) {
 	t.Helper()
 	const (
@@ -212,6 +197,22 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 		}
 		return nil
 	})
+}
+
+// teamName accepts either source's spelling of a joined team. GitHub says
+// "Payments" and the directory "payments"; the joined entity takes the name of
+// whichever record was stored first, which depends on which sync's page lands
+// first. shortcut: accepts both spellings until answers name the record on
+// each evidence path (ADR 11, dhm116/bearing#314); then the test asserts each
+// claim exactly.
+func teamName(name string) string {
+	switch name {
+	case "payments":
+		return "Payments"
+	case "platform":
+		return "Platform"
+	}
+	return name
 }
 
 func freeAddr(t *testing.T) string {
