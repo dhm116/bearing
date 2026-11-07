@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "bearing.config.v1alpha1.RelationSpec.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RelationSpec declares one relation predicate. A predicate that already\n exists must repeat its shape; its domain and range grow by these kinds.",
+      "properties": {
+        "cardinality": {
+          "anyOf": [
+            {
+              "pattern": "^CARDINALITY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CARDINALITY_ONE",
+                "CARDINALITY_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Required.",
+          "title": "Cardinality"
+        },
+        "conflict": {
+          "anyOf": [
+            {
+              "pattern": "^CONFLICT_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CONFLICT_POLICY_NONE",
+                "CONFLICT_POLICY_ONE",
+                "CONFLICT_POLICY_SET"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "Required.",
+          "title": "Conflict Policy"
+        },
+        "domain": {
+          "description": "Kinds whose records may be the subject, besides the EntityKind itself.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "description": "Lowercase letters, digits and \"_\". Required.",
+          "type": "string"
+        },
+        "range": {
+          "description": "Kinds whose records may be the object. Required.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Relation Spec",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.config.v1alpha1.RelationSpec.schema.bundle.json",
+  "$ref": "#/$defs/bearing.config.v1alpha1.RelationSpec.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

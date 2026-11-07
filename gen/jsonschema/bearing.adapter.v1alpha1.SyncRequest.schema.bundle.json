@@ -4,6 +4,15 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "description": "SyncRequest asks for one page.",
+      "patternProperties": {
+        "^(enabledKinds)$": {
+          "description": "Every active kind the adapter declares, from the vocabulary the server\n booted with (ADR 10). An adapter may skip work for kinds not listed.\n Empty means no filter, so a core that doesn't send it is read correctly;\n a source with no active kinds is never synced.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
       "properties": {
         "config": {
           "default": null,
@@ -15,6 +24,13 @@
           "default": "",
           "description": "The cursor from the previous page; empty for the first.",
           "type": "string"
+        },
+        "enabled_kinds": {
+          "description": "Every active kind the adapter declares, from the vocabulary the server\n booted with (ADR 10). An adapter may skip work for kinds not listed.\n Empty means no filter, so a core that doesn't send it is read correctly;\n a source with no active kinds is never synced.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "title": "Sync Request",
