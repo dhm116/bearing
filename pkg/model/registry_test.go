@@ -90,6 +90,39 @@ func TestRegistryExtendRefusals(t *testing.T) {
 	}
 }
 
+func TestExtendAcceptsRepeatedRelationWithCoreRange(t *testing.T) {
+	t.Parallel()
+	rel := func(domain Kind) Predicate {
+		return Predicate{Name: "exposes", Relation: true, Cardinality: many, Conflict: noneC, Domain: []Kind{domain}, Range: []Kind{KindComponent}}
+	}
+	reg, err := Core().Extend([]KindDef{{Name: "a.X"}, {Name: "b.Y"}}, []Predicate{rel("a.X")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Extend(nil, []Predicate{rel("b.Y")})
+	if err != nil {
+		t.Fatalf("a second EntityKind repeating a configured predicate's core range: %v", err)
+	}
+	p, _ := reg.Predicate("exposes")
+	if !reg.InDomain(p, "a.X") || !reg.InDomain(p, "b.Y") || !reg.InRange(p, KindComponent) {
+		t.Errorf("exposes = %+v, want both domains and a Component range", p)
+	}
+}
+
+func TestExtendRejectsCoreRelationGainingCoreKind(t *testing.T) {
+	t.Parallel()
+	// depends_on's range holds Component, so repeating it is fine; Team is new.
+	dep := func(r Kind) Predicate {
+		return Predicate{Name: string(RelDependsOn), Relation: true, Cardinality: many, Conflict: noneC, Range: []Kind{r}}
+	}
+	if _, err := Core().Extend(nil, []Predicate{dep(KindComponent)}); err != nil {
+		t.Errorf("repeating a core kind already in the range: %v", err)
+	}
+	if _, err := Core().Extend(nil, []Predicate{dep(KindTeam)}); !errors.Is(err, ErrCoreWiden) {
+		t.Errorf("got %v, want ErrCoreWiden", err)
+	}
+}
+
 func TestRegistryExtendMergesDomainAndRangeOfASharedPredicate(t *testing.T) {
 	t.Parallel()
 	reg, err := extended(t).Extend(nil, []Predicate{

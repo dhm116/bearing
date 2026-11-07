@@ -23,7 +23,7 @@ var (
 	ErrKindCycle = errors.New("kind cycle")
 	// ErrShapeConflict means a predicate name would have a second shape.
 	ErrShapeConflict = errors.New("predicate shape conflict")
-	// ErrCoreWiden means a predicate's domain or range would gain a core kind.
+	// ErrCoreWiden means a core predicate's domain or range would gain a core kind it doesn't already cover.
 	ErrCoreWiden = errors.New("core predicate widened to a core kind")
 	// ErrPredicateShape means a new predicate leaves its type, cardinality or conflict policy unset.
 	ErrPredicateShape = errors.New("incomplete predicate shape")
@@ -181,9 +181,13 @@ func (r *Registry) addPredicate(p Predicate) error {
 	if old.Relation != p.Relation || old.Type != p.Type || old.Cardinality != p.Cardinality || old.Conflict != p.Conflict {
 		return fmt.Errorf("%w: it already has another relation flag, type, cardinality or conflict policy", ErrShapeConflict)
 	}
-	for _, k := range slices.Concat(p.Domain, p.Range) {
-		if _, isCore := core.kinds[k]; isCore {
-			return fmt.Errorf("kind %q: %w", k, ErrCoreWiden)
+	if _, coreOwned := core.preds[p.Name]; coreOwned {
+		for _, side := range [][2][]Kind{{old.Domain, p.Domain}, {old.Range, p.Range}} {
+			for _, k := range side[1] {
+				if _, isCore := core.kinds[k]; isCore && side[0] != nil && !slices.ContainsFunc(side[0], func(d Kind) bool { return r.IsA(k, d) }) {
+					return fmt.Errorf("kind %q: %w", k, ErrCoreWiden)
+				}
+			}
 		}
 	}
 	old.Domain, old.Range = union(old.Domain, p.Domain), union(old.Range, p.Range)
