@@ -148,7 +148,7 @@ type Page struct {
 // against adapters that never finish. The whole sync runs in one span, with
 // each page as a child.
 func SyncAll(ctx context.Context, reg *model.Registry, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
-	return SyncPages(ctx, reg, a, config, maxPages, func(p Page) error {
+	return SyncPages(ctx, reg, a, SyncParams{Config: config}, maxPages, func(p Page) error {
 		for _, o := range p.Observations {
 			if err := emit(o); err != nil {
 				return err
@@ -161,8 +161,9 @@ func SyncAll(ctx context.Context, reg *model.Registry, a Syncer, config json.Raw
 // SyncPages is SyncAll for a caller that keeps a page together, as the
 // server does when it puts a page on the event log: emit gets each page once
 // it is screened, in order, and a page with no accepted observation is still
-// passed on, since it may be the last one. An error from emit stops the sync.
-func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, config json.RawMessage, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
+// passed on, since it may be the last one. params carries the config and
+// enabled kinds for every call; its cursor is ignored. An error from emit stops the sync.
+func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, params SyncParams, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -191,7 +192,7 @@ func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, config json.R
 		if err := ctx.Err(); err != nil {
 			return sum, err
 		}
-		res, err := a.Sync(ctx, SyncParams{Config: config, Cursor: cursor})
+		res, err := a.Sync(ctx, SyncParams{Config: params.Config, Cursor: cursor, EnabledKinds: params.EnabledKinds})
 		if err != nil {
 			return sum, fmt.Errorf("adapter: sync page %d: %w", sum.Pages+1, err)
 		}

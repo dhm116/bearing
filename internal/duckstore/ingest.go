@@ -29,7 +29,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 	g := &ingest{
-		tx: tx, s: s, source: source, authoritative: r.Authoritative,
+		tx: tx, s: s, source: source, authoritative: r.Authoritative, active: r.Active,
 		recorded: s.now().UTC().Truncate(time.Microsecond),
 	}
 	for _, o := range obs {
@@ -37,7 +37,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 			return graph.IngestResult{}, fmt.Errorf("observation %s: %w", o.GetId(), err)
 		}
 	}
-	if err := g.complete(ctx, r.Complete, r.SyncStarted); err != nil {
+	if err := g.complete(ctx, g.activeOnly(r.Complete), r.SyncStarted); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)
 	}
 	if _, err := recluster(ctx, tx, g.s.reg, g.dirty); err != nil {
@@ -55,6 +55,7 @@ type ingest struct {
 	s             *Store
 	source        string
 	authoritative func(model.Key) bool
+	active        []model.Kind // empty: every kind is active
 	recorded      time.Time
 	res           graph.IngestResult
 	// dirty are records whose cluster may have changed; recomputed before commit.
@@ -629,7 +630,8 @@ func (g *ingest) closeWhere(ctx context.Context, where string, args ...any) erro
 // closeUntouched is closeWhere for the facts this observation did not open or
 // refresh.
 func (g *ingest) closeUntouched(ctx context.Context, where string, args ...any) error {
-	ids, err := g.strings(ctx, `SELECT id FROM fact WHERE valid_to IS NULL AND `+where, args...)
+	exempt, exArgs := g.keptByActive()
+	ids, err := g.strings(ctx, `SELECT id FROM fact WHERE valid_to IS NULL AND `+where+exempt, append(args, exArgs...)...)
 	if err != nil {
 		return err
 	}
@@ -678,10 +680,39 @@ func (g *ingest) complete(ctx context.Context, kinds []model.Kind, started time.
 	goneArgs := append(append([]any{g.source}, anySlice(kinds)...), started)
 	args := append([]any{started, started, g.source, started}, goneArgs...)
 	args = append(args, goneArgs...)
+	exempt, exArgs := g.keptByActive()
 	n, err := g.exec(ctx, `UPDATE fact SET valid_to = ? WHERE valid_to IS NULL AND valid_from <= ? AND source = ?
 		AND NOT EXISTS (SELECT 1 FROM fact_source fs JOIN observation o ON o.id = fs.observation_id
 			WHERE fs.fact_id = fact.id AND o.observed_at >= ?)
-		AND (subject_id IN (`+gone+`) OR object_id IN (`+gone+`))`, args...)
+		AND (subject_id IN (`+gone+`) OR object_id IN (`+gone+`))`+exempt, append(args, exArgs...)...)
 	g.res.Closed += int(n)
 	return err
+}
+
+// activeOnly narrows kinds to the active ones. A disabled kind is not listed
+// in full as far as Bearing is concerned, so nothing of it may read as gone.
+func (g *ingest) activeOnly(kinds []model.Kind) []model.Kind {
+	if len(g.active) == 0 {
+		return kinds
+	}
+	var out []model.Kind
+	for _, k := range kinds {
+		if slices.Contains(g.active, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// keptByActive is the condition that exempts a fact from complete and
+// snapshot closing unless some observation of an active kind backs it: a
+// fact only an inactive kind sent is not one Bearing watches, and one that
+// both ends sent closes because the active end did. It is empty when every
+// kind is active.
+func (g *ingest) keptByActive() (string, []any) {
+	if len(g.active) == 0 {
+		return "", nil
+	}
+	return ` AND EXISTS (SELECT 1 FROM fact_source fs2 JOIN observation o2 ON o2.id = fs2.observation_id
+		WHERE fs2.fact_id = fact.id AND o2.kind IN (` + placeholders(len(g.active)) + `))`, anySlice(g.active)
 }

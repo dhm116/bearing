@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,6 +100,10 @@ type Config struct {
 	Links LinkDecider
 	// Sources are the configured sources.
 	Sources []Source
+	// Active maps a source to the kinds it keeps (core and configured, among
+	// those its adapter declares). A source not listed keeps everything; one
+	// listed with no kinds is neither synced nor sent webhooks.
+	Active map[string][]model.Kind
 
 	// Group is the consumer group of the apply workers: the one group
 	// Trim waits for.
@@ -273,6 +278,22 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.failed.Store(&err)
 	return err
+}
+
+// idle reports whether source keeps no kind: it is neither synced nor sent
+// webhooks, since nothing it said would be kept.
+func (s *Server) idle(source string) bool {
+	k, listed := s.cfg.Active[source]
+	return listed && len(k) == 0
+}
+
+// enabledKinds is what a source's adapter is sent as enabled_kinds: the
+// active kinds sorted, each once. Nil (no filter) only for a source with no
+// listed kinds; an idle source is never called.
+func (s *Server) enabledKinds(source string) []model.Kind {
+	k := slices.Clone(s.cfg.Active[source])
+	slices.Sort(k)
+	return slices.Compact(k)
 }
 
 // HasSource reports whether name is a configured source.

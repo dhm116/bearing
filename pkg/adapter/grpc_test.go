@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,6 +66,44 @@ func TestGRPCCarriesDescribeAndSyncPages(t *testing.T) {
 	}
 	if pages != 2 || obs == 0 {
 		t.Fatalf("got %d pages and %d observations, want 2 pages with observations", pages, obs)
+	}
+}
+
+// kindsSeen records the enabled kinds each call carried.
+type kindsSeen struct {
+	pager
+	sync, handle chan []model.Kind
+}
+
+func (k kindsSeen) Sync(ctx context.Context, p SyncParams) (SyncResult, error) {
+	k.sync <- p.EnabledKinds
+	return k.pager.Sync(ctx, p)
+}
+
+func (k kindsSeen) Handle(_ context.Context, p HandleParams) (HandleResult, error) {
+	k.handle <- p.EnabledKinds
+	return HandleResult{}, nil
+}
+
+func TestGRPCCarriesEnabledKindsSortedOnceEachOnSyncAndHandle(t *testing.T) {
+	a := kindsSeen{pager: pager{n: 1}, sync: make(chan []model.Kind, 1), handle: make(chan []model.Kind, 1)}
+	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, a)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := []model.Kind{model.KindTeam, model.KindPerson, model.KindTeam}
+	want := []model.Kind{model.KindPerson, model.KindTeam}
+	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`), EnabledKinds: enabled}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Handle(t.Context(), HandleParams{EnabledKinds: enabled}); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-a.sync; !slices.Equal(got, want) || len(got) == 0 {
+		t.Errorf("sync got %v, want %v", got, want)
+	}
+	if got := <-a.handle; !slices.Equal(got, want) || len(got) == 0 {
+		t.Errorf("handle got %v, want %v", got, want)
 	}
 }
 
