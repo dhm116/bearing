@@ -96,6 +96,47 @@ does.
 
 Read next: `internal/duckstore/ingest.go`, `links.go`, ADR 7.
 
+## The vocabulary: kinds
+
+Every record has a **kind** (`Person`, `Team`, `Repository`). The kinds, and
+the relations and attributes that go with them, are the **vocabulary**
+([ADR 10](adr/0010-configured-namespaced-kinds.md)).
+
+- **Core kinds** live in code (`pkg/model`) and are written bare: `Person`.
+- **Configured kinds** are added by an operator with an `EntityKind` in the
+  settings file, written `<namespace>.<Kind>`: `k8s.Service`. The namespace
+  names the vocabulary the kind comes from (Kubernetes, systemd); nothing
+  reads meaning from it.
+- **A parent** (`extends`) says what a configured kind is a kind of: a
+  `k8s.Service` extending `Component` is a `Component`. A question about a
+  kind also covers its descendants, so question 1 about components answers
+  for services too. A kind with no parent works for lookups, search and
+  history, but never answers the five MVP questions.
+- **Active, inactive, retired.** An adapter declares the kinds it emits, each
+  required or `optional`. A kind the vocabulary holds is *active* for that
+  source. An optional kind nobody configured is *inactive*: its observations
+  are dropped and counted, never rejected. A configured kind the operator later
+  removes is *retired*: the store remembers it, so its facts still answer
+  (marked `as_of` the retirement) and its observations are dropped like an
+  inactive one's. Dropping never closes facts: a kind that is off is not read
+  as deleted. Adding the kind back un-retires it, and a full sync brings its
+  facts up to date.
+
+Where each rule is checked:
+
+| When | What | Where |
+| --- | --- | --- |
+| Start | `EntityKind` names, parents and shapes are valid; a required declared kind exists | `pkg/server/boot` |
+| Start | Config only grows the kinds the store remembers (a changed parent or a narrowed domain refuses the start) | `Store.SyncVocabulary`, `internal/duckstore/vocabulary.go` |
+| Each page | Observations of kinds the source does not keep are dropped | `adapter.DropInactive`, `server.StoreApplier` |
+| Each page | What is left is validated against the vocabulary | `pkg/model` |
+| Complete sync | Only active kinds close what the source stopped listing | `internal/duckstore/ingest.go` |
+
+Config changes take a restart. The server builds the vocabulary once at start
+and hands it to the store, the matcher and the queries.
+
+Read next: `pkg/model/vocabulary.go`, `pkg/server/boot/assemble.go`.
+
 ## A question
 
 The CLI, or any client, asks the API, for example

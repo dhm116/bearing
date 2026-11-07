@@ -1,6 +1,6 @@
 # 10. Configured, namespaced kinds beside the core kinds
 
-Date: 2026-11-01 · Status: proposed
+Date: 2026-11-01 · Status: accepted
 
 ## Context
 
@@ -35,6 +35,9 @@ operating-system `Service` are different things.
   reserved and `bearing.Person` is rejected. A kind holds no `:` or `/`,
   so it can't be mistaken for a key (`issuer:type/value`), and attribute
   names hold no `.`.
+- A core predicate's domain and range grow only by configured kinds: an
+  `EntityKind` may add its kind to the domain or range of a core relation
+  (`owned_by`, `depends_on`), and nothing else changes about it.
 - `extends` names one parent, core or configured. Chains end at the core
   or at nothing; cycles are rejected. A kind with no parent works with
   `Get`, `Related`, `Find` and `Changes` but never answers the five MVP
@@ -111,4 +114,5 @@ operating-system `Service` are different things.
   the two requests; `pkg/adapter` passes the list to adapters.
 - Enabling a kind later takes a full sync from that source; webhook-only
   sources can't backfill (`docs/edge-cases.md`).
-- ADR 7 is superseded in part when this is accepted.
+- ADR 7 is superseded in part by this: its "never across kinds" rule becomes
+  the line-of-descent rule above.

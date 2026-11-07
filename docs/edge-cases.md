@@ -363,6 +363,14 @@ Each entry:
 - **Impact:** the source is not registered with the server, so the answer says the source is unknown instead of that it has no active kinds. The start log names the cause once.
 - **Proposed fix:** keep such a source registered but paused, and answer "no active kinds" with the kind to enable.
 
+## The API join check reads the registry at one moment
+
+- **Found in:** [dhm116/bearing#308](https://github.com/dhm116/bearing/pull/308) review (`pkg/server/apilinks.go`)
+- **Area:** API, identity
+- **Example:** a person asks to join two records. The API checks that their kinds lie on one line of descent and accepts; before the worker applies the decision, a sync gives one record a kind off that line.
+- **Impact:** the store refuses the join when it applies it, and because applying is asynchronous the decision is dead-lettered, not answered to the person who made it. Rare: a record's kind seldom changes.
+- **Proposed fix:** accept it, or report a dead-lettered decision back through the link's status.
+
 ## Facts backed only by a kind that is now inactive never close
 
 - **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))
