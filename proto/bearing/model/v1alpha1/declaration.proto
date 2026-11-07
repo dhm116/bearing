@@ -48,9 +48,9 @@ message WebhookSignature {
   string signature_prefix = 3;
 }
 
-// KindDeclaration declares one registered kind an adapter emits.
+// KindDeclaration declares one kind an adapter emits.
 message KindDeclaration {
-  // A registered subject kind, e.g. "Repository".
+  // A core kind, e.g. "Repository", or a configured one, e.g. "k8s.Service".
   string kind = 1;
   // The kind's key types.
   repeated KeyTypeDeclaration keys = 2;
@@ -58,6 +58,10 @@ message KindDeclaration {
   repeated FieldDeclaration fields = 3;
   // Key types of other systems this system records for the entity.
   repeated LinkDeclaration links = 4;
+  // When set, the adapter runs without this kind if the vocabulary lacks it:
+  // the kind is inactive and its observations are dropped. When unset, a
+  // kind the vocabulary lacks refuses the adapter (ADR 10).
+  bool optional = 5;
 }
 
 // KeyTypeDeclaration declares one key type.
