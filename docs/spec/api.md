@@ -92,7 +92,10 @@ Facts of a record whose kind is retired still answer, because the store keeps
 the kind. A current answer (not `changes`) then carries `as_of`, an RFC 3339
 time: the fact is true as of the retirement, and no source has been asked for
 it since. It appears on facts, on runtime declarations and on the people in
-`teams` of `owner`, and is absent while the kind is active.
+`teams` of `owner`, and is absent while the kind is active. It is set on the
+answers of `get`, `related`, `owner` and `runtimes` (not `changes`, which
+reports history, nor `find`), and with `at` only for a kind already retired
+at that time.
 
 **Who asked.** A sync request is recorded with the caller the authenticator
 proved: `token` for the API token, or `local:<uid>` on the socket. Nothing in the request chooses it.

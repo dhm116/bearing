@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -18,15 +19,18 @@ import (
 const k8sService = model.Kind("k8s.Service")
 
 // vocabRun is the Kubernetes source of Acme booted the way pkg/server/boot
-// boots it, once per call to boot: the settings' vocabulary is written to the
-// store's kind table, the registry it returns is what the store and the
-// queries read with, and the kinds the source keeps come from the booted
-// vocabulary, not the read one. The same store lives across boots.
+// boots it, once per call to boot: the vocabulary (core, configured kinds and
+// the adapter's declared attributes) is written to the store's kind table,
+// the registry it returns is what the store and the queries read with, and
+// the kinds the source keeps come from the booted vocabulary, not the read
+// one. The same store lives across boots.
 type vocabRun struct {
 	*cluster
 	applier server.StoreApplier
 	q       *query.Querier
 	decl    *modelv1alpha1.AdapterDeclaration
+	read    *model.Registry
+	active  []model.Kind
 }
 
 // newVocabRun is a cluster whose adapter, as the e2e fixture has it, emits
@@ -35,10 +39,15 @@ type vocabRun struct {
 func newVocabRun(t *testing.T) *vocabRun {
 	t.Helper()
 	c := newCluster(t)
-	decl := &modelv1alpha1.AdapterDeclaration{Name: "kubernetes", IssuerType: "kubernetes"}
-	for _, k := range []model.Kind{model.KindComponent, model.KindEnvironment, model.KindTeam, k8sService} {
-		decl.Kinds = append(decl.Kinds, &modelv1alpha1.KindDeclaration{Kind: string(k), Optional: k == k8sService})
+	b, err := os.ReadFile("../../testdata/declarations/kubernetes.json")
+	if err != nil {
+		t.Fatal(err)
 	}
+	decl := &modelv1alpha1.AdapterDeclaration{}
+	if err := model.DecodeJSON(b, decl); err != nil {
+		t.Fatal(err)
+	}
+	decl.Kinds = append(decl.Kinds, &modelv1alpha1.KindDeclaration{Kind: string(k8sService), Optional: true})
 	return &vocabRun{cluster: c, decl: decl}
 }
 
@@ -53,20 +62,30 @@ func (v *vocabRun) boot(configured bool) {
 			v.t.Fatal(err)
 		}
 	}
+	// The adapter's declared attributes join the vocabulary, as extendDeclared does.
+	var attrs []model.Predicate
+	for _, p := range model.DeclaredAttributes(reg, v.decl) {
+		p.Conflict = modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE
+		attrs = append(attrs, p)
+	}
+	reg, err := reg.Extend(nil, attrs)
+	if err != nil {
+		v.t.Fatal(err)
+	}
 	read, err := v.store.SyncVocabulary(v.t.Context(), reg, v.clock.Now())
 	if err != nil {
 		v.t.Fatal(err)
 	}
 	v.store.SetRegistry(read)
-	var active []model.Kind
+	v.read, v.active = read, nil
 	for _, k := range v.decl.GetKinds() {
 		if reg.Valid(model.Kind(k.GetKind())) {
-			active = append(active, model.Kind(k.GetKind()))
+			v.active = append(v.active, model.Kind(k.GetKind()))
 		}
 	}
 	v.applier = server.StoreApplier{
 		Store: v.store, Registry: read, Authority: map[string]func(model.Key) bool{"kubernetes-acme": authoritative(v.t, "kubernetes")},
-		Active: map[string][]model.Kind{"kubernetes-acme": active},
+		Active: map[string][]model.Kind{"kubernetes-acme": v.active},
 	}
 	v.q = &query.Querier{Graph: v.store, Registry: read, Now: v.clock.Now}
 }
@@ -92,12 +111,15 @@ func (v *vocabRun) fullSync() {
 	if done == nil {
 		v.t.Fatal("sync did not finish")
 	}
-	var started time.Time
 	for _, o := range all {
 		// The fixture's adapter emits its workloads as k8s.Service.
 		if e := o.GetData().GetEntity(); e.GetKind() == string(model.KindComponent) {
 			e.Kind = string(k8sService)
 		}
+	}
+	// As the host does: sync_started comes from the observations it keeps.
+	var started time.Time
+	for _, o := range adapter.DropInactive(v.t.Context(), v.read, "kubernetes-acme", all, v.active) {
 		if t := o.GetTime().AsTime(); started.IsZero() || t.Before(started) {
 			started = t
 		}
@@ -154,7 +176,11 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 	// observation kept, the next sync would close that owned_by fact.
 	v.playUntil(fakes.TeamLabelClearedAt)
 	before := v.facts(graph.FactFilter{Predicate: "owned_by"})
+	seen := v.lastObserved("cluster")
 	v.fullSync()
+	if got := v.lastObserved("cluster"); !got.After(seen) {
+		t.Fatalf("an Environment's cluster was last observed %v, want after %v: active kinds must still be ingested", got, seen)
+	}
 	if after := v.facts(graph.FactFilter{Predicate: "owned_by"}); len(after) != len(before) {
 		t.Fatalf("owned_by facts now %d, want the %d from before: a disabled kind closed facts", len(after), len(before))
 	}
@@ -187,4 +213,18 @@ func (v *vocabRun) facts(f graph.FactFilter) []graph.Fact {
 		v.t.Fatal(err)
 	}
 	return fs
+}
+
+// lastObserved is the latest observation behind any current fact of predicate.
+func (v *vocabRun) lastObserved(predicate string) time.Time {
+	v.t.Helper()
+	var last time.Time
+	for _, f := range v.facts(graph.FactFilter{Predicate: predicate}) {
+		for _, s := range f.Sources {
+			if s.ObservedAt.After(last) {
+				last = s.ObservedAt
+			}
+		}
+	}
+	return last
 }

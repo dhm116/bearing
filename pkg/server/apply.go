@@ -22,17 +22,20 @@ type StoreApplier struct {
 	// (model.LinkAuthority, with the operator's overrides); a source not
 	// listed vouches for none.
 	Authority map[string]func(model.Key) bool
-	// Active is Config.Active: the kinds each source keeps. Observations of
-	// other kinds are dropped and counted, never refused.
+	// Active is Config.Active (see there: with a non-nil map an unlisted
+	// source keeps nothing). Observations of other kinds are dropped and
+	// counted, never refused.
 	Active map[string][]model.Kind
 }
 
 // Apply implements Applier. An invalid observation fails the whole page, as a
 // failed write does, so the page is retried and then dead-lettered.
 func (a StoreApplier) Apply(ctx context.Context, source string, obs []*eventv1alpha1.Observation, done Completion) error {
-	active, filtered := a.Active[source]
-	if filtered && len(active) == 0 {
-		return nil // keeps nothing; an empty Active would mean everything
+	active := a.Active[source]
+	if a.Active != nil && len(active) == 0 {
+		// Idle, or no longer configured (its pages are still on the log): the
+		// read registry still holds retired kinds, so nothing may reach validation.
+		return nil
 	}
 	// The host dropped these already; this covers events already on the log.
 	obs = adapter.DropInactive(ctx, a.Registry, source, obs, active)

@@ -97,22 +97,14 @@ func TestStoreApplierDropsAndCountsObservationsOfInactiveKinds(t *testing.T) {
 	}
 }
 
-func TestStoreApplierKeepsEverythingWhenTheSourceIsNotListed(t *testing.T) {
+func TestStoreApplierKeepsEverythingWithNoActiveMap(t *testing.T) {
 	t.Parallel()
-	for name, active := range map[string]map[string][]model.Kind{
-		"nil map":      nil,
-		"other source": {"elsewhere": {model.KindTeam}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			d := newDuck(t, time.Now)
-			o := validObservation(t)
-			if err := (StoreApplier{Store: d, Active: active}).Apply(t.Context(), testSource, []*eventv1alpha1.Observation{o}, Completion{}); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err != nil {
-				t.Fatalf("got %v, want the observation ingested", err)
-			}
-		})
+	d := newDuck(t, time.Now)
+	o := validObservation(t)
+	if err := (StoreApplier{Store: d}).Apply(t.Context(), testSource, []*eventv1alpha1.Observation{o}, Completion{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err != nil {
+		t.Fatalf("got %v, want the observation ingested", err)
 	}
 }

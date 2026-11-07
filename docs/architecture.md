@@ -132,6 +132,11 @@ Where each rule is checked:
 | Each page | What is left is validated against the vocabulary | `pkg/model` |
 | Complete sync | Only active kinds close what the source stopped listing | `internal/duckstore/ingest.go` |
 
+A refused start names the kind or predicate. If a configured kind's parent
+changed, restore the parent or define a new kind. If an attribute's shape
+(type, cardinality, conflict policy) changed, restore the shape or use a new
+attribute name. If a domain or range narrowed, add the kind back to it.
+
 Config changes take a restart. The server builds the vocabulary once at start
 and hands it to the store, the matcher and the queries.
 

@@ -371,6 +371,14 @@ Each entry:
 - **Impact:** the store refuses the join when it applies it, and because applying is asynchronous the decision is dead-lettered, not answered to the person who made it. Rare: a record's kind seldom changes.
 - **Proposed fix:** accept it, or report a dead-lettered decision back through the link's status.
 
+## A removed adapter's attribute shape outlives it
+
+- **Found in:** [#316](https://github.com/dhm116/bearing/pull/316) review (`internal/duckstore/vocabulary.go`)
+- **Area:** vocabulary
+- **Example:** an adapter declared `tags` as strings and was removed from the settings. A new adapter declares `tags` as a bool.
+- **Impact:** the store keeps the old shape for reading old facts and adds it to the read registry, so the new adapter's `tags` observations are rejected and dead-lettered, and the refusal does not say why.
+- **Proposed fix:** name the stored shape in the refusal and say how to drop it (a command that forgets an attribute no fact uses).
+
 ## Facts backed only by a kind that is now inactive never close
 
 - **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))

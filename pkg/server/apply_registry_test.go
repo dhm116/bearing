@@ -142,3 +142,33 @@ func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
 		t.Errorf("dropped counter rose by %d, want 1", got)
 	}
 }
+
+// A page can outlive its source's settings entry. The read registry still
+// holds retired kinds, so an unlisted source must keep nothing.
+func TestStoreApplierDropsAPageOfAnUnconfiguredSource(t *testing.T) {
+	t.Parallel()
+	booted, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := newDuck(t, time.Now)
+	if _, err := d.SyncVocabulary(t.Context(), booted, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	read, err := d.SyncVocabulary(t.Context(), model.Core(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetRegistry(read)
+	o := validObservation(t)
+	o.GetData().GetEntity().Kind = "k8s.Service"
+	o.GetData().GetEntity().Attributes = nil
+	o.GetData().Relations = nil
+	a := StoreApplier{Store: d, Registry: read, Active: map[string][]model.Kind{"another-source": {model.KindComponent}}}
+	if err := a.Apply(t.Context(), "removed-source", []*eventv1alpha1.Observation{o}, Completion{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err == nil {
+		t.Error("a page of a source that is not configured was ingested")
+	}
+}

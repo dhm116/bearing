@@ -288,4 +288,14 @@ func TestAssembleRefusesAVocabularyThatChangesAStoredKind(t *testing.T) {
 	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "k8s.Service") {
 		t.Fatalf("got %v, want a refusal naming k8s.Service", err)
 	}
+	// Without the kind the start succeeds and the retired kind is not active.
+	w := newWorld(t, func(s *Settings) { s.Store.URL = url })
+	r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if slices.Contains(r.ActiveKinds["github-acme"], "k8s.Service") {
+		t.Errorf("active kinds %v hold the retired k8s.Service", r.ActiveKinds["github-acme"])
+	}
 }

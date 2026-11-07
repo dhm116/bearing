@@ -100,10 +100,10 @@ type Config struct {
 	// Sources are the configured sources.
 	Sources []Source
 	// Active maps a source to the kinds it keeps (core and configured, among
-	// those its adapter declares). A source not listed (or a nil map) keeps
-	// everything. One listed with no kinds keeps nothing: it is neither
-	// synced nor sent webhooks, and the applier ingests nothing for it. The
-	// host sends the kinds to the adapter sorted, each once.
+	// those its adapter declares). A nil map keeps everything; with a non-nil
+	// map, an unlisted source keeps nothing, like one listed with no kinds:
+	// it is neither synced nor sent webhooks, and the applier ingests nothing
+	// for it. The host sends the kinds to the adapter sorted, each once.
 	Active map[string][]model.Kind
 
 	// Group is the consumer group of the apply workers: the one group
