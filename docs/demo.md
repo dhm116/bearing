@@ -293,3 +293,35 @@ To check that the whole stack works, run `BEARING_TEST_COMPOSE=1 go test
 (ports 8443 and 9090 must be free), asks the five questions and tears it
 down. Without Docker, `go test ./cmd/bearing-demo-fakes` runs the same
 questions against a server started in-process from the same settings file.
+
+## Add a kind of your own
+
+The settings file takes `EntityKind` resources in `entity_kinds`, beside
+`sources`. Each adds a kind to the core ones (`Person`, `Team`, `Component`,
+...), named `<namespace>.<Kind>`. `extends` names a parent, so questions
+about `Component` include it. Attributes and relations are declared with
+their type, cardinality and conflict policy; a name has one shape across the
+whole vocabulary.
+
+```json
+"entity_kinds": [{
+  "apiVersion": "bearing/v1alpha1", "kind": "EntityKind",
+  "metadata": {"name": "k8s-service"},
+  "spec": {
+    "name": "k8s.Service",
+    "extends": "Component",
+    "attributes": [{"name": "cluster_ip", "type": "VALUE_TYPE_STRING",
+                    "cardinality": "CARDINALITY_ONE", "conflict": "CONFLICT_POLICY_NONE"}],
+    "relations": [{"name": "exposes", "range": ["Component"],
+                   "cardinality": "CARDINALITY_MANY", "conflict": "CONFLICT_POLICY_NONE"}]
+  }
+}]
+```
+
+An adapter's declaration may name a kind from this list. A declared kind the
+server does not hold is refused, naming the kind to enable, unless the
+declaration marks it `optional`; then it is accepted and logged as inactive.
+A source whose adapter has no active kinds is neither synced nor sent
+webhooks. Changes take a restart. `bearing adapter sync --settings FILE`
+checks an adapter's output against the same kinds. See
+[ADR 10](adr/0010-configured-namespaced-kinds.md).

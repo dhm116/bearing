@@ -68,12 +68,13 @@ import (
 	_ "bearing.example/internal/duckstore" // registers the mem and duckdb store schemes
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/server/boot"
 	"bearing.example/pkg/telemetry"
 )
 
 const usage = `usage:
   bearing adapter describe [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
-  bearing adapter sync [--config cfg.json] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
+  bearing adapter sync [--config cfg.json] [--settings FILE] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
   bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
@@ -269,12 +270,23 @@ func describe(ctx context.Context, args []string, stdout io.Writer) (err error) 
 func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	configPath := fs.String("config", "", "adapter config JSON file")
+	settings := fs.String("settings", "", "process settings file, for the configured kinds the adapter's observations may use")
 	maxPages := fs.Int("max-pages", 10000, "stop if the adapter has not finished after this many pages")
 	a, done, err := openAdapter(ctx, fs, args)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, done()) }()
+	reg := model.Core()
+	if *settings != "" {
+		st, err := boot.Load(*settings)
+		if err != nil {
+			return err
+		}
+		if reg, err = st.Registry(); err != nil {
+			return err
+		}
+	}
 	config := json.RawMessage(`{}`)
 	if *configPath != "" {
 		b, err := os.ReadFile(*configPath)
@@ -286,7 +298,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
 	n := 0
-	sum, err := adapter.SyncAll(ctx, model.Core(), a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(ctx, reg, a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
 		b, err := model.EncodeJSON(o)
 		if err != nil {
