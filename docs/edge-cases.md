@@ -330,3 +330,11 @@ Each entry:
 - **Example:** an operator enables `systemd.Service` a month after the adapter started; until then its observations were dropped.
 - **Impact:** after the next full sync its facts open at the sync time, not when they began, and a webhook-only source can't backfill at all.
 - **Proposed fix:** accept and document it, or keep dropped pages so they can be replayed once the kind is enabled.
+
+## Answers as of a past time use today's clusters
+
+- **Found in:** [ADR 11](adr/0011-answers-show-each-evidence-path.md) review ([dhm116/bearing#314](https://github.com/dhm116/bearing/pull/314))
+- **Area:** identity, queries
+- **Example:** two team records were joined in March and split in June; "which team owns X as of April?" asked in July hops between them as if they were never joined.
+- **Impact:** an as-of answer can show claims through a join that didn't hold then, or miss one that did. `cluster_id` holds only the current clustering.
+- **Proposed fix:** compute cluster membership at the answer's time from the `identity_link` rows open then, with the same skip rules as `recluster`, and decay proposal scores to that time.
