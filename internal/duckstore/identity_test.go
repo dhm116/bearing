@@ -312,15 +312,19 @@ func TestLinkAssertedPromotesAnOpenProposalAndProposedNeverDemotes(t *testing.T)
 	}
 	wantClusters(t, s, map[string]graph.EntityID{"id-2": "id-1"})
 	ls := links(t, s, graph.LinkFilter{})
-	if len(ls) != 1 || ls[0].Status != graph.Asserted || ls[0].Rule != "rule/teams" || len(ls[0].Deposits) != 2 ||
-		ls[0].Deposits[0].Features["name"] != 0.9 {
-		t.Fatalf("got %+v, want one asserted link by rule/teams keeping the matcher's deposit", ls)
+	if len(ls) != 1 || ls[0].Status != graph.Asserted || ls[0].Rule != "rule/teams" || len(ls[0].Deposits) != 1 {
+		t.Fatalf("got %+v, want one open asserted link by rule/teams with the promoting deposit", ls)
+	}
+	old := links(t, s, graph.LinkFilter{Status: graph.Proposed, WithClosed: true})
+	if len(old) != 1 || old[0].ID != ls[0].PromotedFrom || old[0].ValidTo.IsZero() || old[0].Rule != "matcher/transparent" ||
+		len(old[0].Deposits) != 1 || old[0].Deposits[0].Features["name"] != 0.9 {
+		t.Fatalf("got %+v, want the closed proposal keeping the matcher's rule and deposit", old)
 	}
 
 	link(t, s, sameAs("id-1", "id-2", graph.Proposed, "matcher/transparent"))
 	ls = links(t, s, graph.LinkFilter{})
-	if len(ls) != 1 || ls[0].Status != graph.Asserted || ls[0].Rule != "rule/teams" || len(ls[0].Deposits) != 3 {
-		t.Fatalf("got %+v, want still asserted by rule/teams with a third deposit", ls)
+	if len(ls) != 1 || ls[0].Status != graph.Asserted || ls[0].Rule != "rule/teams" || len(ls[0].Deposits) != 2 {
+		t.Fatalf("got %+v, want still asserted by rule/teams with a second deposit", ls)
 	}
 	wantClusters(t, s, map[string]graph.EntityID{"id-2": "id-1"})
 }

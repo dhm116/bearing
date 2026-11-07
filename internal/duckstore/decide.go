@@ -39,7 +39,11 @@ func (s *Store) Decide(ctx context.Context, d graph.Decision) (graph.LinkResult,
 		at = s.now()
 	}
 	at = at.UTC().Truncate(time.Microsecond)
-	if res, err = s.decide(ctx, tx, d, at); err != nil {
+	w := &writes{decision: d.ID}
+	if res, err = s.decide(ctx, tx, w, d, at); err != nil {
+		return graph.LinkResult{}, err
+	}
+	if err := w.settle(ctx, tx); err != nil {
 		return graph.LinkResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO link_decision VALUES (?, ?)`, d.ID, at); err != nil {
@@ -58,12 +62,12 @@ type storedLink struct {
 	open         bool
 }
 
-func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at time.Time) (graph.LinkResult, error) {
+func (s *Store) decide(ctx context.Context, tx *sql.Tx, w *writes, d graph.Decision, at time.Time) (graph.LinkResult, error) {
 	var res graph.LinkResult
 	dep := graph.Deposit{At: at, Weight: 1, Actor: d.Actor, Reason: d.Reason}
 	// assert opens (or reinforces) an asserted link by the person for a pair.
 	assert := func(a, b string, kind graph.LinkKind) error {
-		opened, _, err := s.upsertLink(ctx, tx, graph.Proposal{
+		opened, _, err := s.upsertLink(ctx, tx, w, graph.Proposal{
 			A: graph.EntityID(a), B: graph.EntityID(b), Kind: kind, Status: graph.Asserted, Rule: graph.PersonRule, Deposit: dep,
 		})
 		if opened {
@@ -77,14 +81,8 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, d graph.Decision, at tim
 		if b < a {
 			a, b = b, a
 		}
-		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM identity_link WHERE a = ? AND b = ? AND kind = ? AND valid_to IS NULL`,
-			a, b, string(kind)).Scan(&open); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `UPDATE identity_link SET valid_to = greatest(valid_from, ?)
-			WHERE a = ? AND b = ? AND kind = ? AND valid_to IS NULL`, at, a, b, string(kind))
-		res.Closed += open
+		n, err := s.closeLinks(ctx, tx, w, at, `a = ? AND b = ? AND kind = ?`, a, b, string(kind))
+		res.Closed += n
 		return err
 	}
 	// join asserts a same_as for a and b, refusing (before writing) when a
@@ -222,6 +220,17 @@ func loadLink(ctx context.Context, tx *sql.Tx, id string) (storedLink, error) {
 		return l, fmt.Errorf("link %q: %w", id, graph.ErrNotFound)
 	}
 	l.open = !to.Valid
+	if err == nil && !l.open {
+		// A promoted proposal's ID still names the asserted link that replaced it.
+		var next string
+		err = tx.QueryRowContext(ctx, `SELECT id FROM identity_link WHERE promoted_from = ? AND valid_to IS NULL`, id).Scan(&next)
+		if err == nil {
+			return loadLink(ctx, tx, next)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			err = nil
+		}
+	}
 	return l, wrapErr("link "+id, err)
 }
 

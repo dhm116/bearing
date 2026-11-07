@@ -300,7 +300,29 @@ type Link struct {
 	// them (pkg/match).
 	Deposits           []Deposit
 	ValidFrom, ValidTo time.Time
+	// PromotedFrom is the proposal this asserted link promoted, which the
+	// promotion closed; empty otherwise.
+	PromotedFrom string
+	// OpenDecision and CloseDecision are the person's decision (its event
+	// ID) that opened or closed the link; empty otherwise. One decision's
+	// rows share an ID.
+	OpenDecision, CloseDecision string
+	// OpenEffect and CloseEffect say what opening or closing an asserted link
+	// did to the clusters, as the store applied it. Empty for proposals, and
+	// CloseEffect while the link is open.
+	OpenEffect, CloseEffect LinkEffect
 }
+
+// LinkEffect is what an asserted link's opening or closing did to clusters.
+type LinkEffect string
+
+// The effects of opening or closing an asserted link.
+const (
+	EffectJoined  LinkEffect = "joined"  // two clusters became one
+	EffectSplit   LinkEffect = "split"   // one cluster became two
+	EffectNone    LinkEffect = "none"    // the clusters stayed as they were
+	EffectRefused LinkEffect = "refused" // an opening same_as the clustering did not apply
+)
 
 // Deposit is one piece of evidence for (or, when Against, against) a link.
 type Deposit struct {
@@ -330,6 +352,10 @@ type LinkFilter struct {
 	// Limit, when positive, returns at most that many links, those with the
 	// newest deposit first; zero returns every match, oldest first.
 	Limit int
+	// ChangedSince and ChangedUntil, when set, select links opened or closed
+	// in [ChangedSince, ChangedUntil), closed ones included whatever
+	// WithClosed says. Either may be zero for an open end.
+	ChangedSince, ChangedUntil time.Time
 }
 
 // Proposal is one link a matcher or rule writes.
