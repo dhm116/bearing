@@ -250,7 +250,13 @@ type SyncRequest struct {
 	// The source's adapter configuration, as JSON.
 	Config []byte `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 	// The cursor from the previous page; empty for the first.
-	Cursor        string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// Every active kind the adapter declares, from the vocabulary the server
+	// booted with (ADR 10), sorted, each once. An adapter may skip work for
+	// kinds not listed.
+	// Empty means no filter, so a core that doesn't send it is read correctly;
+	// a source with no active kinds is never synced.
+	EnabledKinds  []string `protobuf:"bytes,3,rep,name=enabled_kinds,json=enabledKinds,proto3" json:"enabled_kinds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -297,6 +303,13 @@ func (x *SyncRequest) GetCursor() string {
 		return x.Cursor
 	}
 	return ""
+}
+
+func (x *SyncRequest) GetEnabledKinds() []string {
+	if x != nil {
+		return x.EnabledKinds
+	}
+	return nil
 }
 
 // SyncResponse is one page.
@@ -380,7 +393,9 @@ type HandleRequest struct {
 	// The delivery's HTTP headers.
 	Headers map[string]*HeaderValues `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// The delivery's body, as received.
-	Body          []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	Body []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	// Every active kind the adapter declares, as in SyncRequest.enabled_kinds.
+	EnabledKinds  []string `protobuf:"bytes,4,rep,name=enabled_kinds,json=enabledKinds,proto3" json:"enabled_kinds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -432,6 +447,13 @@ func (x *HandleRequest) GetHeaders() map[string]*HeaderValues {
 func (x *HandleRequest) GetBody() []byte {
 	if x != nil {
 		return x.Body
+	}
+	return nil
+}
+
+func (x *HandleRequest) GetEnabledKinds() []string {
+	if x != nil {
+		return x.EnabledKinds
 	}
 	return nil
 }
@@ -546,20 +568,22 @@ const file_bearing_adapter_v1alpha1_adapter_proto_rawDesc = "" +
 	"\x10WebhookSignature\x12\x16\n" +
 	"\x06scheme\x18\x01 \x01(\tR\x06scheme\x12)\n" +
 	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +
-	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\"=\n" +
+	"\x10signature_prefix\x18\x03 \x01(\tR\x0fsignaturePrefix\"b\n" +
 	"\vSyncRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"\xd7\x01\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12#\n" +
+	"\renabled_kinds\x18\x03 \x03(\tR\fenabledKinds\"\xd7\x01\n" +
 	"\fSyncResponse\x12G\n" +
 	"\fobservations\x18\x01 \x03(\v2#.bearing.event.v1alpha1.ObservationR\fobservations\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
 	"nextCursor\x12\x12\n" +
 	"\x04done\x18\x03 \x01(\bR\x04done\x12I\n" +
-	"\rcomplete_sync\x18\x04 \x01(\v2$.bearing.model.v1alpha1.CompleteSyncR\fcompleteSync\"\xef\x01\n" +
+	"\rcomplete_sync\x18\x04 \x01(\v2$.bearing.model.v1alpha1.CompleteSyncR\fcompleteSync\"\x94\x02\n" +
 	"\rHandleRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12N\n" +
 	"\aheaders\x18\x02 \x03(\v24.bearing.adapter.v1alpha1.HandleRequest.HeadersEntryR\aheaders\x12\x12\n" +
-	"\x04body\x18\x03 \x01(\fR\x04body\x1ab\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\x12#\n" +
+	"\renabled_kinds\x18\x04 \x03(\tR\fenabledKinds\x1ab\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12<\n" +
 	"\x05value\x18\x02 \x01(\v2&.bearing.adapter.v1alpha1.HeaderValuesR\x05value:\x028\x01\"&\n" +

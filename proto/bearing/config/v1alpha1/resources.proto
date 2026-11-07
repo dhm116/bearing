@@ -1,12 +1,13 @@
 // Configuration resources: the typed, versioned objects an operator applies,
-// in the apiVersion/kind/metadata/spec shape. Today there is one, Source,
-// which the server's settings file embeds. Resources hold secret references,
-// never secret values.
+// in the apiVersion/kind/metadata/spec shape: Source and EntityKind, which the
+// server's settings file embeds. Resources hold secret references, never
+// secret values.
 
 syntax = "proto3";
 
 package bearing.config.v1alpha1;
 
+import "bearing/model/v1alpha1/enums.proto";
 import "google/protobuf/struct.proto";
 
 option go_package = "bearing.example/gen/go/bearing/config/v1alpha1;configv1alpha1";
@@ -55,4 +56,67 @@ message SourceSpec {
   // Empty: the source cannot push events, and its webhooks are refused once
   // the server runs. Ignored when the adapter declares no webhook.
   string webhook_secret = 10;
+}
+
+// EntityKind adds a kind to the vocabulary beside the core kinds (ADR 10).
+// Configured kinds only grow: a stored kind's parent and its attributes' and
+// relations' shapes never change, and a kind dropped from config is retired,
+// not deleted.
+message EntityKind {
+  // "bearing/v1alpha1".
+  string api_version = 1;
+  // "EntityKind".
+  string kind = 2;
+  // Names the resource only, for example "k8s-service"; the kind's identity
+  // is spec.name, so renaming the resource changes nothing in the store.
+  Metadata metadata = 3;
+  // The kind.
+  EntityKindSpec spec = 4;
+}
+
+// EntityKindSpec is an EntityKind's content.
+message EntityKindSpec {
+  // The kind, "<namespace>.<Kind>" such as "k8s.Service". The namespace names
+  // the vocabulary that defines the kind; "bearing" is reserved. It is the
+  // kind's identity in the store. Required.
+  string name = 1;
+  // The parent kind, core or configured, such as "Component"; boot refuses
+  // an unknown parent or a cycle. Empty: none,
+  // so the kind answers Get, Related, Find and Changes but none of the MVP
+  // questions.
+  string extends = 2;
+  // Attributes a record of this kind may carry.
+  repeated AttributeSpec attributes = 3;
+  // Relations a record of this kind may have, with this kind in their domain.
+  repeated RelationSpec relations = 4;
+}
+
+// AttributeSpec declares one attribute. A name has one shape across the whole
+// vocabulary, so an attribute that already exists must repeat its shape.
+message AttributeSpec {
+  // Lowercase letters, digits and "_". Required.
+  string name = 1;
+  // Required.
+  bearing.model.v1alpha1.ValueType type = 2;
+  // Required.
+  bearing.model.v1alpha1.Cardinality cardinality = 3;
+  // Required.
+  bearing.model.v1alpha1.ConflictPolicy conflict = 4;
+}
+
+// RelationSpec declares one relation predicate. A predicate that already
+// exists must repeat its shape; its domain and range grow by these kinds,
+// and a core predicate grows only by configured kinds. Boot refuses a kind
+// the vocabulary doesn't hold.
+message RelationSpec {
+  // Lowercase letters, digits and "_". Required.
+  string name = 1;
+  // Kinds whose records may be the subject, besides the EntityKind itself.
+  repeated string domain = 2;
+  // Kinds whose records may be the object. Required.
+  repeated string range = 3;
+  // Required.
+  bearing.model.v1alpha1.Cardinality cardinality = 4;
+  // Required.
+  bearing.model.v1alpha1.ConflictPolicy conflict = 5;
 }

@@ -73,6 +73,12 @@ message SyncRequest {
   bytes config = 1;
   // The cursor from the previous page; empty for the first.
   string cursor = 2;
+  // Every active kind the adapter declares, from the vocabulary the server
+  // booted with (ADR 10), sorted, each once. An adapter may skip work for
+  // kinds not listed.
+  // Empty means no filter, so a core that doesn't send it is read correctly;
+  // a source with no active kinds is never synced.
+  repeated string enabled_kinds = 3;
 }
 
 // SyncResponse is one page.
@@ -95,6 +101,8 @@ message HandleRequest {
   map<string, HeaderValues> headers = 2;
   // The delivery's body, as received.
   bytes body = 3;
+  // Every active kind the adapter declares, as in SyncRequest.enabled_kinds.
+  repeated string enabled_kinds = 4;
 }
 
 // HeaderValues are the values of one HTTP header.

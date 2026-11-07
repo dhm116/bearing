@@ -4,6 +4,15 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "description": "HandleRequest is one webhook delivery.",
+      "patternProperties": {
+        "^(enabledKinds)$": {
+          "description": "Every active kind the adapter declares, as in SyncRequest.enabled_kinds.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
       "properties": {
         "body": {
           "default": null,
@@ -16,6 +25,13 @@
           "description": "The source's adapter configuration, as JSON.",
           "pattern": "^[A-Za-z0-9+/]*={0,2}$",
           "type": "string"
+        },
+        "enabled_kinds": {
+          "description": "Every active kind the adapter declares, as in SyncRequest.enabled_kinds.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "headers": {
           "additionalProperties": {
