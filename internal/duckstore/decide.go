@@ -260,7 +260,7 @@ func checkSameKind(ctx context.Context, tx *sql.Tx, reg *model.Registry, a, b st
 // clusterKind is the deepest kind in the cluster of record id, or "" for a
 // kindless cluster.
 func clusterKind(ctx context.Context, tx *sql.Tx, reg *model.Registry, id string) (model.Kind, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT kind FROM entity WHERE kind <> '' AND cluster_id = (SELECT cluster_id FROM entity WHERE id = ?)`, id)
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT kind FROM entity WHERE kind <> '' AND cluster_id = (SELECT cluster_id FROM entity WHERE id = ?) ORDER BY kind`, id)
 	if err != nil {
 		return "", wrapErr("kind", err)
 	}

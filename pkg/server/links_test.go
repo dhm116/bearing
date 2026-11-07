@@ -433,3 +433,37 @@ func TestQueryLinksIsWhatTheAPIAnswers(t *testing.T) {
 		t.Errorf("got %s, want %s", b, a)
 	}
 }
+
+// A join along one line of descent is taken; one across branches is refused
+// up front, since applying is asynchronous and the store's refusal would only
+// dead-letter the decision.
+func TestAPIJoinChecksKindsAlongOneLineOfDescent(t *testing.T) {
+	t.Parallel()
+	w := newAPIWorld(t)
+	reg, err := model.Core().Extend([]model.KindDef{
+		{Name: "k8s.Service", Parent: model.KindComponent}, {Name: "systemd.Unit", Parent: model.KindComponent},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.mem.SetRegistry(reg)
+	w.s.cfg.Registry = reg
+	var obs []*eventv1alpha1.Observation
+	for _, k := range []struct{ kind, key string }{
+		{"Component", "catalog:svc/parent"}, {"k8s.Service", "catalog:svc/child"}, {"systemd.Unit", "catalog:svc/sibling"},
+	} {
+		obs = append(obs, model.NewObservation("adapter/catalog-acme", w.clk.Now(), &modelv1alpha1.ObservationData{
+			Entity: &modelv1alpha1.Entity{Kind: k.kind, Key: k.key},
+		}))
+	}
+	if _, err := w.mem.Ingest(t.Context(), graph.IngestRequest{Source: "catalog-acme", Observations: obs}); err != nil {
+		t.Fatal(err)
+	}
+	w.start()
+	decisionLogged(t, w.decide("admin", `{"decision":"join","a":"catalog:svc/parent","b":"catalog:svc/child"}`))
+	waitFor(t, "the join to be applied", func() bool { return w.drained(identityPartition) })
+	rec := w.decide("admin", `{"decision":"join","a":"catalog:svc/child","b":"catalog:svc/sibling"}`)
+	if rec.Code != http.StatusBadRequest || decodeError(t, rec).Code != "invalid_request" {
+		t.Errorf("sibling join: got %d %s, want 400", rec.Code, rec.Body.String())
+	}
+}

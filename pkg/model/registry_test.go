@@ -66,6 +66,13 @@ func TestRegistryExtendRefusals(t *testing.T) {
 		{"same_as", nil, []Predicate{{Name: PredicateSameAs, Relation: true}}, ErrPredicateName},
 		{"exists", nil, []Predicate{{Name: PredicateExists, Type: tBool, Cardinality: one}}, ErrPredicateName},
 		{"unknown domain kind", nil, []Predicate{{Name: "image", Type: tString, Cardinality: one, Domain: []Kind{"k8s.Missing"}}}, ErrUnknownKind},
+		{"core kind added to a core predicate's domain", nil, []Predicate{{Name: "name", Type: tString, Cardinality: one, Conflict: noneC, Domain: []Kind{KindComponent}}}, ErrCoreWiden},
+		{"core kind added to a core relation's range", nil, []Predicate{{Name: string(RelDependsOn), Relation: true, Cardinality: many, Conflict: noneC, Range: []Kind{KindTeam}}}, ErrCoreWiden},
+		{"new predicate without cardinality", nil, []Predicate{{Name: "image", Type: tString, Conflict: noneC}}, ErrPredicateShape},
+		{"new predicate without conflict policy", nil, []Predicate{{Name: "image", Type: tString, Cardinality: one}}, ErrPredicateShape},
+		{"new attribute without a type", nil, []Predicate{{Name: "image", Cardinality: one, Conflict: noneC}}, ErrPredicateShape},
+		{"new relation without a type", []KindDef{{Name: "my-ns.Thing2"}}, []Predicate{{Name: "feeds", Relation: true, Cardinality: many, Conflict: noneC, Domain: []Kind{"my-ns.Thing2"}}}, nil},
+		{"nil domain adds nothing to a core predicate", nil, []Predicate{{Name: "name", Type: tString, Cardinality: one, Conflict: noneC}}, nil},
 		{"valid", []KindDef{{Name: "my-ns.Thing2"}}, []Predicate{attr}, nil},
 	}
 	for _, tc := range tests {
@@ -164,5 +171,36 @@ func TestRegistryInDomainAndRangeAcceptDescendants(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+func TestRegistryExtendNilDomainAddsNothingAndEmptyStaysEmpty(t *testing.T) {
+	t.Parallel()
+	reg, err := Core().Extend(nil, []Predicate{{Name: "name", Type: tString, Cardinality: one, Conflict: noneC}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, _ := reg.Predicate("name"); !reg.InDomain(name, KindTeam) || reg.InDomain(name, KindComponent) {
+		t.Errorf("name domain %v, want it unchanged", name.Domain)
+	}
+	if got := union([]Kind{}, nil); got == nil || len(got) != 0 {
+		t.Errorf("union of two empty lists got %#v, want an empty non-nil list", got)
+	}
+	if got := union(nil, []Kind{"a.B"}); got != nil {
+		t.Errorf("union of any-kind with a kind got %v, want any kind (nil)", got)
+	}
+}
+
+func TestNilRegistryReadsAsCore(t *testing.T) {
+	t.Parallel()
+	var reg *Registry
+	if !reg.Valid(KindTeam) || reg.Valid("k8s.Service") || !reg.IsA(KindTeam, KindTeam) || reg.Parent(KindTeam) != "" {
+		t.Error("a nil registry must answer as Core()")
+	}
+	if _, ok := reg.Predicate("name"); !ok {
+		t.Error("a nil registry has no name predicate, want the core's")
+	}
+	if _, err := reg.Extend([]KindDef{{Name: "k8s.Service"}}, nil); err != nil {
+		t.Errorf("Extend on nil got %v, want it to extend Core()", err)
 	}
 }

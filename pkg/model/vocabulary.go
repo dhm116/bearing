@@ -23,6 +23,10 @@ var (
 	ErrKindCycle = errors.New("kind cycle")
 	// ErrShapeConflict means a predicate name would have a second shape.
 	ErrShapeConflict = errors.New("predicate shape conflict")
+	// ErrCoreWiden means a predicate's domain or range would gain a core kind.
+	ErrCoreWiden = errors.New("core predicate widened to a core kind")
+	// ErrPredicateShape means a new predicate leaves its type, cardinality or conflict policy unset.
+	ErrPredicateShape = errors.New("incomplete predicate shape")
 	// ErrPredicateName means a predicate name is malformed or reserved.
 	ErrPredicateName = errors.New("invalid predicate name")
 )
@@ -37,6 +41,10 @@ type KindDef struct {
 	Name   Kind
 	Parent Kind // empty: no parent
 }
+
+// core is the core vocabulary, built once; registries are immutable, so
+// every Core() call shares it.
+var core = buildCore()
 
 // Registry is the vocabulary the server booted with: core kinds and
 // predicates, configured kinds, and adapter-declared attribute shapes.
@@ -54,8 +62,19 @@ var coreKinds = []Kind{
 	KindSchedule, KindDocument,
 }
 
-// Core returns a fresh registry of the core kinds and predicates.
-func Core() *Registry {
+// Core returns the registry of the core kinds and predicates. A nil
+// *Registry reads as Core() everywhere.
+func Core() *Registry { return core }
+
+// self is r, or the core vocabulary for a nil r.
+func (r *Registry) self() *Registry {
+	if r == nil {
+		return core
+	}
+	return r
+}
+
+func buildCore() *Registry {
 	r := &Registry{kinds: map[Kind]KindDef{}, preds: map[string]Predicate{}}
 	for _, k := range coreKinds {
 		r.kinds[k] = KindDef{Name: k}
@@ -87,7 +106,7 @@ func Core() *Registry {
 
 func (r *Registry) index() {
 	r.children = map[Kind][]Kind{}
-	for _, k := range r.Kinds() {
+	for _, k := range slices.Sorted(maps.Keys(r.kinds)) {
 		if p := r.kinds[k].Parent; p != "" {
 			r.children[p] = append(r.children[p], k)
 		}
@@ -96,8 +115,10 @@ func (r *Registry) index() {
 
 // Extend returns a registry with kinds and preds added; r is unchanged. A
 // predicate that exists must have the same shape, and its domain and range
-// merge as a union (nil means any kind and stays any).
+// merge as a union, though only configured kinds may be added (a nil
+// domain or range adds nothing, and one that is nil already stays any kind).
 func (r *Registry) Extend(kinds []KindDef, preds []Predicate) (*Registry, error) {
+	r = r.self()
 	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds)}
 	for _, d := range kinds {
 		ns, _, _ := strings.Cut(string(d.Name), ".")
@@ -105,10 +126,10 @@ func (r *Registry) Extend(kinds []KindDef, preds []Predicate) (*Registry, error)
 		case !configuredKind.MatchString(string(d.Name)):
 			return nil, fmt.Errorf("kind %q: %w: want <namespace>.<Kind>", clip(string(d.Name)), ErrKindName)
 		case ns == ReservedNamespace:
-			return nil, fmt.Errorf("kind %q: %w: namespace %s is reserved", d.Name, ErrKindName, ReservedNamespace)
+			return nil, fmt.Errorf("kind %q: %w: namespace %s is reserved", clip(string(d.Name)), ErrKindName, ReservedNamespace)
 		}
 		if _, ok := n.kinds[d.Name]; ok {
-			return nil, fmt.Errorf("kind %q: %w", d.Name, ErrKindExists)
+			return nil, fmt.Errorf("kind %q: %w", clip(string(d.Name)), ErrKindExists)
 		}
 		n.kinds[d.Name] = d
 	}
@@ -149,6 +170,10 @@ func (r *Registry) addPredicate(p Predicate) error {
 	}
 	old, ok := r.preds[p.Name]
 	if !ok {
+		if p.Cardinality == modelv1alpha1.Cardinality_CARDINALITY_UNSPECIFIED || p.Conflict == modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_UNSPECIFIED ||
+			!p.Relation && p.Type == modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED {
+			return fmt.Errorf("%w: cardinality and conflict policy are required, and a type for an attribute", ErrPredicateShape)
+		}
 		p.Domain, p.Range = slices.Clone(p.Domain), slices.Clone(p.Range)
 		r.preds[p.Name] = p
 		return nil
@@ -156,39 +181,42 @@ func (r *Registry) addPredicate(p Predicate) error {
 	if old.Relation != p.Relation || old.Type != p.Type || old.Cardinality != p.Cardinality || old.Conflict != p.Conflict {
 		return fmt.Errorf("%w: it already has another relation flag, type, cardinality or conflict policy", ErrShapeConflict)
 	}
+	for _, k := range slices.Concat(p.Domain, p.Range) {
+		if _, isCore := core.kinds[k]; isCore {
+			return fmt.Errorf("kind %q: %w", k, ErrCoreWiden)
+		}
+	}
 	old.Domain, old.Range = union(old.Domain, p.Domain), union(old.Range, p.Range)
 	r.preds[p.Name] = old
 	return nil
 }
 
-// union merges two kind lists; nil means any kind and absorbs the other.
+// union merges kind lists; a nil old list means any kind and stays so, and an
+// added list that is nil or empty adds nothing.
 func union(a, b []Kind) []Kind {
-	if a == nil || b == nil {
+	if a == nil {
 		return nil
 	}
-	out := slices.Concat(a, b)
+	out := append(make([]Kind, 0, len(a)+len(b)), a...)
+	out = append(out, b...)
 	slices.Sort(out)
 	return slices.Compact(out)
 }
 
 // Valid reports whether k is a kind of the vocabulary.
-func (r *Registry) Valid(k Kind) bool { _, ok := r.kinds[k]; return ok }
+func (r *Registry) Valid(k Kind) bool { _, ok := r.self().kinds[k]; return ok }
 
 // Kinds lists every kind, sorted.
 func (r *Registry) Kinds() []Kind {
-	out := make([]Kind, 0, len(r.kinds))
-	for k := range r.kinds {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
+	return slices.Sorted(maps.Keys(r.self().kinds))
 }
 
 // Parent returns k's parent, or "" when it has none.
-func (r *Registry) Parent(k Kind) Kind { return r.kinds[k].Parent }
+func (r *Registry) Parent(k Kind) Kind { return r.self().kinds[k].Parent }
 
 // IsA reports whether k is ancestor or one of its descendants (reflexive).
 func (r *Registry) IsA(k, ancestor Kind) bool {
+	r = r.self()
 	for ; k != ""; k = r.kinds[k].Parent {
 		if k == ancestor {
 			return true
@@ -199,6 +227,7 @@ func (r *Registry) IsA(k, ancestor Kind) bool {
 
 // Descendants returns k and every kind below it, sorted.
 func (r *Registry) Descendants(k Kind) []Kind {
+	r = r.self()
 	out := []Kind{k}
 	for i := 0; i < len(out); i++ {
 		out = append(out, r.children[out[i]]...)
@@ -232,7 +261,7 @@ func (r *Registry) OneLine(a, b Kind) bool { return r.IsA(a, b) || r.IsA(b, a) }
 // Predicate returns a registered predicate. same_as and distinct_from are not
 // in the registry; unregistered attributes are adapter-declared.
 func (r *Registry) Predicate(name string) (Predicate, bool) {
-	p, ok := r.preds[name]
+	p, ok := r.self().preds[name]
 	return p, ok
 }
 

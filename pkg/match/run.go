@@ -60,20 +60,12 @@ func (c Config) halfLife(k model.Kind) time.Duration {
 	if len(c.HalfLife) == 0 {
 		return defaultHalfLife
 	}
-	reg := c.registry()
-	for ; k != ""; k = reg.Parent(k) {
+	for ; k != ""; k = c.Registry.Parent(k) {
 		if h, ok := c.HalfLife[k]; ok {
 			return h
 		}
 	}
 	return defaultHalfLife
-}
-
-func (c Config) registry() *model.Registry {
-	if c.Registry == nil {
-		return model.Core()
-	}
-	return c.Registry
 }
 
 // HalfLifeOf is how fast evidence for records of kind k fades: the setting
@@ -134,7 +126,7 @@ func Run(ctx context.Context, g IdentityGraph, cfg Config) (Result, error) {
 		return Result{}, err
 	}
 	cfg = cfg.withDefaults()
-	reg := cfg.registry()
+	reg := cfg.Registry
 	now := cfg.Now()
 	recs, err := g.Records(ctx, "")
 	if err != nil {

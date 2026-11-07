@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/model"
 )
 
 // Store is a backing data store: the graph and the event log on one
@@ -113,6 +114,14 @@ type instrumented struct {
 func (i *instrumented) SetLinkEvery(d time.Duration) {
 	if l, ok := i.Store.(interface{ SetLinkEvery(time.Duration) }); ok {
 		l.SetLinkEvery(d)
+	}
+}
+
+// SetRegistry passes the vocabulary to a backend that has one
+// (internal/duckstore); others ignore it.
+func (i *instrumented) SetRegistry(r *model.Registry) {
+	if s, ok := i.Store.(interface{ SetRegistry(*model.Registry) }); ok {
+		s.SetRegistry(r)
 	}
 }
 

@@ -23,6 +23,7 @@ func newServiceQuerier(t *testing.T) *query.Querier {
 	reg, err := model.Core().Extend([]model.KindDef{
 		{Name: "k8s.Service", Parent: model.KindComponent},
 		{Name: "acme.Api", Parent: "k8s.Service"},
+		{Name: "acme.Contractor", Parent: model.KindPerson},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +41,8 @@ func newServiceQuerier(t *testing.T) *query.Querier {
 		ob("s2", 1, "k8s.Service", "kubernetes:service/acme/checkout", attr("name", "checkout"), old),
 		ob("s3", 1, "acme.Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), old),
 		ob("s4", 1, "Team", "github:team/acme/checkout", attr("name", "checkout")),
+		ob("s5", 1, "Component", "kubernetes:service/acme/owned", rel("owned_by", "github:user/acme/ctr", false)),
+		ob("s6", 1, "acme.Contractor", "github:user/acme/ctr", attr("name", "ctr")),
 	}
 	if _, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "k8s", Observations: obs}); err != nil {
 		t.Fatal(err)
@@ -96,3 +99,48 @@ func TestQueriesRefuseAKindOnlyAConfiguredRegistryKnows(t *testing.T) {
 }
 
 func sorted(s []string) []string { s = slices.Clone(s); slices.Sort(s); return s }
+
+func TestOwnersTreatsADescendantOfPersonAsAPerson(t *testing.T) {
+	t.Parallel()
+	q := newServiceQuerier(t)
+	o, err := q.Owners(t.Context(), "kubernetes:service/acme/owned", time.Time{}, true)
+	if err != nil || len(o.Owners) != 1 {
+		t.Fatalf("got %+v, %v, want one owner", o, err)
+	}
+	if len(o.Teams) != 0 {
+		t.Errorf("got teams %+v, want none: an acme.Contractor is a Person, not a team", o.Teams)
+	}
+	core := &query.Querier{Graph: q.Graph}
+	if o, err = core.Owners(t.Context(), "kubernetes:service/acme/owned", time.Time{}, true); err != nil || len(o.Teams) != 1 {
+		t.Errorf("got %+v, %v, want the core registry to list it as a team", o, err)
+	}
+}
+
+func TestAClusterTakesItsDeepestKindForGetAndRuntimes(t *testing.T) {
+	t.Parallel()
+	q := newServiceQuerier(t)
+	job, err := q.Graph.Entity(t.Context(), "kubernetes:service/acme/job") // the older Component
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := q.Graph.Entity(t.Context(), "kubernetes:service/acme/checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Graph.Link(t.Context(), []graph.Proposal{{
+		A: job.ID, B: svc.ID, Kind: graph.SameAs, Status: graph.Asserted, Rule: "rule/x", Deposit: graph.Deposit{At: at(2), Weight: 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	e, err := q.Get(t.Context(), "kubernetes:service/acme/job", time.Time{})
+	if err != nil || e.Kind != "k8s.Service" {
+		t.Fatalf("got kind %q, %v, want k8s.Service, not the oldest record's Component", e.Kind, err)
+	}
+	got, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22", Kind: "k8s.Service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := sorted(names(got.Below)); !slices.Contains(g, e.Key) {
+		t.Errorf("got %v below, want the joined cluster %s among the k8s.Service answers", g, e.Key)
+	}
+}

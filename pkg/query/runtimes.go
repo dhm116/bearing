@@ -102,7 +102,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		return nil, fmt.Errorf("%w: a language is required", ErrInvalidRequest)
 	case req.Limit < 0 || req.Limit > MaxRuntimesLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxRuntimesLimit)
-	case req.Kind != "" && !q.registry().Valid(model.Kind(req.Kind)):
+	case req.Kind != "" && !q.Registry.Valid(model.Kind(req.Kind)):
 		return nil, fmt.Errorf("%w: kind %q is not a kind", ErrInvalidRequest, model.Clip(req.Kind))
 	}
 	if req.Below != "" {
@@ -120,7 +120,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	if err != nil {
 		return nil, fmt.Errorf("runtime facts: %w", err)
 	}
-	reg := q.registry()
+	reg := q.Registry
 	l := q.labeler()
 	out := &Runtimes{Language: lang}
 	atOrAbove := 0

@@ -113,9 +113,18 @@ func TestRecordsAndFindOfAKindIncludeItsDescendants(t *testing.T) {
 func TestIngestCompleteSyncOfAKindClosesItsDescendantsToo(t *testing.T) {
 	t.Parallel()
 	s := hierarchyStore(t)
-	ingestOK(t, s, "k8s", obs("o1", 0, "k8s.Service", "k:svc/gone", attrs("tier", "1")))
-	r := ingestReq(t, s, graph.IngestRequest{Source: "k8s", Complete: []model.Kind{"Component"}, SyncStarted: at(10)})
-	if r.Closed == 0 {
-		t.Fatalf("got %+v, want the vanished k8s.Service's facts closed by a complete Component sync", r)
+	ingestOK(t, s, "k8s",
+		obs("o1", 0, "k8s.Service", "k:svc/gone", attrs("tier", "1")),
+		obs("o2", 0, "acme.Api", "a:svc/gone", attrs("tier", "2")),
+		obs("o3", 0, "systemd.Unit", "u:svc/sibling", attrs("tier", "3")))
+	// k8s.Service and its child close; the sibling branch stays open.
+	r := ingestReq(t, s, graph.IngestRequest{Source: "k8s", Complete: []model.Kind{"k8s.Service"}, SyncStarted: at(10)})
+	if r.Closed != 2 {
+		t.Fatalf("got %+v, want the k8s.Service and acme.Api facts closed", r)
+	}
+	// Component covers every kind below it, the sibling included.
+	r = ingestReq(t, s, graph.IngestRequest{Source: "k8s", Complete: []model.Kind{"Component"}, SyncStarted: at(20)})
+	if r.Closed != 1 {
+		t.Fatalf("got %+v, want the systemd.Unit fact closed by a complete Component sync", r)
 	}
 }

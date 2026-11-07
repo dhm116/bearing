@@ -73,3 +73,20 @@ func TestHalfLifeFallsBackToTheNearestAncestorWithASetting(t *testing.T) {
 		t.Errorf("without the registry a configured kind got %v, want the default", got)
 	}
 }
+
+// A pair with a kindless record decays by the other record's kind. Before,
+// the first record's kind (empty, so the default) decided.
+func TestRunDecaysAProposalWithAKindlessRecordByTheOtherRecordsKind(t *testing.T) {
+	t.Parallel()
+	g := &fake{
+		recs: []graph.Record{rec("x-kindless", "", ""), rec("p-bob", "Bob", model.KindPerson)},
+		links: []graph.Link{{
+			ID: "P", A: "x-kindless", B: "p-bob", Kind: graph.SameAs, Status: graph.Proposed, Rule: TransparentRule,
+			Deposits: []graph.Deposit{{At: t0, Weight: 0.9}},
+		}},
+	}
+	cfg := Config{Now: func() time.Time { return t0.Add(10 * day) }, HalfLife: map[model.Kind]time.Duration{model.KindPerson: 2 * day}}
+	if res := mustRun(t, g, cfg); res.Closed != 1 {
+		t.Fatalf("got closed %d, want the proposal to decay on Person's two-day half-life", res.Closed)
+	}
+}

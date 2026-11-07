@@ -200,9 +200,6 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Retention == 0 {
 		cfg.Retention = DefaultRetention
 	}
-	if cfg.Registry == nil {
-		cfg.Registry = model.Core()
-	}
 	if cfg.Clock == nil {
 		cfg.Clock = clock.Real{}
 	}

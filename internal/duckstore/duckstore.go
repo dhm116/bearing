@@ -74,9 +74,6 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.LinkEvery <= 0 {
 		c.LinkEvery = defaultLinkEvery
 	}
-	if c.Registry == nil {
-		c.Registry = model.Core()
-	}
 	if c.NewID == nil {
 		c.NewID = model.NewUUIDv7Source(c.Now, rand.Reader).NewID
 	}

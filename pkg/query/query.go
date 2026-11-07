@@ -67,13 +67,6 @@ type Querier struct {
 	Registry *model.Registry
 }
 
-func (q *Querier) registry() *model.Registry {
-	if q.Registry == nil {
-		return model.Core()
-	}
-	return q.Registry
-}
-
 // Ref names an entity in an answer: enough to read it and to ask about it
 // next.
 type Ref struct {
@@ -242,7 +235,7 @@ func (q *Querier) Owners(ctx context.Context, ref string, at time.Time, members 
 // teams lists the people on each owner that is not a person.
 func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.Time) ([]TeamMembers, error) {
 	var out []TeamMembers
-	reg := q.registry()
+	reg := q.Registry
 	person := func(kind string) bool { return reg.IsA(model.Kind(kind), model.KindPerson) }
 	for _, o := range owners {
 		if o.Object == nil || person(o.Object.Kind) {
@@ -413,7 +406,8 @@ func objectText(f Fact) string {
 }
 
 // Find returns the entities whose name or keys resemble text, best first.
-// An empty kind matches every kind, and a kind its descendants; limit zero asks for the store's default.
+// An empty kind matches every kind, and a kind its descendants; limit zero
+// asks for the store's default.
 func (q *Querier) Find(ctx context.Context, text, kind string, limit int) ([]Match, error) {
 	switch {
 	case text == "":
@@ -422,7 +416,7 @@ func (q *Querier) Find(ctx context.Context, text, kind string, limit int) ([]Mat
 		return nil, fmt.Errorf("%w: the query is longer than %d bytes", ErrInvalidRequest, MaxFindText)
 	case limit < 0 || limit > MaxFindLimit:
 		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxFindLimit)
-	case kind != "" && !q.registry().Valid(model.Kind(kind)):
+	case kind != "" && !q.Registry.Valid(model.Kind(kind)):
 		return nil, fmt.Errorf("%w: kind %q is not a kind", ErrInvalidRequest, model.Clip(kind))
 	}
 	ms, err := q.Graph.Find(ctx, text, model.Kind(kind), limit)

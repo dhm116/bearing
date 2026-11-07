@@ -662,9 +662,10 @@ func (g *ingest) snapshot(ctx context.Context, sc *modelv1alpha1.SnapshotScope) 
 }
 
 // complete ends what a complete listing no longer shows: records of those
-// kinds (and their descendants) that this source observed before started and not since have their
-// open facts from this source (as subject or object) closed at started. A
-// fact some observation since started supports is left open.
+// kinds (and their descendants) that this source observed before started and
+// not since have their open facts from this source (as subject or object)
+// closed at started. A fact some observation since started supports is left
+// open.
 func (g *ingest) complete(ctx context.Context, kinds []model.Kind, started time.Time) error {
 	if len(kinds) == 0 {
 		return nil

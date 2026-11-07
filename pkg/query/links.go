@@ -124,7 +124,7 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 		halfLife = match.Config{Registry: q.Registry}.HalfLifeOf
 	}
 	at := now()
-	reg := q.registry()
+	reg := q.Registry
 	var ids []graph.EntityID
 	for _, l := range ls {
 		ids = append(ids, l.A, l.B)
