@@ -553,6 +553,23 @@ func TestOtherErrorsAreNotRewrittenAndAnUnknownSourceIsNamed(t *testing.T) {
 	}
 }
 
+func TestRequestSyncReturnsAnyOtherErrorUnchanged(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"forbidden","message":"the caller may not do this","request_id":"r2"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{Server: srv.URL, Token: token("tok")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.RequestSync(t.Context(), "github")
+	if want := "server: the caller may not do this (forbidden, request r2)"; err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q unchanged", err, want)
+	}
+}
+
 func TestKeepBodyHandsBackTheAnswerAsTheServerSentIt(t *testing.T) {
 	t.Parallel()
 	const body = `{"id":"s-1","a_later_field":{"x":[1,2]},"facts":[]}` + "\n"

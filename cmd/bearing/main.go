@@ -68,12 +68,13 @@ import (
 	_ "bearing.example/internal/duckstore" // registers the mem and duckdb store schemes
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/server/boot"
 	"bearing.example/pkg/telemetry"
 )
 
 const usage = `usage:
   bearing adapter describe [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
-  bearing adapter sync [--config cfg.json] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
+  bearing adapter sync [--config cfg.json] [--settings FILE] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
   bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
   bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
@@ -199,7 +200,9 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 // openAdapter reaches the adapter args name: a command after --, started on a
 // socket in a temporary directory, or the running adapter at --address. fs
 // holds the caller's own flags; done stops whatever was started.
-func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapter.Adapter, done func() error, err error) {
+// ready, if not nil, runs after the flags parse and before the adapter
+// starts, so a bad argument is refused without launching a process.
+func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string, ready func() error) (a adapter.Adapter, done func() error, err error) {
 	flagArgs, cmd := args, []string(nil)
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs, cmd = args[:i], args[i+1:]
@@ -217,6 +220,11 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 	fs.StringVar(&dc.PeerID, "tls-peer-id", "", "for --address: the SPIFFE ID the adapter's certificate must hold, checked in place of a host name")
 	if err := fs.Parse(flagArgs); err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", err, errUsage)
+	}
+	if ready != nil {
+		if err := ready(); err != nil {
+			return nil, nil, err
+		}
 	}
 	switch {
 	case fs.NArg() > 0:
@@ -254,7 +262,7 @@ func openAdapter(ctx context.Context, fs *flag.FlagSet, args []string) (a adapte
 }
 
 func describe(ctx context.Context, args []string, stdout io.Writer) (err error) {
-	a, done, err := openAdapter(ctx, flag.NewFlagSet("describe", flag.ContinueOnError), args)
+	a, done, err := openAdapter(ctx, flag.NewFlagSet("describe", flag.ContinueOnError), args, nil)
 	if err != nil {
 		return err
 	}
@@ -269,8 +277,20 @@ func describe(ctx context.Context, args []string, stdout io.Writer) (err error) 
 func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	configPath := fs.String("config", "", "adapter config JSON file")
+	settings := fs.String("settings", "", "process settings file, for the configured kinds the adapter's observations may use")
 	maxPages := fs.Int("max-pages", 10000, "stop if the adapter has not finished after this many pages")
-	a, done, err := openAdapter(ctx, fs, args)
+	reg := model.Core()
+	a, done, err := openAdapter(ctx, fs, args, func() error {
+		if *settings == "" {
+			return nil
+		}
+		st, err := boot.Load(*settings)
+		if err != nil {
+			return err
+		}
+		reg, err = st.Registry()
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -286,7 +306,7 @@ func syncCmd(ctx context.Context, args []string, stdout io.Writer) (err error) {
 	w := bufio.NewWriter(stdout)
 	defer func() { err = errors.Join(err, w.Flush()) }()
 	n := 0
-	sum, err := adapter.SyncAll(ctx, model.Core(), a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
+	sum, err := adapter.SyncAll(ctx, reg, a, config, *maxPages, func(o *eventv1alpha1.Observation) error {
 		n++
 		b, err := model.EncodeJSON(o)
 		if err != nil {

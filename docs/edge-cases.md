@@ -330,3 +330,43 @@ Each entry:
 - **Example:** an operator enables `systemd.Service` a month after the adapter started; until then its observations were dropped.
 - **Impact:** after the next full sync its facts open at the sync time, not when they began, and a webhook-only source can't backfill at all.
 - **Proposed fix:** accept and document it, or keep dropped pages so they can be replayed once the kind is enabled.
+
+## A cluster of a retired-kind record and an active one labels every fact as_of
+
+- **Found in:** [#310](https://github.com/dhm116/bearing/pull/310) review (`pkg/query`, `labeler.fact`)
+- **Area:** query
+- **Example:** a Vault `acme.Api` record (kind retired) shares a cluster with an active `k8s.Service` record through `same_as`; the cluster's kind is its deepest, so it reads as the retired one.
+- **Impact:** every fact of the cluster, including ones the active record's source keeps current, carries `as_of` the retirement time, which understates how fresh they are.
+- **Proposed fix:** label only facts whose sending record has a retired kind, not facts of the whole cluster.
+
+## Adapter-declared attributes are any-kind on purpose
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `pkg/server/boot/assemble.go`)
+- **Area:** vocabulary
+- **Example:** the GitHub adapter declares `zone` on Team. A Person observation carrying `zone` is accepted, because a declared attribute has no domain.
+- **Impact:** the shape (type, cardinality) is checked, the kind is not. Declarations carry no per-kind domain, and facts carry no kind, so a stray attribute lands on whichever kind sent it.
+- **Proposed fix:** if it matters, give declared attributes a domain of the kinds that declare them, and refuse an observation that sends one elsewhere.
+
+## An adapter unreachable at boot skips the emits check
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `checkProtocols`)
+- **Area:** boot
+- **Example:** a remote adapter is down when the server starts; its `Describe` fails, so `emits` is never compared with its declaration.
+- **Impact:** the server starts, and an adapter that emits an undeclared kind is only caught when its observations are rejected on ingest.
+- **Proposed fix:** repeat the emits check on the first sync's `Describe`, and refuse that sync.
+
+## A source dropped for no active kinds reports "unknown source" when synced by name
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) review (stream B, `Assemble`)
+- **Area:** boot, API
+- **Example:** `bearing source sync` for a source whose adapter declares only optional kinds, none enabled.
+- **Impact:** the source is not registered with the server, so the answer says the source is unknown instead of that it has no active kinds. The start log names the cause once.
+- **Proposed fix:** keep such a source registered but paused, and answer "no active kinds" with the kind to enable.
+
+## Facts backed only by a kind that is now inactive never close
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))
+- **Area:** ingest
+- **Example:** `vault.Group` was active and sent a membership; the operator then disables it. Its group is deleted at the source.
+- **Impact:** complete and snapshot closing exempt a fact unless an observation of an active kind backs it, and the check goes by the kind each observation was sent with. Facts only the old, now inactive kind backed stay open until the kind is enabled again.
+- **Proposed fix:** accept it (the kind is off, so Bearing does not watch it), or close such facts when a kind is disabled at boot.
