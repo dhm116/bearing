@@ -21,7 +21,7 @@ func (s *Server) runScheduler(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for _, src := range s.cfg.Sources {
-		if src.Interval <= 0 {
+		if src.Interval <= 0 || s.idle(src.Name) {
 			continue
 		}
 		wg.Add(1)
