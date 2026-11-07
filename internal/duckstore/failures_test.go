@@ -12,10 +12,10 @@ import (
 	"bearing.example/pkg/store"
 )
 
-// breakStore runs stmt on the store's connection, to make the next query on
-// that table fail the same way every time (a context cancelled while a call
-// is in flight does it only by timing).
-func breakStore(t *testing.T, s *Store, stmt string) {
+// execSQL runs stmt on the store's connection: to seed rows, or to make the
+// next query on a table fail the same way every time (a context cancelled
+// while a call is in flight does it only by timing).
+func execSQL(t *testing.T, s *Store, stmt string) {
 	t.Helper()
 	if _, err := s.db.ExecContext(t.Context(), stmt); err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func breakStore(t *testing.T, s *Store, stmt string) {
 func TestAppendReportsAPartitionLookupFailureAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `ALTER TABLE event_head RENAME TO event_head_gone`)
+	execSQL(t, s, `ALTER TABLE event_head RENAME TO event_head_gone`)
 	ev := store.Event{ID: "github-acme/d1", Partition: "github-acme", Type: "t", Time: time.Unix(1, 0), Data: []byte("{}")}
 	_, err := s.Append(t.Context(), []store.Event{ev})
 	if err == nil || !strings.Contains(err.Error(), "partition github-acme") {
@@ -45,7 +45,7 @@ func TestAppendReportsAnEventItCannotLookUpOrInsert(t *testing.T) {
 	t.Run("lookup", func(t *testing.T) {
 		t.Parallel()
 		s := newStore(t, Config{})
-		breakStore(t, s, `DROP TABLE event_log`)
+		execSQL(t, s, `DROP TABLE event_log`)
 		if _, err := s.Append(t.Context(), []store.Event{ev("github-acme/d1")}); err == nil || !strings.Contains(err.Error(), "find event github-acme/d1") {
 			t.Fatalf("got %v, want an error naming the event", err)
 		}
@@ -57,7 +57,7 @@ func TestAppendReportsAnEventItCannotLookUpOrInsert(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A head behind the log makes the next offset one that is taken.
-		breakStore(t, s, `UPDATE event_head SET head = 0`)
+		execSQL(t, s, `UPDATE event_head SET head = 0`)
 		if _, err := s.Append(t.Context(), []store.Event{ev("github-acme/d2")}); err == nil || !strings.Contains(err.Error(), "insert event github-acme/d2") {
 			t.Fatalf("got %v, want an error naming the event", err)
 		}
@@ -67,7 +67,7 @@ func TestAppendReportsAnEventItCannotLookUpOrInsert(t *testing.T) {
 func TestCommitReportsAPartitionLookupFailure(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `ALTER TABLE event_head RENAME TO event_head_gone`)
+	execSQL(t, s, `ALTER TABLE event_head RENAME TO event_head_gone`)
 	err := s.Commit(t.Context(), "g", "github-acme", 1)
 	if err == nil || errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "partition github-acme") {
 		t.Fatalf("got %v, want a lookup failure that is not ErrNotFound", err)
@@ -77,9 +77,9 @@ func TestCommitReportsAPartitionLookupFailure(t *testing.T) {
 func TestPartitionsReportsARowItCannotScan(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `DROP TABLE event_head`)
-	breakStore(t, s, `CREATE TABLE event_head (partition VARCHAR, head VARCHAR, trimmed BIGINT)`)
-	breakStore(t, s, `INSERT INTO event_head VALUES ('github-acme', 'not a number', 0)`)
+	execSQL(t, s, `DROP TABLE event_head`)
+	execSQL(t, s, `CREATE TABLE event_head (partition VARCHAR, head VARCHAR, trimmed BIGINT)`)
+	execSQL(t, s, `INSERT INTO event_head VALUES ('github-acme', 'not a number', 0)`)
 	if _, err := s.Partitions(t.Context()); err == nil || !strings.Contains(err.Error(), "list partitions") {
 		t.Fatalf("got %v, want a list partitions error", err)
 	}
@@ -88,7 +88,7 @@ func TestPartitionsReportsARowItCannotScan(t *testing.T) {
 func TestFactsReportsAFailedQuery(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `DROP TABLE fact`)
+	execSQL(t, s, `DROP TABLE fact`)
 	if _, err := s.Facts(t.Context(), graph.FactFilter{}); err == nil || !strings.Contains(err.Error(), "facts:") {
 		t.Fatalf("got %v, want a facts error", err)
 	}
@@ -97,7 +97,7 @@ func TestFactsReportsAFailedQuery(t *testing.T) {
 func TestLinksReportsAFailedQuery(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `DROP TABLE identity_link`)
+	execSQL(t, s, `DROP TABLE identity_link`)
 	if _, err := s.Links(t.Context(), graph.LinkFilter{}); err == nil || !strings.Contains(err.Error(), "links:") {
 		t.Fatalf("got %v, want a links error", err)
 	}
@@ -108,7 +108,7 @@ func TestLinksReportsAFailedDepositQuery(t *testing.T) {
 	s := ingestStore(t)
 	people(t, s, "p:a/1", "p:b/1")
 	link(t, s, sameAs("id-1", "id-2", graph.Proposed, "matcher/x"))
-	breakStore(t, s, `DROP TABLE link_deposit`)
+	execSQL(t, s, `DROP TABLE link_deposit`)
 	if _, err := s.Links(t.Context(), graph.LinkFilter{}); err == nil || !strings.Contains(err.Error(), "deposits") {
 		t.Fatalf("got %v, want a deposits error", err)
 	}
@@ -120,12 +120,12 @@ func TestIngestReportsAFailedStepAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct{ name, table, want string }{
 		{"observation log", "observation", "log:"},
-		{"open facts", "fact", ""},
+		{"open facts", "fact", "attribute tier:"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := ingestStore(t)
-			breakStore(t, s, `DROP TABLE `+tt.table)
+			execSQL(t, s, `DROP TABLE `+tt.table)
 			_, err := s.Ingest(t.Context(), graph.IngestRequest{
 				Source:       "src",
 				Observations: []*eventv1alpha1.Observation{obs("oa", 0, "Person", "p:a/1", attrs("name", "a", "tier", "1"))},
@@ -196,7 +196,7 @@ func TestReadAndIngestFailWhenTheTransactionCannotBegin(t *testing.T) {
 func TestRecordsReportsAFailedQuery(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `DROP TABLE alias`)
+	execSQL(t, s, `DROP TABLE alias`)
 	if _, err := s.Records(t.Context(), ""); err == nil || !strings.Contains(err.Error(), "records:") {
 		t.Fatalf("got %v, want a records error", err)
 	}

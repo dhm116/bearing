@@ -12,7 +12,7 @@ import (
 func TestLinkClusterRootIsTheOlderRecordWhoseIDSortsLater(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	breakStore(t, s, `INSERT INTO entity VALUES
+	execSQL(t, s, `INSERT INTO entity VALUES
 		('z-old', 'Team', 'old', now() - INTERVAL 1 DAY, 'z-old'),
 		('a-new', 'Team', 'new', now(), 'a-new')`)
 	link(t, s, sameAs("a-new", "z-old", graph.Asserted, "rule/x"))
