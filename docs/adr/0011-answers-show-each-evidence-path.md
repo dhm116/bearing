@@ -63,7 +63,7 @@ says how they relate.
      same thing. Any proposal between them is listed as contrary evidence.
   2. An asserted `same_as` the store didn't apply (it would cross a kind
      line or a `distinct_from`): asserted but not joined, and why.
-  3. Open proposed links (`same_as` or `distinct_from`) between their
+  3. Proposed links (`same_as` or `distinct_from`) open now between their
      records: likely the same, or likely not. They are listed highest
      score first, with the score decayed to the answer's time and the
      link's features (for example the share of members in common).
@@ -85,14 +85,17 @@ says how they relate.
   - **Q3 (changes):** lists the facts that opened or closed in the
     window, per record. It also lists asserted joins and splits in the
     window, each with its justification: the source observation, the
-    settings rule, or a person's decision with its actor and reason.
-    Proposals are conjecture and never appear here.
+    settings rule, or a person's decision with its actor and reason. A
+    split's justification is the `distinct_from` opened for the same pair
+    when the `same_as` closed. Proposals are conjecture and never appear
+    here.
   - **Q4 and Q5 (dependencies):** walk facts from, or to, the service's
     records.
 - **Past times.** An answer as of a past time uses the facts valid then.
-  When today's facts give a different answer, it also says what changed
-  and when, for example "In April, Payments owned payments-api. That
-  changed to Platform on 3 June."
+  When today's facts give a different answer, each claim also carries the
+  asserted facts that closed or opened it since, with the times Bearing
+  recorded them. For example: "In April, Payments owned payments-api. That
+  changed to Platform, recorded on 3 June."
 - **ADR 2 holds.** Claims read only asserted facts. A proposed link never
   adds a claim; it only describes how two claims relate.
 - **Rendering.** The API and MCP return claims and relations as data;
@@ -122,5 +125,11 @@ says how they relate.
   - `docs/spec/concepts.md`'s cluster section.
 - The implementing PR deletes `docs/edge-cases.md`'s "different names for
   one entity" entry. It also marks ADR 7 "superseded in part by ADR 11".
+- A promoted proposal must keep its history: promotion closes the
+  proposed link and opens an asserted one at the promotion time, with the
+  promoting rule or decision. Today the store updates the row in place,
+  which loses when the join became asserted. The implementing PR changes
+  that, and confirms that a link a settings rule asserts keeps the rule's
+  name.
 - The record-level read must not list every path: it finds reachable
   clusters first, then rebuilds each chosen fact's record path.
