@@ -447,12 +447,11 @@ func kindsOf(in []string) []model.Kind {
 	return out
 }
 
-// kindStrings is the wire form of enabled kinds: sorted, each once.
+// kindStrings is the wire form of enabled kinds.
 func kindStrings(in []model.Kind) []string {
 	out := make([]string, len(in))
 	for i, k := range in {
 		out[i] = string(k)
 	}
-	slices.Sort(out)
-	return slices.Compact(out)
+	return out
 }

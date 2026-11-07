@@ -330,3 +330,11 @@ Each entry:
 - **Example:** an operator enables `systemd.Service` a month after the adapter started; until then its observations were dropped.
 - **Impact:** after the next full sync its facts open at the sync time, not when they began, and a webhook-only source can't backfill at all.
 - **Proposed fix:** accept and document it, or keep dropped pages so they can be replayed once the kind is enabled.
+
+## Facts backed only by a kind that is now inactive never close
+
+- **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))
+- **Area:** ingest
+- **Example:** `vault.Group` was active and sent a membership; the operator then disables it. Its group is deleted at the source.
+- **Impact:** complete and snapshot closing exempt a fact unless an observation of an active kind backs it, and the check goes by the kind each observation was sent with. Facts only the old, now inactive kind backed stay open until the kind is enabled again.
+- **Proposed fix:** accept it (the kind is off, so Bearing does not watch it), or close such facts when a kind is disabled at boot.

@@ -30,10 +30,12 @@ type Handler interface {
 // delivery is one event, not a sweep to carry on with), and truncates its
 // times to microseconds. name labels the adapter in telemetry.
 func HandleChecked(ctx context.Context, reg *model.Registry, h Handler, name string, p HandleParams) (HandleResult, error) {
+	p.EnabledKinds = normalizeKinds(p.EnabledKinds)
 	res, err := h.Handle(ctx, p)
 	if err != nil {
 		return res, err
 	}
+	res.Observations = DropInactive(ctx, reg, name, res.Observations, p.EnabledKinds)
 	return checkHandled(ctx, reg, name, res)
 }
 
@@ -148,7 +150,7 @@ type Page struct {
 // against adapters that never finish. The whole sync runs in one span, with
 // each page as a child.
 func SyncAll(ctx context.Context, reg *model.Registry, a Syncer, config json.RawMessage, maxPages int, emit func(*eventv1alpha1.Observation) error) (SyncSummary, error) {
-	return SyncPages(ctx, reg, a, SyncParams{Config: config}, maxPages, func(p Page) error {
+	return SyncPages(ctx, reg, a, "", config, nil, maxPages, func(p Page) error {
 		for _, o := range p.Observations {
 			if err := emit(o); err != nil {
 				return err
@@ -161,9 +163,10 @@ func SyncAll(ctx context.Context, reg *model.Registry, a Syncer, config json.Raw
 // SyncPages is SyncAll for a caller that keeps a page together, as the
 // server does when it puts a page on the event log: emit gets each page once
 // it is screened, in order, and a page with no accepted observation is still
-// passed on, since it may be the last one. params carries the config and
-// enabled kinds for every call; its cursor is ignored. An error from emit stops the sync.
-func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, params SyncParams, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
+// passed on, since it may be the last one. Observations of a kind outside
+// enabled (when it is set) are dropped and counted for source before they
+// are screened, so they never fail the page or the sync's completeness. An error from emit stops the sync.
+func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, source string, config json.RawMessage, enabled []model.Kind, maxPages int, emit func(Page) error) (sum SyncSummary, err error) {
 	name := "in-process"
 	if n, ok := a.(interface{ Name() string }); ok {
 		name = n.Name()
@@ -187,19 +190,20 @@ func SyncPages(ctx context.Context, reg *model.Registry, a Syncer, params SyncPa
 		span.End()
 	}()
 
+	enabled = normalizeKinds(enabled)
 	cursor := ""
 	for sum.Pages < maxPages {
 		if err := ctx.Err(); err != nil {
 			return sum, err
 		}
-		res, err := a.Sync(ctx, SyncParams{Config: params.Config, Cursor: cursor, EnabledKinds: params.EnabledKinds})
+		res, err := a.Sync(ctx, SyncParams{Config: config, Cursor: cursor, EnabledKinds: enabled})
 		if err != nil {
 			return sum, fmt.Errorf("adapter: sync page %d: %w", sum.Pages+1, err)
 		}
 		sum.Pages++
 		syncPages.Add(ctx, 1, metric.WithAttributes(attrAdapter.String(name)))
 		kept := make([]*eventv1alpha1.Observation, 0, len(res.Observations))
-		for _, o := range res.Observations {
+		for _, o := range DropInactive(ctx, reg, source, res.Observations, enabled) {
 			warn := sum.RejectedObservations+sum.RejectedClaims < maxRejectionLogs
 			keep, claims := screenObservation(ctx, reg, log, name, o, warn)
 			sum.RejectedClaims += claims

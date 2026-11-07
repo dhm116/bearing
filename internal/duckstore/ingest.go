@@ -37,7 +37,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 			return graph.IngestResult{}, fmt.Errorf("observation %s: %w", o.GetId(), err)
 		}
 	}
-	if err := g.complete(ctx, g.activeOnly(r.Complete), r.SyncStarted); err != nil {
+	if err := g.complete(ctx, r.Complete, r.SyncStarted); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)
 	}
 	if _, err := recluster(ctx, tx, g.s.reg, g.dirty); err != nil {
@@ -477,7 +477,7 @@ func (g *ingest) attribute(ctx context.Context, pred string, v *structpb.Value, 
 		}
 	}
 	if isList && many {
-		return g.closeUntouched(ctx, `subject_id = ? AND predicate = ? AND source = ? AND object_id IS NULL`, g.entity, pred, g.source)
+		return g.closeUntouched(ctx, false, `subject_id = ? AND predicate = ? AND source = ? AND object_id IS NULL`, g.entity, pred, g.source)
 	}
 	return nil
 }
@@ -629,8 +629,13 @@ func (g *ingest) closeWhere(ctx context.Context, where string, args ...any) erro
 
 // closeUntouched is closeWhere for the facts this observation did not open or
 // refresh.
-func (g *ingest) closeUntouched(ctx context.Context, where string, args ...any) error {
-	exempt, exArgs := g.keptByActive()
+// With exemptInactive, a fact no active kind sent is left open (snapshots).
+func (g *ingest) closeUntouched(ctx context.Context, exemptInactive bool, where string, args ...any) error {
+	var exempt string
+	var exArgs []any
+	if exemptInactive {
+		exempt, exArgs = g.keptByActive()
+	}
 	ids, err := g.strings(ctx, `SELECT id FROM fact WHERE valid_to IS NULL AND `+where+exempt, append(args, exArgs...)...)
 	if err != nil {
 		return err
@@ -660,7 +665,7 @@ func (g *ingest) snapshot(ctx context.Context, sc *modelv1alpha1.SnapshotScope) 
 			args = append(args, p)
 		}
 	}
-	return g.closeUntouched(ctx, where+rel, args...)
+	return g.closeUntouched(ctx, true, where+rel, args...)
 }
 
 // complete ends what a complete listing no longer shows: records of those
@@ -672,7 +677,11 @@ func (g *ingest) complete(ctx context.Context, kinds []model.Kind, started time.
 	if len(kinds) == 0 {
 		return nil
 	}
-	kinds = g.s.reg.WithDescendants(kinds)
+	// Expand to descendants first, then keep the active ones: a listing of a
+	// parent covers its active children.
+	if kinds = g.activeOnly(g.s.reg.WithDescendants(kinds)); len(kinds) == 0 {
+		return nil
+	}
 	started = started.UTC().Truncate(time.Microsecond)
 	gone := `SELECT a.entity_id FROM observation o JOIN alias a ON a.key = o.key JOIN entity e ON e.id = a.entity_id
 		WHERE o.source = ? AND e.kind IN (` + placeholders(len(kinds)) + `)

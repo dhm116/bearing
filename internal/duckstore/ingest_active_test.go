@@ -21,14 +21,15 @@ func TestIngestActiveKindsDecideWhichFactsCompleteAndSnapshotClose(t *testing.T)
 		name                   string
 		personSends, teamSends bool
 		active                 []model.Kind
-		wantClosed             bool
+		closedByComplete       bool // Complete lists Person, so a Team-only filter narrows it away
+		closedBySnapshot       bool
 	}{
-		{"both send, Person active", true, true, []model.Kind{"Person"}, true},
-		{"both send, Team active", true, true, []model.Kind{"Team"}, true},
-		{"only the Person sends, Person active", true, false, []model.Kind{"Person"}, true},
-		{"only the Team sends, Person active", false, true, []model.Kind{"Person"}, false},
-		{"both send, neither active", true, true, []model.Kind{"Component"}, false},
-		{"only the Team sends, no filter", false, true, nil, true},
+		{"both send, Person active", true, true, []model.Kind{"Person"}, true, true},
+		{"both send, Team active", true, true, []model.Kind{"Team"}, false, true},
+		{"only the Person sends, Person active", true, false, []model.Kind{"Person"}, true, true},
+		{"only the Team sends, Person active", false, true, []model.Kind{"Person"}, false, false},
+		{"both send, neither active", true, true, []model.Kind{"Component"}, false, false},
+		{"only the Team sends, no filter", false, true, nil, true, true},
 	} {
 		for _, mode := range []string{"complete", "snapshot"} {
 			t.Run(tt.name+"/"+mode, func(t *testing.T) {
@@ -59,13 +60,36 @@ func TestIngestActiveKindsDecideWhichFactsCompleteAndSnapshotClose(t *testing.T)
 				if tt.personSends && tt.teamSends {
 					n = 2
 				}
-				// Complete is narrowed to Person, which the Team-only filter does not keep.
-				if tt.wantClosed && (mode != "complete" || tt.name != "both send, Team active") {
+				if (mode == "complete" && tt.closedByComplete) || (mode == "snapshot" && tt.closedBySnapshot) {
 					end = "10"
 				}
 				wantFacts(t, s, "ana member_of pay ["+from+","+end+") x"+strconv.Itoa(n))
 			})
 		}
+	}
+}
+
+// A listing of a parent kind covers its descendants, and only the active
+// ones are closed.
+func TestIngestCompleteOfAParentClosesItsActiveDescendants(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		active []model.Kind
+		want   string
+	}{
+		{"the descendant is active", []model.Kind{"k8s.Service"}, `svc language "Go" [0,10) x1`},
+		{"only the parent is active", []model.Kind{model.KindComponent}, `svc language "Go" [0,open) x1`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := hierarchyStore(t)
+			ingestOK(t, s, "k8s", obs("o1", 0, "k8s.Service", "k:svc/svc", attrs("language", "Go")))
+			ingestReq(t, s, graph.IngestRequest{
+				Source: "k8s", Complete: []model.Kind{model.KindComponent}, SyncStarted: at(10), Active: tt.active,
+			})
+			wantFacts(t, s, tt.want)
+		})
 	}
 }
 

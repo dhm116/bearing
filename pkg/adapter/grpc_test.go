@@ -85,24 +85,25 @@ func (k kindsSeen) Handle(_ context.Context, p HandleParams) (HandleResult, erro
 	return HandleResult{}, nil
 }
 
-func TestGRPCCarriesEnabledKindsSortedOnceEachOnSyncAndHandle(t *testing.T) {
+func TestGRPCCarriesEnabledKindsOnSyncAndHandle(t *testing.T) {
+	t.Parallel()
 	a := kindsSeen{pager: pager{n: 1}, sync: make(chan []model.Kind, 1), handle: make(chan []model.Kind, 1)}
 	r, err := Dial("pager", DialConfig{Address: serveGRPC(t, a)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled := []model.Kind{model.KindTeam, model.KindPerson, model.KindTeam}
 	want := []model.Kind{model.KindPerson, model.KindTeam}
+	enabled := want
 	if _, err := r.Sync(t.Context(), SyncParams{Config: []byte(`{}`), EnabledKinds: enabled}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Handle(t.Context(), HandleParams{EnabledKinds: enabled}); err != nil {
 		t.Fatal(err)
 	}
-	if got := <-a.sync; !slices.Equal(got, want) || len(got) == 0 {
+	if got := <-a.sync; !slices.Equal(got, want) {
 		t.Errorf("sync got %v, want %v", got, want)
 	}
-	if got := <-a.handle; !slices.Equal(got, want) || len(got) == 0 {
+	if got := <-a.handle; !slices.Equal(got, want) {
 		t.Errorf("handle got %v, want %v", got, want)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -101,8 +100,10 @@ type Config struct {
 	// Sources are the configured sources.
 	Sources []Source
 	// Active maps a source to the kinds it keeps (core and configured, among
-	// those its adapter declares). A source not listed keeps everything; one
-	// listed with no kinds is neither synced nor sent webhooks.
+	// those its adapter declares). A source not listed (or a nil map) keeps
+	// everything. One listed with no kinds keeps nothing: it is neither
+	// synced nor sent webhooks, and the applier ingests nothing for it. The
+	// host sends the kinds to the adapter sorted, each once.
 	Active map[string][]model.Kind
 
 	// Group is the consumer group of the apply workers: the one group
@@ -285,15 +286,6 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) idle(source string) bool {
 	k, listed := s.cfg.Active[source]
 	return listed && len(k) == 0
-}
-
-// enabledKinds is what a source's adapter is sent as enabled_kinds: the
-// active kinds sorted, each once. Nil (no filter) only for a source with no
-// listed kinds; an idle source is never called.
-func (s *Server) enabledKinds(source string) []model.Kind {
-	k := slices.Clone(s.cfg.Active[source])
-	slices.Sort(k)
-	return slices.Compact(k)
 }
 
 // HasSource reports whether name is a configured source.

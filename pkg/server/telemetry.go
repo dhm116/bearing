@@ -22,7 +22,6 @@ var (
 const (
 	attrSourceName = attribute.Key("bearing.source")
 	attrResult     = attribute.Key("bearing.result")
-	attrReason     = attribute.Key("bearing.reason")
 )
 
 // deliveries counts webhook deliveries by source and result. The source label
@@ -88,10 +87,6 @@ var (
 var schedulerSyncs = must(meter.Int64Counter("bearing.scheduler.syncs",
 	metric.WithDescription("Scheduled syncs by source and result: requested, skipped (the previous one is still waiting to be applied) or failed (the log refused)."),
 	metric.WithUnit("{sync}")))
-
-var observationsDropped = must(meter.Int64Counter("bearing.ingest.observations.dropped",
-	metric.WithDescription("Observations dropped before validation because their kind is not active for the source, by source, kind and reason (inactive)."),
-	metric.WithUnit("{observation}")))
 
 var retentionTrimmed = must(meter.Int64Counter("bearing.retention.trimmed",
 	metric.WithDescription("Events removed from the log by the retention job."),
