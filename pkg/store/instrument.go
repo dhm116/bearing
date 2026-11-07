@@ -117,6 +117,16 @@ func (g *graphStore) Walk(ctx context.Context, r graph.WalkRequest) (out []graph
 	return out, err
 }
 
+// Evidence implements graph.Graph.
+func (g *graphStore) Evidence(ctx context.Context, r graph.EvidenceRequest) (out graph.Evidence, err error) {
+	err = g.observe(ctx, "evidence", func(ctx context.Context) error {
+		out, err = g.next.Evidence(ctx, r)
+		count(ctx, out.Claims)
+		return err
+	})
+	return out, err
+}
+
 // Changes implements graph.Graph.
 func (g *graphStore) Changes(ctx context.Context, r graph.ChangesRequest) (out []graph.Change, err error) {
 	err = g.observe(ctx, "changes", func(ctx context.Context) error {

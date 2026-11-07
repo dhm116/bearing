@@ -45,12 +45,15 @@ func TestGraphTracesCallsAndIgnoresNotFound(t *testing.T) {
 	if _, err := s.Find(ctx, "x", "", 0); err != nil {
 		t.Fatal(err)
 	}
-	ended := spans.Ended()
-	if len(ended) < 2 {
-		t.Fatalf("got %d spans, want 2", len(ended))
+	if _, err := s.Evidence(ctx, graph.EvidenceRequest{From: []graph.EntityID{"x"}}); err != nil {
+		t.Fatal(err)
 	}
-	for i, want := range []string{"graph.entity", "graph.find"} {
-		sp := ended[len(ended)-2+i]
+	ended := spans.Ended()
+	if len(ended) < 3 {
+		t.Fatalf("got %d spans, want 3", len(ended))
+	}
+	for i, want := range []string{"graph.entity", "graph.find", "graph.evidence"} {
+		sp := ended[len(ended)-3+i]
 		if sp.Name() != want {
 			t.Fatalf("got span %q, want %q", sp.Name(), want)
 		}

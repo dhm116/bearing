@@ -63,6 +63,11 @@ type Graph interface {
 	// depth it was reached. It enumerates paths and never revisits an entity
 	// on one path, so cycles end.
 	Walk(ctx context.Context, r WalkRequest) ([]Step, error)
+	// Evidence follows asserted facts from records and returns a claim per
+	// fact with its shortest record path, and how the clusters the claims
+	// end at relate (ADR 11). It finds reachable clusters level by level and
+	// builds one path per fact, never every path.
+	Evidence(ctx context.Context, r EvidenceRequest) (Evidence, error)
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
 	Changes(ctx context.Context, r ChangesRequest) ([]Change, error)
