@@ -297,7 +297,7 @@
     "bearing.model.v1alpha1.KindDeclaration.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "KindDeclaration declares one registered kind an adapter emits.",
+      "description": "KindDeclaration declares one kind an adapter emits.",
       "properties": {
         "fields": {
           "description": "Every predicate claimed with this kind as the observed entity.",
@@ -315,7 +315,7 @@
         },
         "kind": {
           "default": "",
-          "description": "A registered subject kind, e.g. \"Repository\".",
+          "description": "A core kind, e.g. \"Repository\", or a configured one, e.g. \"k8s.Service\".",
           "type": "string"
         },
         "links": {
@@ -324,6 +324,11 @@
             "$ref": "#/$defs/bearing.model.v1alpha1.LinkDeclaration.schema.json"
           },
           "type": "array"
+        },
+        "optional": {
+          "default": false,
+          "description": "When set, the adapter runs without this kind if the vocabulary lacks it:\n the kind is inactive and its observations are dropped. When unset, a\n kind the vocabulary lacks refuses the adapter (ADR 10).",
+          "type": "boolean"
         }
       },
       "title": "Kind Declaration",
