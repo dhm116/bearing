@@ -534,7 +534,7 @@ func TestServerConfigCarriesTheAuthorityOverridesAndTheMatchingBlock(t *testing.
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = st.Close() })
-			cfg, err := serverConfig(w.settings, model.Core(), st, plans, nil, nil)
+			cfg, err := serverConfig(w.settings, model.Core(), nil, st, plans, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -736,7 +736,7 @@ func TestBadMatchingSettingsAreRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := serverConfig(s, model.Core(), st, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "matching") {
+	if _, err := serverConfig(s, model.Core(), nil, st, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "matching") {
 		t.Errorf("serverConfig: got %v, want a refusal naming matching", err)
 	}
 }

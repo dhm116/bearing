@@ -392,14 +392,19 @@ func TestOwnersRoleIgnoresAStaleObservation(t *testing.T) {
 func TestIngestKeepsDeclaredManyAttributesAsASetOfValues(t *testing.T) {
 	t.Parallel()
 	s := ingestStore(t)
-	declared := map[string]model.Predicate{"image": {
+	reg, err := model.Core().Extend(nil, []model.Predicate{{
 		Name: "image", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY,
-	}}
+		Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetRegistry(reg)
 	for _, o := range []*eventv1alpha1.Observation{
 		obs("o1", 0, "Repository", "k:repo/api", attrs("image", []any{"a", "b"})),
 		obs("o2", 5, "Repository", "k:repo/api", attrs("image", []any{"b", "c"})),
 	} {
-		r := graph.IngestRequest{Source: "k8s", Observations: []*eventv1alpha1.Observation{o}, Declared: declared}
+		r := graph.IngestRequest{Source: "k8s", Observations: []*eventv1alpha1.Observation{o}}
 		if _, err := s.Ingest(context.Background(), r); err != nil {
 			t.Fatal(err)
 		}

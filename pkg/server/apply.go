@@ -18,9 +18,6 @@ type StoreApplier struct {
 	Store graph.Graph
 	// Registry is the vocabulary to validate against; nil means model.Core().
 	Registry *model.Registry
-	// Declared maps a source to the attributes its adapter declares beyond
-	// the registry (model.DeclaredAttributes); a source not listed has none.
-	Declared map[string]map[string]model.Predicate
 	// Authority maps a source to its vouching for linked keys
 	// (model.LinkAuthority, with the operator's overrides); a source not
 	// listed vouches for none.
@@ -40,13 +37,12 @@ func (a StoreApplier) Apply(ctx context.Context, source string, obs []*eventv1al
 	// The host dropped these already; this covers events already on the log.
 	obs = adapter.DropInactive(ctx, a.Registry, source, obs, active)
 	for i, o := range obs {
-		if err := model.ValidateObservationWith(a.Registry, o, a.Declared[source]); err != nil {
+		if err := model.ValidateObservation(a.Registry, o); err != nil {
 			return fmt.Errorf("observation %d: %w", i+1, err)
 		}
 	}
 	_, err := a.Store.Ingest(ctx, graph.IngestRequest{
 		Source: source, Observations: obs, Authoritative: a.Authority[source],
-		Declared: a.Declared[source],
 		Complete: done.Kinds, SyncStarted: done.Started, Active: active,
 	})
 	return err

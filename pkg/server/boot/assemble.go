@@ -161,7 +161,14 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err != nil {
 		return nil, fmt.Errorf("boot: open the store: %w", err)
 	}
-	if err := giveRegistry(st, reg); err != nil {
+	// reg is the booted vocabulary: it decides which kinds are active. read
+	// adds the kinds config dropped, so stored facts of them still resolve.
+	read, err := syncVocabulary(ctx, st, reg, env.Clock.Now())
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	if err := giveRegistry(st, read); err != nil {
 		_ = st.Close()
 		return nil, err
 	}
@@ -199,7 +206,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 	if err = checkProtocols(ctx, sources, plans); err != nil {
 		return nil, err
 	}
-	scfg, err := serverConfig(s, reg, st, plans, sources, env.Clock)
+	scfg, err := serverConfig(s, read, active, st, plans, sources, env.Clock)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +228,7 @@ func Assemble(ctx context.Context, s *Settings, env Env) (r *Running, err error)
 		}
 		l.Webhooks = in
 	}
-	q := &query.Querier{Graph: st.Graph(), HalfLife: scfg.Matching.Config.HalfLifeOf, Registry: reg} // review scores decay as the matcher's do
+	q := &query.Querier{Graph: st.Graph(), HalfLife: scfg.Matching.Config.HalfLifeOf, Registry: read} // review scores decay as the matcher's do
 	api, err := server.NewAPI(server.APIConfig{Server: srv, Query: q, LinkDecisions: server.LinkDecisions(s.API.LinkDecisions)})
 	if err != nil {
 		return nil, err
@@ -280,6 +287,31 @@ func checkEmits(source string, emits []model.Kind, decl *modelv1alpha1.AdapterDe
 		}
 	}
 	return nil
+}
+
+// syncVocabulary writes the booted vocabulary to the store's kind table in a
+// span, and returns the registry to read with. A store that keeps no table
+// returns reg. A vocabulary the stored one forbids stops the start with the
+// store's message.
+func syncVocabulary(ctx context.Context, st store.Store, reg *model.Registry, now time.Time) (*model.Registry, error) {
+	ctx, span := tracer.Start(ctx, "boot.sync_vocabulary")
+	defer span.End()
+	v, ok := st.(interface {
+		SyncVocabulary(context.Context, *model.Registry, time.Time) (*model.Registry, error)
+	})
+	if !ok {
+		return reg, nil
+	}
+	read, err := v.SyncVocabulary(ctx, reg, now)
+	if err != nil {
+		span.RecordError(err) // the caller reports it; the span only has to show it failed
+		span.SetStatus(codes.Error, "sync the vocabulary failed")
+		if errors.Is(err, store.ErrVocabularyChanged) {
+			return nil, fmt.Errorf("boot: vocabulary: %w", err)
+		}
+		return nil, fmt.Errorf("boot: sync the vocabulary: %w", err)
+	}
+	return read, nil
 }
 
 // giveRegistry hands the vocabulary to the store. A store that cannot take
@@ -634,17 +666,15 @@ func loopbackAddr(addr string) bool {
 // serverConfig is the server's configuration from the settings: what each
 // source's declaration and the operator's authority overrides allow, and
 // matching, with the defaults when the settings have no matching block.
-func serverConfig(s *Settings, reg *model.Registry, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
-	declared := map[string]map[string]model.Predicate{}
+func serverConfig(s *Settings, reg *model.Registry, active map[string][]model.Kind, st store.Store, plans []sourcePlan, sources []server.Source, clk clock.Clock) (server.Config, error) {
 	authorities := map[string]func(model.Key) bool{}
 	for _, p := range plans {
-		declared[p.name] = model.DeclaredAttributes(reg, p.decl)
 		authorities[p.name] = authority(model.LinkAuthority(p.decl), s.Authority[p.name])
 	}
 	cfg := server.Config{
-		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Registry: reg, Declared: declared, Authority: authorities},
+		Log: st.Events(), Applier: server.StoreApplier{Store: st.Graph(), Registry: reg, Authority: authorities, Active: active},
 		Links:   st.Graph(),
-		Sources: sources, Clock: clk, Registry: reg,
+		Sources: sources, Clock: clk, Registry: reg, Active: active,
 	}
 	matchCfg, err := s.Matching.config(reg)
 	if err != nil {

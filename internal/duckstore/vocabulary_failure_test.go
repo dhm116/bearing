@@ -14,7 +14,7 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 		setup []string // run before the sync; nil closes the database
 		want  string
 	}{
-		{"no database", nil, "sync vocabulary"},
+		{"no database", nil, "sync vocabulary: begin:"},
 		{"kind table missing", []string{`DROP TABLE kind`}, "read kinds"},
 		{"predicate table missing", []string{`DROP TABLE kind_predicate`}, "read predicates"},
 		{"unreadable kind row", []string{
@@ -30,7 +30,7 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 		{"kind insert refused", []string{
 			`DROP TABLE kind`,
 			`CREATE TABLE kind (name VARCHAR PRIMARY KEY, parent VARCHAR, origin VARCHAR NOT NULL, added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (name = 'zzz'))`,
-		}, "kind "},
+		}, "kind Change:"},
 		{"retirement refused", []string{
 			`DROP TABLE kind`,
 			`CREATE TABLE kind (name VARCHAR PRIMARY KEY, parent VARCHAR, origin VARCHAR NOT NULL, added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (retired_at IS NULL))`,
@@ -39,7 +39,7 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 		{"predicate insert refused", []string{
 			`DROP TABLE kind_predicate`,
 			`CREATE TABLE kind_predicate (name VARCHAR PRIMARY KEY, relation BOOLEAN NOT NULL, type VARCHAR, cardinality VARCHAR NOT NULL, conflict VARCHAR NOT NULL, domain VARCHAR[], range VARCHAR[], CHECK (name = 'zzz'))`,
-		}, "predicate "},
+		}, "predicate account:"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

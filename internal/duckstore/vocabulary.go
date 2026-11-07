@@ -34,7 +34,7 @@ func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now tim
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("duckstore: sync vocabulary: %w", err)
+		return nil, fmt.Errorf("duckstore: sync vocabulary: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	retired, err := syncKinds(ctx, tx, reg, now.UTC())

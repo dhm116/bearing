@@ -95,11 +95,50 @@ func TestStoreApplierRefusesAnUndeclaredNameSentWithAnotherType(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
-	// This source declares nothing (another adapter declared tags as strings).
+	// The vocabulary holds zone_names as strings, from some adapter's declaration.
 	o := teamWith(t, structpb.NewBoolValue(true))
 	err = (StoreApplier{Store: d, Registry: reg}).Apply(t.Context(), testSource, []*eventv1alpha1.Observation{o}, Completion{})
 	var ve *model.ValidationError
 	if !errors.As(err, &ve) || ve.Scope() != model.ScopeClaim {
 		t.Fatalf("got %v, want a claim-scoped type mismatch", err)
+	}
+}
+
+// A retired kind is still valid in the registry the store reads with, so the
+// applier must drop its observations by the active list, not by validity.
+func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
+	// Not parallel: the counter is read from the shared test meter, keyed by a source of its own.
+	const src = "retired-source"
+	booted, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := newDuck(t, time.Now)
+	if _, err := d.SyncVocabulary(t.Context(), booted, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	read, err := d.SyncVocabulary(t.Context(), model.Core(), time.Now()) // reboot without the kind
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetRegistry(read)
+	if !read.Valid("k8s.Service") {
+		t.Fatal("the read registry lost the retired kind")
+	}
+	o := validObservation(t)
+	o.GetData().GetEntity().Kind = "k8s.Service"
+	o.GetData().GetEntity().Attributes = nil
+	o.GetData().Relations = nil
+	a := StoreApplier{Store: d, Registry: read, Active: map[string][]model.Kind{src: {model.KindComponent}}}
+	before := droppedCounts(t)
+	if err := a.Apply(t.Context(), src, []*eventv1alpha1.Observation{o}, Completion{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err == nil {
+		t.Error("an observation of a retired kind was ingested")
+	}
+	const label = src + "/k8s.Service/inactive"
+	if got := droppedCounts(t)[label] - before[label]; got != 1 {
+		t.Errorf("dropped counter rose by %d, want 1", got)
 	}
 }

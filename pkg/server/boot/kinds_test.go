@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -258,5 +259,33 @@ func TestCheckEmitsRefusesAKindTheDeclarationLacks(t *testing.T) {
 	}
 	if err := checkEmits("s", []model.Kind{"Team"}, d); err != nil {
 		t.Errorf("got %v, want nil", err)
+	}
+}
+
+// A vocabulary the stored one forbids stops the start with the store's
+// message; the same kinds on the next start do not.
+func TestAssembleRefusesAVocabularyThatChangesAStoredKind(t *testing.T) {
+	t.Parallel()
+	url := "duckdb://" + filepath.Join(t.TempDir(), "bearing.duckdb")
+	boot := func(kind string) error {
+		w := newWorld(t, func(s *Settings) {
+			s.Store.URL = url
+			s.EntityKinds = kindsSettings(kind).EntityKinds
+		})
+		r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+		if err == nil {
+			r.Close()
+		}
+		return err
+	}
+	if err := boot(k8sService); err != nil {
+		t.Fatal(err)
+	}
+	if err := boot(k8sService); err != nil {
+		t.Fatalf("the same vocabulary again: got %v, want a start", err)
+	}
+	err := boot(strings.Replace(k8sService, `"extends": "Component"`, `"extends": "Repository"`, 1))
+	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "k8s.Service") {
+		t.Fatalf("got %v, want a refusal naming k8s.Service", err)
 	}
 }
