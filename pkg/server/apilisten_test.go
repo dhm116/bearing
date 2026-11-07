@@ -99,9 +99,12 @@ func TestAPISocketAdmitsTheServiceUserAsAnAdministrator(t *testing.T) {
 	serveAPI(t, w, ListenConfig{Socket: sock})
 	waitForSocket(t, sock)
 
-	if fi, err := os.Stat(sock); err != nil || fi.Mode().Perm() != 0o600 || fi.Mode()&os.ModeSocket == 0 {
-		t.Fatalf("got %v, %v, want a socket with mode 0600", fi, err)
-	}
+	// The socket accepts before it is chmodded (its directory keeps others
+	// out meanwhile), so wait for the mode rather than read it once.
+	waitFor(t, "the socket to be mode 0600", func() bool {
+		fi, err := os.Stat(sock)
+		return err == nil && fi.Mode().Perm() == 0o600 && fi.Mode()&os.ModeSocket != 0
+	})
 	c := unixClient(sock)
 	if code, body := get(t, c, "http://bearing/v1/changes"); code != http.StatusOK {
 		t.Fatalf("a query on the socket: got %d %s, want 200", code, body)

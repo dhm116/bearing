@@ -293,6 +293,20 @@ func TestIngestStaleObservationDoesNotCloseNewerFact(t *testing.T) {
 	wantFacts(t, s, `api depends_on db [10,open) x1`, `api language "Rust" [10,open) x1`)
 }
 
+// An older observation that a fact already covers, though a later one ended
+// it, adds nothing: it must not reopen the fact.
+func TestIngestStaleObservationDoesNotReopenAFactALaterOneEnded(t *testing.T) {
+	t.Parallel()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
+	ingestOK(t, s, "gh", obs("o2", 5, "Component", "k:a/api", rel("depends_on", "k:a/db", true)))
+	r := ingestOK(t, s, "gh", obs("o3", 3, "Component", "k:a/api", rel("depends_on", "k:a/db", false)))
+	if r.Opened != 0 {
+		t.Fatalf("got %+v, want nothing opened", r)
+	}
+	wantFacts(t, s, `api depends_on db [0,5) x1`)
+}
+
 // relWith is rel with qualifiers.
 func relWith(typ, to string, kv ...any) func(*modelv1alpha1.ObservationData) {
 	return func(d *modelv1alpha1.ObservationData) {
