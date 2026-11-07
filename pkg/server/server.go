@@ -284,8 +284,7 @@ func (s *Server) Run(ctx context.Context) error {
 // idle reports whether source keeps no kind: it is neither synced nor sent
 // webhooks, since nothing it said would be kept.
 func (s *Server) idle(source string) bool {
-	k, listed := s.cfg.Active[source]
-	return listed && len(k) == 0
+	return s.cfg.Active != nil && len(s.cfg.Active[source]) == 0
 }
 
 // HasSource reports whether name is a configured source.

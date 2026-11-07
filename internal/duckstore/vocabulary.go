@@ -140,7 +140,7 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 		out := p
 		if old, ok := stored[p.Name]; ok && !isCore {
 			if old.relation != p.Relation || old.typ != typeName(p) || old.cardinality != p.Cardinality.String() || old.conflict != p.Conflict.String() {
-				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape", p.Name, store.ErrVocabularyChanged)
+				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape: restore the shape, or use a new name", p.Name, store.ErrVocabularyChanged)
 			}
 			var bad model.Kind
 			if out.Domain, bad = mergeKinds(reg, old.domain, p.Domain); bad != "" {

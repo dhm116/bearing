@@ -178,8 +178,10 @@ credentials; the server never sends it any.
   letter, so one bad event does not stop the others.
 - **C-INGEST-13** Observations of a kind a source does not keep (inactive,
   retired, or from a source no longer configured) are dropped before
-  validation and never stored, whatever is on the log. A drop is counted per
-  source and kind, with unknown kinds counted as `other`.
+  validation and never stored, whatever is on the log. A configured source's
+  drops of inactive kinds are counted per source and kind, with unknown kinds
+  counted as `other`; a page from an idle or unconfigured source is dropped
+  whole, uncounted.
 
 **Secrets**
 
