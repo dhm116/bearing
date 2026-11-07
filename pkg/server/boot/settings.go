@@ -322,9 +322,8 @@ func (s *Settings) Validate() error {
 // EntityKind resources. Assemble extends it with the adapters' declared
 // attributes, which live in files.
 func (s *Settings) Registry() (*model.Registry, error) {
-	type entry struct{ preds []model.Predicate }
 	var defs []model.KindDef
-	var entries []entry
+	var entries [][]model.Predicate
 	seen := map[string]bool{}
 	for i, raw := range s.EntityKinds {
 		ek := &configv1alpha1.EntityKind{}
@@ -347,7 +346,7 @@ func (s *Settings) Registry() (*model.Registry, error) {
 			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
 		}
 		defs = append(defs, model.KindDef{Name: kind, Parent: model.Kind(ek.GetSpec().GetExtends())})
-		entries = append(entries, entry{preds})
+		entries = append(entries, preds)
 	}
 	if len(defs) == 0 {
 		return model.Core(), nil
@@ -355,14 +354,25 @@ func (s *Settings) Registry() (*model.Registry, error) {
 	// Kinds first, so a parent, domain or range may be defined later in the list.
 	reg, err := model.Core().Extend(defs, nil)
 	if err != nil {
-		return nil, fmt.Errorf("boot: settings: entity_kinds: %w", err)
+		return nil, fmt.Errorf("boot: settings: entity_kinds%s: %w", kindIndex(defs, err), err)
 	}
-	for i, e := range entries {
-		if reg, err = reg.Extend(nil, e.preds); err != nil {
+	for i, preds := range entries {
+		if reg, err = reg.Extend(nil, preds); err != nil {
 			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
 		}
 	}
 	return reg, nil
+}
+
+// kindIndex is "[i]" for the first EntityKind whose name err quotes, so a
+// kinds-phase error points at its resource like the others do.
+func kindIndex(defs []model.KindDef, err error) string {
+	for i, d := range defs {
+		if strings.Contains(err.Error(), fmt.Sprintf("kind %q", model.Clip(string(d.Name)))) {
+			return fmt.Sprintf("[%d]", i)
+		}
+	}
+	return ""
 }
 
 // kindPredicates turns an EntityKind's attributes and relations into

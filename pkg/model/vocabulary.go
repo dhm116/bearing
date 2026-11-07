@@ -184,7 +184,7 @@ func (r *Registry) addPredicate(p Predicate) error {
 	if _, coreOwned := core.preds[p.Name]; coreOwned {
 		for _, side := range [][2][]Kind{{old.Domain, p.Domain}, {old.Range, p.Range}} {
 			for _, k := range side[1] {
-				if _, isCore := core.kinds[k]; isCore && side[0] != nil && !slices.Contains(side[0], k) {
+				if _, isCore := core.kinds[k]; isCore && side[0] != nil && !slices.ContainsFunc(side[0], func(d Kind) bool { return r.IsA(k, d) }) {
 					return fmt.Errorf("kind %q: %w", k, ErrCoreWiden)
 				}
 			}

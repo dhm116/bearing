@@ -296,32 +296,52 @@ questions against a server started in-process from the same settings file.
 
 ## Add a kind of your own
 
-The settings file takes `EntityKind` resources in `entity_kinds`, beside
-`sources`. Each adds a kind to the core ones (`Person`, `Team`, `Component`,
-...), named `<namespace>.<Kind>`. `extends` names a parent, so questions
-about `Component` include it. Attributes and relations are declared with
-their type, cardinality and conflict policy; a name has one shape across the
-whole vocabulary.
+Put `entity_kinds` at the top level of the settings file, beside `sources`.
+Each `EntityKind` adds a kind to the core ones (`Person`, `Team`,
+`Component`, ...), named `<namespace>.<Kind>`. `extends` names a parent, so
+questions about `Component` include it. Attributes and relations are declared
+with their type, cardinality and conflict policy; a name has one shape across
+the whole vocabulary.
 
 ```json
-"entity_kinds": [{
-  "apiVersion": "bearing/v1alpha1", "kind": "EntityKind",
-  "metadata": {"name": "k8s-service"},
-  "spec": {
-    "name": "k8s.Service",
-    "extends": "Component",
-    "attributes": [{"name": "cluster_ip", "type": "VALUE_TYPE_STRING",
-                    "cardinality": "CARDINALITY_ONE", "conflict": "CONFLICT_POLICY_NONE"}],
-    "relations": [{"name": "exposes", "range": ["Component"],
-                   "cardinality": "CARDINALITY_MANY", "conflict": "CONFLICT_POLICY_NONE"}]
-  }
-}]
+{
+  "entity_kinds": [{
+    "apiVersion": "bearing/v1alpha1", "kind": "EntityKind",
+    "metadata": {"name": "k8s-service"},
+    "spec": {
+      "name": "k8s.Service",
+      "extends": "Component",
+      "attributes": [{"name": "cluster_ip", "type": "VALUE_TYPE_STRING",
+                      "cardinality": "CARDINALITY_ONE", "conflict": "CONFLICT_POLICY_NONE"}],
+      "relations": [{"name": "exposes", "range": ["Component"],
+                     "cardinality": "CARDINALITY_MANY", "conflict": "CONFLICT_POLICY_NONE"}]
+    }
+  }],
+  "sources": [ ... ]
+}
 ```
 
-An adapter's declaration may name a kind from this list. A declared kind the
-server does not hold is refused, naming the kind to enable, unless the
-declaration marks it `optional`; then it is accepted and logged as inactive.
-A source whose adapter has no active kinds is neither synced nor sent
-webhooks. Changes take a restart. `bearing adapter sync --settings FILE`
-checks an adapter's output against the same kinds. See
-[ADR 10](adr/0010-configured-namespaced-kinds.md).
+The adapter has to declare the kind too, in the declaration file the
+settings name. Add an entry to its `kinds`:
+
+```json
+{"kind": "k8s.Service", "optional": true}
+```
+
+A declared kind the server does not hold is refused at start unless it is
+`optional`. Without the `EntityKind` above, a required one stops the start
+with:
+
+```
+boot: settings: adapters[0].declaration: ... kinds[3].kind: "k8s.Service" is not a registered kind: define it with an EntityKind in the settings, or mark it optional
+```
+
+An optional one is accepted and logged as inactive: its records are dropped
+until the kind is configured. A source whose adapter has no active kinds is
+neither synced nor sent webhooks; the server logs it once at start. Changes
+take a restart.
+
+`bearing adapter sync --settings FILE` builds the vocabulary from the same
+`entity_kinds` and checks the adapter's observations against it, so a
+configured kind passes. It does not read adapter declarations or run the
+active-kind checks. See [ADR 10](adr/0010-configured-namespaced-kinds.md).

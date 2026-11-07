@@ -304,7 +304,15 @@ func giveRegistry(st store.Store, reg *model.Registry) error {
 func extendDeclared(reg *model.Registry, s *Settings, decls map[string]*modelv1alpha1.AdapterDeclaration) (*model.Registry, error) {
 	out := reg
 	for i := range s.Adapters {
-		declared := model.DeclaredAttributes(reg, decls[s.Adapters[i].Name])
+		// Attributes under a kind the registry lacks (an inactive optional
+		// kind) never reach the store, so they join no shape check.
+		active := &modelv1alpha1.AdapterDeclaration{}
+		for _, k := range decls[s.Adapters[i].Name].GetKinds() {
+			if reg.Valid(model.Kind(k.GetKind())) {
+				active.Kinds = append(active.Kinds, k)
+			}
+		}
+		declared := model.DeclaredAttributes(reg, active)
 		var preds []model.Predicate
 		for _, name := range slices.Sorted(maps.Keys(declared)) {
 			p := declared[name]

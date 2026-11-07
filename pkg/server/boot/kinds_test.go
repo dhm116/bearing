@@ -124,13 +124,37 @@ func TestExtendDeclaredKeepsOneShapePerNameAcrossAdapters(t *testing.T) {
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("got %v, want %v", err, tt.want)
 			}
-			if _, ok := reg.Predicate("zone"); tt.want == nil && !ok {
+			if tt.want != nil {
+				return
+			}
+			if _, ok := reg.Predicate("zone"); !ok {
 				t.Fatal("zone is not in the registry")
 			}
 		})
 	}
 	if reg, err := extendDeclared(model.Core(), s, nil); err != nil || reg != model.Core() {
 		t.Errorf("no declared attributes: got %v, %v, want the core registry itself", reg, err)
+	}
+}
+
+func TestExtendDeclaredSkipsAttributesUnderKindsTheRegistryLacks(t *testing.T) {
+	t.Parallel()
+	zone := func(kind string, typ modelv1alpha1.ValueType) *modelv1alpha1.AdapterDeclaration {
+		return decl(&modelv1alpha1.KindDeclaration{Kind: kind, Optional: kind != "Team", Fields: []*modelv1alpha1.FieldDeclaration{
+			{Predicate: "zone", Type: typ, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_ONE},
+		}})
+	}
+	s := &Settings{Adapters: []AdapterSettings{{Name: "a"}, {Name: "b"}}}
+	// a's zone is a float under an inactive kind; it must not clash with b's string.
+	reg, err := extendDeclared(model.Core(), s, map[string]*modelv1alpha1.AdapterDeclaration{
+		"a": zone("k8s.Service", modelv1alpha1.ValueType_VALUE_TYPE_FLOAT),
+		"b": zone("Team", modelv1alpha1.ValueType_VALUE_TYPE_STRING),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := reg.Predicate("zone"); !ok || p.Type != modelv1alpha1.ValueType_VALUE_TYPE_STRING {
+		t.Errorf("zone = %+v, %v, want b's string", p, ok)
 	}
 }
 
@@ -217,6 +241,10 @@ func TestAssembleComputesActiveKindsPerSource(t *testing.T) {
 			}
 			if has := r.srv.HasSource("github-acme"); has != tt.ran {
 				t.Errorf("source is synced: got %v, want %v", has, tt.ran)
+			}
+			// The world's source has a webhook_secret, so a route exists only if it runs.
+			if has := r.listen.Webhooks != nil; has != tt.ran {
+				t.Errorf("source gets a webhook route: got %v, want %v", has, tt.ran)
 			}
 		})
 	}
