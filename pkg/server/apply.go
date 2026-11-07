@@ -36,6 +36,7 @@ func (a StoreApplier) Apply(ctx context.Context, source string, obs []*eventv1al
 	}
 	_, err := a.Store.Ingest(ctx, graph.IngestRequest{
 		Source: source, Observations: obs, Authoritative: a.Authority[source],
+		Declared: a.Declared[source],
 		Complete: done.Kinds, SyncStarted: done.Started,
 	})
 	return err
