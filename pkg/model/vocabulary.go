@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
@@ -40,6 +41,10 @@ var configuredKind = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Z
 type KindDef struct {
 	Name   Kind
 	Parent Kind // empty: no parent
+	// Retired is when the config dropped the kind; zero means active. Only
+	// WithRetired sets it. A retired kind is still valid and still resolves
+	// its parent, so facts stored under it keep answering.
+	Retired time.Time
 }
 
 // core is the core vocabulary, built once; registries are immutable, so
@@ -205,6 +210,46 @@ func union(a, b []Kind) []Kind {
 
 // Valid reports whether k is a kind of the vocabulary.
 func (r *Registry) Valid(k Kind) bool { _, ok := r.self().kinds[k]; return ok }
+
+// Retired reports when k was retired, and whether it was.
+func (r *Registry) Retired(k Kind) (time.Time, bool) {
+	t := r.self().kinds[k].Retired
+	return t, !t.IsZero()
+}
+
+// WithRetired returns a registry that also holds kinds the config dropped
+// (each with Retired set), for reading stored facts; r is unchanged. A
+// predicate in preds replaces the domain and range of the one of that name,
+// or is added when r has none: the caller passes what the store holds, merged
+// with r's. Kinds r already has are left alone.
+func (r *Registry) WithRetired(kinds []KindDef, preds []Predicate) *Registry {
+	r = r.self()
+	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds)}
+	for _, d := range kinds {
+		if _, ok := n.kinds[d.Name]; !ok {
+			n.kinds[d.Name] = d
+		}
+	}
+	for _, p := range preds {
+		if old, ok := n.preds[p.Name]; ok {
+			old.Domain, old.Range = p.Domain, p.Range
+			p = old
+		}
+		n.preds[p.Name] = p
+	}
+	n.index()
+	return n
+}
+
+// Predicates lists every registered predicate, sorted by name.
+func (r *Registry) Predicates() []Predicate {
+	r = r.self()
+	out := make([]Predicate, 0, len(r.preds))
+	for _, n := range slices.Sorted(maps.Keys(r.preds)) {
+		out = append(out, r.preds[n])
+	}
+	return out
+}
 
 // Kinds lists every kind, sorted.
 func (r *Registry) Kinds() []Kind {
