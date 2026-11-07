@@ -67,7 +67,8 @@ message EntityKind {
   string api_version = 1;
   // "EntityKind".
   string kind = 2;
-  // The resource's name, for example "k8s-service".
+  // Names the resource only, for example "k8s-service"; the kind's identity
+  // is spec.name, so renaming the resource changes nothing in the store.
   Metadata metadata = 3;
   // The kind.
   EntityKindSpec spec = 4;
@@ -76,9 +77,11 @@ message EntityKind {
 // EntityKindSpec is an EntityKind's content.
 message EntityKindSpec {
   // The kind, "<namespace>.<Kind>" such as "k8s.Service". The namespace names
-  // the vocabulary that defines the kind; "bearing" is reserved. Required.
+  // the vocabulary that defines the kind; "bearing" is reserved. It is the
+  // kind's identity in the store. Required.
   string name = 1;
-  // The parent kind, core or configured, such as "Component". Empty: none,
+  // The parent kind, core or configured, such as "Component"; boot refuses
+  // an unknown parent or a cycle. Empty: none,
   // so the kind answers Get, Related, Find and Changes but none of the MVP
   // questions.
   string extends = 2;
@@ -102,7 +105,9 @@ message AttributeSpec {
 }
 
 // RelationSpec declares one relation predicate. A predicate that already
-// exists must repeat its shape; its domain and range grow by these kinds.
+// exists must repeat its shape; its domain and range grow by these kinds,
+// and a core predicate grows only by configured kinds. Boot refuses a kind
+// the vocabulary doesn't hold.
 message RelationSpec {
   // Lowercase letters, digits and "_". Required.
   string name = 1;

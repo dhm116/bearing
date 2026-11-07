@@ -3,7 +3,7 @@
     "bearing.config.v1alpha1.RelationSpec.schema.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "RelationSpec declares one relation predicate. A predicate that already\n exists must repeat its shape; its domain and range grow by these kinds.",
+      "description": "RelationSpec declares one relation predicate. A predicate that already\n exists must repeat its shape; its domain and range grow by these kinds,\n and a core predicate grows only by configured kinds. Boot refuses a kind\n the vocabulary doesn't hold.",
       "properties": {
         "cardinality": {
           "anyOf": [
