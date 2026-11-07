@@ -21,6 +21,7 @@ func retiredQuerier(t *testing.T) *query.Querier {
 	full, err := model.Core().Extend([]model.KindDef{
 		{Name: "k8s.Service", Parent: model.KindComponent},
 		{Name: "acme.Api", Parent: "k8s.Service"},
+		{Name: "acme.Contractor", Parent: model.KindPerson},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +40,9 @@ func retiredQuerier(t *testing.T) *query.Querier {
 	obs := []*eventv1alpha1.Observation{
 		ob("s1", 1, "acme.Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), attr("language", "Go"), attr("runtime", []any{runtimeVal("go", "1.19", "go.mod")})),
 		ob("s2", 1, "Component", "kubernetes:service/acme/job", attr("name", "checkout job"), attr("language", "Go"), attr("runtime", []any{runtimeVal("go", "1.19", "go.mod")})),
+		ob("s3", 1, "Team", "github:team/acme/checkout", attr("name", "checkout team")),
+		ob("s4", 1, "Component", "kubernetes:service/acme/owned", rel("owned_by", "github:team/acme/checkout", false)),
+		ob("s5", 1, "acme.Contractor", "github:user/acme/ctr", attr("name", "ctr"), rel("member_of", "github:team/acme/checkout", false)),
 	}
 	if _, err := s.Ingest(ctx, graph.IngestRequest{Source: "k8s", Observations: obs}); err != nil {
 		t.Fatal(err)
@@ -139,6 +143,22 @@ func TestFindAcceptsARetiredKindAndAncestorsStillCountItsFactsButNeverHeldKindsF
 				t.Errorf("got %d matches, want %d", len(ms), tc.want)
 			}
 		})
+	}
+}
+
+func TestOwnersLabelsMembersOfARetiredKindAsOfItsRetirement(t *testing.T) {
+	t.Parallel()
+	q := retiredQuerier(t)
+	o, err := q.Owners(t.Context(), "kubernetes:service/acme/owned", time.Time{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Teams) != 1 || len(o.Teams[0].Members) != 1 {
+		t.Fatalf("got teams %+v, want one team with the contractor", o.Teams)
+	}
+	m := o.Teams[0].Members[0]
+	if m.Kind != "acme.Contractor" || m.AsOf == nil || !m.AsOf.Equal(at(50)) {
+		t.Errorf("got member %s as_of %v, want acme.Contractor as_of %v", m.Kind, m.AsOf, at(50))
 	}
 }
 

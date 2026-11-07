@@ -37,6 +37,7 @@ func syncer(t *testing.T, s store.Store) func(context.Context, *model.Registry, 
 }
 
 func TestSyncVocabularyThroughTheWrapperReturnsRegUnchangedWithoutABackendMethod(t *testing.T) {
+	t.Parallel()
 	s, err := store.Open(t.Context(), store.Config{URL: "novocab://"})
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +50,7 @@ func TestSyncVocabularyThroughTheWrapperReturnsRegUnchangedWithoutABackendMethod
 }
 
 func TestSyncVocabularyThroughTheWrapperKeepsErrVocabularyChanged(t *testing.T) {
+	t.Parallel()
 	s, err := store.Open(t.Context(), store.Config{URL: "mem://"})
 	if err != nil {
 		t.Fatal(err)

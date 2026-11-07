@@ -144,6 +144,8 @@ type Member struct {
 	Role string `json:"role,omitempty"`
 	// Since is when the membership was first observed.
 	Since time.Time `json:"since"`
+	// AsOf is when the person's kind was retired, as for Fact.AsOf.
+	AsOf *time.Time `json:"as_of,omitempty"`
 	// Sources are the observations behind the membership, as for a Fact.
 	Sources []Source `json:"sources"`
 }
@@ -263,7 +265,7 @@ func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.
 			if err != nil {
 				return nil, err
 			}
-			people = append(people, Member{Ref: r, Role: roleOf(facts, f.Subject), Since: vf.ValidFrom, Sources: vf.Sources})
+			people = append(people, Member{Ref: r, Role: roleOf(facts, f.Subject), Since: vf.ValidFrom, AsOf: vf.AsOf, Sources: vf.Sources})
 		}
 		slices.SortFunc(people, func(a, b Member) int {
 			return cmp.Or(cmp.Compare(rank(a.Role), rank(b.Role)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
