@@ -206,8 +206,10 @@ func (a *API) checkDecision(r *http.Request, d *LinkDecision) (int, string) {
 		if ra == rb {
 			return http.StatusBadRequest, "a and b name the same record"
 		}
-		ka, kb := es[0].Records[ia].Kind, es[1].Records[ib].Kind
-		if d.Kind == graph.Join && ka != "" && kb != "" && ka != kb {
+		// Applying is asynchronous, so a refusal by the store would only be
+		// dead-lettered: check here, along one line of descent as the store does.
+		ka, kb := es[0].Kind, es[1].Kind // each cluster's deepest kind
+		if d.Kind == graph.Join && ka != "" && kb != "" && !a.cfg.Server.cfg.Registry.OneLine(ka, kb) {
 			return http.StatusBadRequest, "records of different kinds cannot be joined"
 		}
 		d.A, d.B = string(ra), string(rb)

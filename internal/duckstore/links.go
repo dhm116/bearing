@@ -14,10 +14,15 @@ import (
 )
 
 // Records implements graph.Graph. Kindless records (relation targets no
-// source has described yet) are returned only when kind is empty.
+// source has described yet) are returned only when kind is empty. A kind
+// includes its descendants.
 func (s *Store) Records(ctx context.Context, kind model.Kind) ([]graph.Record, error) {
 	return read(ctx, s, func(db querier) ([]graph.Record, error) {
-		return records(ctx, db, `(? = '' OR e.kind = ?)`, string(kind), string(kind))
+		if kind == "" {
+			return records(ctx, db, `true`)
+		}
+		kinds := s.reg.Descendants(kind)
+		return records(ctx, db, `e.kind IN (`+placeholders(len(kinds))+`)`, anySlice(kinds)...)
 	})
 }
 
@@ -158,7 +163,7 @@ func (s *Store) Link(ctx context.Context, ps []graph.Proposal) (graph.LinkResult
 			dirty = append(dirty, string(p.A), string(p.B))
 		}
 	}
-	if _, err := recluster(ctx, tx, dirty); err != nil {
+	if _, err := recluster(ctx, tx, s.reg, dirty); err != nil {
 		return graph.LinkResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -255,7 +260,7 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 		WHERE id = ? AND valid_to IS NULL`, at.UTC().Truncate(time.Microsecond), id); err != nil {
 		return fmt.Errorf("link %s: close: %w", id, err)
 	}
-	if _, err := recluster(ctx, tx, []string{a, b}); err != nil {
+	if _, err := recluster(ctx, tx, s.reg, []string{a, b}); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -266,12 +271,13 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 
 // recluster recomputes cluster_id for every record connected to seeds by
 // open asserted same_as links. Links join records oldest link first
-// (valid_from, then ID); one that would join two kinds, or two records with
+// (valid_from, then ID); one that would put a kind off the cluster's line of
+// descent, or join two records with
 // an open asserted distinct_from between them, is skipped. Each cluster's ID
 // is its oldest record's (created_at, then ID), so the result depends only
 // on the links, not on the order they were written in. It returns the
 // records whose cluster changed.
-func recluster(ctx context.Context, tx *sql.Tx, seeds []string) (moved []string, err error) {
+func recluster(ctx context.Context, tx *sql.Tx, reg *model.Registry, seeds []string) (moved []string, err error) {
 	if len(seeds) == 0 {
 		return nil, nil
 	}
@@ -358,7 +364,7 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) (moved []string,
 	}
 	for _, l := range links {
 		ra, rb := find(l[0]), find(l[1])
-		if ra == rb || (kind[ra] != "" && kind[rb] != "" && kind[ra] != kind[rb]) {
+		if ra == rb || (kind[ra] != "" && kind[rb] != "" && !reg.OneLine(model.Kind(kind[ra]), model.Kind(kind[rb]))) {
 			continue
 		}
 		if slices.ContainsFunc(apart, func(p [2]string) bool {
@@ -371,7 +377,7 @@ func recluster(ctx context.Context, tx *sql.Tx, seeds []string) (moved []string,
 			ra, rb = rb, ra
 		}
 		parent[rb] = ra
-		kind[ra] = max(kind[ra], kind[rb]) // the non-empty one, if any
+		kind[ra] = string(reg.Deeper(model.Kind(kind[ra]), model.Kind(kind[rb]))) // the non-empty, deeper one
 	}
 	for _, id := range order {
 		if c := find(id); c != recs[id].cluster {

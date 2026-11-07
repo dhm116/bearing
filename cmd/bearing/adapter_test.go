@@ -113,7 +113,7 @@ func TestRunAdapterCommands(t *testing.T) {
 				if len(lines) != 1 {
 					t.Fatalf("got %d lines, want 1:\n%s", len(lines), out.String())
 				}
-				if _, err := model.DecodeObservation([]byte(lines[0])); err != nil {
+				if _, err := model.DecodeObservation(model.Core(), []byte(lines[0])); err != nil {
 					t.Fatal(err)
 				}
 				return

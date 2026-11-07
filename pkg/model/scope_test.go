@@ -45,7 +45,7 @@ func mixedObservation() *eventv1alpha1.Observation {
 
 func TestClaimProblemsRejectOnlyTheirClaim(t *testing.T) {
 	o := mixedObservation()
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Scope() != ScopeClaim || len(ve.Problems) != 3 {
 		t.Fatalf("got %v, want three claim-scoped problems", err)
@@ -64,7 +64,7 @@ func TestClaimProblemsRejectOnlyTheirClaim(t *testing.T) {
 		len(d.GetEntity().GetAttributes()) != 1 || d.GetEntity().GetAttributes()["name"] == nil {
 		t.Fatalf("got %v, want only the good claims left", d)
 	}
-	if err := ValidateObservation(o); err != nil {
+	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatalf("got %v after dropping, want a valid observation", err)
 	}
 }
@@ -72,7 +72,7 @@ func TestClaimProblemsRejectOnlyTheirClaim(t *testing.T) {
 func TestObservationProblemsRejectTheWholeObservation(t *testing.T) {
 	o := mixedObservation()
 	o.Data.Entity.Key = "no key" // malformed: not tied to any one claim
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Scope() != ScopeObservation {
 		t.Fatalf("got %v, want observation scope", err)
@@ -97,7 +97,7 @@ func TestRejectedClaimsLeaveTheObservationWideChecks(t *testing.T) {
 		},
 	})
 	var ve *ValidationError
-	if err := ValidateObservation(o); !errors.As(err, &ve) || ve.Scope() != ScopeClaim || ve.Has(codeCardinality) {
+	if err := ValidateObservation(Core(), o); !errors.As(err, &ve) || ve.Scope() != ScopeClaim || ve.Has(codeCardinality) {
 		t.Fatalf("got %v, want only a claim-scoped type mismatch", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestEveryRejectedClaimIsDroppedBeyondTheProblemCap(t *testing.T) {
 	}
 	data.Relations = append(data.Relations, toRel(string(RelMemberOf), "x:team/b"))
 	o := NewObservation("adapter/test", time.Unix(0, 0), data)
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	if n := DropRejectedClaims(o, err); n != 3*MaxProblems || len(o.Data.Relations) != 1 {
 		t.Fatalf("dropped %d, %d relations left; want %d dropped and 1 left", n, len(o.Data.Relations), 3*MaxProblems)
 	}
@@ -122,7 +122,7 @@ func TestProblemMessagesCutLongValues(t *testing.T) {
 	o.Data.Entity.Attributes = map[string]*structpb.Value{long: structpb.NewStringValue("x")}
 	o.Data.Relations[0].Type = long
 	o.Data.Entity.Aliases = []string{"test:repo/" + long, "no-slash" + long}
-	err := ValidateObservation(o)
+	err := ValidateObservation(Core(), o)
 	if err == nil {
 		t.Fatal("got no error")
 	}
@@ -153,7 +153,7 @@ func TestProblemMessagesCutLongValues(t *testing.T) {
 func TestDecodeObservationReportsUnknownFieldsAsMalformed(t *testing.T) {
 	// A CloudEvents extension attribute other than the core's bearingsource,
 	// such as traceparent, is an unknown field and so rejected.
-	_, err := DecodeObservation([]byte(`{"specversion":"1.0","traceparent":"00-` + strings.Repeat("a", 5000) + `"}`))
+	_, err := DecodeObservation(Core(), []byte(`{"specversion":"1.0","traceparent":"00-`+strings.Repeat("a", 5000)+`"}`))
 	var ve *ValidationError
 	if !errors.As(err, &ve) || !ve.Has(codeMalformed) || ve.Scope() != ScopeObservation {
 		t.Fatalf("got %v, want a malformed rejection of the whole observation", err)
@@ -199,7 +199,7 @@ func TestDroppingAClaimUncoversItsSnapshotScope(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := scopeObservation(tt.scope...)
-			err := ValidateObservation(o)
+			err := ValidateObservation(Core(), o)
 			if n := DropRejectedClaims(o, err); n != 1 {
 				t.Fatalf("dropped %d claims from %v, want 1", n, err)
 			}
@@ -212,7 +212,7 @@ func TestDroppingAClaimUncoversItsSnapshotScope(t *testing.T) {
 					t.Fatalf("got scopes %v, want %v", got, tt.want)
 				}
 			}
-			if err := ValidateObservation(o); err != nil {
+			if err := ValidateObservation(Core(), o); err != nil {
 				t.Fatalf("got %v after dropping, want a valid observation", err)
 			}
 		})
@@ -228,7 +228,7 @@ func TestDroppingAnAttributeUncoversItsOutScope(t *testing.T) {
 		},
 		Snapshots: []*modelv1alpha1.SnapshotScope{scope(out, "language", "name")},
 	})
-	if n := DropRejectedClaims(o, ValidateObservation(o)); n != 1 {
+	if n := DropRejectedClaims(o, ValidateObservation(Core(), o)); n != 1 {
 		t.Fatalf("dropped %d, want 1", n)
 	}
 	if got := o.GetData().GetSnapshots(); len(got) != 1 || !slices.Equal(got[0].GetPredicates(), []string{"name"}) {

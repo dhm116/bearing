@@ -177,7 +177,7 @@ func TestSyncRejectsBadParams(t *testing.T) {
 func TestSyncAllAcceptsEverySyncObservation(t *testing.T) {
 	r := newRig(t)
 	var n int
-	sum, err := adapter.SyncAll(context.Background(), r.a, r.cfg, 50, func(*eventv1alpha1.Observation) error { n++; return nil })
+	sum, err := adapter.SyncAll(context.Background(), model.Core(), r.a, r.cfg, 50, func(*eventv1alpha1.Observation) error { n++; return nil })
 	if err != nil || n == 0 || sum.RejectedObservations+sum.RejectedClaims != 0 {
 		t.Fatalf("SyncAll: %d observations, %+v, %v: want a clean sync", n, sum, err)
 	}
