@@ -331,6 +331,14 @@ Each entry:
 - **Impact:** after the next full sync its facts open at the sync time, not when they began, and a webhook-only source can't backfill at all.
 - **Proposed fix:** accept and document it, or keep dropped pages so they can be replayed once the kind is enabled.
 
+## A cluster of a retired-kind record and an active one labels every fact as_of
+
+- **Found in:** [#310](https://github.com/dhm116/bearing/pull/310) review (`pkg/query`, `labeler.fact`)
+- **Area:** query
+- **Example:** a Vault `acme.Api` record (kind retired) shares a cluster with an active `k8s.Service` record through `same_as`; the cluster's kind is its deepest, so it reads as the retired one.
+- **Impact:** every fact of the cluster, including ones the active record's source keeps current, carries `as_of` the retirement time, which understates how fresh they are.
+- **Proposed fix:** label only facts whose sending record has a retired kind, not facts of the whole cluster.
+
 ## Facts backed only by a kind that is now inactive never close
 
 - **Found in:** [ADR 10](adr/0010-configured-namespaced-kinds.md) ingest review ([dhm116/bearing#312](https://github.com/dhm116/bearing/pull/312))
