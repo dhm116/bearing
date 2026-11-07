@@ -74,7 +74,8 @@ message SyncRequest {
   // The cursor from the previous page; empty for the first.
   string cursor = 2;
   // Every active kind the adapter declares, from the vocabulary the server
-  // booted with (ADR 10). An adapter may skip work for kinds not listed.
+  // booted with (ADR 10), sorted, each once. An adapter may skip work for
+  // kinds not listed.
   // Empty means no filter, so a core that doesn't send it is read correctly;
   // a source with no active kinds is never synced.
   repeated string enabled_kinds = 3;

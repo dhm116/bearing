@@ -252,7 +252,8 @@ type SyncRequest struct {
 	// The cursor from the previous page; empty for the first.
 	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	// Every active kind the adapter declares, from the vocabulary the server
-	// booted with (ADR 10). An adapter may skip work for kinds not listed.
+	// booted with (ADR 10), sorted, each once. An adapter may skip work for
+	// kinds not listed.
 	// Empty means no filter, so a core that doesn't send it is read correctly;
 	// a source with no active kinds is never synced.
 	EnabledKinds  []string `protobuf:"bytes,3,rep,name=enabled_kinds,json=enabledKinds,proto3" json:"enabled_kinds,omitempty"`
