@@ -84,6 +84,7 @@ const usage = `usage:
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
   bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
+  bearing graph [--format dot|json|svg|html] [--store URL]
   bearing mcp [--store URL | --server ADDR]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
@@ -157,7 +158,7 @@ func spanName(args []string) string {
 	switch {
 	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source" || args[0] == "link"):
 		return "bearing " + args[0] + " " + args[1]
-	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server" || args[0] == "mcp"):
+	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server" || args[0] == "mcp" || args[0] == "graph"):
 		return "bearing " + args[0]
 	}
 	return "bearing"
@@ -183,6 +184,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return mcpCmd(ctx, env, args[1:], stdout)
 	case "link":
 		return linkCmd(ctx, env, args[1:], stdout)
+	case "graph":
+		return graphCmd(ctx, env, args[1:], stdout)
 	case "adapter":
 		if len(args) < 2 {
 			return errUsage

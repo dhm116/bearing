@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline'">
+<title>Bearing graph</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--paper:#F5F7F6;--paper-2:#EDF1F0;--ink:#18242A;--muted:#55646B;--soft:#6B7C82;--rule-solid:#D3DCDA;--accent:#1D5E74;--link:#4B5198;--bad:#A33A3A;color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root{--paper:#11191C;--paper-2:#172226;--ink:#E4ECEA;--muted:#98A8AD;--soft:#7C8F94;--rule-solid:#2A383D;--accent:#7FC0D6;--link:#A4A9E3;--bad:#E89A9A}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 "IBM Plex Sans","Segoe UI",system-ui,sans-serif;display:grid;grid-template-columns:1fr minmax(280px,360px);height:100vh}
+main{overflow:auto}
+aside{border-left:1px solid var(--rule-solid);background:var(--paper-2);overflow:auto;padding:16px}
+.bar{position:sticky;top:0;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 16px;background:var(--paper);border-bottom:1px solid var(--rule-solid);z-index:1;font-size:13px}
+input[type=search]{font:inherit;padding:4px 8px;border:1px solid var(--rule-solid);border-radius:4px;background:var(--paper);color:var(--ink);min-width:180px}
+label{display:inline-flex;gap:4px;align-items:center;color:var(--muted)}
+h2{font:600 18px "Bricolage Grotesque","Segoe UI",system-ui,sans-serif;margin:0 0 4px}
+h3{font:500 11px "IBM Plex Mono",ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:18px 0 6px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12px;overflow-wrap:anywhere}
+.muted{color:var(--muted)}
+ul{margin:0;padding-left:18px}
+li{margin:2px 0}
+a{color:var(--accent)}
+.tag{display:inline-block;font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;padding:0 6px;border:1px solid var(--rule-solid);border-radius:3px;color:var(--muted)}
+.tag.proposed{border-style:dashed}
+.tag.bad{color:var(--bad);border-color:var(--bad)}
+@media (max-width:760px){body{grid-template-columns:1fr;grid-template-rows:1fr 40vh}aside{border-left:0;border-top:1px solid var(--rule-solid)}}
+</style>
+</head>
+<body>
+<main>
+<div class="bar">
+<input type="search" id="q" placeholder="Find an entity or key" aria-label="Find an entity or key">
+<label><input type="checkbox" id="proposed" checked> proposed</label>
+<label><input type="checkbox" id="links" checked> identity links</label>
+<span id="preds"></span>
+</div>
+{{.SVG}}
+</main>
+<aside id="panel" aria-live="polite"><h2>Bearing graph</h2><p class="muted">Click an entity, a fact or an identity link to see its evidence. Hover an entity to light up its neighbours.</p></aside>
+<script id="data" type="application/json">{{.Data}}</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById('data').textContent);
+  const ent = new Map(data.entities.map(e => [e.id, e]));
+  const rec = new Map(); data.entities.forEach(e => e.records.forEach(r => rec.set(r.id, e)));
+  const fact = new Map(data.facts.map(f => [f.id, f]));
+  const link = new Map(data.links.map(l => [l.id, l]));
+  const svg = document.querySelector('main svg');
+  const panel = document.getElementById('panel');
+  const edges = [...svg.querySelectorAll('[data-from]')];
+  const cards = [...svg.querySelectorAll('.card')];
+
+  const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
+  const nameOf = id => { const e = ent.get(id); return e ? e.name + ' (' + e.kind + ')' : id; };
+  const safeURL = u => /^https?:\/\//i.test(u || '') ? u : null;
+  function sources(f) {
+    const ul = el('ul');
+    f.sources.forEach(s => {
+      const li = el('li'); const u = safeURL(s.url);
+      if (u) { const a = el('a', s.source); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; li.append(a); } else li.append(s.source);
+      li.append(' ', el('span', s.observed_at, 'muted mono')); ul.append(li);
+    });
+    if (f.source_count > f.sources.length) ul.append(el('li', f.source_count + ' observations in all', 'muted'));
+    return ul;
+  }
+  function factBlock(f, from) {
+    const d = el('div');
+    const head = el('div'); head.append(el('span', f.status, 'tag' + (f.status === 'asserted' ? '' : ' proposed')), ' ');
+    head.append(el('strong', f.predicate), ' ' + (from ? '→ ' + nameOf(f.object) : '← ' + nameOf(f.subject)));
+    d.append(head);
+    if (f.qualifiers) d.append(el('div', Object.entries(f.qualifiers).map(([k, v]) => k + ': ' + v).join(' · '), 'mono muted'));
+    d.append(el('div', 'since ' + f.valid_from, 'mono muted'), sources(f));
+    return d;
+  }
+  function show(nodes) { panel.replaceChildren(...nodes); }
+  function showEntity(id) {
+    const e = ent.get(id); if (!e) return;
+    const out = [el('h2', e.name), el('div', e.kind + ' · ' + e.id, 'mono muted'), el('h3', 'Records')];
+    const ul = el('ul');
+    e.records.forEach(r => { const li = el('li'); li.append(el('div', r.keys.join(', '), 'mono'), el('div', 'from ' + (r.sources || []).join(', '), 'muted')); ul.append(li); });
+    out.push(ul);
+    if (e.attributes) { out.push(el('h3', 'Attributes')); e.attributes.forEach(a => { const d = el('div'); d.append(el('strong', a.predicate), ' = ', el('span', JSON.stringify(a.value), 'mono')); d.append(sources(a)); out.push(d); }); }
+    const outF = data.facts.filter(f => f.subject === id), inF = data.facts.filter(f => f.object === id);
+    if (outF.length) { out.push(el('h3', 'Facts from it')); outF.forEach(f => out.push(factBlock(f, true))); }
+    if (inF.length) { out.push(el('h3', 'Facts to it')); inF.forEach(f => out.push(factBlock(f, false))); }
+    const ids = new Set(e.records.map(r => r.id));
+    const ls = data.links.filter(l => ids.has(l.a) || ids.has(l.b));
+    if (ls.length) { out.push(el('h3', 'Identity links')); ls.forEach(l => out.push(linkBlock(l))); }
+    show(out);
+  }
+  function linkBlock(l) {
+    const d = el('div');
+    const head = el('div');
+    head.append(el('span', l.status, 'tag' + (l.status === 'asserted' ? '' : ' proposed')), ' ', el('span', l.kind, 'tag' + (l.kind === 'distinct_from' ? ' bad' : '')), ' by ', el('span', l.rule, 'mono'));
+    d.append(head, el('div', nameOf(rec.get(l.a)?.id) + ' ↔ ' + nameOf(rec.get(l.b)?.id)), el('div', l.a + ' ↔ ' + l.b, 'mono muted'));
+    const ul = el('ul');
+    l.deposits.forEach(x => {
+      let t = x.at + ' ' + (x.against ? 'against ' : '') + 'weight ' + x.weight;
+      if (x.actor) t += ' by ' + x.actor;
+      const li = el('li', t, 'mono'); if (x.reason) li.append(el('div', x.reason, 'muted'));
+      if (x.features) li.append(el('div', Object.entries(x.features).map(([k, v]) => k + ' ' + v.toFixed(2)).join(' · '), 'muted'));
+      ul.append(li);
+    });
+    d.append(ul);
+    return d;
+  }
+
+  svg.addEventListener('click', ev => {
+    const g = ev.target.closest('[data-facts],[data-link],[data-entity]'); if (!g) return;
+    if (g.dataset.facts) { const fs = g.dataset.facts.split(' ').map(i => fact.get(i)); show([el('h2', nameOf(fs[0].subject)), el('h3', 'Facts'), ...fs.map(f => factBlock(f, true))]); }
+    else if (g.dataset.link) show([el('h2', 'Identity link'), linkBlock(link.get(g.dataset.link))]);
+    else showEntity(g.dataset.entity);
+  });
+  svg.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.dataset.entity) showEntity(ev.target.dataset.entity); });
+
+  function focus(id) {
+    const near = new Set([id]);
+    edges.forEach(g => { if (g.classList.contains('hidden')) return; if (g.dataset.from === id) near.add(g.dataset.to); if (g.dataset.to === id) near.add(g.dataset.from); });
+    cards.forEach(c => { c.classList.toggle('dim', !near.has(c.dataset.entity)); c.classList.toggle('focus', c.dataset.entity === id); });
+    edges.forEach(g => g.classList.toggle('dim', g.dataset.from !== id && g.dataset.to !== id));
+  }
+  function unfocus() { cards.forEach(c => c.classList.remove('dim', 'focus')); edges.forEach(g => g.classList.remove('dim')); }
+  cards.forEach(c => { c.addEventListener('mouseenter', () => focus(c.dataset.entity)); c.addEventListener('mouseleave', unfocus); });
+
+  const preds = [...new Set(data.facts.map(f => f.predicate))].sort();
+  const off = new Set();
+  const predBox = document.getElementById('preds');
+  preds.forEach(p => { const lab = el('label'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = true; cb.onchange = () => { cb.checked ? off.delete(p) : off.add(p); filter(); }; lab.append(cb, p); predBox.append(lab, ' '); });
+  const showProposed = document.getElementById('proposed'), showLinks = document.getElementById('links');
+  function filter() {
+    svg.querySelectorAll('.fact').forEach(g => {
+      const on = g.dataset.predicates.split(' ').some(p => !off.has(p));
+      g.classList.toggle('hidden', !on || (!showProposed.checked && g.classList.contains('proposed')));
+    });
+    svg.querySelectorAll('.link').forEach(g => g.classList.toggle('hidden', !showLinks.checked || (!showProposed.checked && g.classList.contains('proposed'))));
+  }
+  showProposed.onchange = filter; showLinks.onchange = filter;
+
+  document.getElementById('q').addEventListener('input', ev => {
+    const q = ev.target.value.trim().toLowerCase();
+    if (!q) return unfocus();
+    cards.forEach(c => { const e = ent.get(c.dataset.entity); const hit = (e.name + ' ' + e.records.flatMap(r => r.keys).join(' ')).toLowerCase().includes(q); c.classList.toggle('dim', !hit); c.classList.toggle('focus', hit); });
+    edges.forEach(g => g.classList.add('dim'));
+    const first = cards.find(c => c.classList.contains('focus')); if (first) first.scrollIntoView({ block: 'center', inline: 'center' });
+  });
+})();
+</script>
+</body>
+</html>

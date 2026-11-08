@@ -1,0 +1,25 @@
+/* Tokens from docs/brand/diagram-design/bearing.md; change them there first. */
+svg{--paper:#F5F7F6;--paper-2:#EDF1F0;--ink:#18242A;--muted:#55646B;--soft:#6B7C82;--rule:rgba(24,36,42,.12);--rule-solid:#D3DCDA;--accent:#1D5E74;--accent-tint:rgba(29,94,116,.08);--link:#4B5198;--bad:#A33A3A}
+@media (prefers-color-scheme: dark){svg{--paper:#11191C;--paper-2:#172226;--ink:#E4ECEA;--muted:#98A8AD;--soft:#7C8F94;--rule:rgba(228,236,234,.12);--rule-solid:#2A383D;--accent:#7FC0D6;--accent-tint:rgba(127,192,214,.10);--link:#A4A9E3;--bad:#E89A9A}}
+.paper{fill:var(--paper)}
+.title{font:600 22px "Bricolage Grotesque","Segoe UI",system-ui,sans-serif;fill:var(--ink)}
+.eyebrow{font:500 10px "IBM Plex Mono",ui-monospace,Menlo,monospace;letter-spacing:.08em;fill:var(--soft)}
+.card-box{fill:var(--paper-2);stroke:var(--rule-solid)}
+.name{font:600 13px "IBM Plex Sans","Segoe UI",system-ui,sans-serif;fill:var(--ink)}
+.count{font:10px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--soft);text-anchor:end}
+.key{font:10.5px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--muted)}
+.unseen .card-box{fill:none;stroke-dasharray:4 3}
+.rule{stroke:var(--rule)}
+.line{fill:none;stroke-width:1.2}
+.hit{fill:none;stroke:transparent;stroke-width:10}
+.fact .line{stroke:var(--muted)}
+.fact.proposed .line{stroke-dasharray:5 4}
+.arrowhead{fill:none;stroke:var(--muted);stroke-width:1.4}
+.edge-label{font:9.5px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--soft);text-anchor:middle;paint-order:stroke;stroke:var(--paper);stroke-width:4px}
+.link .line{stroke:var(--link)}
+.link.proposed .line{stroke-dasharray:3 3}
+.link.distinct-from .line{stroke:var(--bad);stroke-dasharray:1 3;stroke-width:1.6}
+.card.focus .card-box{fill:var(--accent-tint);stroke:var(--accent);stroke-width:1.5}
+.dim{opacity:.15}
+.hidden{display:none}
+.card,.fact,.link{cursor:pointer}
