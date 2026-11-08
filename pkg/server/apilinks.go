@@ -185,7 +185,7 @@ func (a *API) checkDecision(r *http.Request, d *LinkDecision) (int, string) {
 				return http.StatusServiceUnavailable, "the link could not be looked up; try again"
 			}
 			for _, o := range open {
-				if o.A == l.A && o.B == l.B {
+				if o.PromotedFrom == l.ID && o.A == l.A && o.B == l.B {
 					l = o
 				}
 			}

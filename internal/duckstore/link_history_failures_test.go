@@ -31,7 +31,7 @@ func dropColumn(t *testing.T, s *Store, table, col string) {
 }
 
 // Each history step fails with an error that names the column it could not
-// read or write: before the write for closing steps that need an open link.
+// read or write; the closing cases set up an open link first.
 func TestLinkHistoryReportsAFailedStep(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
