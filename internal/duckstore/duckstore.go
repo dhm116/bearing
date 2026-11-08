@@ -77,7 +77,13 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.NewID == nil {
 		c.NewID = model.NewUUIDv7Source(c.Now, rand.Reader).NewID
 	}
-	db, err := sql.Open("duckdb", c.Path)
+	dsn := c.Path
+	if dsn == "" {
+		// One worker thread: queries here are small, and parallel tests each
+		// opening a database with a thread per core starve each other.
+		dsn = "?threads=1"
+	}
+	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: open: %w", err)
 	}

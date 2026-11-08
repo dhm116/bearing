@@ -537,16 +537,18 @@ func TestRecordsLastSeenIsTheNewestObservationUntilADeletion(t *testing.T) {
 
 func TestIngestProposalSurvivesHourlySyncsUnderAShortHalfLife(t *testing.T) {
 	t.Parallel()
-	const half = 7 * 24 * time.Hour
+	// A day's half-life keeps the test short; the matcher runs every 4 hours
+	// so it still sees about six runs per half-life, between deposits.
+	const half = 24 * time.Hour
 	now := t0
 	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID, LinkEvery: half})
 	cfg := match.Config{Now: func() time.Time { return now }, HalfLife: map[model.Kind]time.Duration{model.KindPerson: half}}
 	ingestOK(t, s, "gh", obs("g1", 0, "Person", "gh:user/jane"))
 	var id string
-	for h := 0; h <= 60*24; h++ {
+	for h := 0; h <= 9*24; h++ {
 		now = t0.Add(time.Duration(h) * time.Hour)
 		ingestOK(t, s, "dir", obs(fmt.Sprintf("o%d", h), h*60, "Person", "dir:user/jane", linked("gh:user/jane")))
-		if h%24 != 0 {
+		if h%4 != 0 {
 			continue
 		}
 		r, err := match.Run(t.Context(), s, cfg)
@@ -571,9 +573,9 @@ func TestIngestAliasProposalStopsWhenTheOwnerDropsTheAlias(t *testing.T) {
 	s := newStore(t, Config{Now: func() time.Time { return now }, NewID: testkit.NewSeqIDs("id-").NewID})
 	ingestOK(t, s, "gh", obs("a0", 0, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/old")))
 	ingestOK(t, s, "gh", obs("a1", 60, "Repository", "gh:repo_node/1", aliases("gh:repo/acme/new"))) // renamed
-	const step = 6 * time.Hour
+	const step = 5 * 24 * time.Hour
 	var end time.Time
-	for i := 1; i <= 600; i++ { // 150 days of the new repository listing the old name
+	for i := 1; i <= 30; i++ { // 150 days of the new repository listing the old name
 		end = t0.Add(time.Duration(i) * step)
 		ingestOK(t, s, "gh", obs(fmt.Sprintf("b%d", i), int(end.Sub(t0)/time.Minute), "Repository", "gh:repo_node/2", aliases("gh:repo/acme/old")))
 	}

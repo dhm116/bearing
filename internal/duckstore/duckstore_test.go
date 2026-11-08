@@ -29,6 +29,18 @@ func newStore(t *testing.T, c Config) *Store {
 	return s
 }
 
+func TestOpenInMemoryUsesOneThread(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Config{})
+	var got string
+	if err := s.db.QueryRowContext(t.Context(), `SELECT current_setting('threads')`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "1" {
+		t.Fatalf("got threads %s, want 1", got)
+	}
+}
+
 func TestOpenKeepsDataAcrossReopen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
