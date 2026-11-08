@@ -71,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [packages]
+        shard: [slow, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,8 +87,10 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-test-${{ github.sha }}
-          restore-keys: go-${{ runner.os }}-test-
+          key: go-${{ runner.os }}-test-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-test-${{ matrix.shard }}-
+            go-${{ runner.os }}-test-
 
       - run: make cover SHARD=${{ matrix.shard }} COVER_OUT=cover-${{ matrix.shard }}.out
 
@@ -98,7 +100,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          key: go-${{ runner.os }}-${{ github.job }}-${{ matrix.shard }}-${{ github.sha }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -153,7 +155,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [packages]
+        shard: [slow, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -172,8 +174,10 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-test-${{ github.sha }}
-          restore-keys: go-${{ runner.os }}-test-
+          key: go-${{ runner.os }}-test-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-test-${{ matrix.shard }}-
+            go-${{ runner.os }}-test-
 
       # Writes baseline/base-<shard>.out, or nothing when the gate would skip
       # (only documentation changed). The marker keeps the artifact from

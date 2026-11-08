@@ -24,13 +24,17 @@ COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpk
 # cover, covergate-base and covergate-report run every test in one go, as
 # `make check` does.
 #
-#   packages  every package; add a shard here when one package grows slow
+#   slow  the two packages whose tests take over a minute each
+#   rest  every other package; add a shard here when one package grows slow
 #
 # Each shard writes its own profile; the gate merges them (a block is covered
 # if any shard covers it) and compares with the same shards at the merge base.
-SHARDS := packages
+# rest's list is left for the shell, so at the merge base it is that tree's.
+SLOW_PKGS := ./internal/duckstore/ ./internal/identityeval/
+SHARDS := slow rest
 COVER_ARGS_ := ./...
-COVER_ARGS_packages := ./...
+COVER_ARGS_slow := $(SLOW_PKGS)
+COVER_ARGS_rest := $$(go list ./... | grep -vx $(patsubst ./%/,-e bearing.example/%,$(SLOW_PKGS)))
 SHARD ?=
 COVER_ARGS = $(COVER_ARGS_$(SHARD))
 # In CI a missing base or an unmeasurable baseline fails the gate instead of
