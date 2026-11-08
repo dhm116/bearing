@@ -19,6 +19,13 @@ concurrency:
 # slowest of static, race and the longest test shard, plus the gate. The
 # tests, and the same tests at the merge base, are what take the time, so
 # each runs in the shards the Makefile names (SHARDS), one runner apiece.
+#
+# Each job keeps its own module and build cache, because each builds
+# different things (tools and lint, cover builds, race builds). setup-go's
+# cache would be one entry for all of them, saved once by whichever job ended
+# first and never refreshed. A push to main saves a fresh one per job; pull
+# requests restore main's latest and save nothing. baseline restores test's:
+# both are cover builds, and main's is the merge base's.
 jobs:
   # Everything that needs no test run.
   static:
@@ -32,11 +39,27 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: go-${{ runner.os }}-static-${{ github.sha }}
+          restore-keys: go-${{ runner.os }}-static-
 
       - run: make static
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: go-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
 
   # The tests of the pull request's merge commit, with coverage, in the shards
   # the Makefile names. A shard that is missing from this list leaves a
@@ -48,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [packages]
+        shard: [slow, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,11 +80,27 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-test-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-test-${{ matrix.shard }}-
+            go-${{ runner.os }}-test-
 
       - run: make cover SHARD=${{ matrix.shard }} COVER_OUT=cover-${{ matrix.shard }}.out
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ github.job }}-${{ matrix.shard }}-${{ github.sha }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -84,11 +123,25 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-race-${{ github.sha }}
+          restore-keys: go-${{ runner.os }}-race-
 
       - run: make race
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
 
   # The same tests, in the same shards, at the merge base with main, for the
   # gate's comparison of total coverage. They don't wait for the test job:
@@ -102,7 +155,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [packages]
+        shard: [slow, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,9 +167,17 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-test-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-test-${{ matrix.shard }}-
+            go-${{ runner.os }}-test-
 
       # Writes baseline/base-<shard>.out, or nothing when the gate would skip
       # (only documentation changed). The marker keeps the artifact from

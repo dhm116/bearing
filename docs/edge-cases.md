@@ -410,3 +410,11 @@ Each entry:
 - **Example:** an asserted `same_as` X–T was refused because X sat in a Person cluster with A–X. Closing A–X lets the refused X–T apply.
 - **Impact:** the closing row gets its `split`, but X–T keeps `refused` as its open effect though it now applies; Q3 shows no join for it. Rare.
 - **Proposed fix:** compare `recluster`'s moved records with the noted pairs and record the change on the affected links.
+
+## A slow test package that doesn't exist at the merge base
+
+- **Found in:** [#320](https://github.com/dhm116/bearing/pull/320) review
+- **Area:** CI coverage shards (`Makefile`, `SLOW_PKGS`)
+- **Example:** a pull request renames `internal/duckstore` and updates `SLOW_PKGS`. covergate runs the `slow` shard's list from the head's Makefile in the merge base's tree, where the new directory doesn't exist, so `go test` fails there.
+- **Impact:** that pull request's `baseline (slow)` job fails, and so does the gate. Its `rest` list comes from `go list` in the base's tree and is unaffected. Only a pull request that renames or adds a slow package hits this, and the next pull request after it merges works.
+- **Proposed fix:** land the rename and the `SLOW_PKGS` change in separate pull requests, or build the `slow` list from `go list` filtered to directories that exist.
