@@ -395,6 +395,22 @@ Each entry:
 - **Impact:** complete and snapshot closing exempt a fact unless an observation of an active kind backs it, and the check goes by the kind each observation was sent with. Facts only the old, now inactive kind backed stay open until the kind is enabled again.
 - **Proposed fix:** accept it (the kind is off, so Bearing does not watch it), or close such facts when a kind is disabled at boot.
 
+## Link effects are relative to the transaction's start
+
+- **Found in:** [ADR 11](adr/0011-answers-show-each-evidence-path.md) link history ([dhm116/bearing#319](https://github.com/dhm116/bearing/pull/319))
+- **Area:** identity, `internal/duckstore/linkhistory.go`
+- **Example:** one Ingest or Link batch opens asserted `same_as` links A–B, B–C and A–C.
+- **Impact:** each row's effect is read against the clusters before the batch's `recluster`, so all three record `joined`, though the third joined nothing. Q3 would list three joins for one. Rare: needs one batch to close a triangle.
+- **Proposed fix:** classify each noted row in (`valid_from`, `id`) order during `recluster`'s union-find, so a later row sees the earlier ones.
+
+## Effects are recorded only on rows a write opened or closed
+
+- **Found in:** [ADR 11](adr/0011-answers-show-each-evidence-path.md) link history ([dhm116/bearing#319](https://github.com/dhm116/bearing/pull/319))
+- **Area:** identity, `internal/duckstore/linkhistory.go`
+- **Example:** an asserted `same_as` X–T was refused because X sat in a Person cluster with A–X. Closing A–X lets the refused X–T apply.
+- **Impact:** the closing row gets its `split`, but X–T keeps `refused` as its open effect though it now applies; Q3 shows no join for it. Rare.
+- **Proposed fix:** compare `recluster`'s moved records with the noted pairs and record the change on the affected links.
+
 ## A slow test package that doesn't exist at the merge base
 
 - **Found in:** [#320](https://github.com/dhm116/bearing/pull/320) review

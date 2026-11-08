@@ -302,7 +302,31 @@ type Link struct {
 	// them (pkg/match).
 	Deposits           []Deposit
 	ValidFrom, ValidTo time.Time
+	// PromotedFrom is the proposal this asserted link promoted, which the
+	// promotion closed; empty otherwise.
+	PromotedFrom string
+	// OpenDecision and CloseDecision are the person's decision (its event
+	// ID) that opened or closed the link; empty otherwise. One decision's
+	// rows share an ID.
+	OpenDecision, CloseDecision string
+	// OpenEffect and CloseEffect say what opening or closing an asserted link
+	// did to the clusters, as the store applied it. Empty for proposals, and
+	// CloseEffect while the link is open.
+	OpenEffect, CloseEffect LinkEffect
 }
+
+// LinkEffect is what an asserted link's opening or closing did to clusters
+// when it was written. It is history, not current state: today's clusters say
+// whether a link applies now.
+type LinkEffect string
+
+// The effects of opening or closing an asserted link.
+const (
+	EffectJoined  LinkEffect = "joined"  // two clusters became one
+	EffectSplit   LinkEffect = "split"   // one cluster became two
+	EffectNone    LinkEffect = "none"    // the clusters stayed as they were
+	EffectRefused LinkEffect = "refused" // an opening same_as the clustering did not apply
+)
 
 // Deposit is one piece of evidence for (or, when Against, against) a link.
 type Deposit struct {
@@ -322,7 +346,8 @@ type Deposit struct {
 
 // LinkFilter selects links. Empty fields match anything.
 type LinkFilter struct {
-	// ID matches one link; with WithClosed unset it matches only while open.
+	// ID matches one link; with WithClosed unset it matches only while open,
+	// so a promoted proposal (closed by its promotion) needs WithClosed.
 	ID string
 	// Entity matches links touching any record of this entity or record.
 	Entity     EntityID
@@ -332,6 +357,10 @@ type LinkFilter struct {
 	// Limit, when positive, returns at most that many links, those with the
 	// newest deposit first; zero returns every match, oldest first.
 	Limit int
+	// ChangedSince and ChangedUntil, when set, select links opened or closed
+	// in [ChangedSince, ChangedUntil), closed ones included whatever
+	// WithClosed says. Either may be zero for an open end.
+	ChangedSince, ChangedUntil time.Time
 }
 
 // Proposal is one link a matcher or rule writes.

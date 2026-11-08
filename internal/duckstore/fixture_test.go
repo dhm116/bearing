@@ -26,7 +26,7 @@ INSERT INTO entity VALUES
  ('s-ledger', 'Service', 'ledger', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-ledger'),
  ('s-db', 'Service', 'db', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-db'),
  ('s-old', 'Service', 'api-legacy', TIMESTAMPTZ '2026-01-02 00:00:00+00', 's-api');
-INSERT INTO identity_link VALUES
+INSERT INTO identity_link (id, a, b, kind, status, rule, valid_from, valid_to) VALUES
  ('l1', 's-api', 's-old', 'same_as', 'asserted', 'shared_key', TIMESTAMPTZ '2026-01-02 00:00:00+00', NULL);
 INSERT INTO alias VALUES
  ('team:payments', 't-pay', 'dir', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00'),

@@ -74,7 +74,25 @@ func loadLinks(ctx context.Context, db querier, f graph.LinkFilter, among []stri
 		where += ` AND l.status = ?`
 		args = append(args, string(f.Status))
 	}
-	if !f.WithClosed {
+	if !f.ChangedSince.IsZero() || !f.ChangedUntil.IsZero() {
+		// A window lists the rows that opened or closed in it, closed ones included.
+		in := func(col string) (string, []any) {
+			q, as := `l.`+col+` IS NOT NULL`, []any(nil)
+			if !f.ChangedSince.IsZero() {
+				q += ` AND l.` + col + ` >= ?`
+				as = append(as, f.ChangedSince.UTC())
+			}
+			if !f.ChangedUntil.IsZero() {
+				q += ` AND l.` + col + ` < ?`
+				as = append(as, f.ChangedUntil.UTC())
+			}
+			return q, as
+		}
+		qf, af := in("valid_from")
+		qt, at := in("valid_to")
+		where += ` AND ((` + qf + `) OR (` + qt + `))`
+		args = append(append(args, af...), at...)
+	} else if !f.WithClosed {
 		where += ` AND l.valid_to IS NULL`
 	}
 	order := ` ORDER BY l.valid_from, l.id`
@@ -82,7 +100,8 @@ func loadLinks(ctx context.Context, db querier, f graph.LinkFilter, among []stri
 		order = ` ORDER BY (SELECT max(d.deposited_at) FROM link_deposit d WHERE d.link_id = l.id) DESC NULLS LAST, l.id LIMIT ?`
 		args = append(args, f.Limit)
 	}
-	rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to
+	rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to,
+	l.promoted_from, l.open_decision, l.close_decision, l.open_effect, l.close_effect
 	FROM identity_link l WHERE `+where+order, args...)
 	if err != nil {
 		return nil, fmt.Errorf("links: %w", err)
@@ -90,7 +109,10 @@ func loadLinks(ctx context.Context, db querier, f graph.LinkFilter, among []stri
 	links, err := collect(rows, func(sc scanner) (graph.Link, error) {
 		var l graph.Link
 		var to sql.NullTime
-		err := sc.Scan(&l.ID, &l.A, &l.B, &l.Kind, &l.Status, &l.Rule, &l.ValidFrom, &to)
+		var from, od, cd, oe, ce sql.NullString
+		err := sc.Scan(&l.ID, &l.A, &l.B, &l.Kind, &l.Status, &l.Rule, &l.ValidFrom, &to, &from, &od, &cd, &oe, &ce)
+		l.PromotedFrom, l.OpenDecision, l.CloseDecision = from.String, od.String, cd.String
+		l.OpenEffect, l.CloseEffect = graph.LinkEffect(oe.String), graph.LinkEffect(ce.String)
 		l.ValidFrom = l.ValidFrom.UTC()
 		if to.Valid {
 			l.ValidTo = to.Time.UTC()
@@ -152,6 +174,7 @@ func (s *Store) Link(ctx context.Context, ps []graph.Proposal) (graph.LinkResult
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 	now := s.now().UTC().Truncate(time.Microsecond)
 	var dirty []string
+	w := &writes{}
 	for _, p := range ps {
 		if err := checkProposal(ctx, tx, p); err != nil {
 			return graph.LinkResult{}, err
@@ -159,7 +182,7 @@ func (s *Store) Link(ctx context.Context, ps []graph.Proposal) (graph.LinkResult
 		if p.Deposit.At.IsZero() {
 			p.Deposit.At = now
 		}
-		opened, changed, err := s.upsertLink(ctx, tx, p)
+		opened, changed, err := s.upsertLink(ctx, tx, w, p)
 		if err != nil {
 			return graph.LinkResult{}, fmt.Errorf("link %s %s: %w", p.A, p.B, err)
 		}
@@ -173,6 +196,9 @@ func (s *Store) Link(ctx context.Context, ps []graph.Proposal) (graph.LinkResult
 		}
 	}
 	if _, err := recluster(ctx, tx, s.reg, dirty); err != nil {
+		return graph.LinkResult{}, err
+	}
+	if err := w.settle(ctx, tx); err != nil {
 		return graph.LinkResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -206,10 +232,13 @@ func checkProposal(ctx context.Context, tx *sql.Tx, p graph.Proposal) error {
 }
 
 // upsertLink opens a link for a new pair and kind, or adds the deposit to the
-// open one. An asserted proposal promotes an open proposed link and takes
-// over its rule; a proposed one never demotes. changed says whether an
-// asserted link appeared, so the pair's clusters need recomputing.
-func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, p graph.Proposal) (opened, changed bool, err error) {
+// open one. An asserted proposal promotes an open proposed link: it closes the
+// proposed row at the deposit's time and opens an asserted one, with the
+// promoting rule and deposit, that names the proposal in promoted_from. The
+// proposal keeps the matcher's rule and deposits. A proposed one never
+// demotes. changed says whether an asserted link appeared, so the pair's
+// clusters need recomputing.
+func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, w *writes, p graph.Proposal) (opened, changed bool, err error) {
 	a, b := string(p.A), string(p.B)
 	if b < a {
 		a, b = b, a
@@ -217,20 +246,34 @@ func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, p graph.Proposal) (o
 	var id, status string
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM identity_link
 		WHERE a = ? AND b = ? AND kind = ? AND valid_to IS NULL`, a, b, string(p.Kind)).Scan(&id, &status)
+	var promoted string
+	openAt := p.Deposit.At
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		id, opened, changed = s.newID(), true, p.Status == graph.Asserted
-		if _, err := tx.ExecContext(ctx, `INSERT INTO identity_link VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
-			id, a, b, string(p.Kind), string(p.Status), p.Rule, p.Deposit.At); err != nil {
-			return false, false, fmt.Errorf("open: %w", err)
-		}
+		opened = true
 	case err != nil:
 		return false, false, err
 	case p.Status == graph.Asserted && status != string(graph.Asserted):
-		changed = true
-		if _, err := tx.ExecContext(ctx, `UPDATE identity_link SET status = ?, rule = ? WHERE id = ?`,
-			string(graph.Asserted), p.Rule, id); err != nil {
+		promoted = id
+		if _, err := closeLinkID(ctx, tx, w, p.Deposit.At, promoted); err != nil {
 			return false, false, fmt.Errorf("promote: %w", err)
+		}
+		// The asserted row opens when the proposal closed, which is never before it opened.
+		if err := tx.QueryRowContext(ctx, `SELECT valid_to FROM identity_link WHERE id = ?`, promoted).Scan(&openAt); err != nil {
+			return false, false, fmt.Errorf("promote: %w", err)
+		}
+	}
+	if opened || promoted != "" {
+		id, changed = s.newID(), p.Status == graph.Asserted
+		if changed {
+			if err := w.note(ctx, tx, id, a, b, p.Kind, false); err != nil {
+				return false, false, err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO identity_link (id, a, b, kind, status, rule, valid_from, promoted_from, open_decision)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, a, b, string(p.Kind), string(p.Status), p.Rule, openAt, nullIfEmpty(promoted), nullIfEmpty(w.decision)); err != nil {
+			return false, false, fmt.Errorf("open: %w", err)
 		}
 	}
 	d := p.Deposit
@@ -265,11 +308,14 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 	if err != nil {
 		return fmt.Errorf("link %s: %w", id, err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE identity_link SET valid_to = greatest(valid_from, ?)
-		WHERE id = ? AND valid_to IS NULL`, at.UTC().Truncate(time.Microsecond), id); err != nil {
-		return fmt.Errorf("link %s: close: %w", id, err)
+	w := &writes{}
+	if _, err := closeLinkID(ctx, tx, w, at.UTC().Truncate(time.Microsecond), id); err != nil {
+		return fmt.Errorf("link %s: %w", id, err)
 	}
 	if _, err := recluster(ctx, tx, s.reg, []string{a, b}); err != nil {
+		return err
+	}
+	if err := w.settle(ctx, tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

@@ -43,6 +43,9 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	if _, err := recluster(ctx, tx, g.s.reg, g.dirty); err != nil {
 		return graph.IngestResult{}, err
 	}
+	if err := g.w.settle(ctx, tx); err != nil {
+		return graph.IngestResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("commit: %w", err)
 	}
@@ -57,6 +60,7 @@ type ingest struct {
 	authoritative func(model.Key) bool
 	active        []model.Kind // empty: every kind is active
 	recorded      time.Time
+	w             writes // asserted link rows this call opens, for their effects
 	res           graph.IngestResult
 	// dirty are records whose cluster may have changed; recomputed before commit.
 	dirty []string
@@ -378,7 +382,7 @@ func (g *ingest) link(ctx context.Context, a, b string, status func() (graph.Sta
 	if err != nil || st == "" || (recent.Valid && st == graph.Proposed) {
 		return err
 	}
-	_, changed, err := g.s.upsertLink(ctx, g.tx, graph.Proposal{
+	_, changed, err := g.s.upsertLink(ctx, g.tx, &g.w, graph.Proposal{
 		A: graph.EntityID(a), B: graph.EntityID(b), Kind: graph.SameAs, Status: st, Rule: rule,
 		Deposit: graph.Deposit{At: g.observed, Weight: 1, ObservationID: g.obsID},
 	})

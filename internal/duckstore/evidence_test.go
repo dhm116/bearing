@@ -74,7 +74,7 @@ INSERT INTO fact_source VALUES ('f1', 'o-gh'), ('f2', 'o-pd');`)
 
 func addLink(t *testing.T, s *Store, id, a, b, kind, status string) {
 	t.Helper()
-	load(t, s, `INSERT INTO identity_link VALUES (?, ?, ?, ?, ?, 'r', TIMESTAMPTZ '2026-02-01 00:00:00+00', NULL)`, id, a, b, kind, status)
+	load(t, s, `INSERT INTO identity_link (id, a, b, kind, status, rule, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, 'r', TIMESTAMPTZ '2026-02-01 00:00:00+00', NULL)`, id, a, b, kind, status)
 	load(t, s, `INSERT INTO link_deposit (link_id, deposited_at, weight, against) VALUES (?, TIMESTAMPTZ '2026-02-01 00:00:00+00', 0.9, false)`, id)
 }
 

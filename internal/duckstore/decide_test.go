@@ -36,7 +36,10 @@ func TestDecideAcceptAssertsAProposalOnceAndLeavesTheDeciderAsEvidence(t *testin
 		t.Fatalf("got %+v, want the proposal promoted", r)
 	}
 	wantClusters(t, s, map[string]graph.EntityID{"id-2": "id-1"})
-	got := links(t, s, graph.LinkFilter{ID: l.ID})
+	got := links(t, s, graph.LinkFilter{Status: graph.Asserted})
+	if got[0].PromotedFrom != l.ID {
+		t.Fatalf("got %+v, want a link promoted from %s", got[0], l.ID)
+	}
 	last := got[0].Deposits[len(got[0].Deposits)-1]
 	if got[0].Status != graph.Asserted || got[0].Rule != "person" || last.Actor != "local:501" || last.Reason != "same person" || last.Weight != 1 {
 		t.Fatalf("got %+v, want asserted by person with the actor and reason on the last deposit", got[0])
@@ -49,7 +52,7 @@ func TestDecideAcceptAssertsAProposalOnceAndLeavesTheDeciderAsEvidence(t *testin
 			t.Errorf("event %s: got %+v, want a no-op", id, r)
 		}
 	}
-	if again := links(t, s, graph.LinkFilter{ID: l.ID}); len(again[0].Deposits) != len(got[0].Deposits) {
+	if again := links(t, s, graph.LinkFilter{Status: graph.Asserted}); len(again[0].Deposits) != len(got[0].Deposits) {
 		t.Errorf("got %d deposits, want %d", len(again[0].Deposits), len(got[0].Deposits))
 	}
 }
@@ -323,8 +326,9 @@ func TestDecideJoinOrAcceptOfAnAssertedPairLeftApartIsRefused(t *testing.T) {
 	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e4", Kind: graph.Accept, LinkID: asserted}, blocker, clusters)
 }
 
-// No distinct_from is involved here: accepting an older proposal joins a
-// kindless record to a Team, and the Person it was joined to drops out.
+// No distinct_from is involved here: accepting a proposal would join a
+// kindless record to a Team, but the newer promoted link loses to the older
+// link that put it in a Person's cluster.
 func TestDecideAcceptThatWouldPushARecordOutOfAnotherKindIsRefused(t *testing.T) {
 	t.Parallel()
 	s := ingestStore(t)
@@ -337,7 +341,7 @@ func TestDecideAcceptThatWouldPushARecordOutOfAnotherKindIsRefused(t *testing.T)
 	joined.Deposit.At = at(100)
 	link(t, s, proposal, joined)
 	id := links(t, s, graph.LinkFilter{Status: graph.Proposed})[0].ID
-	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e1", Kind: graph.Accept, LinkID: id}, "id-1",
+	wantRefusedAndUntouched(t, s, graph.Decision{ID: "e1", Kind: graph.Accept, LinkID: id}, "stay apart",
 		map[string]graph.EntityID{"id-1": "id-1", "id-2": "id-2", "id-4": "id-1"})
 }
 
