@@ -170,10 +170,18 @@ func TestSyncStaysInsideTheDeclarationAndLeaksNothing(t *testing.T) {
 	if err := model.DecodeJSON(raw, decl); err != nil {
 		t.Fatal(err)
 	}
-	declared := model.DeclaredAttributes(model.Core(), decl)
+	var extra []model.Predicate
+	for _, p := range model.DeclaredAttributes(model.Core(), decl) {
+		p.Conflict = modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE
+		extra = append(extra, p)
+	}
+	reg, err := model.Core().Extend(nil, extra)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var all strings.Builder
 	for _, o := range obs {
-		if err := model.ValidateObservationWith(model.Core(), o, declared); err != nil {
+		if err := model.ValidateObservation(reg, o); err != nil {
 			t.Errorf("%s: %v", o.GetId(), err)
 		}
 		b, err := model.EncodeJSON(o)

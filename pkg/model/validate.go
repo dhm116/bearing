@@ -149,20 +149,6 @@ type checker struct {
 	claims     []claimRef // claims a problem rejects
 	cur        *claimRef  // the claim being checked, if any
 	curHit     bool       // cur has a claim-scoped problem
-
-	// declared holds the shapes of the unregistered attributes the source
-	// declares for the entity's kind.
-	declared map[string]Predicate
-}
-
-// shape looks up a predicate in the registry, then among the attributes the
-// source declares.
-func (c *checker) shape(name string) (Predicate, bool) {
-	if p, ok := c.reg.Predicate(name); ok {
-		return p, true
-	}
-	p, ok := c.declared[name]
-	return p, ok
 }
 
 // claimScoped reports whether a problem with code, found inside a claim,
@@ -293,16 +279,6 @@ const (
 // *ValidationError.
 func ValidateObservation(reg *Registry, o *eventv1alpha1.Observation) error {
 	c := &checker{reg: reg}
-	c.observation(o)
-	return c.err()
-}
-
-// ValidateObservationWith is ValidateObservation for an observation of a
-// source that declares attributes the registry doesn't have: declared maps
-// each such attribute's name (without the namespace) to its Type and
-// Cardinality, which the checks then apply as they do to registered ones.
-func ValidateObservationWith(reg *Registry, o *eventv1alpha1.Observation, declared map[string]Predicate) error {
-	c := &checker{reg: reg, declared: declared}
 	c.observation(o)
 	return c.err()
 }
@@ -539,7 +515,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 			c.add(codeDuplicateClaim, ap, "claims the same fact as an earlier attribute claim with different times, confidence or absent")
 		}
 		seenAttr[id] = cl
-		if reg, ok := c.shape(name); ok && !reg.Relation && reg.Cardinality == one && cl.asserting() {
+		if reg, ok := c.reg.Predicate(name); ok && !reg.Relation && reg.Cardinality == one && cl.asserting() {
 			oneAttrs[name] = append(oneAttrs[name], cl)
 		}
 	}
@@ -566,7 +542,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 			case !ValidAttributeName(p):
 				c.add(codeMalformed, pp, "%q is not a predicate name", clip(p))
 			case s.GetDirection() == modelv1alpha1.Direction_DIRECTION_IN:
-				if reg, ok := c.shape(p); ok && !reg.Relation {
+				if reg, ok := c.reg.Predicate(p); ok && !reg.Relation {
 					c.add(codeMalformed, pp, "attribute %q can only be in an out scope", clip(p))
 				}
 			}
@@ -699,7 +675,7 @@ func isFrom(r *modelv1alpha1.Relation) bool {
 // attributeName checks an attribute's name and returns its predicate if the
 // registry or the source's declarations have it.
 func (c *checker) attributeName(path string, entity Kind, name string) (Predicate, bool) {
-	reg, ok := c.shape(name)
+	reg, ok := c.reg.Predicate(name)
 	switch {
 	case IsCorePredicate(name):
 		c.add(codeCorePredicate, path, "only the core claims %q", clip(name))

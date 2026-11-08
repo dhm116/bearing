@@ -63,7 +63,7 @@ is a 400. Times are RFC 3339. `find` and `runtimes` with a `kind` that is not a 
 | Route | Method | Parameters | Answer |
 | --- | --- | --- | --- |
 | `GET /v1/get` | `query.get` | `ref` (required), `at` | The entity: its kind, name, keys and the facts about it |
-| `GET /v1/owner` | `query.owner` | `ref` (required), `at`, `members` (`true`, or `false` or absent for none; any other value is 400 `invalid_request`) | Who owns it: asserted `owned_by` facts, or, when there are none, asserted `approves_changes` facts (CODEOWNERS). Each fact keeps its predicate. With `members=true`, `teams` also lists the people on each owning team that is not a person: `[{"team": Ref, "members": [{id, kind, name, key, role, since, sources}], "members_truncated"}]`. Members are the people with an asserted `member_of` fact to the team at `at`, maintainers first and then by name, at most 50 per team (`members_truncated` says more exist); a person in several sources is one entry with all their sources, and `role` is what a source gives (`maintainer` or `member` from GitHub; the directory gives none). A person who left is not listed. Without `members`, there is no `teams` field |
+| `GET /v1/owner` | `query.owner` | `ref` (required), `at`, `members` (`true`, or `false` or absent for none; any other value is 400 `invalid_request`) | Who owns it: asserted `owned_by` facts, or, when there are none, asserted `approves_changes` facts (CODEOWNERS). Each fact keeps its predicate. With `members=true`, `teams` also lists the people on each owning team that is not a person: `[{"team": Ref, "members": [{id, kind, name, key, role, since, as_of, sources}], "members_truncated"}]`. Members are the people with an asserted `member_of` fact to the team at `at`, maintainers first and then by name, at most 50 per team (`members_truncated` says more exist); a person in several sources is one entry with all their sources, and `role` is what a source gives (`maintainer` or `member` from GitHub; the directory gives none). A person who left is not listed. Without `members`, there is no `teams` field |
 | `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
 | `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
 | `GET /v1/find` | `query.find` | `q` (required, at most 256 bytes), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
@@ -86,6 +86,16 @@ relation carries `qualifiers`, how it holds (for a dependency: protocol,
 port, service and where it was found). When
 several sources say the same thing, the answer is one fact with all of
 them.
+
+**Retired kinds.** An operator can remove a configured kind from the settings.
+Facts of a record whose kind is retired still answer, because the store keeps
+the kind. A current answer (not `changes`) then carries `as_of`, an RFC 3339
+time: the fact is true as of the retirement, and no source has been asked for
+it since. It appears on facts, on runtime declarations and on the people in
+`teams` of `owner`, and is absent while the kind is active. It is set on the
+answers of `get`, `related`, `owner` and `runtimes` (not `changes`, which
+reports history, nor `find`), and with `at` only for a kind already retired
+at that time.
 
 **Who asked.** A sync request is recorded with the caller the authenticator
 proved: `token` for the API token, or `local:<uid>` on the socket. Nothing in the request chooses it.
@@ -174,6 +184,7 @@ reference other answers use. Each declaration has:
 | `is_below` | `lower` is under `below` (always `false` without `below`) |
 | `is_unknown` | `version` cannot be read as a version or range; never guessed |
 | `valid_from`, `valid_to` | When the fact held; `valid_to` is absent while it holds |
+| `as_of` | When the entity's kind was retired; absent while it is active (see Retired kinds above) |
 | `sources`, `source_count` | The observations behind it, as in every answer |
 
 `below` must be digits and dots, such as `1.22` (`^[0-9]+(\.[0-9]+)*$`); a

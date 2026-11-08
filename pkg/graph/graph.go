@@ -261,9 +261,6 @@ type IngestRequest struct {
 	// it vouches for makes an asserted same_as link; any other, a proposed
 	// one. Nil vouches for none.
 	Authoritative func(linked model.Key) bool
-	// Declared is the source adapter's attributes beyond the registry
-	// (model.DeclaredAttributes); nil for none. Ingest needs their cardinality.
-	Declared map[string]model.Predicate
 	// Complete lists the kinds this sync listed in full, set on a sync's last
 	// page. Records of those kinds that the source observed before
 	// SyncStarted and not since are gone from it: their facts from this

@@ -29,7 +29,7 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 	g := &ingest{
-		tx: tx, s: s, source: source, authoritative: r.Authoritative, declared: r.Declared, active: r.Active,
+		tx: tx, s: s, source: source, authoritative: r.Authoritative, active: r.Active,
 		recorded: s.now().UTC().Truncate(time.Microsecond),
 	}
 	for _, o := range obs {
@@ -56,7 +56,6 @@ type ingest struct {
 	source        string
 	authoritative func(model.Key) bool
 	active        []model.Kind // empty: every kind is active
-	declared      map[string]model.Predicate
 	recorded      time.Time
 	res           graph.IngestResult
 	// dirty are records whose cluster may have changed; recomputed before commit.
@@ -453,9 +452,6 @@ func (g *ingest) target(ctx context.Context, key string) (string, error) {
 // the complete set.
 func (g *ingest) attribute(ctx context.Context, pred string, v *structpb.Value, from, to *time.Time, conf float64, absent bool) error {
 	p, found := g.s.reg.Predicate(pred)
-	if !found {
-		p, found = g.declared[pred]
-	}
 	many := found && p.Cardinality == modelv1alpha1.Cardinality_CARDINALITY_MANY
 	if _, isNull := v.GetKind().(*structpb.Value_NullValue); isNull {
 		return g.closeWhere(ctx, `subject_id = ? AND predicate = ? AND source = ? AND object_id IS NULL`, g.entity, pred, g.source)

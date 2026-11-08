@@ -176,6 +176,12 @@ credentials; the server never sends it any.
 - **C-INGEST-12** The apply workers read each partition in order. An event that
   keeps failing is retried with a growing pause and then recorded as a dead
   letter, so one bad event does not stop the others.
+- **C-INGEST-13** Observations of a kind a source does not keep (inactive,
+  retired, or from a source no longer configured) are dropped before
+  validation and never stored, whatever is on the log. A configured source's
+  drops of inactive kinds are counted per source and kind, with unknown kinds
+  counted as `other`; a page from an idle or unconfigured source is dropped
+  whole, uncounted.
 
 **Secrets**
 

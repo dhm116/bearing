@@ -1,6 +1,6 @@
 # 7. Records, identity links and matchers
 
-Date: 2026-10-21 · Status: accepted
+Date: 2026-10-21 · Status: accepted, superseded in part by ADR 10
 
 ## Context
 
@@ -37,7 +37,7 @@ GitHub `user_node` but not for a login) and how a field can be matched
   (`asserted` or `proposed`), a score from 0 to 1, the rule or matcher that
   made it, and its evidence (observation IDs, the features that matched).
 - **Clusters.** A logical thing is a cluster: records joined by asserted
-  `same_as` links, never across kinds, never across an asserted
+  `same_as` links, never across kinds (see ADR 10), never across an asserted
   `distinct_from`. Each record carries a `cluster_id`, recomputed for the
   records a changed link touches. Reads (`Entity`, `Facts`, `Walk`) answer
   per cluster. Closing a link splits the cluster; nothing is lost.

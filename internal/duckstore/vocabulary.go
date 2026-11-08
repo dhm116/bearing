@@ -34,7 +34,7 @@ func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now tim
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("duckstore: sync vocabulary: %w", err)
+		return nil, fmt.Errorf("duckstore: sync vocabulary: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	retired, err := syncKinds(ctx, tx, reg, now.UTC())
@@ -79,7 +79,7 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 		if model.Core().Valid(k) {
 			origin = "core"
 		} else if old, ok := stored[k]; ok && old.parent != string(reg.Parent(k)) {
-			return nil, fmt.Errorf("kind %s: %w: parent was %q, now %q", k, store.ErrVocabularyChanged, old.parent, reg.Parent(k))
+			return nil, fmt.Errorf("kind %s: %w: parent was %q, now %q: restore the parent, or define a new kind (configured kinds only grow)", k, store.ErrVocabularyChanged, model.Clip(old.parent), model.Clip(string(reg.Parent(k))))
 		}
 		// Re-adding clears retired_at; the parent is unchanged for a configured kind.
 		if _, err := tx.ExecContext(ctx, `INSERT INTO kind (name, parent, origin, added_at) VALUES (?, nullif(?, ''), ?, ?)
@@ -140,14 +140,14 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 		out := p
 		if old, ok := stored[p.Name]; ok && !isCore {
 			if old.relation != p.Relation || old.typ != typeName(p) || old.cardinality != p.Cardinality.String() || old.conflict != p.Conflict.String() {
-				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape", p.Name, store.ErrVocabularyChanged)
+				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape: restore the shape, or use a new name", p.Name, store.ErrVocabularyChanged)
 			}
 			var bad model.Kind
 			if out.Domain, bad = mergeKinds(reg, old.domain, p.Domain); bad != "" {
-				return nil, fmt.Errorf("predicate %s: %w: domain no longer covers %s: add it back to the domain of %s", p.Name, store.ErrVocabularyChanged, bad, p.Name)
+				return nil, fmt.Errorf("predicate %s: %w: domain no longer covers %s: add it back to the domain of %s", p.Name, store.ErrVocabularyChanged, model.Clip(string(bad)), p.Name)
 			}
 			if out.Range, bad = mergeKinds(reg, old.rng, p.Range); bad != "" {
-				return nil, fmt.Errorf("predicate %s: %w: range no longer covers %s: add it back to the range of %s", p.Name, store.ErrVocabularyChanged, bad, p.Name)
+				return nil, fmt.Errorf("predicate %s: %w: range no longer covers %s: add it back to the range of %s", p.Name, store.ErrVocabularyChanged, model.Clip(string(bad)), p.Name)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO kind_predicate (name, relation, type, cardinality, conflict, domain, range)
@@ -169,7 +169,7 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 			card, ok2 := modelv1alpha1.Cardinality_value[old.cardinality]
 			conf, ok3 := modelv1alpha1.ConflictPolicy_value[old.conflict]
 			if !ok1 && old.typ != "" || !ok2 || !ok3 {
-				return nil, fmt.Errorf("predicate %s: stored shape (%q, %q, %q) names an unknown enum value", name, old.typ, old.cardinality, old.conflict)
+				return nil, fmt.Errorf("predicate %s: stored shape (%q, %q, %q) names an unknown enum value", model.Clip(name), model.Clip(old.typ), model.Clip(old.cardinality), model.Clip(old.conflict))
 			}
 			merged[name] = model.Predicate{
 				Name: name, Relation: old.relation, Domain: old.domain, Range: old.rng,

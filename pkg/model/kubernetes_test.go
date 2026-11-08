@@ -72,7 +72,7 @@ func checkAgainstKubernetesDeclaration(t *testing.T, kinds map[string]*modelv1al
 	if k == nil {
 		t.Fatalf("kind %s is not declared", e.GetKind())
 	}
-	declared := map[string]Predicate{}
+	var extra []Predicate
 	field := func(predicate string, dir modelv1alpha1.Direction) bool {
 		return slices.ContainsFunc(k.GetFields(), func(f *modelv1alpha1.FieldDeclaration) bool {
 			return f.GetPredicate() == predicate && direction(f) == dir
@@ -80,10 +80,14 @@ func checkAgainstKubernetesDeclaration(t *testing.T, kinds map[string]*modelv1al
 	}
 	for _, f := range k.GetFields() {
 		if _, registered := Core().Predicate(f.GetPredicate()); !registered {
-			declared[f.GetPredicate()] = Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality()}
+			extra = append(extra, Predicate{Name: f.GetPredicate(), Type: f.GetType(), Cardinality: f.GetCardinality(), Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE})
 		}
 	}
-	if err := ValidateObservationWith(Core(), o, declared); err != nil {
+	reg, err := Core().Extend(nil, extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateObservation(reg, o); err != nil {
 		t.Fatalf("declared attribute types not respected: %v", err)
 	}
 

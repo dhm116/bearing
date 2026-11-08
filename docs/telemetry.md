@@ -65,6 +65,7 @@ Causes are connected by span links, not parents:
 | --- | --- | --- | --- |
 | `bearing <command>` | internal | CLI, one per invocation (none for `bearing server` and `bearing mcp`, which run for the life of the process) | |
 | `server.start` | internal | `bearing server`, around loading the settings and assembling the server; ends before the server serves | |
+| `boot.sync_vocabulary` | internal | `bearing server`, in `server.start`: writes the booted vocabulary to the store's kind table; an error means the vocabulary was refused or the write failed | |
 | `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
 | `bearing.adapter.start` | internal | core, per local adapter start: the readiness probes, which are not error spans of their own until the adapter never answers | `bearing.adapter.name`, `bearing.adapter.start.attempts` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
