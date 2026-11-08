@@ -30,7 +30,7 @@ func writeDOT(w io.Writer, v *view) error {
 			if first[e.ID] == "" {
 				first[e.ID] = r.ID
 			}
-			fmt.Fprintf(&b, "    %s [label=%s, tooltip=%s];\n", dotQuote(r.ID), dotQuote(r.Name+"\n"+firstKey(r)), dotQuote(strings.Join(r.Keys, "\n")+"\nsources: "+strings.Join(r.Sources, ", ")))
+			fmt.Fprintf(&b, "    %s [label=%s, tooltip=%s];\n", dotQuote(r.ID), dotQuote(r.Name+"\n"+r.Label), dotQuote(strings.Join(r.Keys, "\n")+"\nsources: "+strings.Join(r.Sources, ", ")))
 		}
 		b.WriteString("  }\n")
 	}
@@ -75,13 +75,6 @@ func dotQuote(s string) string {
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	return `"` + s + `"`
-}
-
-func firstKey(r vRecord) string {
-	if len(r.Keys) == 0 {
-		return ""
-	}
-	return r.Keys[0]
 }
 
 func entityTip(e vEntity) string {
@@ -199,7 +192,7 @@ func svgDrawing(v *view) string {
 	fmt.Fprintf(&b, `<text class="eyebrow" x="%.0f" y="%.0f">%d ENTITIES · %d FACTS · %d IDENTITY LINKS</text>`, pad, pad+38, len(v.Entities), len(v.Facts), len(v.Links))
 	for i, k := range l.columns {
 		if k == "" {
-			k = "named, never observed"
+			k = "named by a fact, reported by no source"
 		}
 		fmt.Fprintf(&b, `<text class="eyebrow" x="%.1f" y="%.1f">%s</text>`, pad+float64(i)*(colW+colGap), pad+titleH+10, e(strings.ToUpper(k)))
 	}
@@ -266,7 +259,7 @@ func svgDrawing(v *view) string {
 		for _, r := range en.Records {
 			rw := l.rows[r.ID]
 			fmt.Fprintf(&b, `<g class="record" data-record="%s"><line class="rule" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>`, e(r.ID), rw.x+12, rw.y, rw.x+rw.w-12, rw.y)
-			fmt.Fprintf(&b, `<text class="key" x="%.1f" y="%.1f">%s</text>`, rw.x+12, rw.y+19, e(clip(firstKey(r), 34)))
+			fmt.Fprintf(&b, `<text class="key" x="%.1f" y="%.1f">%s</text>`, rw.x+12, rw.y+19, e(clip(r.Label, 34)))
 			b.WriteString(`<title>` + e(strings.Join(r.Keys, "\n")+"\nsources: "+strings.Join(r.Sources, ", ")) + `</title></g>`)
 		}
 		b.WriteString(`</g>`)

@@ -26,6 +26,18 @@ a{color:var(--accent)}
 .tag{display:inline-block;font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;padding:0 6px;border:1px solid var(--rule-solid);border-radius:3px;color:var(--muted)}
 .tag.proposed{border-style:dashed}
 .tag.bad{color:var(--bad);border-color:var(--bad)}
+.claim{border:1px solid var(--rule-solid);border-left-width:3px;border-radius:4px;padding:8px 10px;margin:8px 0;background:var(--paper)}
+.claim.asserted{border-left-color:var(--accent)}
+.claim.proposed{border-style:dashed;border-left-style:dashed;border-left-color:var(--link)}
+.claim.distinct{border-left-color:var(--bad)}
+.verdict{font:500 11px "IBM Plex Mono",ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);margin-bottom:4px}
+.claim.proposed .verdict{color:var(--link)}
+.claim.distinct .verdict{color:var(--bad)}
+.side{margin:2px 0}
+details{margin-top:4px}
+summary{cursor:pointer;color:var(--muted);font-size:12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.legend svg{vertical-align:middle}
 @media (max-width:760px){body{grid-template-columns:1fr;grid-template-rows:1fr 40vh}aside{border-left:0;border-top:1px solid var(--rule-solid)}}
 </style>
 </head>
@@ -39,13 +51,21 @@ a{color:var(--accent)}
 </div>
 {{.SVG}}
 </main>
-<aside id="panel" aria-live="polite"><h2>Bearing graph</h2><p class="muted">Click an entity, a fact or an identity link to see its evidence. Hover an entity to light up its neighbours.</p></aside>
+<aside id="panel" aria-live="polite"><h2>Bearing graph</h2><p class="muted">Click an entity, a fact or an identity link to see its evidence. Hover an entity to light up its neighbours.</p>
+<h3>Legend</h3>
+<div class="legend">
+<span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--muted)" stroke-width="1.4"/></svg> fact: a source said so</span>
+<span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="5 4"/></svg> proposed fact: inferred, not used in answers</span>
+<span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--link)" stroke-width="1.4"/></svg> same thing (asserted)</span>
+<span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--link)" stroke-width="1.4" stroke-dasharray="3 3"/></svg> maybe the same: awaiting review</span>
+<span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="1 3"/></svg> not the same</span>
+</div></aside>
 <script id="data" type="application/json">{{.Data}}</script>
 <script>
 (() => {
   const data = JSON.parse(document.getElementById('data').textContent);
   const ent = new Map(data.entities.map(e => [e.id, e]));
-  const rec = new Map(); data.entities.forEach(e => e.records.forEach(r => rec.set(r.id, e)));
+  const rec = new Map(); data.entities.forEach(e => e.records.forEach(r => rec.set(r.id, { r, e })));
   const fact = new Map(data.facts.map(f => [f.id, f]));
   const link = new Map(data.links.map(l => [l.id, l]));
   const svg = document.querySelector('main svg');
@@ -54,33 +74,67 @@ a{color:var(--accent)}
   const cards = [...svg.querySelectorAll('.card')];
 
   const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
-  const nameOf = id => { const e = ent.get(id); return e ? e.name + ' (' + e.kind + ')' : id; };
+  const kindText = k => k || 'reported by no source';
+  const nameOf = id => { const e = ent.get(id); return e ? e.name + ' (' + kindText(e.kind) + ')' : '?'; };
+  const day = t => (t || '').slice(0, 16).replace('T', ' ');
   const safeURL = u => /^https?:\/\//i.test(u || '') ? u : null;
+  // What made an identity link, in words.
+  function ruleText(rule) {
+    if (rule === 'shared_key') return 'both records carry the same key';
+    if (rule === 'linked_ids') return 'a source listed both IDs for one thing';
+    if (rule === 'person') return 'a person decided';
+    if (rule.startsWith('rule/')) return 'the settings rule ' + rule.slice(5);
+    if (rule.startsWith('matcher/')) return 'the matcher ' + rule.slice(8) + ' found them alike';
+    return rule;
+  }
   function sources(f) {
     const ul = el('ul');
-    f.sources.forEach(s => {
-      const li = el('li'); const u = safeURL(s.url);
-      if (u) { const a = el('a', s.source); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; li.append(a); } else li.append(s.source);
-      li.append(' ', el('span', s.observed_at, 'muted mono')); ul.append(li);
+    // The store keeps each source's first and latest observation; show one line per source.
+    const bySource = new Map();
+    f.sources.forEach(s => { const x = bySource.get(s.source); if (x) x.push(s); else bySource.set(s.source, [s]); });
+    bySource.forEach((ss, name) => {
+      const li = el('li'); const u = safeURL(ss[ss.length - 1].url);
+      if (u) { const a = el('a', name); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; li.append(a); } else li.append(name);
+      const first = day(ss[0].observed_at), last = day(ss[ss.length - 1].observed_at);
+      li.append(' ', el('span', first === last ? first : first + ' to ' + last, 'muted mono')); ul.append(li);
     });
     if (f.source_count > f.sources.length) ul.append(el('li', f.source_count + ' observations in all', 'muted'));
     return ul;
   }
   function factBlock(f, from) {
-    const d = el('div');
-    const head = el('div'); head.append(el('span', f.status, 'tag' + (f.status === 'asserted' ? '' : ' proposed')), ' ');
-    head.append(el('strong', f.predicate), ' ' + (from ? '→ ' + nameOf(f.object) : '← ' + nameOf(f.subject)));
+    const proposed = f.status !== 'asserted';
+    const d = el('div', null, 'claim ' + (proposed ? 'proposed' : 'asserted'));
+    d.append(el('div', proposed ? 'Proposed fact · inferred, not used in answers' : 'Fact · a source said so', 'verdict'));
+    const head = el('div'); head.append(el('strong', f.predicate), ' ' + (from ? '→ ' + nameOf(f.object) : '← ' + nameOf(f.subject)));
     d.append(head);
     if (f.qualifiers) d.append(el('div', Object.entries(f.qualifiers).map(([k, v]) => k + ': ' + v).join(' · '), 'mono muted'));
-    d.append(el('div', 'since ' + f.valid_from, 'mono muted'), sources(f));
+    d.append(el('div', 'holds since ' + day(f.valid_from) + ', said by:', 'muted'), sources(f));
+    return d;
+  }
+  // A record as people tell it apart: the source that reported it and its key.
+  function recordLine(id, skipEntity) {
+    const x = rec.get(id); if (!x) return el('div', '?');
+    const d = el('div', null, 'side');
+    if (!skipEntity) d.append(el('strong', x.e.name), ' ');
+    d.append(el('span', (x.r.sources || ['no source']).join(', '), 'muted'), ' · ', el('span', x.r.label, 'mono'));
     return d;
   }
   function show(nodes) { panel.replaceChildren(...nodes); }
   function showEntity(id) {
     const e = ent.get(id); if (!e) return;
-    const out = [el('h2', e.name), el('div', e.kind + ' · ' + e.id, 'mono muted'), el('h3', 'Records')];
+    const out = [el('h2', e.name), el('div', kindText(e.kind), 'muted')];
+    if (!e.kind) out.push(el('p', 'A fact names this record, but no configured source has reported it. The fact is asserted because its own source said it; the record it points at was never found.', 'muted'));
+    out.push(el('h3', e.records.length > 1 ? e.records.length + ' records, one per source' : 'Record'));
     const ul = el('ul');
-    e.records.forEach(r => { const li = el('li'); li.append(el('div', r.keys.join(', '), 'mono'), el('div', 'from ' + (r.sources || []).join(', '), 'muted')); ul.append(li); });
+    e.records.forEach(r => {
+      const li = el('li');
+      li.append(el('div', (r.sources || ['no source']).join(', ')), el('div', r.keys.join(', ') || r.label, 'mono muted'));
+      if (r.stable_ids) {
+        const det = el('details'); det.append(el('summary', r.stable_ids.length + ' stable ID' + (r.stable_ids.length > 1 ? 's' : '') + ': how Bearing follows renames'));
+        const sl = el('ul'); r.stable_ids.forEach(k => sl.append(el('li', k, 'mono muted'))); det.append(sl); li.append(det);
+      }
+      ul.append(li);
+    });
     out.push(ul);
     if (e.attributes) { out.push(el('h3', 'Attributes')); e.attributes.forEach(a => { const d = el('div'); d.append(el('strong', a.predicate), ' = ', el('span', JSON.stringify(a.value), 'mono')); d.append(sources(a)); out.push(d); }); }
     const outF = data.facts.filter(f => f.subject === id), inF = data.facts.filter(f => f.object === id);
@@ -88,23 +142,28 @@ a{color:var(--accent)}
     if (inF.length) { out.push(el('h3', 'Facts to it')); inF.forEach(f => out.push(factBlock(f, false))); }
     const ids = new Set(e.records.map(r => r.id));
     const ls = data.links.filter(l => ids.has(l.a) || ids.has(l.b));
-    if (ls.length) { out.push(el('h3', 'Identity links')); ls.forEach(l => out.push(linkBlock(l))); }
+    if (ls.length) { out.push(el('h3', 'Identity links')); ls.forEach(l => out.push(linkBlock(l, id))); }
     show(out);
   }
-  function linkBlock(l) {
-    const d = el('div');
-    const head = el('div');
-    head.append(el('span', l.status, 'tag' + (l.status === 'asserted' ? '' : ' proposed')), ' ', el('span', l.kind, 'tag' + (l.kind === 'distinct_from' ? ' bad' : '')), ' by ', el('span', l.rule, 'mono'));
-    d.append(head, el('div', nameOf(rec.get(l.a)?.id) + ' ↔ ' + nameOf(rec.get(l.b)?.id)), el('div', l.a + ' ↔ ' + l.b, 'mono muted'));
-    const ul = el('ul');
-    l.deposits.forEach(x => {
-      let t = x.at + ' ' + (x.against ? 'against ' : '') + 'weight ' + x.weight;
-      if (x.actor) t += ' by ' + x.actor;
-      const li = el('li', t, 'mono'); if (x.reason) li.append(el('div', x.reason, 'muted'));
-      if (x.features) li.append(el('div', Object.entries(x.features).map(([k, v]) => k + ' ' + v.toFixed(2)).join(' · '), 'muted'));
-      ul.append(li);
-    });
-    d.append(ul);
+  function linkBlock(l, viewing) {
+    const distinct = l.kind === 'distinct_from', proposed = l.status !== 'asserted';
+    const d = el('div', null, 'claim ' + (distinct ? 'distinct' : proposed ? 'proposed' : 'asserted'));
+    d.append(el('div', distinct ? 'Not the same thing' : proposed ? 'Maybe the same thing · proposal awaiting review' : 'Same thing · joined', 'verdict'));
+    const ea = rec.get(l.a)?.e.id, eb = rec.get(l.b)?.e.id;
+    d.append(recordLine(l.a, ea === viewing), recordLine(l.b, eb === viewing));
+    d.append(el('div', 'because ' + ruleText(l.rule) + ', since ' + day(l.valid_from), 'muted'));
+    if (l.deposits.length) {
+      const det = el('details'); det.append(el('summary', l.deposits.length + ' piece' + (l.deposits.length > 1 ? 's' : '') + ' of evidence'));
+      const ul = el('ul');
+      l.deposits.forEach(x => {
+        let t = day(x.at) + ' ' + (x.against ? 'against' : 'for') + ', weight ' + x.weight;
+        if (x.actor) t += ', by ' + x.actor;
+        const li = el('li', t, 'mono'); if (x.reason) li.append(el('div', x.reason, 'muted'));
+        if (x.features) li.append(el('div', Object.entries(x.features).map(([k, v]) => k + ' ' + v.toFixed(2)).join(' · '), 'muted'));
+        ul.append(li);
+      });
+      det.append(ul); d.append(det);
+    }
     return d;
   }
 

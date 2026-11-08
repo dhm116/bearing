@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"bearing.example/pkg/graph"
@@ -78,10 +79,15 @@ type vEntity struct {
 }
 
 type vRecord struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Keys    []string `json:"keys"`
-	Sources []string `json:"sources,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Label is the key people read: the first readable key, else a stable ID.
+	Label string `json:"label"`
+	// Keys are the readable keys; StableIDs the opaque ones (GitHub node IDs,
+	// UUIDs) that let a record survive a rename.
+	Keys      []string `json:"keys"`
+	StableIDs []string `json:"stable_ids,omitempty"`
+	Sources   []string `json:"sources,omitempty"`
 }
 
 type vFact struct {
@@ -154,7 +160,7 @@ func buildView(ctx context.Context, g graph.Graph) (*view, error) {
 		if e.Kind == "" && r.Kind != "" {
 			e.Kind, e.Name = string(r.Kind), r.Name
 		}
-		e.Records = append(e.Records, vRecord{ID: string(r.ID), Name: r.Name, Keys: keyStrings(r.Keys), Sources: r.Sources})
+		e.Records = append(e.Records, newRecord(r))
 	}
 	for _, f := range facts {
 		if f.Predicate == model.PredicateExists {
@@ -196,12 +202,36 @@ func buildView(ctx context.Context, g graph.Graph) (*view, error) {
 	return v, nil
 }
 
-func keyStrings(keys []model.Key) []string {
-	out := make([]string, len(keys))
-	for i, k := range keys {
-		out[i] = string(k)
+func newRecord(r graph.Record) vRecord {
+	v := vRecord{ID: string(r.ID), Name: r.Name, Keys: []string{}, Sources: r.Sources}
+	for _, k := range r.Keys {
+		if opaqueKey(string(k)) {
+			v.StableIDs = append(v.StableIDs, string(k))
+		} else {
+			v.Keys = append(v.Keys, string(k))
+		}
 	}
-	return out
+	switch {
+	case len(v.Keys) > 0:
+		v.Label = v.Keys[0]
+	case len(v.StableIDs) > 0: // only an opaque ID: its namespace and the name
+		ns, _, _ := strings.Cut(v.StableIDs[0], ":")
+		v.Label = ns + ": " + r.Name
+	}
+	return v
+}
+
+// opaqueKey reports whether a key is an ID no person reads: a GitHub node ID
+// (github:user_node/U_kgDO…) or one ending in a UUID.
+// shortcut: knows only the shapes the bundled adapters emit; a configured
+// kind's opaque keys show as readable until adapters mark them.
+func opaqueKey(k string) bool {
+	typ, rest, _ := strings.Cut(k, "/")
+	if strings.HasSuffix(typ, "_node") {
+		return true
+	}
+	last := rest[strings.LastIndex(rest, "/")+1:]
+	return len(last) == 36 && strings.Count(last, "-") == 4
 }
 
 // kindOrder is the left-to-right order of the core kinds: who, then what they
