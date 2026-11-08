@@ -35,7 +35,8 @@ type Evidence struct {
 	Claims []Claim
 	// Relations are ordered by A, then B.
 	Relations []Relation
-	// Records are the records on the claims' paths, by ID.
+	// Records are the records on the claims' paths, plus every record of the
+	// end clusters when there are several, so Relations' links resolve; by ID.
 	Records []Record
 }
 
