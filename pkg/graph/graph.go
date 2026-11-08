@@ -313,7 +313,9 @@ type Link struct {
 	OpenEffect, CloseEffect LinkEffect
 }
 
-// LinkEffect is what an asserted link's opening or closing did to clusters.
+// LinkEffect is what an asserted link's opening or closing did to clusters
+// when it was written. It is history, not current state: today's clusters say
+// whether a link applies now.
 type LinkEffect string
 
 // The effects of opening or closing an asserted link.
@@ -342,7 +344,8 @@ type Deposit struct {
 
 // LinkFilter selects links. Empty fields match anything.
 type LinkFilter struct {
-	// ID matches one link; with WithClosed unset it matches only while open.
+	// ID matches one link; with WithClosed unset it matches only while open,
+	// so a promoted proposal (closed by its promotion) needs WithClosed.
 	ID string
 	// Entity matches links touching any record of this entity or record.
 	Entity     EntityID

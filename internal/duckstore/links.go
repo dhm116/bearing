@@ -238,6 +238,7 @@ func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, w *writes, p graph.P
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM identity_link
 		WHERE a = ? AND b = ? AND kind = ? AND valid_to IS NULL`, a, b, string(p.Kind)).Scan(&id, &status)
 	var promoted string
+	openAt := p.Deposit.At
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		opened = true
@@ -245,7 +246,11 @@ func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, w *writes, p graph.P
 		return false, false, err
 	case p.Status == graph.Asserted && status != string(graph.Asserted):
 		promoted = id
-		if _, err := s.closeLinks(ctx, tx, w, p.Deposit.At, `id = ?`, promoted); err != nil {
+		if _, err := closeLinkID(ctx, tx, w, p.Deposit.At, promoted); err != nil {
+			return false, false, fmt.Errorf("promote: %w", err)
+		}
+		// The asserted row opens when the proposal closed, which is never before it opened.
+		if err := tx.QueryRowContext(ctx, `SELECT valid_to FROM identity_link WHERE id = ?`, promoted).Scan(&openAt); err != nil {
 			return false, false, fmt.Errorf("promote: %w", err)
 		}
 	}
@@ -258,7 +263,7 @@ func (s *Store) upsertLink(ctx context.Context, tx *sql.Tx, w *writes, p graph.P
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO identity_link (id, a, b, kind, status, rule, valid_from, promoted_from, open_decision)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, a, b, string(p.Kind), string(p.Status), p.Rule, p.Deposit.At, nullIfEmpty(promoted), nullIfEmpty(w.decision)); err != nil {
+			id, a, b, string(p.Kind), string(p.Status), p.Rule, openAt, nullIfEmpty(promoted), nullIfEmpty(w.decision)); err != nil {
 			return false, false, fmt.Errorf("open: %w", err)
 		}
 	}
@@ -295,7 +300,7 @@ func (s *Store) CloseLink(ctx context.Context, id string, at time.Time) error {
 		return fmt.Errorf("link %s: %w", id, err)
 	}
 	w := &writes{}
-	if _, err := s.closeLinks(ctx, tx, w, at.UTC().Truncate(time.Microsecond), `id = ?`, id); err != nil {
+	if _, err := closeLinkID(ctx, tx, w, at.UTC().Truncate(time.Microsecond), id); err != nil {
 		return fmt.Errorf("link %s: %w", id, err)
 	}
 	if _, err := recluster(ctx, tx, s.reg, []string{a, b}); err != nil {

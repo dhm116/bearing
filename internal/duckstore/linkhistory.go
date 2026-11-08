@@ -52,7 +52,6 @@ func (w *writes) settle(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("link %s: effect: %w", c.id, err)
 		}
 	}
-	w.changes = nil
 	return nil
 }
 
@@ -71,17 +70,29 @@ func effectOf(kind graph.LinkKind, closing, before, after bool) graph.LinkEffect
 	return graph.EffectNone
 }
 
-// closeLinks closes the open rows matching cond at a time (never before they
-// opened), noting asserted ones for settle. It returns how many it closed.
-func (s *Store) closeLinks(ctx context.Context, tx *sql.Tx, w *writes, at time.Time, cond string, args ...any) (int, error) {
-	//nolint:gosec // cond is built from constants; values are bound
-	rows, err := tx.QueryContext(ctx, `SELECT id, a, b, kind, status FROM identity_link WHERE valid_to IS NULL AND `+cond, args...)
+type openRow struct{ id, a, b, kind, status string }
+
+const openRows = `SELECT id, a, b, kind, status FROM identity_link WHERE valid_to IS NULL AND `
+
+// closeLinkID closes the open row with an ID; closeLinkPair closes the open
+// rows of a kind between a and b (a < b). Both close at a time, never before
+// the row opened, and note asserted rows for settle. They return how many
+// rows closed.
+func closeLinkID(ctx context.Context, tx *sql.Tx, w *writes, at time.Time, id string) (int, error) {
+	return closeOpenRows(ctx, tx, w, at, openRows+`id = ?`, id)
+}
+
+func closeLinkPair(ctx context.Context, tx *sql.Tx, w *writes, at time.Time, a, b string, kind graph.LinkKind) (int, error) {
+	return closeOpenRows(ctx, tx, w, at, openRows+`a = ? AND b = ? AND kind = ?`, a, b, string(kind))
+}
+
+func closeOpenRows(ctx context.Context, tx *sql.Tx, w *writes, at time.Time, query string, args ...any) (int, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return 0, fmt.Errorf("close links: %w", err)
 	}
-	type row struct{ id, a, b, kind, status string }
-	open, err := collect(rows, func(sc scanner) (row, error) {
-		var r row
+	open, err := collect(rows, func(sc scanner) (openRow, error) {
+		var r openRow
 		return r, sc.Scan(&r.id, &r.a, &r.b, &r.kind, &r.status)
 	})
 	if err != nil {

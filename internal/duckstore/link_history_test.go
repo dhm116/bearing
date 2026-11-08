@@ -1,6 +1,7 @@
 package duckstore
 
 import (
+	"errors"
 	"testing"
 
 	"bearing.example/pkg/graph"
@@ -195,8 +196,11 @@ func TestLinkPromotionClosesTheProposalAndOpensAnAssertedLink(t *testing.T) {
 		t.Errorf("got %+v, want a no-op accept", r)
 	}
 	_, err := s.Decide(t.Context(), graph.Decision{ID: "ev-3", Actor: "local:501", Kind: graph.Reject, LinkID: old.ID})
-	if err == nil {
-		t.Error("got nil, want a reject of the promoted (now asserted) link refused")
+	if !errors.Is(err, graph.ErrInvalidDecision) {
+		t.Errorf("got %v, want a reject of the promoted (now asserted) link refused as invalid", err)
+	}
+	if open := links(t, s, graph.LinkFilter{Status: graph.Asserted}); len(open) != 1 || open[0].PromotedFrom != old.ID {
+		t.Errorf("got %+v, want the asserted link still open", open)
 	}
 }
 

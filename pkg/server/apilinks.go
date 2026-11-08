@@ -178,6 +178,18 @@ func (a *API) checkDecision(r *http.Request, d *LinkDecision) (int, string) {
 		if l.Kind != want {
 			return http.StatusBadRequest, string(d.Kind) + " does not apply to a " + string(l.Kind) + " link"
 		}
+		if !l.ValidTo.IsZero() && d.Kind == graph.Reject {
+			// A promoted proposal's ID stands for the asserted link that replaced it.
+			open, err := g.Links(ctx, graph.LinkFilter{Entity: l.A, Kind: l.Kind, Status: graph.Asserted})
+			if err != nil {
+				return http.StatusServiceUnavailable, "the link could not be looked up; try again"
+			}
+			for _, o := range open {
+				if o.A == l.A && o.B == l.B {
+					l = o
+				}
+			}
+		}
 		if d.Kind == graph.Reject && l.ValidTo.IsZero() && l.Status == graph.Asserted {
 			return http.StatusBadRequest, "the link is asserted; split its records instead"
 		}

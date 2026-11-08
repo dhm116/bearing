@@ -81,7 +81,7 @@ func (s *Store) decide(ctx context.Context, tx *sql.Tx, w *writes, d graph.Decis
 		if b < a {
 			a, b = b, a
 		}
-		n, err := s.closeLinks(ctx, tx, w, at, `a = ? AND b = ? AND kind = ?`, a, b, string(kind))
+		n, err := closeLinkPair(ctx, tx, w, at, a, b, kind)
 		res.Closed += n
 		return err
 	}
