@@ -11,6 +11,7 @@ import (
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/adapter"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/store"
 )
 
 func cloneObs(o *eventv1alpha1.Observation) *eventv1alpha1.Observation {
@@ -19,17 +20,22 @@ func cloneObs(o *eventv1alpha1.Observation) *eventv1alpha1.Observation {
 }
 
 func TestSchedulerGivesASourceWithNoActiveKindsNoSync(t *testing.T) {
-	const idle = "idle-source"
+	const idle, unlisted = "idle-source", "unlisted-source"
 	h := newHarness(t, func(c *Config) {
 		c.Sources[0].Interval, c.Sources[0].SyncOnStart = time.Hour, true
-		c.Sources = append(c.Sources, Source{Name: idle, Adapter: &fakeAdapter{}, Interval: time.Hour, SyncOnStart: true})
-		c.Active = map[string][]model.Kind{idle: {}}
+		for _, n := range []string{idle, unlisted} {
+			c.Sources = append(c.Sources, Source{Name: n, Adapter: &fakeAdapter{}, Interval: time.Hour, SyncOnStart: true})
+		}
+		// With a non-nil map, a source it lacks keeps nothing, like an empty one.
+		c.Active = map[string][]model.Kind{idle: {}, testSource: {model.KindRepository}}
 	})
 	h.start()
 	// The other source's sync on start shows the scheduler has run.
 	waitFor(t, "the sync on start of the source that keeps kinds", func() bool { return len(h.entries(testSource)) >= 1 })
-	if n := len(h.entries(idle)); n != 0 {
-		t.Fatalf("got %d events for a source with no active kinds, want none", n)
+	for _, n := range []string{idle, unlisted} {
+		if got := len(h.entries(store.Partition(n))); got != 0 {
+			t.Fatalf("got %d events for %s, which keeps no kinds, want none", got, n)
+		}
 	}
 }
 

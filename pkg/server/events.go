@@ -62,7 +62,9 @@ func (s *Server) handleSync(ctx context.Context, e store.Entry) error {
 	// sync_started is the earliest observed_at of the sync, from the adapter's
 	// own clock, which is the one the store compares it with. Using the
 	// server's time would close every record when the adapter's clock runs
-	// behind. A sync that observed nothing claims no completeness.
+	// behind. It comes from the kept observations, not the dropped ones, so a
+	// sync of only inactive kinds claims no completeness. A sync that
+	// observed nothing claims no completeness.
 	var earliest time.Time
 	sum, err := adapter.SyncPages(ctx, s.cfg.Registry, src.Adapter, src.Name, src.Config, s.cfg.Active[src.Name], s.cfg.MaxPages, func(p adapter.Page) error {
 		if len(p.Observations) == 0 && !p.Done {
