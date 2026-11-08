@@ -29,7 +29,8 @@ var schema embed.FS
 
 // Config opens a store. Defaults are applied in Open.
 type Config struct {
-	// Path is the database file; empty means in memory, for tests and demos.
+	// Path is the database file; empty means in memory on one DuckDB thread,
+	// for tests and demos.
 	Path string
 	// Now is the clock for recorded_at and created_at; nil means time.Now.
 	Now func() time.Time
@@ -77,7 +78,13 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if c.NewID == nil {
 		c.NewID = model.NewUUIDv7Source(c.Now, rand.Reader).NewID
 	}
-	db, err := sql.Open("duckdb", c.Path)
+	dsn := c.Path
+	if dsn == "" {
+		// One worker thread: queries here are small, and parallel tests each
+		// opening a database with a thread per core starve each other.
+		dsn = "?threads=1"
+	}
+	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: open: %w", err)
 	}
