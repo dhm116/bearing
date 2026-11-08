@@ -394,3 +394,11 @@ Each entry:
 - **Example:** `vault.Group` was active and sent a membership; the operator then disables it. Its group is deleted at the source.
 - **Impact:** complete and snapshot closing exempt a fact unless an observation of an active kind backs it, and the check goes by the kind each observation was sent with. Facts only the old, now inactive kind backed stay open until the kind is enabled again.
 - **Proposed fix:** accept it (the kind is off, so Bearing does not watch it), or close such facts when a kind is disabled at boot.
+
+## A slow test package that doesn't exist at the merge base
+
+- **Found in:** [#320](https://github.com/dhm116/bearing/pull/320) review
+- **Area:** CI coverage shards (`Makefile`, `SLOW_PKGS`)
+- **Example:** a pull request renames `internal/duckstore` and updates `SLOW_PKGS`. covergate runs the `slow` shard's list from the head's Makefile in the merge base's tree, where the new directory doesn't exist, so `go test` fails there.
+- **Impact:** that pull request's `baseline (slow)` job fails, and so does the gate. Its `rest` list comes from `go list` in the base's tree and is unaffected. Only a pull request that renames or adds a slow package hits this, and the next pull request after it merges works.
+- **Proposed fix:** land the rename and the `SLOW_PKGS` change in separate pull requests, or build the `slow` list from `go list` filtered to directories that exist.
