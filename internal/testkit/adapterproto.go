@@ -47,11 +47,17 @@ func ServeAdapterProtocolVar(ctx context.Context, lis net.Listener, version *ato
 	var protocols http.Protocols
 	protocols.SetUnencryptedHTTP2(true)
 	srv := &http.Server{Handler: mux, Protocols: &protocols, ReadHeaderTimeout: time.Second}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-	}()
-	if err := srv.Serve(lis); !errors.Is(err, http.ErrServerClosed) {
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(lis) }()
+	select {
+	case err := <-served:
+		return err
+	case <-ctx.Done():
+	}
+	// Return only once Close has dropped open connections too: Serve returns
+	// as soon as the listener closes, before the connections are.
+	_ = srv.Close()
+	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
