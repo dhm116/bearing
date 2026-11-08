@@ -397,12 +397,16 @@ func mustValue(t *testing.T, v any) *structpb.Value {
 	return pv
 }
 
-// A source that declares an attribute the registry doesn't have gets the
-// same checks for it as for a registered one.
-func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
-	declared := map[string]Predicate{
-		"score": {Name: "test.score", Type: modelv1alpha1.ValueType_VALUE_TYPE_FLOAT, Cardinality: one},
-		"tags2": {Name: "test.tags2", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: many},
+// An attribute the vocabulary gains from an adapter declaration gets the
+// same checks as a core one.
+func TestValidateObservationAppliesExtendedAttributes(t *testing.T) {
+	t.Parallel()
+	reg, err := Core().Extend(nil, []Predicate{
+		{Name: "score", Type: modelv1alpha1.ValueType_VALUE_TYPE_FLOAT, Cardinality: one, Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE},
+		{Name: "tags2", Type: modelv1alpha1.ValueType_VALUE_TYPE_STRING, Cardinality: many, Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	build := func(claims []*modelv1alpha1.AttributeClaim, snapshots ...*modelv1alpha1.SnapshotScope) *eventv1alpha1.Observation {
 		return NewObservation("adapter/test", time.Unix(0, 0), &modelv1alpha1.ObservationData{
@@ -434,7 +438,8 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateObservationWith(Core(), tt.obs, declared)
+			t.Parallel()
+			err := ValidateObservation(reg, tt.obs)
 			if tt.want == 0 {
 				if err != nil {
 					t.Fatalf("got %v, want no error", err)
@@ -447,12 +452,9 @@ func TestValidateObservationWithAppliesDeclaredAttributes(t *testing.T) {
 			}
 		})
 	}
-	// Without the declaration the same observation is checked as before.
+	// Without the extension the same observation is checked as before.
 	o := build([]*modelv1alpha1.AttributeClaim{claim("score", structpb.NewStringValue("high"))})
 	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatalf("got %v, want an unregistered attribute left unchecked", err)
-	}
-	if err := ValidateObservationWith(Core(), o, nil); err != nil {
-		t.Fatalf("got %v, want nil declarations to behave as ValidateObservation", err)
 	}
 }

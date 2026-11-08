@@ -329,8 +329,9 @@ settings name. Add an entry to its `kinds`:
 ```
 
 A declared kind the server does not hold is refused at start unless it is
-`optional`. Without the `EntityKind` above, a required one stops the start
-with:
+`optional`. To see the refusal, drop `optional` from the entry and remove the
+`EntityKind` above: the kind is then required and not held, and the start
+stops with:
 
 ```
 boot: settings: adapters[0].declaration: ... kinds[3].kind: "k8s.Service" is not a registered kind: define it with an EntityKind in the settings, or mark it optional

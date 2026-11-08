@@ -48,6 +48,14 @@ Each entry:
 - **Impact:** an empty interval is stored as given.
 - **Proposed fix:** reject it in `pkg/model` validation.
 
+## Evidence keeps one prefix per fact, so a back-edge can be lost
+
+- **Found in:** PR #318 review (`internal/duckstore/evidence.go`)
+- **Area:** dependency evidence (`graph.Evidence`)
+- **Example:** `S->D`, `S->E`, `D->X`, `E->X`, `X->C`, `C->D` from S. `X->C` keeps one prefix (say through D), and `C->D` then returns to D's cluster, so the `C->D` claim is dropped although the path through E allows it.
+- **Impact:** a claim can be missing in graphs with several routes into a cycle; rare in practice.
+- **Proposed fix:** drop the per-path cluster rule and rely on each fact being claimed once for termination. Evidence then no longer matches Walk, which hides a fact that returns to a cluster on its path.
+
 ## Walk on dense graphs, and edges that close a cycle
 
 - **Found in:** step 2 reads (`internal/duckstore/read.go`)
@@ -362,6 +370,22 @@ Each entry:
 - **Example:** `bearing source sync` for a source whose adapter declares only optional kinds, none enabled.
 - **Impact:** the source is not registered with the server, so the answer says the source is unknown instead of that it has no active kinds. The start log names the cause once.
 - **Proposed fix:** keep such a source registered but paused, and answer "no active kinds" with the kind to enable.
+
+## The API join check reads the registry at one moment
+
+- **Found in:** [dhm116/bearing#308](https://github.com/dhm116/bearing/pull/308) review (`pkg/server/apilinks.go`)
+- **Area:** API, identity
+- **Example:** a person asks to join two records. The API checks that their kinds lie on one line of descent and accepts; before the worker applies the decision, a sync gives one record a kind off that line.
+- **Impact:** the store refuses the join when it applies it, and because applying is asynchronous the decision is dead-lettered, not answered to the person who made it. Rare: a record's kind seldom changes.
+- **Proposed fix:** accept it, or report a dead-lettered decision back through the link's status.
+
+## A removed adapter's attribute shape outlives it
+
+- **Found in:** [#316](https://github.com/dhm116/bearing/pull/316) review (`internal/duckstore/vocabulary.go`)
+- **Area:** vocabulary
+- **Example:** an adapter declared `tags` as strings and was removed from the settings. A new adapter declares `tags` as a bool.
+- **Impact:** the store keeps the old shape for reading old facts and adds it to the read registry, so the new adapter's `tags` observations are rejected and dead-lettered, and the refusal does not say why.
+- **Proposed fix:** name the stored shape in the refusal and say how to drop it (a command that forgets an attribute no fact uses).
 
 ## Facts backed only by a kind that is now inactive never close
 

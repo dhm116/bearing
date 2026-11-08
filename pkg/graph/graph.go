@@ -63,6 +63,11 @@ type Graph interface {
 	// depth it was reached. It enumerates paths and never revisits an entity
 	// on one path, so cycles end.
 	Walk(ctx context.Context, r WalkRequest) ([]Step, error)
+	// Evidence follows asserted facts from records and returns a claim per
+	// fact with its shortest record path, and how the clusters the claims
+	// end at relate (ADR 11). It finds reachable clusters level by level and
+	// builds one path per fact, never every path.
+	Evidence(ctx context.Context, r EvidenceRequest) (Evidence, error)
 	// Changes returns the facts opened or closed in [Since, Until), newest
 	// first.
 	Changes(ctx context.Context, r ChangesRequest) ([]Change, error)
@@ -256,9 +261,6 @@ type IngestRequest struct {
 	// it vouches for makes an asserted same_as link; any other, a proposed
 	// one. Nil vouches for none.
 	Authoritative func(linked model.Key) bool
-	// Declared is the source adapter's attributes beyond the registry
-	// (model.DeclaredAttributes); nil for none. Ingest needs their cardinality.
-	Declared map[string]model.Predicate
 	// Complete lists the kinds this sync listed in full, set on a sync's last
 	// page. Records of those kinds that the source observed before
 	// SyncStarted and not since are gone from it: their facts from this

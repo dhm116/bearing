@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -195,13 +196,16 @@ func writeDecl(t *testing.T, w *world, mod func(*modelv1alpha1.AdapterDeclaratio
 	}
 }
 
+// svcDecl adds k8s.Service to the world's declaration.
+func svcDecl(optional bool) func(*modelv1alpha1.AdapterDeclaration) {
+	return func(d *modelv1alpha1.AdapterDeclaration) {
+		d.Kinds = append(d.Kinds, &modelv1alpha1.KindDeclaration{Kind: "k8s.Service", Optional: optional})
+	}
+}
+
 func TestAssembleComputesActiveKindsPerSource(t *testing.T) {
 	t.Parallel()
-	svc := func(optional bool) func(*modelv1alpha1.AdapterDeclaration) {
-		return func(d *modelv1alpha1.AdapterDeclaration) {
-			d.Kinds = append(d.Kinds, &modelv1alpha1.KindDeclaration{Kind: "k8s.Service", Optional: optional})
-		}
-	}
+	svc := svcDecl
 	base := []model.Kind{"Repository", "Team", "Person"}
 	for _, tt := range []struct {
 		name    string
@@ -258,5 +262,45 @@ func TestCheckEmitsRefusesAKindTheDeclarationLacks(t *testing.T) {
 	}
 	if err := checkEmits("s", []model.Kind{"Team"}, d); err != nil {
 		t.Errorf("got %v, want nil", err)
+	}
+}
+
+// A vocabulary the stored one forbids stops the start with the store's
+// message; the same kinds on the next start do not.
+func TestAssembleRefusesAVocabularyThatChangesAStoredKind(t *testing.T) {
+	t.Parallel()
+	url := "duckdb://" + filepath.Join(t.TempDir(), "bearing.duckdb")
+	// The source's adapter declares k8s.Service, optional, in every boot.
+	boot := func(kinds ...string) (active []model.Kind, err error) {
+		w := newWorld(t, func(s *Settings) {
+			s.Store.URL = url
+			s.EntityKinds = kindsSettings(kinds...).EntityKinds
+		})
+		writeDecl(t, w, svcDecl(true))
+		r, err := Assemble(t.Context(), w.settings, Env{Getenv: w.getenv})
+		if err == nil {
+			active = r.ActiveKinds["github-acme"]
+			r.Close()
+		}
+		return active, err
+	}
+	active, err := boot(k8sService)
+	if err != nil || !slices.Contains(active, "k8s.Service") {
+		t.Fatalf("first boot: got %v, %v, want k8s.Service active", active, err)
+	}
+	if _, err := boot(k8sService); err != nil {
+		t.Fatalf("the same vocabulary again: got %v, want a start", err)
+	}
+	_, err = boot(strings.Replace(k8sService, `"extends": "Component"`, `"extends": "Repository"`, 1))
+	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "k8s.Service") {
+		t.Fatalf("got %v, want a refusal naming k8s.Service", err)
+	}
+	// Without the kind the start succeeds and the retired kind is not active.
+	active, err = boot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(active, "k8s.Service") {
+		t.Errorf("active kinds %v hold the retired k8s.Service", active)
 	}
 }

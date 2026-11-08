@@ -65,6 +65,7 @@ Causes are connected by span links, not parents:
 | --- | --- | --- | --- |
 | `bearing <command>` | internal | CLI, one per invocation (none for `bearing server` and `bearing mcp`, which run for the life of the process) | |
 | `server.start` | internal | `bearing server`, around loading the settings and assembling the server; ends before the server serves | |
+| `boot.sync_vocabulary` | internal | `bearing server`, in `server.start`: writes the booted vocabulary to the store's kind table; an error means the vocabulary was refused or the write failed | |
 | `bearing.adapter.describe` | internal | core, per `Describe` call | `bearing.adapter.name`, `bearing.adapter.protocol_version` |
 | `bearing.adapter.start` | internal | core, per local adapter start: the readiness probes, which are not error spans of their own until the adapter never answers | `bearing.adapter.name`, `bearing.adapter.start.attempts` |
 | `bearing.adapter.sync` | internal | core, one per full sync | `bearing.adapter.name`, `bearing.sync.pages`, `bearing.observations.count`, `bearing.observations.rejected`, `bearing.claims.rejected` |
@@ -83,7 +84,7 @@ Causes are connected by span links, not parents:
 | `github.webhook <event>` | internal | GitHub adapter | `bearing.github.webhook.event`, `bearing.result` |
 | `HTTP GET` | client | GitHub adapter, per API call (otelhttp) | `http.response.status_code`, `url.full` |
 | `HTTP GET`, `HTTP POST` | client | `bearing` command line, per request to a server (otelhttp, `pkg/apiclient`) | `http.response.status_code`, `url.full`. The question is in the URL's query; the bearer token never is |
-| `graph.<operation>` | client | any graph opened through `store.Open`: `graph.ingest`, `graph.entity`, `graph.find`, `graph.facts`, `graph.walk`, `graph.changes`, `graph.records`, `graph.records_by_id`, `graph.links`, `graph.link` (open or reinforce an identity link), `graph.close_link`, `graph.decide` (a person's decision on a link) | `db.operation.name`; `bearing.results.count` on `graph.ingest` (observations given) and the list reads |
+| `graph.<operation>` | client | any graph opened through `store.Open`: `graph.ingest`, `graph.entity`, `graph.find`, `graph.facts`, `graph.walk`, `graph.evidence`, `graph.changes`, `graph.records`, `graph.records_by_id`, `graph.links`, `graph.link` (open or reinforce an identity link), `graph.close_link`, `graph.decide` (a person's decision on a link) | `db.operation.name`; `bearing.results.count` on `graph.ingest` (observations given) and the list reads |
 | `eventlog.<operation>` | client | any event log opened through `store.Open`: `eventlog.append`, `eventlog.read`, `eventlog.commit`, `eventlog.committed`, `eventlog.partitions`, `eventlog.trim`, `eventlog.release` | `db.system.name`, `db.operation.name`; `bearing.eventlog.events` on append, `bearing.eventlog.partition` on read, `bearing.eventlog.group` on commit and committed, `bearing.eventlog.groups` on trim, `bearing.results.count` on read and release. Only when the caller's context has a span: a call outside any unit of work (the workers' idle polls, the dead-letter count) records its metric and starts no span, since it would be a one-span trace of its own |
 
 `db.system.name` on the event log is `duckdb`. A failed graph call is recorded on its span with `error.type`; `graph.ErrNotFound` is an answer, not a failure.
