@@ -1,6 +1,7 @@
 package duckstore
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -178,6 +179,7 @@ func TestEvidenceRelatesDistinctClustersWithTheirProposalsAfterIt(t *testing.T) 
 	s := teams(t)
 	addLink(t, s, "l-p", "t-design", "t-ui", "same_as", "proposed")
 	addLink(t, s, "l-a", "t-design", "t-ui", "distinct_from", "asserted")
+	addLink(t, s, "l-s", "t-design", "t-ui", "same_as", "asserted") // refused: the pair is distinct
 	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"svc-fe", "repo-spa"}, Predicates: []string{"owned_by"}})
 	if len(ev.Relations) != 1 || ev.Relations[0].Kind != graph.RelationDistinct {
 		t.Fatalf("got %+v, want one distinct relation", ev.Relations)
@@ -186,8 +188,17 @@ func TestEvidenceRelatesDistinctClustersWithTheirProposalsAfterIt(t *testing.T) 
 	for _, l := range ev.Relations[0].Links {
 		ids = append(ids, l.ID)
 	}
-	if want := []string{"l-a", "l-p"}; !slices.Equal(ids, want) {
-		t.Errorf("got links %v, want %v: the distinct_from, then the proposal", ids, want)
+	have := map[graph.EntityID]bool{}
+	for _, r := range ev.Records {
+		have[r.ID] = true
+	}
+	for _, l := range ev.Relations[0].Links {
+		if !have[l.A] || !have[l.B] {
+			t.Errorf("link %s names %s and %s, but Records has only %v", l.ID, l.A, l.B, have)
+		}
+	}
+	if want := []string{"l-a", "l-s", "l-p"}; !slices.Equal(ids, want) {
+		t.Errorf("got links %v, want %v: the distinct_from, the refused same_as, then the proposal", ids, want)
 	}
 }
 
@@ -303,5 +314,118 @@ func TestEvidenceIgnoresProposedFactsAndUnknownStarts(t *testing.T) {
 	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"s-db", "nope"}, Predicates: []string{"owned_by"}})
 	if len(ev.Claims) != 0 || len(ev.Relations) != 0 {
 		t.Errorf("got %+v, want nothing: s-db's only open owner is a proposal", ev)
+	}
+}
+
+func TestEvidenceHopsInAClusterReachedByAFact(t *testing.T) {
+	t.Parallel()
+	s := acme(t)
+	// s-ledger2 joins s-ledger's cluster; the fact into s-ledger came first, and s-ledger2 holds the next.
+	load(t, s, `
+INSERT INTO entity VALUES
+ ('s-ledger2', 'Service', 'ledger-2', TIMESTAMPTZ '2026-01-02 00:00:00+00', 's-ledger'),
+ ('s-cache', 'Service', 'cache', TIMESTAMPTZ '2026-01-01 00:00:00+00', 's-cache');
+INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source)
+ VALUES ('f20', 's-ledger2', 'depends_on', 's-cache', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'gh')`)
+	addLink(t, s, "l-ly", "s-ledger", "s-ledger2", "same_as", "asserted")
+	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"s-api"}, Predicates: []string{"depends_on"}, MaxDepth: 2})
+	wantShapes(t, ev, "f01 s-api>s-ledger 1f/0h", "f02 s-api>s-ledger>s-db 2f/0h", "f20 s-api>s-ledger>s-ledger2[l-ly]>s-cache 2f/1h")
+}
+
+func TestEvidenceHopNamesEveryLinkOfAChain(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		direct bool
+		want   string
+	}{
+		{"a chain of two", false, "f9 r-a>r-c[l-ab,l-bc]>t-design 1f/1h"},
+		{"a direct link beats the chain", true, "f9 r-a>r-c[l-ac]>t-design 1f/1h"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := teams(t)
+			load(t, s, `
+INSERT INTO entity VALUES
+ ('r-a', 'Repository', 'a', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'r-a'),
+ ('r-b', 'Repository', 'b', TIMESTAMPTZ '2026-01-02 00:00:00+00', 'r-a'),
+ ('r-c', 'Repository', 'c', TIMESTAMPTZ '2026-01-03 00:00:00+00', 'r-a');
+INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source)
+ VALUES ('f9', 'r-c', 'owned_by', 't-design', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'github')`)
+			addLink(t, s, "l-ab", "r-a", "r-b", "same_as", "asserted")
+			addLink(t, s, "l-bc", "r-b", "r-c", "same_as", "asserted")
+			if tc.direct {
+				addLink(t, s, "l-ac", "r-a", "r-c", "same_as", "asserted")
+			}
+			ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"r-a"}, Predicates: []string{"owned_by"}})
+			wantShapes(t, ev, tc.want)
+		})
+	}
+}
+
+func TestEvidenceClampsMaxDepthAndTreatsNegativeAsOne(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, Config{})
+	for i := range 13 {
+		load(t, s, `INSERT INTO entity VALUES (?, 'Component', 'c', TIMESTAMPTZ '2026-01-01 00:00:00+00', ?)`, fmt.Sprintf("c%02d", i), fmt.Sprintf("c%02d", i))
+		if i > 0 {
+			load(t, s, `INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source)
+				VALUES (?, ?, 'depends_on', ?, NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 's')`,
+				fmt.Sprintf("d%02d", i), fmt.Sprintf("c%02d", i-1), fmt.Sprintf("c%02d", i))
+		}
+	}
+	for depth, want := range map[int]int{99: 10, -3: 1, 0: 1, 3: 3} {
+		ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"c00"}, MaxDepth: depth})
+		if len(ev.Claims) != want {
+			t.Errorf("MaxDepth %d got %d claims, want %d", depth, len(ev.Claims), want)
+		}
+	}
+}
+
+func TestEvidenceReverseOverAnAttributeGivesNoClaim(t *testing.T) {
+	t.Parallel()
+	s := acme(t)
+	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"s-api"}, Predicates: []string{"language"}, Reverse: true})
+	if len(ev.Claims) != 0 {
+		t.Errorf("got %q, want no claim", shapes(ev))
+	}
+}
+
+func TestEvidenceKeepsAFactsQualifiersAndValidTo(t *testing.T) {
+	t.Parallel()
+	s := acme(t)
+	load(t, s, `UPDATE fact SET qualifiers = '{"port": 8080}' WHERE id = 'f06'`)
+	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"s-db"}, Predicates: []string{"owned_by"}, At: day(time.February, 1)})
+	if len(ev.Claims) != 1 {
+		t.Fatalf("got %q, want f06", shapes(ev))
+	}
+	f := ev.Claims[0].Fact
+	if f.Qualifiers["port"] != float64(8080) || !f.ValidTo.Equal(day(time.March, 1)) || !f.ValidFrom.Equal(day(time.January, 1)) {
+		t.Errorf("got qualifiers %v, valid %v to %v, want port 8080 and Jan 1 to Mar 1", f.Qualifiers, f.ValidFrom, f.ValidTo)
+	}
+}
+
+func TestEvidenceFailsOnACancelledContext(t *testing.T) {
+	t.Parallel()
+	s := teams(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := s.Evidence(ctx, graph.EvidenceRequest{From: []graph.EntityID{"svc-fe"}}); err == nil {
+		t.Fatal("got no error, want one from the cancelled context")
+	}
+}
+
+func TestEvidenceShowsEveryObservationSourceOfAFact(t *testing.T) {
+	t.Parallel()
+	s := teams(t)
+	load(t, s, `INSERT INTO observation VALUES ('o-bs', 'backstage', 'Repository', 'repo:spa', TIMESTAMPTZ '2026-01-02 00:00:00+00', TIMESTAMPTZ '2026-01-02 00:00:01+00', NULL, '{}')`)
+	load(t, s, `INSERT INTO fact_source VALUES ('f1', 'o-bs')`)
+	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"repo-spa"}, Predicates: []string{"owned_by"}})
+	var got []string
+	for _, src := range ev.Claims[0].Fact.Sources {
+		got = append(got, src.Source)
+	}
+	if want := []string{"github", "backstage"}; !slices.Equal(got, want) || ev.Claims[0].Fact.SourceCount != 2 {
+		t.Errorf("got sources %v (count %d), want %v", got, ev.Claims[0].Fact.SourceCount, want)
 	}
 }

@@ -48,6 +48,14 @@ Each entry:
 - **Impact:** an empty interval is stored as given.
 - **Proposed fix:** reject it in `pkg/model` validation.
 
+## Evidence keeps one prefix per fact, so a back-edge can be lost
+
+- **Found in:** PR #318 review (`internal/duckstore/evidence.go`)
+- **Area:** dependency evidence (`graph.Evidence`)
+- **Example:** `S->D`, `S->E`, `D->X`, `E->X`, `X->C`, `C->D` from S. `X->C` keeps one prefix (say through D), and `C->D` then returns to D's cluster, so the `C->D` claim is dropped although the path through E allows it.
+- **Impact:** a claim can be missing in graphs with several routes into a cycle; rare in practice.
+- **Proposed fix:** drop the per-path cluster rule and rely on each fact being claimed once for termination. Evidence then no longer matches Walk, which hides a fact that returns to a cluster on its path.
+
 ## Walk on dense graphs, and edges that close a cycle
 
 - **Found in:** step 2 reads (`internal/duckstore/read.go`)

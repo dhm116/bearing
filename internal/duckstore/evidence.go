@@ -21,6 +21,7 @@ type evState struct {
 	hops         int
 	clusters     []string // clusters on the path, so a path never returns to one (as Walk)
 	steps        []graph.PathStep
+	stepCl       []string // parallel to steps: a hop's cluster, empty for a fact
 	ids          []string // record IDs along the path, to break ties
 }
 
@@ -41,35 +42,26 @@ type evClaim struct {
 	endCl string
 }
 
-// evidence is what the first transaction of Evidence returns.
-type evidence struct {
-	out     graph.Evidence
-	endRecs map[string]string // record ID -> cluster, for every record of an end cluster
-}
-
 // Evidence implements graph.Graph. Facts are read a level at a time, only
 // those leaving the clusters the previous level reached, so no path is
 // enumerated (Walk's cluster walk, level by level). Each fact keeps its best
 // path: the best arrival among the previous level's claims whose end is in
-// the fact's cluster, by same_as hops then record IDs. Relations are read
-// after the claims, in a second transaction, through Links, so they carry
-// whatever a link carries.
+// the fact's cluster, by same_as hops then record IDs. Relations come from
+// one read of the open links among the end clusters' records, in the same
+// transaction.
 func (s *Store) Evidence(ctx context.Context, r graph.EvidenceRequest) (graph.Evidence, error) {
-	res, err := read(ctx, s, func(db querier) (evidence, error) { return s.claims(ctx, db, r) })
+	ev, err := read(ctx, s, func(db querier) (graph.Evidence, error) { return s.claims(ctx, db, r) })
 	if err != nil {
 		return graph.Evidence{}, fmt.Errorf("evidence: %w", err)
 	}
-	if res.out.Relations, err = s.relations(ctx, res.endRecs); err != nil {
-		return graph.Evidence{}, fmt.Errorf("evidence: %w", err)
-	}
-	return res.out, nil
+	return ev, nil
 }
 
-func (s *Store) claims(ctx context.Context, db querier, r graph.EvidenceRequest) (evidence, error) {
+func (s *Store) claims(ctx context.Context, db querier, r graph.EvidenceRequest) (graph.Evidence, error) {
 	depth := min(max(r.MaxDepth, 1), maxEvidenceDepth)
 	starts, err := evStarts(ctx, db, r.From)
 	if err != nil {
-		return evidence{}, err
+		return graph.Evidence{}, err
 	}
 	var claims []evClaim
 	byID := map[string]*graph.Fact{}
@@ -81,7 +73,7 @@ func (s *Store) claims(ctx context.Context, db querier, r graph.EvidenceRequest)
 		}
 		facts, err := s.evFacts(ctx, db, r, slices.Sorted(maps.Keys(at)))
 		if err != nil {
-			return evidence{}, err
+			return graph.Evidence{}, err
 		}
 		prev = nil
 		for _, ef := range facts {
@@ -128,7 +120,8 @@ func evStarts(ctx context.Context, db querier, from []graph.EntityID) ([]*evStat
 }
 
 // evFacts reads the asserted facts leaving the given clusters in the
-// direction of travel. An attribute leaves only forwards.
+// direction of travel. An attribute has no object cluster, so it never
+// matches in reverse.
 func (s *Store) evFacts(ctx context.Context, db querier, r graph.EvidenceRequest, clusters []string) ([]evFact, error) {
 	from, to := "se", "oe"
 	if r.Reverse {
@@ -137,9 +130,6 @@ func (s *Store) evFacts(ctx context.Context, db querier, r graph.EvidenceRequest
 	where, args := holdsAt(r.At, true)
 	where += ` AND ` + from + `.cluster_id IN (` + placeholders(len(clusters)) + `)`
 	args = append(args, anySlice(clusters)...)
-	if r.Reverse {
-		where += ` AND f.object_id IS NOT NULL`
-	}
 	if len(r.Predicates) > 0 {
 		where += ` AND f.predicate IN (` + placeholders(len(r.Predicates)) + `)`
 		args = append(args, anySlice(r.Predicates)...)
@@ -191,11 +181,13 @@ func bestArrival(states []*evState, ef evFact) *evState {
 	}
 	next := &evState{rec: ef.to, cluster: ef.toCl, hops: bestHops, ids: bestIDs}
 	next.clusters = append(slices.Clone(best.clusters), ef.toCl)
-	next.steps = slices.Clone(best.steps)
+	next.steps, next.stepCl = slices.Clone(best.steps), slices.Clone(best.stepCl)
 	if best.rec != ef.from {
 		next.steps = append(next.steps, graph.PathStep{From: graph.EntityID(best.rec), To: graph.EntityID(ef.from)})
+		next.stepCl = append(next.stepCl, best.cluster)
 	}
 	next.steps = append(next.steps, graph.PathStep{From: graph.EntityID(ef.from), To: graph.EntityID(ef.to), Fact: ef.f})
+	next.stepCl = append(next.stepCl, "")
 	return next
 }
 
@@ -218,20 +210,21 @@ func (s *Store) answers(r graph.EvidenceRequest, ef evFact) bool {
 }
 
 // assemble turns the chosen paths into claims: it attaches sources, names the
-// hops' links and loads the records on the paths and in the end clusters.
-func (s *Store) assemble(ctx context.Context, db querier, claims []evClaim, byID map[string]*graph.Fact) (evidence, error) {
+// hops' links, loads the records on the paths and in the end clusters, and
+// relates the end clusters.
+func (s *Store) assemble(ctx context.Context, db querier, claims []evClaim, byID map[string]*graph.Fact) (graph.Evidence, error) {
 	facts := make([]*graph.Fact, 0, len(byID))
 	for _, id := range slices.Sorted(maps.Keys(byID)) {
 		facts = append(facts, byID[id])
 	}
 	if err := attachSources(ctx, db, facts); err != nil {
-		return evidence{}, err
+		return graph.Evidence{}, err
 	}
 	hopLinks, err := hopChains(ctx, db, claims)
 	if err != nil {
-		return evidence{}, err
+		return graph.Evidence{}, err
 	}
-	res := evidence{endRecs: map[string]string{}}
+	var out graph.Evidence
 	seen := map[string]bool{}
 	var ids, endClusters []string
 	for _, c := range claims {
@@ -250,30 +243,38 @@ func (s *Store) assemble(ctx context.Context, db querier, claims []evClaim, byID
 			}
 		}
 		cl.Start = cl.Path[0].From
-		res.out.Claims = append(res.out.Claims, cl)
+		out.Claims = append(out.Claims, cl)
 		if c.endCl != "" && !slices.Contains(endClusters, c.endCl) {
 			endClusters = append(endClusters, c.endCl)
 		}
 	}
-	slices.SortFunc(res.out.Claims, func(a, b graph.Claim) int {
+	slices.SortFunc(out.Claims, func(a, b graph.Claim) int {
 		return cmp.Or(cmp.Compare(a.Facts, b.Facts), cmp.Compare(a.SameAs, b.SameAs), cmp.Compare(a.Fact.ID, b.Fact.ID))
 	})
+	byRec := map[graph.EntityID]graph.Record{}
 	if len(ids) > 0 {
-		if res.out.Records, err = records(ctx, db, `e.id IN (`+placeholders(len(ids))+`)`, anySlice(ids)...); err != nil {
-			return evidence{}, err
+		recs, err := records(ctx, db, `e.id IN (`+placeholders(len(ids))+`)`, anySlice(ids)...)
+		if err != nil {
+			return graph.Evidence{}, err
 		}
-		slices.SortFunc(res.out.Records, func(a, b graph.Record) int { return cmp.Compare(a.ID, b.ID) })
+		for _, rec := range recs {
+			byRec[rec.ID] = rec
+		}
 	}
 	if len(endClusters) > 1 { // a single cluster has nothing to relate to
 		recs, err := records(ctx, db, `e.cluster_id IN (`+placeholders(len(endClusters))+`)`, anySlice(endClusters)...)
 		if err != nil {
-			return evidence{}, err
+			return graph.Evidence{}, err
 		}
 		for _, rec := range recs {
-			res.endRecs[string(rec.ID)] = string(rec.Cluster)
+			byRec[rec.ID] = rec
+		}
+		if out.Relations, err = relations(ctx, db, recs); err != nil {
+			return graph.Evidence{}, err
 		}
 	}
-	return res, nil
+	out.Records = slices.SortedFunc(maps.Values(byRec), func(a, b graph.Record) int { return cmp.Compare(a.ID, b.ID) })
+	return out, nil
 }
 
 // hopChains returns, for each same_as hop on the claims' paths, the asserted
@@ -285,7 +286,7 @@ func hopChains(ctx context.Context, db querier, claims []evClaim) (map[[2]string
 	for _, c := range claims {
 		for i, step := range c.st.steps {
 			if step.Fact == nil {
-				hops[[2]string{string(step.From), string(step.To)}] = clusterOfStep(c.st, i)
+				hops[[2]string{string(step.From), string(step.To)}] = c.st.stepCl[i]
 			}
 		}
 	}
@@ -343,45 +344,28 @@ func hopChains(ctx context.Context, db querier, claims []evClaim) (map[[2]string
 	return out, nil
 }
 
-// clusterOfStep is the cluster of the hop at index i: the cluster the path
-// stood in before it.
-func clusterOfStep(st *evState, i int) string {
-	n := 0
-	for _, s := range st.steps[:i] {
-		if s.Fact != nil {
-			n++
-		}
-	}
-	return st.clusters[n]
-}
-
 // relations classifies each pair of distinct end clusters by the open links
-// between their records; endRecs maps record IDs to their clusters.
-func (s *Store) relations(ctx context.Context, endRecs map[string]string) ([]graph.Relation, error) {
-	if len(endRecs) == 0 {
-		return nil, nil
+// among their records (recs), read in one query.
+func relations(ctx context.Context, db querier, recs []graph.Record) ([]graph.Relation, error) {
+	clusterOf := make(map[graph.EntityID]graph.EntityID, len(recs))
+	ids := make([]string, len(recs))
+	for i, rec := range recs {
+		clusterOf[rec.ID], ids[i] = rec.Cluster, string(rec.ID)
 	}
-	clusters := slices.Compact(slices.Sorted(maps.Values(endRecs)))
-	byPair := map[[2]string][]graph.Link{}
-	seen := map[string]bool{}
-	for _, c := range clusters {
-		links, err := s.Links(ctx, graph.LinkFilter{Entity: graph.EntityID(c)})
-		if err != nil {
-			return nil, err
-		}
-		for _, l := range links {
-			a, aok := endRecs[string(l.A)]
-			b, bok := endRecs[string(l.B)]
-			if seen[l.ID] || !aok || !bok || a == b {
-				continue
-			}
-			seen[l.ID] = true
-			pair := [2]string{min(a, b), max(a, b)}
+	ls, err := loadLinks(ctx, db, graph.LinkFilter{}, ids)
+	if err != nil {
+		return nil, err
+	}
+	byPair := map[[2]graph.EntityID][]graph.Link{}
+	for _, l := range ls {
+		a, b := clusterOf[l.A], clusterOf[l.B]
+		if a != b {
+			pair := [2]graph.EntityID{min(a, b), max(a, b)}
 			byPair[pair] = append(byPair[pair], l)
 		}
 	}
 	var out []graph.Relation
-	for _, pair := range slices.SortedFunc(maps.Keys(byPair), func(x, y [2]string) int { return slices.Compare(x[:], y[:]) }) {
+	for _, pair := range slices.SortedFunc(maps.Keys(byPair), func(x, y [2]graph.EntityID) int { return slices.Compare(x[:], y[:]) }) {
 		var distinct, notJoined, proposed []graph.Link
 		for _, l := range byPair[pair] {
 			switch {
@@ -393,16 +377,14 @@ func (s *Store) relations(ctx context.Context, endRecs map[string]string) ([]gra
 				notJoined = append(notJoined, l)
 			}
 		}
-		rel := graph.Relation{A: graph.EntityID(pair[0]), B: graph.EntityID(pair[1])}
+		rel := graph.Relation{A: pair[0], B: pair[1], Links: slices.Concat(distinct, notJoined, proposed)}
 		switch {
 		case len(distinct) > 0:
-			rel.Kind, rel.Links = graph.RelationDistinct, slices.Concat(distinct, proposed)
+			rel.Kind = graph.RelationDistinct
 		case len(notJoined) > 0:
-			rel.Kind, rel.Links = graph.RelationAssertedNotJoined, slices.Concat(notJoined, proposed)
-		case len(proposed) > 0:
-			rel.Kind, rel.Links = graph.RelationProposed, proposed
+			rel.Kind = graph.RelationAssertedNotJoined
 		default:
-			continue
+			rel.Kind = graph.RelationProposed
 		}
 		out = append(out, rel)
 	}

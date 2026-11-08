@@ -52,6 +52,15 @@ func TestGraphTracesCallsAndIgnoresNotFound(t *testing.T) {
 	if len(ended) < 3 {
 		t.Fatalf("got %d spans, want 3", len(ended))
 	}
+	var counted bool
+	for _, kv := range ended[len(ended)-1].Attributes() {
+		if kv.Key == "bearing.results.count" {
+			counted = kv.Value.AsInt64() == 0 // an empty store has no claims
+		}
+	}
+	if !counted {
+		t.Errorf("graph.evidence span lacks bearing.results.count of 0: %v", ended[len(ended)-1].Attributes())
+	}
 	for i, want := range []string{"graph.entity", "graph.find", "graph.evidence"} {
 		sp := ended[len(ended)-3+i]
 		if sp.Name() != want {
