@@ -42,88 +42,97 @@ func (s *Store) RecordsByID(ctx context.Context, ids []graph.EntityID) ([]graph.
 
 // Links implements graph.Graph.
 func (s *Store) Links(ctx context.Context, f graph.LinkFilter) ([]graph.Link, error) {
-	return read(ctx, s, func(db querier) ([]graph.Link, error) {
-		where, args := `TRUE`, []any(nil)
-		if f.ID != "" {
-			where += ` AND l.id = ?`
-			args = append(args, f.ID)
+	return read(ctx, s, func(db querier) ([]graph.Link, error) { return loadLinks(ctx, db, f, nil) })
+}
+
+// loadLinks loads the links matching f on db. A non-empty among also restricts
+// both of a link's records to those IDs.
+func loadLinks(ctx context.Context, db querier, f graph.LinkFilter, among []string) ([]graph.Link, error) {
+	where, args := `TRUE`, []any(nil)
+	if len(among) > 0 {
+		in := placeholders(len(among))
+		where += ` AND l.a IN (` + in + `) AND l.b IN (` + in + `)`
+		args = slices.Concat(anySlice(among), anySlice(among))
+	}
+	if f.ID != "" {
+		where += ` AND l.id = ?`
+		args = append(args, f.ID)
+	}
+	if f.Entity != "" {
+		cluster, ok, err := clusterID(ctx, db, string(f.Entity))
+		if err != nil || !ok {
+			return nil, err
 		}
-		if f.Entity != "" {
-			cluster, ok, err := clusterID(ctx, db, string(f.Entity))
-			if err != nil || !ok {
-				return nil, err
-			}
-			where += ` AND (l.a IN (SELECT id FROM entity WHERE cluster_id = ?) OR l.b IN (SELECT id FROM entity WHERE cluster_id = ?))`
-			args = append(args, cluster, cluster)
+		where += ` AND (l.a IN (SELECT id FROM entity WHERE cluster_id = ?) OR l.b IN (SELECT id FROM entity WHERE cluster_id = ?))`
+		args = append(args, cluster, cluster)
+	}
+	if f.Kind != "" {
+		where += ` AND l.kind = ?`
+		args = append(args, string(f.Kind))
+	}
+	if f.Status != "" {
+		where += ` AND l.status = ?`
+		args = append(args, string(f.Status))
+	}
+	if !f.WithClosed {
+		where += ` AND l.valid_to IS NULL`
+	}
+	order := ` ORDER BY l.valid_from, l.id`
+	if f.Limit > 0 {
+		order = ` ORDER BY (SELECT max(d.deposited_at) FROM link_deposit d WHERE d.link_id = l.id) DESC NULLS LAST, l.id LIMIT ?`
+		args = append(args, f.Limit)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to
+	FROM identity_link l WHERE `+where+order, args...)
+	if err != nil {
+		return nil, fmt.Errorf("links: %w", err)
+	}
+	links, err := collect(rows, func(sc scanner) (graph.Link, error) {
+		var l graph.Link
+		var to sql.NullTime
+		err := sc.Scan(&l.ID, &l.A, &l.B, &l.Kind, &l.Status, &l.Rule, &l.ValidFrom, &to)
+		l.ValidFrom = l.ValidFrom.UTC()
+		if to.Valid {
+			l.ValidTo = to.Time.UTC()
 		}
-		if f.Kind != "" {
-			where += ` AND l.kind = ?`
-			args = append(args, string(f.Kind))
-		}
-		if f.Status != "" {
-			where += ` AND l.status = ?`
-			args = append(args, string(f.Status))
-		}
-		if !f.WithClosed {
-			where += ` AND l.valid_to IS NULL`
-		}
-		order := ` ORDER BY l.valid_from, l.id`
-		if f.Limit > 0 {
-			order = ` ORDER BY (SELECT max(d.deposited_at) FROM link_deposit d WHERE d.link_id = l.id) DESC NULLS LAST, l.id LIMIT ?`
-			args = append(args, f.Limit)
-		}
-		rows, err := db.QueryContext(ctx, `SELECT l.id, l.a, l.b, l.kind, l.status, l.rule, l.valid_from, l.valid_to
-		FROM identity_link l WHERE `+where+order, args...)
-		if err != nil {
-			return nil, fmt.Errorf("links: %w", err)
-		}
-		links, err := collect(rows, func(sc scanner) (graph.Link, error) {
-			var l graph.Link
-			var to sql.NullTime
-			err := sc.Scan(&l.ID, &l.A, &l.B, &l.Kind, &l.Status, &l.Rule, &l.ValidFrom, &to)
-			l.ValidFrom = l.ValidFrom.UTC()
-			if to.Valid {
-				l.ValidTo = to.Time.UTC()
-			}
-			return l, err
-		})
-		if err != nil || len(links) == 0 {
-			return nil, wrapErr("links", err)
-		}
-		idx := make(map[string]int, len(links))
-		ids := make([]any, len(links))
-		for i, l := range links {
-			idx[l.ID], ids[i] = i, l.ID
-		}
-		rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR), d.actor, d.reason
-		FROM link_deposit d WHERE d.link_id IN (`+placeholders(len(ids))+`)
-		ORDER BY d.deposited_at, d.observation_id`, ids...)
-		if err != nil {
-			return nil, fmt.Errorf("links: deposits: %w", err)
-		}
-		_, err = collect(rows, func(sc scanner) (struct{}, error) {
-			var id string
-			var d graph.Deposit
-			var obs, feats, actor, reason sql.NullString
-			if err := sc.Scan(&id, &d.At, &d.Weight, &d.Against, &obs, &feats, &actor, &reason); err != nil {
-				return struct{}{}, err
-			}
-			d.At, d.ObservationID, d.Actor, d.Reason = d.At.UTC(), obs.String, actor.String, reason.String
-			if feats.Valid {
-				if err := json.Unmarshal([]byte(feats.String), &d.Features); err != nil {
-					return struct{}{}, fmt.Errorf("link %s: decode features: %w", id, err)
-				}
-			}
-			if i, ok := idx[id]; ok {
-				links[i].Deposits = append(links[i].Deposits, d)
-			}
-			return struct{}{}, nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("links: deposits: %w", err)
-		}
-		return links, nil
+		return l, err
 	})
+	if err != nil || len(links) == 0 {
+		return nil, wrapErr("links", err)
+	}
+	idx := make(map[string]int, len(links))
+	ids := make([]any, len(links))
+	for i, l := range links {
+		idx[l.ID], ids[i] = i, l.ID
+	}
+	rows, err = db.QueryContext(ctx, `SELECT d.link_id, d.deposited_at, d.weight, d.against, d.observation_id, CAST(d.features AS VARCHAR), d.actor, d.reason
+	FROM link_deposit d WHERE d.link_id IN (`+placeholders(len(ids))+`)
+	ORDER BY d.deposited_at, d.observation_id`, ids...)
+	if err != nil {
+		return nil, fmt.Errorf("links: deposits: %w", err)
+	}
+	_, err = collect(rows, func(sc scanner) (struct{}, error) {
+		var id string
+		var d graph.Deposit
+		var obs, feats, actor, reason sql.NullString
+		if err := sc.Scan(&id, &d.At, &d.Weight, &d.Against, &obs, &feats, &actor, &reason); err != nil {
+			return struct{}{}, err
+		}
+		d.At, d.ObservationID, d.Actor, d.Reason = d.At.UTC(), obs.String, actor.String, reason.String
+		if feats.Valid {
+			if err := json.Unmarshal([]byte(feats.String), &d.Features); err != nil {
+				return struct{}{}, fmt.Errorf("link %s: decode features: %w", id, err)
+			}
+		}
+		if i, ok := idx[id]; ok {
+			links[i].Deposits = append(links[i].Deposits, d)
+		}
+		return struct{}{}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("links: deposits: %w", err)
+	}
+	return links, nil
 }
 
 func wrapErr(what string, err error) error {
