@@ -29,7 +29,8 @@ var schema embed.FS
 
 // Config opens a store. Defaults are applied in Open.
 type Config struct {
-	// Path is the database file; empty means in memory, for tests and demos.
+	// Path is the database file; empty means in memory on one DuckDB thread,
+	// for tests and demos.
 	Path string
 	// Now is the clock for recorded_at and created_at; nil means time.Now.
 	Now func() time.Time
