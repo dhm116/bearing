@@ -157,7 +157,7 @@ func TestAPIDecisionIsLoggedFirstNamesThePersonAndIsApplied(t *testing.T) {
 	if !w.joined("payments", "billing") {
 		t.Fatal("got the records apart, want them joined by the accepted link")
 	}
-	ls := w.links(graph.LinkFilter{ID: id})
+	ls := w.links(graph.LinkFilter{Status: graph.Asserted})
 	last := ls[0].Deposits[len(ls[0].Deposits)-1]
 	if ls[0].Status != graph.Asserted || ls[0].Rule != "person" || last.Actor != "carol" || last.Reason != "same service" {
 		t.Errorf("got %+v, want the link asserted by carol with her reason", ls[0])
@@ -168,7 +168,7 @@ func TestAPIDecisionIsLoggedFirstNamesThePersonAndIsApplied(t *testing.T) {
 	if err := w.s.handleLinkDecided(t.Context(), es[0]); err != nil {
 		t.Fatal(err)
 	}
-	if again := w.links(graph.LinkFilter{ID: id}); len(again[0].Deposits) != len(ls[0].Deposits) {
+	if again := w.links(graph.LinkFilter{Status: graph.Asserted}); len(again[0].Deposits) != len(ls[0].Deposits) {
 		t.Errorf("got %d deposits after a replay, want %d", len(again[0].Deposits), len(ls[0].Deposits))
 	}
 }
