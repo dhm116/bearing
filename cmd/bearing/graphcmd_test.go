@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,5 +80,56 @@ func TestGraphRefusesUnknownFormat(t *testing.T) {
 	w := newWorld(t)
 	if _, err := w.cli("graph", "--format", "png"); !errors.Is(err, errUsage) {
 		t.Errorf("got %v, want a usage error", err)
+	}
+}
+
+func TestGraphEdgesCrossColumnsBetweenCards(t *testing.T) {
+	t.Parallel()
+	// Four columns, three cards each; edges from the last column back to the
+	// first must thread between the cards of the two in between.
+	v := &view{}
+	for _, kind := range []string{"Person", "Team", "Repository", "Component"} {
+		for i := range 3 {
+			id := kind + strconv.Itoa(i)
+			v.Entities = append(v.Entities, vEntity{ID: id, Kind: kind, Name: id, Records: []vRecord{{ID: "r" + id}, {ID: "s" + id}}})
+		}
+	}
+	for i := range 3 {
+		v.Facts = append(v.Facts, vFact{Subject: "Component" + strconv.Itoa(i), Predicate: "owned_by", Object: "Person" + strconv.Itoa(2-i)})
+	}
+	l := layOut(v)
+	var rs []route
+	for _, f := range v.Facts {
+		ca, co := l.col[f.Subject], l.col[f.Object]
+		rs = append(rs, newRoute(side{"c:" + f.Subject, l.cards[f.Subject], ca, false}, side{"c:" + f.Object, l.cards[f.Object], co, true}))
+	}
+	routeAll(l, rs)
+	for i, r := range rs {
+		pts := r.points()
+		for j := 1; j < len(pts); j++ {
+			a, b := pts[j-1], pts[j]
+			if a[0] != b[0] && a[1] != b[1] {
+				t.Errorf("route %d segment %v-%v is not straight", i, a, b)
+			}
+			for id, c := range l.cards {
+				if id == v.Facts[i].Subject || id == v.Facts[i].Object {
+					continue
+				}
+				lo, hi := min(a[0], b[0]), max(a[0], b[0])
+				ylo, yhi := min(a[1], b[1]), max(a[1], b[1])
+				if lo < c.x+c.w && hi > c.x && ylo < c.y+c.h && yhi > c.y {
+					t.Errorf("route %d segment %v-%v crosses card %s", i, a, b, id)
+				}
+			}
+		}
+	}
+}
+
+func TestRoundedPathRoundsEachCorner(t *testing.T) {
+	t.Parallel()
+	got := roundedPath([][2]float64{{0, 0}, {20, 0}, {40, 0}, {40, 30}, {40, 30}, {60, 30}})
+	want := "M0.0 0.0 L32.0 0.0 Q40.0 0.0 40.0 8.0 L40.0 22.0 Q40.0 30.0 48.0 30.0 L60.0 30.0"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }

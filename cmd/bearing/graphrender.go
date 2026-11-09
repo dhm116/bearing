@@ -107,7 +107,8 @@ func linkTip(l vLink) string {
 const (
 	colW, colGap   = 230.0, 150.0
 	cardHead, rowH = 38.0, 30.0
-	cardGap, pad   = 16.0, 40.0
+	cardGap, pad   = 24.0, 40.0
+	marginX        = 72.0 // room for loops left of the first column and right of the last
 	titleH         = 56.0
 )
 
@@ -120,6 +121,22 @@ type layout struct {
 	col     map[string]int // entity or record ID -> column
 	cluster map[string]string
 	columns []string // kind per column
+	// corridors are the ys, per column, where an edge can cross it: between
+	// and below the cards (above them sits the column label).
+	corridors [][]float64
+}
+
+func colX(c int) float64 { return marginX + float64(c)*(colW+colGap) }
+
+// gapSpan is the free x range of gap g, the one left of column g.
+func (l *layout) gapSpan(g int) (left, right float64) {
+	if g == 0 {
+		return colX(0) - marginX, colX(0)
+	}
+	if g == len(l.columns) {
+		return colX(g-1) + colW, colX(g-1) + colW + marginX
+	}
+	return colX(g-1) + colW, colX(g)
 }
 
 func layOut(v *view) *layout {
@@ -129,9 +146,10 @@ func layOut(v *view) *layout {
 		if len(l.columns) == 0 || l.columns[len(l.columns)-1] != e.Kind {
 			l.columns = append(l.columns, e.Kind)
 			ys = append(ys, pad+titleH+24)
+			l.corridors = append(l.corridors, nil)
 		}
 		c := len(l.columns) - 1
-		x := pad + float64(c)*(colW+colGap)
+		x := colX(c)
 		h := cardHead + float64(len(e.Records))*rowH + 6
 		l.cards[e.ID] = box{x, ys[c], colW, h}
 		l.col[e.ID] = c
@@ -141,37 +159,12 @@ func layOut(v *view) *layout {
 			l.cluster[r.ID] = e.ID
 		}
 		ys[c] += h + cardGap
+		l.corridors[c] = append(l.corridors[c], ys[c]-cardGap/2)
 		l.h = math.Max(l.h, ys[c])
 	}
-	l.w = pad*2 + float64(len(l.columns))*colW + float64(max(len(l.columns)-1, 0))*colGap
+	l.w = marginX*2 + float64(len(l.columns))*colW + float64(max(len(l.columns)-1, 0))*colGap
 	l.h += pad
 	return l
-}
-
-// edgePath joins two boxes: side to facing side across columns, or a loop out
-// of one side (right for facts, left for links) within a column.
-func edgePath(a, b box, ca, cb int, left bool) (d string, mx, my float64) {
-	ay, by := a.y+a.h/2, b.y+b.h/2
-	if a.y == b.y && ca == cb { // shortcut: a self-loop is drawn as a small hook
-		ay, by = a.y+8, a.y+a.h-8
-	}
-	switch {
-	case ca == cb:
-		x := a.x + a.w
-		bulge := 30 + math.Abs(by-ay)*0.12
-		if left {
-			x, bulge = a.x, -bulge
-		}
-		return fmt.Sprintf("M%.1f %.1f C%.1f %.1f %.1f %.1f %.1f %.1f", x, ay, x+bulge, ay, x+bulge, by, x, by), x + bulge*0.75, (ay + by) / 2
-	case ca < cb:
-		x1, x2 := a.x+a.w, b.x
-		m := (x1 + x2) / 2
-		return fmt.Sprintf("M%.1f %.1f C%.1f %.1f %.1f %.1f %.1f %.1f", x1, ay, m, ay, m, by, x2, by), m, (ay + by) / 2
-	default:
-		x1, x2 := a.x, b.x+b.w
-		m := (x1 + x2) / 2
-		return fmt.Sprintf("M%.1f %.1f C%.1f %.1f %.1f %.1f %.1f %.1f", x1, ay, m, ay, m, by, x2, by), m, (ay + by) / 2
-	}
 }
 
 //go:embed graph.css
@@ -194,7 +187,7 @@ func svgDrawing(v *view) string {
 		if k == "" {
 			k = "named by a fact, reported by no source"
 		}
-		fmt.Fprintf(&b, `<text class="eyebrow" x="%.1f" y="%.1f">%s</text>`, pad+float64(i)*(colW+colGap), pad+titleH+10, e(strings.ToUpper(k)))
+		fmt.Fprintf(&b, `<text class="eyebrow" x="%.1f" y="%.1f">%s</text>`, colX(i), pad+titleH+10, e(strings.ToUpper(k)))
 	}
 
 	// Facts, merged per pair of entities so parallel predicates share a curve.
@@ -208,8 +201,31 @@ func svgDrawing(v *view) string {
 		}
 		merged[p] = append(merged[p], f)
 	}
-	b.WriteString(`<g class="facts">`)
+	// Routes for facts (card to card, out of the right side) and identity
+	// links (record to record, out of the left side), planned together
+	// because they share the gaps between columns.
+	var rs []route
 	for _, p := range order {
+		a, z := l.cards[p.s], l.cards[p.o]
+		ca, cz := l.col[p.s], l.col[p.o]
+		rs = append(rs, newRoute(side{"c:" + p.s, a, ca, ca <= cz}, side{"c:" + p.o, z, cz, ca >= cz}))
+	}
+	var links []vLink
+	for _, k := range v.Links {
+		ra, oka := l.rows[k.A]
+		rb, okb := l.rows[k.B]
+		if !oka || !okb {
+			continue
+		}
+		links = append(links, k)
+		ca, cb := l.col[k.A], l.col[k.B]
+		rs = append(rs, newRoute(side{"r:" + k.A, ra, ca, ca < cb}, side{"r:" + k.B, rb, cb, ca > cb}))
+	}
+	routeAll(l, rs)
+
+	b.WriteString(`<g class="facts">`)
+	labelled := map[string]bool{} // one label per predicates per target: edges into a card share it
+	for i, p := range order {
 		fs := merged[p]
 		var ids, preds []string
 		cls := "fact proposed"
@@ -222,22 +238,22 @@ func svgDrawing(v *view) string {
 				cls = "fact"
 			}
 		}
-		d, mx, my := edgePath(l.cards[p.s], l.cards[p.o], l.col[p.s], l.col[p.o], false)
+		d := roundedPath(rs[i].points())
+		lx, ly, anchor := rs[i].label()
 		fmt.Fprintf(&b, `<g class="%s" data-facts="%s" data-from="%s" data-to="%s" data-predicates="%s">`, cls, e(strings.Join(ids, " ")), e(p.s), e(p.o), e(strings.Join(preds, " ")))
 		fmt.Fprintf(&b, `<path class="hit" d="%s"/><path class="line" d="%s" marker-end="url(#arrow)"/>`, d, d)
-		fmt.Fprintf(&b, `<text class="edge-label" x="%.1f" y="%.1f">%s</text></g>`, mx, my-4, e(strings.Join(preds, ", ")))
+		if k := p.o + " " + strings.Join(preds, ", "); !labelled[k] {
+			labelled[k] = true
+			fmt.Fprintf(&b, `<text class="edge-label" x="%.1f" y="%.1f" text-anchor="%s">%s</text>`, lx, ly, anchor, e(strings.Join(preds, ", ")))
+		}
+		b.WriteString(`</g>`)
 	}
 	b.WriteString(`</g>`)
 
 	b.WriteString(`<g class="links">`)
-	for _, k := range v.Links {
-		ra, oka := l.rows[k.A]
-		rb, okb := l.rows[k.B]
-		if !oka || !okb {
-			continue
-		}
+	for i, k := range links {
 		cls := "link " + strings.ReplaceAll(k.Kind, "_", "-") + " " + k.Status
-		d, _, _ := edgePath(ra, rb, l.col[k.A], l.col[k.B], true)
+		d := roundedPath(rs[len(order)+i].points())
 		fmt.Fprintf(&b, `<g class="%s" data-link="%s" data-from="%s" data-to="%s"><path class="hit" d="%s"/><path class="line" d="%s"/><title>%s</title></g>`,
 			e(cls), e(k.ID), e(l.cluster[k.A]), e(l.cluster[k.B]), d, d, e(linkTip(k)))
 	}
