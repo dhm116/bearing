@@ -1,6 +1,6 @@
 # Heading spike: findings
 
-Spike for [ADR 12](../../docs/adr/0012-heading-adapters-from-api-specs.md),
+Spike for [ADR 12](../../docs/adr/0012-generic-openapi-adapter.md),
 on `spike/heading`. Never merged.
 
 ## What was run
