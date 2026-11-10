@@ -1,0 +1,1865 @@
+# heading init: GitHub v3 REST API
+namespace: github
+kinds:
+  - kind: github.ActionsArtifactAndLogRetentionResponse
+    schema: actions-artifact-and-log-retention-response
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheList
+    schema: actions-cache-list
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheRetentionLimitForEnterprise
+    schema: actions-cache-retention-limit-for-enterprise
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheRetentionLimitForOrganization
+    schema: actions-cache-retention-limit-for-organization
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheRetentionLimitForRepository
+    schema: actions-cache-retention-limit-for-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheStorageLimitForEnterprise
+    schema: actions-cache-storage-limit-for-enterprise
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheStorageLimitForOrganization
+    schema: actions-cache-storage-limit-for-organization
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheStorageLimitForRepository
+    schema: actions-cache-storage-limit-for-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsCacheUsageByRepository
+    schema: actions-cache-usage-by-repository
+    list: GET /orgs/{org}/actions/cache/usage-by-repository
+    paging: page + Link header
+    key: TODO
+  - kind: github.ActionsCacheUsageOrgEnterprise
+    schema: actions-cache-usage-org-enterprise
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsForkPrContributorApproval
+    schema: actions-fork-pr-contributor-approval
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsForkPrWorkflowsPrivateRepos
+    schema: actions-fork-pr-workflows-private-repos
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsGetDefaultWorkflowPermissions
+    schema: actions-get-default-workflow-permissions
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsHostedRunner
+    schema: actions-hosted-runner
+    list: GET /orgs/{org}/actions/hosted-runners
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: machine_size_details -> actions-hosted-runner-machine-spec  # $ref, asserted
+    - ref: runner_group_id -> TODO  # guessed from the name, proposed
+  - kind: github.ActionsHostedRunnerCuratedImage
+    schema: actions-hosted-runner-curated-image
+    list: GET /orgs/{org}/actions/hosted-runners/images/partner
+    paging: none
+    key: [id]  # from id
+  - kind: github.ActionsHostedRunnerCustomImage
+    schema: actions-hosted-runner-custom-image
+    list: GET /orgs/{org}/actions/hosted-runners/images/custom
+    paging: none
+    key: [id]  # from id
+  - kind: github.ActionsHostedRunnerCustomImageVersion
+    schema: actions-hosted-runner-custom-image-version
+    list: GET /orgs/{org}/actions/hosted-runners/images/custom/{image_definition_id}/versions
+    paging: none
+    key: TODO
+  - kind: github.ActionsHostedRunnerLimits
+    schema: actions-hosted-runner-limits
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsHostedRunnerMachineSpec
+    schema: actions-hosted-runner-machine-spec
+    list: GET /orgs/{org}/actions/hosted-runners/machine-sizes
+    paging: none
+    key: [id]  # from id
+  - kind: github.ActionsOrganizationPermissions
+    schema: actions-organization-permissions
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsPolicy
+    schema: actions-policy
+    list: GET /orgs/{org}/actions/policies
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ActionsPublicKey
+    schema: actions-public-key
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: key_id -> TODO  # guessed from the name, proposed
+  - kind: github.ActionsRepositoryPermissions
+    schema: actions-repository-permissions
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ActionsSecret
+    schema: actions-secret
+    list: GET /repos/{owner}/{repo}/agents/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.ActionsVariable
+    schema: actions-variable
+    list: GET /repos/{owner}/{repo}/agents/variables
+    paging: page + Link header
+    key: TODO
+  - kind: github.ActionsWorkflowAccessToRepository
+    schema: actions-workflow-access-to-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Activity
+    schema: activity
+    list: GET /repos/{owner}/{repo}/activity
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: actor.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: actor.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ApiInsightsSummaryStats
+    schema: api-insights-summary-stats
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ApiOverview
+    schema: api-overview
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Artifact
+    schema: artifact
+    list: GET /repos/{owner}/{repo}/actions/artifacts
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: workflow_run.head_repository_id -> TODO  # guessed from the name, proposed
+    - ref: workflow_run.repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.ArtifactDeploymentRecord
+    schema: artifact-deployment-record
+    list: GET /orgs/{org}/artifacts/{subject_digest}/metadata/deployment-records
+    paging: none
+    key: [id]  # from id
+    - ref: attestation_id -> TODO  # guessed from the name, proposed
+  - kind: github.Autolink
+    schema: autolink
+    list: GET /repos/{owner}/{repo}/autolinks
+    paging: none
+    key: [id]  # from id
+  - kind: github.BaseGist
+    schema: base-gist
+    list: GET /gists
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.BillingAiCreditUsageReportOrg
+    schema: billing-ai-credit-usage-report-org
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingAiCreditUsageReportUser
+    schema: billing-ai-credit-usage-report-user
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingPremiumRequestUsageReportOrg
+    schema: billing-premium-request-usage-report-org
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingPremiumRequestUsageReportUser
+    schema: billing-premium-request-usage-report-user
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingUsageReport
+    schema: billing-usage-report
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingUsageReportUser
+    schema: billing-usage-report-user
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingUsageSummaryReportOrg
+    schema: billing-usage-summary-report-org
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.BillingUsageSummaryReportUser
+    schema: billing-usage-summary-report-user
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Blob
+    schema: blob
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.BranchProtection
+    schema: branch-protection
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: enforce_admins -> protected-branch-admin-enforced  # $ref, asserted
+    - ref: required_pull_request_reviews -> protected-branch-pull-request-review  # $ref, asserted
+    - ref: required_status_checks.checks.app_id -> TODO  # guessed from the name, proposed
+    - ref: restrictions -> branch-restriction-policy  # $ref, asserted
+  - kind: github.BranchRestrictionPolicy
+    schema: branch-restriction-policy
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: apps.client_id -> TODO  # guessed from the name, proposed
+    - ref: apps.node_id -> TODO  # guessed from the name, proposed
+    - ref: apps.owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: apps.owner.node_id -> TODO  # guessed from the name, proposed
+    - ref: teams -> team  # $ref, asserted
+    - ref: users.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: users.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.BranchShort
+    schema: branch-short
+    list: GET /repos/{owner}/{repo}/commits/{commit_sha}/branches-where-head
+    paging: none
+    key: TODO
+  - kind: github.BranchWithProtection
+    schema: branch-with-protection
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: commit -> commit  # $ref, asserted
+    - ref: protection -> branch-protection  # $ref, asserted
+  - kind: github.CampaignSummary
+    schema: campaign-summary
+    list: GET /orgs/{org}/campaigns
+    paging: page + Link header
+    key: TODO
+    - ref: managers -> simple-user  # $ref, asserted
+    - ref: team_managers -> team  # $ref, asserted
+  - kind: github.CheckAnnotation
+    schema: check-annotation
+    list: GET /repos/{owner}/{repo}/check-runs/{check_run_id}/annotations
+    paging: page + Link header
+    key: TODO
+  - kind: github.CheckAutomatedSecurityFixes
+    schema: check-automated-security-fixes
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CheckImmutableReleases
+    schema: check-immutable-releases
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CheckRun
+    schema: check-run
+    list: GET /repos/{owner}/{repo}/commits/{ref}/check-runs
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: app.client_id -> TODO  # guessed from the name, proposed
+    - ref: app.node_id -> TODO  # guessed from the name, proposed
+    - ref: deployment.node_id -> TODO  # guessed from the name, proposed
+    - ref: deployment.performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: deployment.performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: external_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CheckSuite
+    schema: check-suite
+    list: GET /repos/{owner}/{repo}/commits/{ref}/check-suites
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: app.client_id -> TODO  # guessed from the name, proposed
+    - ref: app.node_id -> TODO  # guessed from the name, proposed
+    - ref: head_commit.tree_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.CloneTraffic
+    schema: clone-traffic
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeFrequencyStat
+    schema: code-frequency-stat
+    list: GET /repos/{owner}/{repo}/stats/punch_card
+    paging: none
+    key: TODO
+  - kind: github.CodeOfConduct
+    schema: code-of-conduct
+    list: GET /codes_of_conduct
+    paging: none
+    key: [key]  # from route
+  - kind: github.CodeQualityFinding
+    schema: code-quality-finding
+    list: GET /repos/{owner}/{repo}/code-quality/findings
+    paging: cursor
+    key: TODO
+  - kind: github.CodeQualitySetup
+    schema: code-quality-setup
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningAiScanEnablement
+    schema: code-scanning-ai-scan-enablement
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningAiScanOrgSettings
+    schema: code-scanning-ai-scan-org-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningAlert
+    schema: code-scanning-alert
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: dismissal_approved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissal_approved_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: linked_pull_requests -> pull-request-simple  # $ref, asserted
+  - kind: github.CodeScanningAlertInstanceList
+    schema: code-scanning-alert-instance-list
+    list: GET /repos/{owner}/{repo}/code-scanning/alerts/{alert_number}/instances
+    paging: page
+    key: TODO
+  - kind: github.CodeScanningAlertItems
+    schema: code-scanning-alert-items
+    list: GET /repos/{owner}/{repo}/code-scanning/alerts
+    paging: cursor
+    key: TODO
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: dismissal_approved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissal_approved_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CodeScanningAnalysis
+    schema: code-scanning-analysis
+    list: GET /repos/{owner}/{repo}/code-scanning/analyses
+    paging: page
+    key: [id]  # from id
+  - kind: github.CodeScanningAutofix
+    schema: code-scanning-autofix
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningCodeqlDatabase
+    schema: code-scanning-codeql-database
+    list: GET /repos/{owner}/{repo}/code-scanning/codeql/databases
+    paging: none
+    key: [id]  # from id
+    - ref: uploader -> simple-user  # $ref, asserted
+  - kind: github.CodeScanningDefaultSetup
+    schema: code-scanning-default-setup
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningOrganizationAlertItems
+    schema: code-scanning-organization-alert-items
+    list: GET /orgs/{org}/code-scanning/alerts
+    paging: cursor + Link header
+    key: TODO
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: dismissal_approved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissal_approved_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+  - kind: github.CodeScanningSarifsStatus
+    schema: code-scanning-sarifs-status
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodeScanningVariantAnalysis
+    schema: code-scanning-variant-analysis
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: actions_workflow_run_id -> TODO  # guessed from the name, proposed
+    - ref: actor -> simple-user  # $ref, asserted
+    - ref: controller_repo.node_id -> TODO  # guessed from the name, proposed
+    - ref: controller_repo.owner -> simple-user  # $ref, asserted
+  - kind: github.CodeScanningVariantAnalysisRepoTask
+    schema: code-scanning-variant-analysis-repo-task
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+  - kind: github.CodeSearchResultItem
+    schema: code-search-result-item
+    list: GET /search/code
+    paging: page
+    key: TODO
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.CodeSecurityConfiguration
+    schema: code-security-configuration
+    list: GET /orgs/{org}/code-security/configurations
+    paging: cursor
+    key: [id]  # from id
+    - ref: secret_scanning_delegated_bypass_options.reviewers.reviewer_id -> TODO  # guessed from the name, proposed
+    - ref: secret_scanning_delegated_bypass_options.reviewers.security_configuration_id -> TODO  # guessed from the name, proposed
+  - kind: github.CodeSecurityConfigurationForRepository
+    schema: code-security-configuration-for-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: configuration -> code-security-configuration  # $ref, asserted
+  - kind: github.CodeSecurityConfigurationRepositories
+    schema: code-security-configuration-repositories
+    list: GET /orgs/{org}/code-security/configurations/{configuration_id}/repositories
+    paging: cursor
+    key: TODO
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+  - kind: github.CodeownersErrors
+    schema: codeowners-errors
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Codespace
+    schema: codespace
+    list: GET /user/codespaces
+    paging: page
+    key: [id]  # from id
+    - ref: billable_owner -> simple-user  # $ref, asserted
+    - ref: environment_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.CodespaceExportDetails
+    schema: codespace-export-details
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+  - kind: github.CodespaceMachine
+    schema: codespace-machine
+    list: GET /user/codespaces/{codespace_name}/machines
+    paging: none
+    key: TODO
+  - kind: github.CodespacesOrgSecret
+    schema: codespaces-org-secret
+    list: GET /orgs/{org}/codespaces/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.CodespacesPermissionsCheckForDevcontainer
+    schema: codespaces-permissions-check-for-devcontainer
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CodespacesPublicKey
+    schema: codespaces-public-key
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: key_id -> TODO  # guessed from the name, proposed
+  - kind: github.CodespacesSecret
+    schema: codespaces-secret
+    list: GET /user/codespaces/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.CodespacesUserPublicKey
+    schema: codespaces-user-public-key
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: key_id -> TODO  # guessed from the name, proposed
+  - kind: github.Collaborator
+    schema: collaborator
+    list: GET /repos/{owner}/{repo}/collaborators
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CombinedCommitStatus
+    schema: combined-commit-status
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: repository -> minimal-repository  # $ref, asserted
+    - ref: statuses.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Commit
+    schema: commit
+    list: GET /repos/{owner}/{repo}/commits
+    paging: page + Link header
+    key: TODO
+    - ref: files -> diff-entry  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CommitActivity
+    schema: commit-activity
+    list: GET /repos/{owner}/{repo}/stats/commit_activity
+    paging: none
+    key: TODO
+  - kind: github.CommitComment
+    schema: commit-comment
+    list: GET /repos/{owner}/{repo}/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: commit_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CommitComparison
+    schema: commit-comparison
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: base_commit -> commit  # $ref, asserted
+    - ref: commits -> commit  # $ref, asserted
+    - ref: files -> diff-entry  # $ref, asserted
+    - ref: merge_base_commit -> commit  # $ref, asserted
+  - kind: github.CommitSearchResultItem
+    schema: commit-search-result-item
+    list: GET /search/commits
+    paging: page
+    key: TODO
+    - ref: author.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: author.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.CommunityProfile
+    schema: community-profile
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: files.license.node_id -> TODO  # guessed from the name, proposed
+    - ref: files.license.spdx_id -> TODO  # guessed from the name, proposed
+  - kind: github.ConcurrencyGroup
+    schema: concurrency-group
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: group_members.job_id -> TODO  # guessed from the name, proposed
+    - ref: group_members.run_id -> TODO  # guessed from the name, proposed
+  - kind: github.ConcurrencyGroupList
+    schema: concurrency-group-list
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ConcurrencyGroupRunList
+    schema: concurrency-group-run-list
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: concurrency_groups.group_members.job_id -> TODO  # guessed from the name, proposed
+    - ref: concurrency_groups.group_members.run_id -> TODO  # guessed from the name, proposed
+  - kind: github.ContentFile
+    schema: content-file
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ContentTraffic
+    schema: content-traffic
+    list: GET /repos/{owner}/{repo}/traffic/popular/paths
+    paging: none
+    key: TODO
+  - kind: github.Contributor
+    schema: contributor
+    list: GET /repos/{owner}/{repo}/contributors
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ContributorActivity
+    schema: contributor-activity
+    list: GET /repos/{owner}/{repo}/stats/contributors
+    paging: none
+    key: TODO
+    - ref: author.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: author.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CopilotOrganizationDetails
+    schema: copilot-organization-details
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CopilotSeatDetails
+    schema: copilot-seat-details
+    list: GET /orgs/{org}/copilot/billing/seats
+    paging: page + Link header
+    key: TODO
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: organization.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CopilotSpace
+    schema: copilot-space
+    list: GET /orgs/{org}/copilot-spaces
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: creator -> simple-user  # $ref, asserted
+    - ref: resources_attributes.copilot_chat_attachment_id -> TODO  # guessed from the name, proposed
+    - ref: resources_attributes.metadata.copilot_chat_attachment_id -> TODO  # guessed from the name, proposed
+    - ref: resources_attributes.metadata.repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.CopilotSpaceResource
+    schema: copilot-space-resource
+    list: GET /orgs/{org}/copilot-spaces/{space_number}/resources
+    paging: none
+    key: [id]  # from id
+    - ref: copilot_chat_attachment_id -> TODO  # guessed from the name, proposed
+  - kind: github.CopilotUsageMetrics1DayReport
+    schema: copilot-usage-metrics-1-day-report
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CopilotUsageMetrics28DayReport
+    schema: copilot-usage-metrics-28-day-report
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.CustomDeploymentRuleApp
+    schema: custom-deployment-rule-app
+    list: GET /repos/{owner}/{repo}/environments/{environment_name}/deployment_protection_rules/apps
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.CustomProperty
+    schema: custom-property
+    list: GET /orgs/{org}/properties/schema
+    paging: none
+    key: TODO
+  - kind: github.CustomPropertyValue
+    schema: custom-property-value
+    list: GET /repos/{owner}/{repo}/properties/values
+    paging: none
+    key: TODO
+  - kind: github.DependabotAlert
+    schema: dependabot-alert
+    list: GET /repos/{owner}/{repo}/dependabot/alerts
+    paging: cursor
+    key: TODO
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: dismissed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: security_advisory.cve_id -> TODO  # guessed from the name, proposed
+    - ref: security_advisory.cwes.cwe_id -> TODO  # guessed from the name, proposed
+    - ref: security_advisory.ghsa_id -> TODO  # guessed from the name, proposed
+  - kind: github.DependabotAlertWithRepository
+    schema: dependabot-alert-with-repository
+    list: GET /orgs/{org}/dependabot/alerts
+    paging: cursor
+    key: TODO
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: dismissed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+    - ref: security_advisory.cve_id -> TODO  # guessed from the name, proposed
+    - ref: security_advisory.cwes.cwe_id -> TODO  # guessed from the name, proposed
+    - ref: security_advisory.ghsa_id -> TODO  # guessed from the name, proposed
+  - kind: github.DependabotPublicKey
+    schema: dependabot-public-key
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: key_id -> TODO  # guessed from the name, proposed
+  - kind: github.DependabotRepositoryAccessDetails
+    schema: dependabot-repository-access-details
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: accessible_repositories.node_id -> TODO  # guessed from the name, proposed
+    - ref: accessible_repositories.owner -> simple-user  # $ref, asserted
+  - kind: github.DependabotRunnerSettings
+    schema: dependabot-runner-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.DependabotSecret
+    schema: dependabot-secret
+    list: GET /repos/{owner}/{repo}/dependabot/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.DependencyGraphSpdxSbom
+    schema: dependency-graph-spdx-sbom
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: sbom.relationships.spdxElementId -> TODO  # guessed from the name, proposed
+  - kind: github.DeployKey
+    schema: deploy-key
+    list: GET /repos/{owner}/{repo}/keys
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.Deployment
+    schema: deployment
+    list: GET /repos/{owner}/{repo}/deployments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.DeploymentBranchPolicy
+    schema: deployment-branch-policy
+    list: GET /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.DeploymentProtectionRule
+    schema: deployment-protection-rule
+    list: GET /repos/{owner}/{repo}/environments/{environment_name}/deployment_protection_rules
+    paging: none
+    key: [id]  # from id
+    - ref: app -> custom-deployment-rule-app  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.DeploymentStatus
+    schema: deployment-status
+    list: GET /repos/{owner}/{repo}/deployments/{deployment_id}/statuses
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.DiffEntry
+    schema: diff-entry
+    list: GET /repos/{owner}/{repo}/pulls/{pull_number}/files
+    paging: page + Link header
+    key: TODO
+  - kind: github.Email
+    schema: email
+    list: GET /user/emails
+    paging: page + Link header
+    key: TODO
+  - kind: github.EnterpriseCopilotCodeReviewPolicy
+    schema: enterprise-copilot-code-review-policy
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Environment
+    schema: environment
+    list: GET /repos/{owner}/{repo}/environments
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.EnvironmentApprovals
+    schema: environment-approvals
+    list: GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals
+    paging: none
+    key: TODO
+    - ref: environments.node_id -> TODO  # guessed from the name, proposed
+    - ref: user -> simple-user  # $ref, asserted
+  - kind: github.Event
+    schema: event
+    list: GET /events
+    paging: page
+    key: [id]  # from id
+    - ref: actor.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: org.gravatar_id -> TODO  # guessed from the name, proposed
+  - kind: github.ExternalProperty
+    schema: external-property
+    list: GET /orgs/{org}/properties/installations/schema
+    paging: none
+    key: TODO
+  - kind: github.Feed
+    schema: feed
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.FullRepository
+    schema: full-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: organization.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: organization.node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+    - ref: parent -> repository  # $ref, asserted
+    - ref: source -> repository  # $ref, asserted
+    - ref: template_repository.license.node_id -> TODO  # guessed from the name, proposed
+    - ref: template_repository.license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: template_repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: template_repository.owner -> simple-user  # $ref, asserted
+  - kind: github.GetBudget
+    schema: get-budget
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+  - kind: github.GetAllBudgets
+    schema: get_all_budgets
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.GistComment
+    schema: gist-comment
+    list: GET /gists/{gist_id}/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.GistCommit
+    schema: gist-commit
+    list: GET /gists/{gist_id}/commits
+    paging: page + Link header
+    key: TODO
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.GistSimple
+    schema: gist-simple
+    list: GET /gists/{gist_id}/forks
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: fork_of.node_id -> TODO  # guessed from the name, proposed
+    - ref: fork_of.owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: fork_of.owner.node_id -> TODO  # guessed from the name, proposed
+    - ref: fork_of.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: fork_of.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: forks.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: forks.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: history.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: history.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+  - kind: github.GitCommit
+    schema: git-commit
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.GitRef
+    schema: git-ref
+    list: GET /repos/{owner}/{repo}/git/matching-refs/{ref}
+    paging: none + Link header
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.GitTag
+    schema: git-tag
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.GitTree
+    schema: git-tree
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.GitignoreTemplate
+    schema: gitignore-template
+    list: TODO  # no list route; reachable only through another kind
+    key: [name]  # from route
+  - kind: github.GlobalAdvisory
+    schema: global-advisory
+    list: GET /advisories
+    paging: cursor
+    key: [ghsa_id]  # from route
+    - ref: credits.user -> simple-user  # $ref, asserted
+    - ref: cve_id -> TODO  # guessed from the name, proposed
+    - ref: cwes.cwe_id -> TODO  # guessed from the name, proposed
+    - ref: ghsa_id -> TODO  # guessed from the name, proposed
+  - kind: github.GpgKey
+    schema: gpg-key
+    list: GET /user/gpg_keys
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: key_id -> TODO  # guessed from the name, proposed
+    - ref: primary_key_id -> TODO  # guessed from the name, proposed
+    - ref: subkeys.key_id -> TODO  # guessed from the name, proposed
+    - ref: subkeys.primary_key_id -> TODO  # guessed from the name, proposed
+  - kind: github.Hook
+    schema: hook
+    list: GET /repos/{owner}/{repo}/hooks
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: config -> webhook-config  # $ref, asserted
+  - kind: github.HookDelivery
+    schema: hook-delivery
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: installation_id -> TODO  # guessed from the name, proposed
+    - ref: repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.HookDeliveryItem
+    schema: hook-delivery-item
+    list: GET /app/hook/deliveries
+    paging: cursor
+    key: [id]  # from id
+    - ref: installation_id -> TODO  # guessed from the name, proposed
+    - ref: repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.Hovercard
+    schema: hovercard
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ImmutableReleasesOrganizationSettings
+    schema: immutable-releases-organization-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Import
+    schema: import
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Installation
+    schema: installation
+    list: GET /app/installations
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: app_id -> TODO  # guessed from the name, proposed
+    - ref: client_id -> TODO  # guessed from the name, proposed
+    - ref: suspended_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: suspended_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: target_id -> TODO  # guessed from the name, proposed
+  - kind: github.Integration
+    schema: integration
+    list: GET /repos/{owner}/{repo}/branches/{branch}/protection/restrictions/apps
+    paging: none
+    key: [id]  # from id
+    - ref: client_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IntegrationInstallationRequest
+    schema: integration-installation-request
+    list: GET /app/installation-requests
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: requester -> simple-user  # $ref, asserted
+  - kind: github.Issue
+    schema: issue
+    list: GET /issues
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: closed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: closed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue_field_values -> issue-field-value  # $ref, asserted
+    - ref: milestone.creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> repository  # $ref, asserted
+    - ref: type -> issue-type  # $ref, asserted
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueArtifact
+    schema: issue-artifact
+    list: GET /repos/{owner}/{repo}/issues/{issue_number}/artifacts
+    paging: page
+    key: [id]  # from id
+  - kind: github.IssueComment
+    schema: issue-comment
+    list: GET /repos/{owner}/{repo}/issues/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: pin.pinned_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: pin.pinned_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueEvent
+    schema: issue-event
+    list: GET /repos/{owner}/{repo}/issues/events
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: actor.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: actor.node_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: assigner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assigner.node_id -> TODO  # guessed from the name, proposed
+    - ref: blocked_by.issue_type.node_id -> TODO  # guessed from the name, proposed
+    - ref: blocked_by.repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: blocked_by.repository.owner -> simple-user  # $ref, asserted
+    - ref: blocking.issue_type.node_id -> TODO  # guessed from the name, proposed
+    - ref: blocking.repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: blocking.repository.owner -> simple-user  # $ref, asserted
+    - ref: commit_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_review.dismissal_commit_id -> TODO  # guessed from the name, proposed
+    - ref: dismissed_review.review_id -> TODO  # guessed from the name, proposed
+    - ref: issue.assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: issue.assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.assignees -> simple-user  # $ref, asserted
+    - ref: issue.closed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: issue.closed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.issue_field_values -> issue-field-value  # $ref, asserted
+    - ref: issue.milestone.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: issue.performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.pinned_comment.node_id -> TODO  # guessed from the name, proposed
+    - ref: issue.repository -> repository  # $ref, asserted
+    - ref: issue.type -> issue-type  # $ref, asserted
+    - ref: issue.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: issue.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: parent_issue.issue_type.node_id -> TODO  # guessed from the name, proposed
+    - ref: parent_issue.repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: parent_issue.repository.owner -> simple-user  # $ref, asserted
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: project_card.project_id -> TODO  # guessed from the name, proposed
+    - ref: requested_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: requested_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: requested_team -> team  # $ref, asserted
+    - ref: review_requester.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: review_requester.node_id -> TODO  # guessed from the name, proposed
+    - ref: sub_issue.issue_type.node_id -> TODO  # guessed from the name, proposed
+    - ref: sub_issue.repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: sub_issue.repository.owner -> simple-user  # $ref, asserted
+  - kind: github.IssueEventForIssue
+    schema: issue-event-for-issue
+    list: GET /repos/{owner}/{repo}/issues/{issue_number}/events
+    paging: page + Link header
+    key: TODO
+  - kind: github.IssueField
+    schema: issue-field
+    list: GET /orgs/{org}/issue-fields
+    paging: none
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueFieldValue
+    schema: issue-field-value
+    list: GET /repos/{owner}/{repo}/issues/{issue_number}/issue-field-values
+    paging: page + Link header
+    key: TODO
+    - ref: issue_field_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueSearchResultItem
+    schema: issue-search-result-item
+    list: GET /search/issues
+    paging: page
+    key: [id]  # from id
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: issue_field_values -> issue-field-value  # $ref, asserted
+    - ref: labels.archived_by -> simple-user  # $ref, asserted
+    - ref: labels.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.performed_via_github_app.client_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.performed_via_github_app.node_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: pinned_comment.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> repository  # $ref, asserted
+    - ref: type -> issue-type  # $ref, asserted
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueSuggestion
+    schema: issue-suggestion
+    list: GET /repos/{owner}/{repo}/issues/{issue_number}/suggestions
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: actor_id -> TODO  # guessed from the name, proposed
+    - ref: issue_event_id -> TODO  # guessed from the name, proposed
+    - ref: issue_id -> TODO  # guessed from the name, proposed
+    - ref: target_id -> TODO  # guessed from the name, proposed
+  - kind: github.IssueType
+    schema: issue-type
+    list: GET /orgs/{org}/issue-types
+    paging: none
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Job
+    schema: job
+    list: GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: run_id -> TODO  # guessed from the name, proposed
+    - ref: runner_group_id -> TODO  # guessed from the name, proposed
+    - ref: runner_id -> TODO  # guessed from the name, proposed
+  - kind: github.Key
+    schema: key
+    list: GET /user/keys
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.KeySimple
+    schema: key-simple
+    list: GET /users/{username}/keys
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.Label
+    schema: label
+    list: GET /repos/{owner}/{repo}/labels
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: archived_by -> simple-user  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.LabelSearchResultItem
+    schema: label-search-result-item
+    list: GET /search/labels
+    paging: page
+    key: [id]  # from id
+    - ref: archived_by -> simple-user  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.License
+    schema: license
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: spdx_id -> TODO  # guessed from the name, proposed
+  - kind: github.LicenseContent
+    schema: license-content
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+  - kind: github.LicenseSimple
+    schema: license-simple
+    list: GET /licenses
+    paging: page
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: spdx_id -> TODO  # guessed from the name, proposed
+  - kind: github.MarketplaceListingPlan
+    schema: marketplace-listing-plan
+    list: GET /marketplace_listing/plans
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.MarketplacePurchase
+    schema: marketplace-purchase
+    list: GET /marketplace_listing/plans/{plan_id}/accounts
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: marketplace_pending_change.plan -> marketplace-listing-plan  # $ref, asserted
+    - ref: marketplace_purchase.plan -> marketplace-listing-plan  # $ref, asserted
+  - kind: github.Migration
+    schema: migration
+    list: GET /user/migrations
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: owner.node_id -> TODO  # guessed from the name, proposed
+    - ref: repositories -> repository  # $ref, asserted
+  - kind: github.Milestone
+    schema: milestone
+    list: GET /repos/{owner}/{repo}/milestones
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.MinimalRepository
+    schema: minimal-repository
+    list: GET /repositories
+    paging: none + Link header
+    key: [id]  # from id
+    - ref: code_of_conduct -> code-of-conduct  # $ref, asserted
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+  - kind: github.NetworkConfiguration
+    schema: network-configuration
+    list: GET /orgs/{org}/settings/network-configurations
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.NetworkSettings
+    schema: network-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: network_configuration_id -> TODO  # guessed from the name, proposed
+    - ref: subnet_id -> TODO  # guessed from the name, proposed
+  - kind: github.OidcCustomPropertyInclusion
+    schema: oidc-custom-property-inclusion
+    list: GET /orgs/{org}/actions/oidc/customization/properties/repo
+    paging: none
+    key: TODO
+  - kind: github.OidcCustomSub
+    schema: oidc-custom-sub
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.OidcCustomSubRepo
+    schema: oidc-custom-sub-repo
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.OrgHook
+    schema: org-hook
+    list: GET /orgs/{org}/hooks
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.OrgMembership
+    schema: org-membership
+    list: GET /user/memberships/orgs
+    paging: page + Link header
+    key: TODO
+    - ref: organization -> organization-simple  # $ref, asserted
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrgPrivateRegistryConfiguration
+    schema: org-private-registry-configuration
+    list: GET /orgs/{org}/private-registries
+    paging: page + Link header
+    key: TODO
+    - ref: account_id -> TODO  # guessed from the name, proposed
+    - ref: client_id -> TODO  # guessed from the name, proposed
+    - ref: tenant_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrgRepoCustomPropertyValues
+    schema: org-repo-custom-property-values
+    list: GET /orgs/{org}/properties/values
+    paging: page + Link header
+    key: TODO
+    - ref: properties -> custom-property-value  # $ref, asserted
+    - ref: repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationActionsSecret
+    schema: organization-actions-secret
+    list: GET /orgs/{org}/agents/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.OrganizationActionsVariable
+    schema: organization-actions-variable
+    list: GET /orgs/{org}/agents/variables
+    paging: page + Link header
+    key: TODO
+  - kind: github.OrganizationCopilotCodeReviewPolicy
+    schema: organization-copilot-code-review-policy
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.OrganizationCopilotCodeReviewRunner
+    schema: organization-copilot-code-review-runner
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.OrganizationCopilotCodeReviewSettings
+    schema: organization-copilot-code-review-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.OrganizationDependabotSecret
+    schema: organization-dependabot-secret
+    list: GET /orgs/{org}/dependabot/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.OrganizationExternalPropertyInstallation
+    schema: organization-external-property-installation
+    list: GET /orgs/{org}/properties/installations
+    paging: none
+    key: TODO
+  - kind: github.OrganizationFull
+    schema: organization-full
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationInvitation
+    schema: organization-invitation
+    list: GET /orgs/{org}/invitations
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: inviter -> simple-user  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationProgrammaticAccessGrant
+    schema: organization-programmatic-access-grant
+    list: GET /orgs/{org}/personal-access-tokens
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: owner -> simple-user  # $ref, asserted
+    - ref: token_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationProgrammaticAccessGrantRequest
+    schema: organization-programmatic-access-grant-request
+    list: GET /orgs/{org}/personal-access-token-requests
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: owner -> simple-user  # $ref, asserted
+    - ref: token_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationRole
+    schema: organization-role
+    list: GET /orgs/{org}/organization-roles
+    paging: none
+    key: [id]  # from id
+    - ref: organization.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: organization.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationSecretScanningAlert
+    schema: organization-secret-scanning-alert
+    list: GET /orgs/{org}/secret-scanning/alerts
+    paging: cursor + Link header
+    key: TODO
+    - ref: assigned_to.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assigned_to.node_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+    - ref: resolved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: resolved_by.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.OrganizationSimple
+    schema: organization-simple
+    list: GET /user/orgs
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Package
+    schema: package
+    list: GET /user/packages
+    paging: page
+    key: [id]  # from id
+    - ref: owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: owner.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.code_of_conduct -> code-of-conduct  # $ref, asserted
+    - ref: repository.license.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: repository.node_id -> TODO  # guessed from the name, proposed
+    - ref: repository.owner -> simple-user  # $ref, asserted
+  - kind: github.PackageVersion
+    schema: package-version
+    list: GET /user/packages/{package_type}/{package_name}/versions
+    paging: page
+    key: [id]  # from id
+  - kind: github.Page
+    schema: page
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.PageBuild
+    schema: page-build
+    list: GET /repos/{owner}/{repo}/pages/builds
+    paging: page + Link header
+    key: TODO
+    - ref: pusher.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: pusher.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.PagesDeploymentStatus
+    schema: pages-deployment-status
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.PagesHealthCheck
+    schema: pages-health-check
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ParticipationStats
+    schema: participation-stats
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.PendingDeployment
+    schema: pending-deployment
+    list: GET /repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments
+    paging: none
+    key: TODO
+    - ref: environment.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.PorterAuthor
+    schema: porter-author
+    list: GET /repos/{owner}/{repo}/import/authors
+    paging: none
+    key: [id]  # from id
+    - ref: remote_id -> TODO  # guessed from the name, proposed
+  - kind: github.PorterLargeFile
+    schema: porter-large-file
+    list: GET /repos/{owner}/{repo}/import/large_files
+    paging: none
+    key: TODO
+  - kind: github.ProjectsV2
+    schema: projects-v2
+    list: GET /orgs/{org}/projectsV2
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: creator -> simple-user  # $ref, asserted
+    - ref: deleted_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: deleted_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: latest_status_update.creator -> simple-user  # $ref, asserted
+    - ref: latest_status_update.node_id -> TODO  # guessed from the name, proposed
+    - ref: latest_status_update.project_node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+  - kind: github.ProjectsV2Field
+    schema: projects-v2-field
+    list: GET /orgs/{org}/projectsV2/{project_number}/fields
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: issue_field_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ProjectsV2ItemWithContent
+    schema: projects-v2-item-with-content
+    list: GET /orgs/{org}/projectsV2/{project_number}/items
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: creator -> simple-user  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ProtectedBranchAdminEnforced
+    schema: protected-branch-admin-enforced
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ProtectedBranchPullRequestReview
+    schema: protected-branch-pull-request-review
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: bypass_pull_request_allowances.apps -> integration  # $ref, asserted
+    - ref: bypass_pull_request_allowances.teams -> team  # $ref, asserted
+    - ref: bypass_pull_request_allowances.users -> simple-user  # $ref, asserted
+    - ref: dismissal_restrictions.apps -> integration  # $ref, asserted
+    - ref: dismissal_restrictions.teams -> team  # $ref, asserted
+    - ref: dismissal_restrictions.users -> simple-user  # $ref, asserted
+  - kind: github.PullRequest
+    schema: pull-request
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: auto_merge.enabled_by -> simple-user  # $ref, asserted
+    - ref: base.repo -> repository  # $ref, asserted
+    - ref: base.user -> simple-user  # $ref, asserted
+    - ref: head.repo -> repository  # $ref, asserted
+    - ref: head.user -> simple-user  # $ref, asserted
+    - ref: labels.archived_by -> simple-user  # $ref, asserted
+    - ref: labels.node_id -> TODO  # guessed from the name, proposed
+    - ref: merged_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: merged_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: requested_reviewers -> simple-user  # $ref, asserted
+    - ref: requested_teams -> team-simple  # $ref, asserted
+    - ref: user -> simple-user  # $ref, asserted
+  - kind: github.PullRequestMergeAsyncResult
+    schema: pull-request-merge-async-result
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.PullRequestReview
+    schema: pull-request-review
+    list: GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: commit_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.PullRequestReviewComment
+    schema: pull-request-review-comment
+    list: GET /repos/{owner}/{repo}/pulls/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: commit_id -> TODO  # guessed from the name, proposed
+    - ref: in_reply_to_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: original_commit_id -> TODO  # guessed from the name, proposed
+    - ref: pull_request_review_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.PullRequestReviewRequest
+    schema: pull-request-review-request
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: teams -> team  # $ref, asserted
+    - ref: users -> simple-user  # $ref, asserted
+  - kind: github.PullRequestSimple
+    schema: pull-request-simple
+    list: GET /repos/{owner}/{repo}/pulls
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: assignee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assignee.node_id -> TODO  # guessed from the name, proposed
+    - ref: assignees -> simple-user  # $ref, asserted
+    - ref: auto_merge.enabled_by -> simple-user  # $ref, asserted
+    - ref: base.repo -> repository  # $ref, asserted
+    - ref: base.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: base.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: head.repo -> repository  # $ref, asserted
+    - ref: head.user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: head.user.node_id -> TODO  # guessed from the name, proposed
+    - ref: labels.archived_by -> simple-user  # $ref, asserted
+    - ref: labels.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: milestone.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: requested_reviewers -> simple-user  # $ref, asserted
+    - ref: requested_teams -> team  # $ref, asserted
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.PullRequestStackMinimal
+    schema: pull-request-stack-minimal
+    list: GET /repos/{owner}/{repo}/stacks
+    paging: page
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.RateLimitOverview
+    schema: rate-limit-overview
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Reaction
+    schema: reaction
+    list: GET /repos/{owner}/{repo}/comments/{comment_id}/reactions
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ReferrerTraffic
+    schema: referrer-traffic
+    list: GET /repos/{owner}/{repo}/traffic/popular/referrers
+    paging: none
+    key: TODO
+  - kind: github.Release
+    schema: release
+    list: GET /repos/{owner}/{repo}/releases
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: assets -> release-asset  # $ref, asserted
+    - ref: author -> simple-user  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ReleaseAsset
+    schema: release-asset
+    list: GET /repos/{owner}/{repo}/releases/{release_id}/assets
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: uploader.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: uploader.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.RepoCodespacesSecret
+    schema: repo-codespaces-secret
+    list: GET /repos/{owner}/{repo}/codespaces/secrets
+    paging: page + Link header
+    key: TODO
+  - kind: github.RepoSearchResultItem
+    schema: repo-search-result-item
+    list: GET /search/repositories
+    paging: page
+    key: [id]  # from id
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: owner.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Repository
+    schema: repository
+    list: GET /user/repos
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner -> simple-user  # $ref, asserted
+  - kind: github.RepositoryAdvisory
+    schema: repository-advisory
+    list: GET /orgs/{org}/security-advisories
+    paging: cursor
+    key: TODO
+    - ref: author -> simple-user  # $ref, asserted
+    - ref: collaborating_teams -> team  # $ref, asserted
+    - ref: collaborating_users -> simple-user  # $ref, asserted
+    - ref: credits_detailed.user -> simple-user  # $ref, asserted
+    - ref: cve_id -> TODO  # guessed from the name, proposed
+    - ref: cwes.cwe_id -> TODO  # guessed from the name, proposed
+    - ref: ghsa_id -> TODO  # guessed from the name, proposed
+    - ref: private_fork.node_id -> TODO  # guessed from the name, proposed
+    - ref: private_fork.owner -> simple-user  # $ref, asserted
+    - ref: publisher -> simple-user  # $ref, asserted
+  - kind: github.RepositoryAdvisoryComment
+    schema: repository-advisory-comment
+    list: GET /repos/{owner}/{repo}/security-advisories/{ghsa_id}/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.RepositoryCollaboratorPermission
+    schema: repository-collaborator-permission
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.RepositoryCopilotCodeReviewSettings
+    schema: repository-copilot-code-review-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.RepositoryHashAlgorithm
+    schema: repository-hash-algorithm
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.RepositoryInvitation
+    schema: repository-invitation
+    list: GET /user/repository_invitations
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: invitee.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: invitee.node_id -> TODO  # guessed from the name, proposed
+    - ref: inviter.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: inviter.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.RepositoryRuleDetailed
+    schema: repository-rule-detailed
+    list: GET /repos/{owner}/{repo}/rules/branches/{branch}
+    paging: page
+    key: TODO
+  - kind: github.RepositoryRuleset
+    schema: repository-ruleset
+    list: GET /orgs/{org}/rulesets
+    paging: page
+    key: [id]  # from id
+    - ref: bypass_actors.actor_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.RepositorySubscription
+    schema: repository-subscription
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ReviewComment
+    schema: review-comment
+    list: GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: commit_id -> TODO  # guessed from the name, proposed
+    - ref: in_reply_to_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: original_commit_id -> TODO  # guessed from the name, proposed
+    - ref: pull_request_review_id -> TODO  # guessed from the name, proposed
+    - ref: user.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: user.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Root
+    schema: root
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.RuleSuite
+    schema: rule-suite
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: actor_id -> TODO  # guessed from the name, proposed
+    - ref: repository_id -> TODO  # guessed from the name, proposed
+  - kind: github.RulesetVersion
+    schema: ruleset-version
+    list: GET /orgs/{org}/rulesets/{ruleset_id}/history
+    paging: page
+    key: TODO
+    - ref: version_id -> TODO  # guessed from the name, proposed
+  - kind: github.Runner
+    schema: runner
+    list: GET /orgs/{org}/actions/runners
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: labels -> runner-label  # $ref, asserted
+    - ref: runner_group_id -> TODO  # guessed from the name, proposed
+  - kind: github.RunnerApplication
+    schema: runner-application
+    list: GET /orgs/{org}/actions/runners/downloads
+    paging: none
+    key: TODO
+  - kind: github.RunnerGroupsOrg
+    schema: runner-groups-org
+    list: GET /orgs/{org}/actions/runner-groups
+    paging: page
+    key: [id]  # from id
+    - ref: network_configuration_id -> TODO  # guessed from the name, proposed
+  - kind: github.RunnerLabel
+    schema: runner-label
+    list: GET /orgs/{org}/actions/runners/{runner_id}/labels
+    paging: none
+    key: [id]  # from id
+  - kind: github.SecretScanningAlert
+    schema: secret-scanning-alert
+    list: GET /repos/{owner}/{repo}/secret-scanning/alerts
+    paging: cursor
+    key: TODO
+    - ref: assigned_to.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assigned_to.node_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: resolved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: resolved_by.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.SecretScanningAlertWithMetadata
+    schema: secret-scanning-alert-with-metadata
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: assigned_to.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: assigned_to.node_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: closure_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypass_request_reviewer.node_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: push_protection_bypassed_by.node_id -> TODO  # guessed from the name, proposed
+    - ref: resolved_by.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: resolved_by.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.SecretScanningCustomPattern
+    schema: secret-scanning-custom-pattern
+    list: GET /orgs/{org}/secret-scanning/custom-patterns
+    paging: cursor + Link header
+    key: [id]  # from id
+  - kind: github.SecretScanningLocation
+    schema: secret-scanning-location
+    list: GET /repos/{owner}/{repo}/secret-scanning/alerts/{alert_number}/locations
+    paging: page + Link header
+    key: TODO
+  - kind: github.SecretScanningPatternConfiguration
+    schema: secret-scanning-pattern-configuration
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.SecretScanningScanHistory
+    schema: secret-scanning-scan-history
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.SelectedActions
+    schema: selected-actions
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.SelfHostedRunnersSettings
+    schema: self-hosted-runners-settings
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.ShortBranch
+    schema: short-branch
+    list: GET /repos/{owner}/{repo}/branches
+    paging: page + Link header
+    key: TODO
+    - ref: protection -> branch-protection  # $ref, asserted
+  - kind: github.SimpleUser
+    schema: simple-user
+    list: GET /users
+    paging: none + Link header
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.SocialAccount
+    schema: social-account
+    list: GET /user/social_accounts
+    paging: page + Link header
+    key: TODO
+  - kind: github.SshSigningKey
+    schema: ssh-signing-key
+    list: GET /user/ssh_signing_keys
+    paging: page + Link header
+    key: [id]  # from id
+  - kind: github.StargazerHistory
+    schema: stargazer-history
+    list: GET /repos/{owner}/{repo}/stargazers/history
+    paging: page + Link header
+    key: TODO
+  - kind: github.Status
+    schema: status
+    list: GET /repos/{owner}/{repo}/commits/{ref}/statuses
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: creator.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: creator.node_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.StatusCheckPolicy
+    schema: status-check-policy
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+    - ref: checks.app_id -> TODO  # guessed from the name, proposed
+  - kind: github.Tag
+    schema: tag
+    list: GET /repos/{owner}/{repo}/tags
+    paging: page + Link header
+    key: TODO
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.Team
+    schema: team
+    list: GET /orgs/{org}/teams
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: organization_id -> TODO  # guessed from the name, proposed
+    - ref: parent.enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: parent.node_id -> TODO  # guessed from the name, proposed
+    - ref: parent.organization_id -> TODO  # guessed from the name, proposed
+  - kind: github.TeamFull
+    schema: team-full
+    list: GET /user/teams
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: organization.node_id -> TODO  # guessed from the name, proposed
+    - ref: organization_id -> TODO  # guessed from the name, proposed
+    - ref: parent.enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: parent.node_id -> TODO  # guessed from the name, proposed
+    - ref: parent.organization_id -> TODO  # guessed from the name, proposed
+  - kind: github.TeamMember
+    schema: team-member
+    list: GET /teams/{team_id}/members
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.TeamMembership
+    schema: team-membership
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.TeamRepository
+    schema: team-repository
+    list: TODO  # no list route; reachable only through another kind
+    key: [id]  # from id
+    - ref: license.node_id -> TODO  # guessed from the name, proposed
+    - ref: license.spdx_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: owner.gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: owner.node_id -> TODO  # guessed from the name, proposed
+  - kind: github.TeamRoleAssignment
+    schema: team-role-assignment
+    list: GET /orgs/{org}/organization-roles/{role_id}/teams
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: organization_id -> TODO  # guessed from the name, proposed
+    - ref: parent.enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: parent.node_id -> TODO  # guessed from the name, proposed
+    - ref: parent.organization_id -> TODO  # guessed from the name, proposed
+  - kind: github.TeamSimple
+    schema: team-simple
+    list: GET /orgs/{org}/security-managers
+    paging: none
+    key: [id]  # from id
+    - ref: enterprise_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: organization_id -> TODO  # guessed from the name, proposed
+  - kind: github.Thread
+    schema: thread
+    list: GET /notifications
+    paging: cursor + Link header
+    key: [id]  # from id
+    - ref: repository -> minimal-repository  # $ref, asserted
+  - kind: github.ThreadSubscription
+    schema: thread-subscription
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.TimelineIssueEvents
+    schema: timeline-issue-events
+    list: GET /repos/{owner}/{repo}/issues/{issue_number}/timeline
+    paging: page + Link header
+    key: TODO
+  - kind: github.Topic
+    schema: topic
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.TopicSearchResultItem
+    schema: topic-search-result-item
+    list: GET /search/topics
+    paging: page
+    key: TODO
+    - ref: aliases.topic_relation.topic_id -> TODO  # guessed from the name, proposed
+    - ref: related.topic_relation.topic_id -> TODO  # guessed from the name, proposed
+  - kind: github.UserMarketplacePurchase
+    schema: user-marketplace-purchase
+    list: GET /user/marketplace_purchases
+    paging: page + Link header
+    key: TODO
+    - ref: account.node_id -> TODO  # guessed from the name, proposed
+    - ref: plan -> marketplace-listing-plan  # $ref, asserted
+  - kind: github.UserRoleAssignment
+    schema: user-role-assignment
+    list: GET /orgs/{org}/organization-roles/{role_id}/users
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: inherited_from -> team-simple  # $ref, asserted
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.UserSearchResultItem
+    schema: user-search-result-item
+    list: GET /search/users
+    paging: page
+    key: [id]  # from id
+    - ref: gravatar_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.ViewTraffic
+    schema: view-traffic
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.WebhookConfig
+    schema: webhook-config
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.Workflow
+    schema: workflow
+    list: GET /repos/{owner}/{repo}/actions/workflows
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: node_id -> TODO  # guessed from the name, proposed
+  - kind: github.WorkflowRun
+    schema: workflow-run
+    list: GET /repos/{owner}/{repo}/actions/runs
+    paging: page + Link header
+    key: [id]  # from id
+    - ref: actor -> simple-user  # $ref, asserted
+    - ref: check_suite_id -> TODO  # guessed from the name, proposed
+    - ref: check_suite_node_id -> TODO  # guessed from the name, proposed
+    - ref: head_commit.tree_id -> TODO  # guessed from the name, proposed
+    - ref: head_repository -> minimal-repository  # $ref, asserted
+    - ref: head_repository_id -> TODO  # guessed from the name, proposed
+    - ref: node_id -> TODO  # guessed from the name, proposed
+    - ref: repository -> minimal-repository  # $ref, asserted
+    - ref: triggering_actor -> simple-user  # $ref, asserted
+    - ref: workflow_id -> TODO  # guessed from the name, proposed
+  - kind: github.WorkflowRunUsage
+    schema: workflow-run-usage
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: github.WorkflowUsage
+    schema: workflow-usage
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO

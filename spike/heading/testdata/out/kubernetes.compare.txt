@@ -1,0 +1,41 @@
+generated: 15 observations; hand-written: 11
+
+hand-written claim                           generated equivalent               covered
+workload_name                                metadata_name                      true
+workload_kind                                the kind itself                    true
+image                                        image (mapping projection)         true
+replicas                                     spec_replicas                      true
+relation deployed_to                         namespace                          true
+relation owned_by                            (none)                             false
+relation defined_in                          (none)                             false
+relation depends_on                          (none)                             false
+
+(rows above are for the first workload; gaps across all 6 workloads:)
+  relation defined_in                          missing for 4
+  relation depends_on                          missing for 1
+  relation owned_by                            missing for 5
+
+fake canary values leaked: generated 11 of 11, hand-written 0
+
+store: 8 records answer as Component through extends
+record payments-api (kubernetes.Deployment), 20 facts:
+  image                                [ghcr.io/acme/payments-api:1.4.1]
+  metadata_annotations                 map[deployment.kubernetes.io/revision:6 github.com/project-slug:acm...
+  metadata_creation_timestamp          2026-09-01T00:00:00Z
+  metadata_generation                  1
+  metadata_labels                      map[team:payments tier:gold]
+  metadata_managed_fields              [map[apiVersion:apps/v1 fieldsType:FieldsV1 fieldsV1:map[] manager:...
+  metadata_name                        payments-api
+  metadata_namespace                   payments
+  metadata_resource_version            4
+  metadata_uid                         0b6c1d2e-0004-4a7f-9e3d-00005ee0c1a9
+  namespace                            -> 01a05a7a-ea80-7bb0-8049-3e3ca20087b5
+  spec_replicas                        2
+  spec_selector_match_labels           map[app:payments-api]
+  spec_template_metadata               map[labels:map[app:payments-api]]
+  spec_template_spec                   map[containers:[map[args:[--token=not-a-real-token] env:[map[name:D...
+  status_available_replicas            2
+  status_observed_generation           1
+  status_ready_replicas                2
+  status_replicas                      2
+  status_updated_replicas              2

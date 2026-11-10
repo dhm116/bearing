@@ -1,0 +1,11 @@
+spec "GitHub v3 REST API" -> namespace github
+operations by method: GET 664, POST 198, DELETE 192, PUT 140, PATCH 78
+POSTs that look like reads: 7
+GETs: 304 list, 261 single item, 99 other
+kinds: 279 (164 listable), 0 short-name collisions
+keys: 3 from the item route, 110 from id, 166 not guessed
+references: 129 typed ($ref), 453 guessed from *_id names
+list operations reachable without config: 109 of 304
+unresolved path parameters (blocked lists): owner 123, username 25, issue_number 12, project_number 6, environment_name 5, pull_number 5, run_id 5, secret_name 5
+paging: page + Link header 162, page 55, none 49, cursor + Link header 18, cursor 16, none + Link header 4
+sensitive fields (writeOnly or password): 0

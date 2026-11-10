@@ -1,0 +1,11 @@
+spec "Kubernetes" -> namespace kubernetes
+operations by method: GET 145, DELETE 45, PUT 44, PATCH 43, POST 33, HEAD 6, OPTIONS 6
+POSTs that look like reads: 0
+GETs: 38 list, 97 single item, 10 other
+kinds: 24 (21 listable), 0 short-name collisions
+keys: 22 from the item route, 0 from id, 2 not guessed
+references: 1 typed ($ref), 0 guessed from *_id names
+list operations reachable without config: 38 of 38
+unresolved path parameters (blocked lists): 
+paging: cursor (continue) 38
+sensitive fields (writeOnly or password): 0

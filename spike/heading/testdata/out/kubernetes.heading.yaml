@@ -1,0 +1,121 @@
+# heading init: Kubernetes
+namespace: kubernetes
+kinds:
+  - kind: kubernetes.ControllerRevision
+    schema: io.k8s.api.apps.v1.ControllerRevision
+    list: GET /apis/apps/v1/controllerrevisions
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.DaemonSet
+    schema: io.k8s.api.apps.v1.DaemonSet
+    list: GET /apis/apps/v1/daemonsets
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Deployment
+    schema: io.k8s.api.apps.v1.Deployment
+    list: GET /apis/apps/v1/deployments
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.ReplicaSet
+    schema: io.k8s.api.apps.v1.ReplicaSet
+    list: GET /apis/apps/v1/replicasets
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.StatefulSet
+    schema: io.k8s.api.apps.v1.StatefulSet
+    list: GET /apis/apps/v1/statefulsets
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+    - ref: spec.volumeClaimTemplates -> io.k8s.api.core.v1.PersistentVolumeClaim  # $ref, asserted
+  - kind: kubernetes.Scale
+    schema: io.k8s.api.autoscaling.v1.Scale
+    list: TODO  # no list route; reachable only through another kind
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.ComponentStatus
+    schema: io.k8s.api.core.v1.ComponentStatus
+    list: GET /api/v1/componentstatuses
+    paging: cursor (continue)
+    key: [metadata.name]  # from route
+  - kind: kubernetes.ConfigMap
+    schema: io.k8s.api.core.v1.ConfigMap
+    list: GET /api/v1/configmaps
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Endpoints
+    schema: io.k8s.api.core.v1.Endpoints
+    list: GET /api/v1/endpoints
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Event
+    schema: io.k8s.api.core.v1.Event
+    list: GET /api/v1/events
+    paging: cursor (continue)
+    key: [involvedObject.namespace, involvedObject.name]  # from route
+  - kind: kubernetes.LimitRange
+    schema: io.k8s.api.core.v1.LimitRange
+    list: GET /api/v1/limitranges
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Namespace
+    schema: io.k8s.api.core.v1.Namespace
+    list: GET /api/v1/namespaces
+    paging: cursor (continue)
+    key: [metadata.name]  # from route
+  - kind: kubernetes.Node
+    schema: io.k8s.api.core.v1.Node
+    list: GET /api/v1/nodes
+    paging: cursor (continue)
+    key: [metadata.name]  # from route
+  - kind: kubernetes.PersistentVolume
+    schema: io.k8s.api.core.v1.PersistentVolume
+    list: GET /api/v1/persistentvolumes
+    paging: cursor (continue)
+    key: [metadata.name]  # from route
+  - kind: kubernetes.PersistentVolumeClaim
+    schema: io.k8s.api.core.v1.PersistentVolumeClaim
+    list: GET /api/v1/persistentvolumeclaims
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Pod
+    schema: io.k8s.api.core.v1.Pod
+    list: GET /api/v1/pods
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.PodTemplate
+    schema: io.k8s.api.core.v1.PodTemplate
+    list: GET /api/v1/podtemplates
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.ReplicationController
+    schema: io.k8s.api.core.v1.ReplicationController
+    list: GET /api/v1/replicationcontrollers
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.ResourceQuota
+    schema: io.k8s.api.core.v1.ResourceQuota
+    list: GET /api/v1/resourcequotas
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Secret
+    schema: io.k8s.api.core.v1.Secret
+    list: GET /api/v1/secrets
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.Service
+    schema: io.k8s.api.core.v1.Service
+    list: GET /api/v1/services
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.ServiceAccount
+    schema: io.k8s.api.core.v1.ServiceAccount
+    list: GET /api/v1/serviceaccounts
+    paging: cursor (continue)
+    key: [metadata.namespace, metadata.name]  # from route
+  - kind: kubernetes.APIResourceList
+    schema: io.k8s.apimachinery.pkg.apis.meta.v1.APIResourceList
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
+  - kind: kubernetes.WatchEvent
+    schema: io.k8s.apimachinery.pkg.apis.meta.v1.WatchEvent
+    list: TODO  # no list route; reachable only through another kind
+    key: TODO
