@@ -18,6 +18,7 @@ const (
 	corner    = 8.0  // corner radius
 	laneInset = 14.0 // no lane closer than this to a card
 	laneGap   = 6.0  // vertical runs closer than this share no lane
+	hop       = 5.0  // radius of the bump where a horizontal run crosses a vertical one
 )
 
 // side is one side of a card or record row, where an edge starts or ends.
@@ -125,7 +126,7 @@ func routeAll(l *layout, rs []route) {
 			}
 			n := used[[2]int{c, best}]
 			used[[2]int{c, best}]++
-			r.ys[k] = l.corridors[c][best] + float64([]int{0, 4, -4, 8, -8}[n%5])
+			r.ys[k] = l.corridors[c][best] + float64([]int{0, 12, -12}[n%3])
 		}
 	}
 
@@ -170,25 +171,63 @@ func (r route) points() [][2]float64 {
 	return append(pts, [2]float64{r.to.x(), r.ys[len(r.ys)-1]})
 }
 
-// label is where an edge's label goes: over its longest horizontal run, or
-// beside its vertical run when every horizontal one is short (a loop).
-func (r route) label() (x, y float64, anchor string) {
+// label is where an edge's label is centred: over the longer of the runs
+// out of and into its boxes, which sit in open gaps, never in a corridor
+// between two cards; or beside its first vertical run when both are short.
+func (r route) label(width float64) (x, y float64, beside bool) {
 	pts := r.points()
-	best := -1.0
-	for i := 1; i < len(pts); i++ {
-		a, b := pts[i-1], pts[i]
-		if a[1] == b[1] && math.Abs(b[0]-a[0]) > best {
-			best, x, y = math.Abs(b[0]-a[0]), (a[0]+b[0])/2, a[1]-4
-		}
+	first, last := [2][2]float64{pts[0], pts[1]}, [2][2]float64{pts[len(pts)-2], pts[len(pts)-1]}
+	run := last
+	if math.Abs(first[1][0]-first[0][0]) > math.Abs(last[1][0]-last[0][0]) {
+		run = first
 	}
-	if best >= 60 {
-		return x, y, "middle"
+	if math.Abs(run[1][0]-run[0][0]) >= width+2*corner+8 {
+		return (run[0][0] + run[1][0]) / 2, run[0][1], false
 	}
-	return r.lanes[0] + 4, (r.ys[0]+r.ys[len(r.ys)-1])/2 + 3, "start"
+	return r.lanes[0], (r.ys[0] + r.ys[1]) / 2, true
 }
 
-// roundedPath draws a polyline with its corners rounded.
-func roundedPath(in [][2]float64) string {
+// crossings finds, for each route, the xs where its horizontal runs cross
+// another route's vertical run, so the horizontal one can hop over it.
+func crossings(rs []route) []map[float64][]float64 {
+	type seg struct{ a, b [2]float64 }
+	hs, vs := make([][]seg, len(rs)), make([][]seg, len(rs))
+	for i, r := range rs {
+		pts := r.points()
+		for j := 1; j < len(pts); j++ {
+			a, b := pts[j-1], pts[j]
+			switch {
+			case a[1] == b[1] && a[0] != b[0]:
+				hs[i] = append(hs[i], seg{a, b})
+			case a[0] == b[0] && a[1] != b[1]:
+				vs[i] = append(vs[i], seg{a, b})
+			}
+		}
+	}
+	out := make([]map[float64][]float64, len(rs))
+	for i := range rs {
+		out[i] = map[float64][]float64{}
+		for _, h := range hs[i] {
+			lo, hi := min(h.a[0], h.b[0]), max(h.a[0], h.b[0])
+			for j := range rs {
+				if j == i {
+					continue
+				}
+				for _, v := range vs[j] {
+					x, ylo, yhi := v.a[0], min(v.a[1], v.b[1]), max(v.a[1], v.b[1])
+					if x > lo+corner+hop && x < hi-corner-hop && h.a[1] > ylo+1 && h.a[1] < yhi-1 {
+						out[i][h.a[1]] = append(out[i][h.a[1]], x)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// roundedPath draws a polyline with its corners rounded and, on horizontal
+// runs, a hop over each x in hops[y].
+func roundedPath(in [][2]float64, hops map[float64][]float64) string {
 	var p [][2]float64
 	for _, q := range in {
 		n := len(p)
@@ -201,15 +240,41 @@ func roundedPath(in [][2]float64) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "M%.1f %.1f", p[0][0], p[0][1])
+	pen := p[0]
+	fmt.Fprintf(&b, "M%.1f %.1f", pen[0], pen[1])
+	line := func(to [2]float64) {
+		if to[1] == pen[1] {
+			dir := 1.0
+			if to[0] < pen[0] {
+				dir = -1
+			}
+			xs := slices.Clone(hops[to[1]])
+			slices.SortFunc(xs, func(a, b float64) int { return cmp.Compare(a*dir, b*dir) })
+			last := pen[0]
+			for _, x := range xs {
+				if (x-pen[0])*dir <= hop || (to[0]-x)*dir <= hop || (x-last)*dir < 2*hop+2 {
+					continue // too near a corner or the previous hop
+				}
+				sweep := 1 // bump upward either way
+				if dir < 0 {
+					sweep = 0
+				}
+				fmt.Fprintf(&b, " L%.1f %.1f a%.0f %.0f 0 0 %d %.1f 0", x-hop*dir, to[1], hop, hop, sweep, 2*hop*dir)
+				last = x + hop*dir
+			}
+		}
+		fmt.Fprintf(&b, " L%.1f %.1f", to[0], to[1])
+		pen = to
+	}
 	for i := 1; i < len(p)-1; i++ {
 		a, c, n := p[i-1], p[i], p[i+1]
 		r := min(corner, dist(a, c)/2, dist(c, n)/2)
 		s, e := towards(c, a, r), towards(c, n, r)
-		fmt.Fprintf(&b, " L%.1f %.1f Q%.1f %.1f %.1f %.1f", s[0], s[1], c[0], c[1], e[0], e[1])
+		line(s)
+		fmt.Fprintf(&b, " Q%.1f %.1f %.1f %.1f", c[0], c[1], e[0], e[1])
+		pen = e
 	}
-	last := p[len(p)-1]
-	fmt.Fprintf(&b, " L%.1f %.1f", last[0], last[1])
+	line(p[len(p)-1])
 	return b.String()
 }
 

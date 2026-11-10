@@ -38,20 +38,26 @@ details{margin-top:4px}
 summary{cursor:pointer;color:var(--muted);font-size:12px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px}
 .legend svg{vertical-align:middle}
+[hidden]{display:none!important}
+button{font:inherit;padding:3px 10px;border:1px solid var(--rule-solid);border-radius:4px;background:var(--paper-2);color:var(--ink);cursor:pointer}
 @media (max-width:760px){body{grid-template-columns:1fr;grid-template-rows:1fr 40vh}aside{border-left:0;border-top:1px solid var(--rule-solid)}}
 </style>
+<style>{{.CSS}}</style>
 </head>
 <body>
 <main>
 <div class="bar">
+<button id="back" hidden>← Whole graph</button>
 <input type="search" id="q" placeholder="Find an entity or key" aria-label="Find an entity or key">
 <label><input type="checkbox" id="proposed" checked> proposed</label>
 <label><input type="checkbox" id="links" checked> identity links</label>
 <span id="preds"></span>
 </div>
-{{.SVG}}
-</main>
-<aside id="panel" aria-live="polite"><h2>Bearing graph</h2><p class="muted">Click an entity, a fact or an identity link to see its evidence. Hover an entity to light up its neighbours.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">{{.Defs}}</svg>
+<div class="view" data-view="">{{.SVG}}</div>
+{{range .Views}}<div class="view" data-view="{{.ID}}" hidden>{{.SVG}}</div>
+{{end}}</main>
+<aside id="panel" aria-live="polite"><h2>Bearing graph</h2><p class="muted">Click an entity to open it with only its neighbours, and its evidence here. Click a fact or an identity link to see its evidence. Hover an entity to light up its neighbours.</p>
 <h3>Legend</h3>
 <div class="legend">
 <span><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" stroke="var(--muted)" stroke-width="1.4"/></svg> fact: a source said so</span>
@@ -68,10 +74,22 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
   const rec = new Map(); data.entities.forEach(e => e.records.forEach(r => rec.set(r.id, { r, e })));
   const fact = new Map(data.facts.map(f => [f.id, f]));
   const link = new Map(data.links.map(l => [l.id, l]));
-  const svg = document.querySelector('main svg');
+  const main = document.querySelector('main');
   const panel = document.getElementById('panel');
-  const edges = [...svg.querySelectorAll('[data-from]')];
-  const cards = [...svg.querySelectorAll('.card')];
+  const back = document.getElementById('back');
+  const views = new Map([...main.querySelectorAll('.view')].map(v => [v.dataset.view, v]));
+  let current = '', edges, cards;
+  // open shows one view: '' is the whole graph, an entity ID its neighbourhood.
+  function open(id) {
+    views.forEach((v, k) => { v.hidden = k !== id; });
+    current = id; back.hidden = !id;
+    const svg = views.get(id).querySelector('svg');
+    edges = [...svg.querySelectorAll('[data-from]')]; cards = [...svg.querySelectorAll('.card')];
+    main.scrollTo(0, 0);
+  }
+  open('');
+  back.onclick = () => { open(''); show(intro); };
+  const intro = [...panel.childNodes];
 
   const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
   const kindText = k => k || 'reported by no source';
@@ -167,13 +185,14 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
     return d;
   }
 
-  svg.addEventListener('click', ev => {
+  function openEntity(id) { if (id !== current) open(id); showEntity(id); }
+  main.addEventListener('click', ev => {
     const g = ev.target.closest('[data-facts],[data-link],[data-entity]'); if (!g) return;
     if (g.dataset.facts) { const fs = g.dataset.facts.split(' ').map(i => fact.get(i)); show([el('h2', nameOf(fs[0].subject)), el('h3', 'Facts'), ...fs.map(f => factBlock(f, true))]); }
     else if (g.dataset.link) show([el('h2', 'Identity link'), linkBlock(link.get(g.dataset.link))]);
-    else showEntity(g.dataset.entity);
+    else openEntity(g.dataset.entity);
   });
-  svg.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.dataset.entity) showEntity(ev.target.dataset.entity); });
+  main.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.dataset?.entity) openEntity(ev.target.dataset.entity); });
 
   function focus(id) {
     const near = new Set([id]);
@@ -182,7 +201,8 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
     edges.forEach(g => g.classList.toggle('dim', g.dataset.from !== id && g.dataset.to !== id));
   }
   function unfocus() { cards.forEach(c => c.classList.remove('dim', 'focus')); edges.forEach(g => g.classList.remove('dim')); }
-  cards.forEach(c => { c.addEventListener('mouseenter', () => focus(c.dataset.entity)); c.addEventListener('mouseleave', unfocus); });
+  main.addEventListener('mouseover', ev => { const c = ev.target.closest('.card'); if (c) focus(c.dataset.entity); });
+  main.addEventListener('mouseout', ev => { const c = ev.target.closest('.card'); if (c && !c.contains(ev.relatedTarget)) unfocus(); });
 
   const preds = [...new Set(data.facts.map(f => f.predicate))].sort();
   const off = new Set();
@@ -190,16 +210,17 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
   preds.forEach(p => { const lab = el('label'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = true; cb.onchange = () => { cb.checked ? off.delete(p) : off.add(p); filter(); }; lab.append(cb, p); predBox.append(lab, ' '); });
   const showProposed = document.getElementById('proposed'), showLinks = document.getElementById('links');
   function filter() {
-    svg.querySelectorAll('.fact').forEach(g => {
+    main.querySelectorAll('.fact').forEach(g => {
       const on = g.dataset.predicates.split(' ').some(p => !off.has(p));
       g.classList.toggle('hidden', !on || (!showProposed.checked && g.classList.contains('proposed')));
     });
-    svg.querySelectorAll('.link').forEach(g => g.classList.toggle('hidden', !showLinks.checked || (!showProposed.checked && g.classList.contains('proposed'))));
+    main.querySelectorAll('.link').forEach(g => g.classList.toggle('hidden', !showLinks.checked || (!showProposed.checked && g.classList.contains('proposed'))));
   }
   showProposed.onchange = filter; showLinks.onchange = filter;
 
   document.getElementById('q').addEventListener('input', ev => {
     const q = ev.target.value.trim().toLowerCase();
+    if (current) open('');
     if (!q) return unfocus();
     cards.forEach(c => { const e = ent.get(c.dataset.entity); const hit = (e.name + ' ' + e.records.flatMap(r => r.keys).join(' ')).toLowerCase().includes(q); c.classList.toggle('dim', !hit); c.classList.toggle('focus', hit); });
     edges.forEach(g => g.classList.add('dim'));

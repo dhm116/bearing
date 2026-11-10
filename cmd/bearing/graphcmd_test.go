@@ -127,9 +127,51 @@ func TestGraphEdgesCrossColumnsBetweenCards(t *testing.T) {
 
 func TestRoundedPathRoundsEachCorner(t *testing.T) {
 	t.Parallel()
-	got := roundedPath([][2]float64{{0, 0}, {20, 0}, {40, 0}, {40, 30}, {40, 30}, {60, 30}})
+	got := roundedPath([][2]float64{{0, 0}, {20, 0}, {40, 0}, {40, 30}, {40, 30}, {60, 30}}, nil)
 	want := "M0.0 0.0 L32.0 0.0 Q40.0 0.0 40.0 8.0 L40.0 22.0 Q40.0 30.0 48.0 30.0 L60.0 30.0"
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestRoundedPathHopsOverCrossings(t *testing.T) {
+	t.Parallel()
+	got := roundedPath([][2]float64{{0, 0}, {100, 0}}, map[float64][]float64{0: {50, 3, 53}})
+	// 3 is too near the start and 53 too near the hop at 50: one hop only.
+	want := "M0.0 0.0 L45.0 0.0 a5 5 0 0 1 10.0 0 L100.0 0.0"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestGraphNeighbourhoodKeepsOnlyWhatTouchesTheEntity(t *testing.T) {
+	t.Parallel()
+	v := &view{
+		Entities: []vEntity{
+			{ID: "jane", Kind: "Person", Records: []vRecord{{ID: "j1"}, {ID: "j2"}}},
+			{ID: "mei", Kind: "Person", Records: []vRecord{{ID: "m1"}}},
+			{ID: "pay", Kind: "Team", Records: []vRecord{{ID: "p1"}}},
+			{ID: "plat", Kind: "Team", Records: []vRecord{{ID: "q1"}}},
+		},
+		Facts: []vFact{
+			{ID: "f1", Subject: "jane", Predicate: "member_of", Object: "pay"},
+			{ID: "f2", Subject: "mei", Predicate: "member_of", Object: "plat"},
+			{ID: "f3", Subject: "pay", Predicate: "member_of", Object: "plat"},
+		},
+		Links: []vLink{{ID: "l1", A: "j1", B: "j2"}, {ID: "l2", A: "m1", B: "j1", Kind: "distinct_from"}},
+	}
+	n := neighbourhood(v, "jane")
+	var ids []string
+	for _, e := range n.Entities {
+		ids = append(ids, e.ID)
+	}
+	if got, want := strings.Join(ids, " "), "jane mei pay"; got != want {
+		t.Errorf("entities: got %q, want %q", got, want)
+	}
+	if len(n.Facts) != 1 || n.Facts[0].ID != "f1" {
+		t.Errorf("facts: got %v, want only f1", n.Facts)
+	}
+	if len(n.Links) != 2 {
+		t.Errorf("links: got %d, want 2", len(n.Links))
 	}
 }

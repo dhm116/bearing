@@ -15,7 +15,8 @@ svg{--paper:#F5F7F6;--paper-2:#EDF1F0;--ink:#18242A;--muted:#55646B;--soft:#6B7C
 .fact .line{stroke:var(--muted)}
 .fact.proposed .line{stroke-dasharray:5 4}
 .arrowhead{fill:none;stroke:var(--muted);stroke-width:1.4}
-.edge-label{font:9.5px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--soft);paint-order:stroke;stroke:var(--paper);stroke-width:4px}
+.edge-label{font:500 9.5px "IBM Plex Mono",ui-monospace,Menlo,monospace;letter-spacing:.04em;fill:var(--soft);text-anchor:middle}
+.label-mask{fill:var(--paper)}
 .link .line{stroke:var(--link)}
 .link.proposed .line{stroke-dasharray:3 3}
 .link.distinct-from .line{stroke:var(--bad);stroke-dasharray:1 3;stroke-width:1.6}

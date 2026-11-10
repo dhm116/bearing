@@ -107,8 +107,8 @@ func linkTip(l vLink) string {
 const (
 	colW, colGap   = 230.0, 150.0
 	cardHead, rowH = 38.0, 30.0
-	cardGap, pad   = 24.0, 40.0
-	marginX        = 72.0 // room for loops left of the first column and right of the last
+	cardGap, pad   = 40.0, 40.0 // a corridor between cards holds three runs 12px apart
+	marginX        = 72.0       // room for loops left of the first column and right of the last
 	titleH         = 56.0
 )
 
@@ -170,18 +170,52 @@ func layOut(v *view) *layout {
 //go:embed graph.css
 var graphCSS string
 
+const arrowDefs = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9" class="arrowhead"/></marker></defs>`
+
+// neighbourhood is one entity with the entities its facts and identity links
+// reach, and only those facts and links: a view small enough to read.
+func neighbourhood(v *view, id string) *view {
+	keep := map[string]bool{id: true}
+	n := &view{Entities: []vEntity{}, Facts: []vFact{}, Links: []vLink{}}
+	for _, f := range v.Facts {
+		if f.Subject == id || f.Object == id {
+			keep[f.Subject], keep[f.Object] = true, true
+			n.Facts = append(n.Facts, f)
+		}
+	}
+	owner := map[string]string{}
+	for _, e := range v.Entities {
+		for _, r := range e.Records {
+			owner[r.ID] = e.ID
+		}
+	}
+	for _, k := range v.Links {
+		if owner[k.A] == id || owner[k.B] == id {
+			keep[owner[k.A]], keep[owner[k.B]] = true, true
+			n.Links = append(n.Links, k)
+		}
+	}
+	for _, e := range v.Entities { // already in column order
+		if keep[e.ID] {
+			n.Entities = append(n.Entities, e)
+		}
+	}
+	return n
+}
+
 // svgDrawing draws the view as SVG. Every text is escaped here; ids ride in
 // data- attributes so the HTML page can find what was clicked.
-func svgDrawing(v *view) string {
+func svgDrawing(v *view, title string, embedded bool) string {
 	l := layOut(v)
 	var b strings.Builder
 	e := html.EscapeString
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.0f %.0f" width="%.0f" height="%.0f" role="img" aria-label="Bearing graph">`, l.w, l.h, l.w, l.h)
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.0f %.0f" width="%.0f" height="%.0f" role="img" aria-label="%s">`, l.w, l.h, l.w, l.h, e(title))
 	b.WriteString(`<desc>Entities by kind, the facts between them and the identity links between their records.</desc>`)
-	b.WriteString(`<style>` + graphCSS + `</style>`)
-	b.WriteString(`<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9" class="arrowhead"/></marker></defs>`)
+	if !embedded { // the HTML page carries the style and the arrow once for every view
+		b.WriteString(`<style>` + graphCSS + `</style>` + arrowDefs)
+	}
 	fmt.Fprintf(&b, `<rect class="paper" width="%.0f" height="%.0f"/>`, l.w, l.h)
-	fmt.Fprintf(&b, `<text class="title" x="%.0f" y="%.0f">Bearing graph</text>`, pad, pad+16)
+	fmt.Fprintf(&b, `<text class="title" x="%.0f" y="%.0f">%s</text>`, pad, pad+16, e(clip(title, 60)))
 	fmt.Fprintf(&b, `<text class="eyebrow" x="%.0f" y="%.0f">%d ENTITIES · %d FACTS · %d IDENTITY LINKS</text>`, pad, pad+38, len(v.Entities), len(v.Facts), len(v.Links))
 	for i, k := range l.columns {
 		if k == "" {
@@ -210,11 +244,16 @@ func svgDrawing(v *view) string {
 		ca, cz := l.col[p.s], l.col[p.o]
 		rs = append(rs, newRoute(side{"c:" + p.s, a, ca, ca <= cz}, side{"c:" + p.o, z, cz, ca >= cz}))
 	}
-	var links []vLink
+	var links, inside []vLink
+	var inner []string // drawn after the cards
 	for _, k := range v.Links {
 		ra, oka := l.rows[k.A]
 		rb, okb := l.rows[k.B]
 		if !oka || !okb {
+			continue
+		}
+		if l.cluster[k.A] == l.cluster[k.B] { // records of one card: a bracket inside it
+			inside = append(inside, k)
 			continue
 		}
 		links = append(links, k)
@@ -222,6 +261,7 @@ func svgDrawing(v *view) string {
 		rs = append(rs, newRoute(side{"r:" + k.A, ra, ca, ca < cb}, side{"r:" + k.B, rb, cb, ca > cb}))
 	}
 	routeAll(l, rs)
+	hops := crossings(rs)
 
 	b.WriteString(`<g class="facts">`)
 	labelled := map[string]bool{} // one label per predicates per target: edges into a card share it
@@ -238,13 +278,12 @@ func svgDrawing(v *view) string {
 				cls = "fact"
 			}
 		}
-		d := roundedPath(rs[i].points())
-		lx, ly, anchor := rs[i].label()
+		d := roundedPath(rs[i].points(), hops[i])
 		fmt.Fprintf(&b, `<g class="%s" data-facts="%s" data-from="%s" data-to="%s" data-predicates="%s">`, cls, e(strings.Join(ids, " ")), e(p.s), e(p.o), e(strings.Join(preds, " ")))
 		fmt.Fprintf(&b, `<path class="hit" d="%s"/><path class="line" d="%s" marker-end="url(#arrow)"/>`, d, d)
 		if k := p.o + " " + strings.Join(preds, ", "); !labelled[k] {
 			labelled[k] = true
-			fmt.Fprintf(&b, `<text class="edge-label" x="%.1f" y="%.1f" text-anchor="%s">%s</text>`, lx, ly, anchor, e(strings.Join(preds, ", ")))
+			b.WriteString(edgeLabel(rs[i], strings.ToUpper(strings.Join(preds, ", "))))
 		}
 		b.WriteString(`</g>`)
 	}
@@ -253,11 +292,30 @@ func svgDrawing(v *view) string {
 	b.WriteString(`<g class="links">`)
 	for i, k := range links {
 		cls := "link " + strings.ReplaceAll(k.Kind, "_", "-") + " " + k.Status
-		d := roundedPath(rs[len(order)+i].points())
+		d := roundedPath(rs[len(order)+i].points(), hops[len(order)+i])
 		fmt.Fprintf(&b, `<g class="%s" data-link="%s" data-from="%s" data-to="%s"><path class="hit" d="%s"/><path class="line" d="%s"/><title>%s</title></g>`,
 			e(cls), e(k.ID), e(l.cluster[k.A]), e(l.cluster[k.B]), d, d, e(linkTip(k)))
 	}
 	b.WriteString(`</g>`)
+
+	// Links inside one card join its rows with a bracket along its left
+	// edge, drawn over the card; brackets that overlap step inward.
+	depth := map[string][]float64{} // per card: lowest free y per step
+	for _, k := range inside {
+		ra, rb := l.rows[k.A], l.rows[k.B]
+		y1, y2 := min(ra.y, rb.y)+rowH/2, max(ra.y, rb.y)+rowH/2
+		c := l.cluster[k.A]
+		step := slices.IndexFunc(depth[c], func(free float64) bool { return free < y1 })
+		if step < 0 {
+			step, depth[c] = len(depth[c]), append(depth[c], 0)
+		}
+		depth[c][step] = y2 + 2
+		x := ra.x + 4 + float64(min(step, 2))*2
+		d := fmt.Sprintf("M%.1f %.1f H%.1f V%.1f H%.1f", x+3, y1, x, y2, x+3)
+		cls := "link " + strings.ReplaceAll(k.Kind, "_", "-") + " " + k.Status
+		inner = append(inner, fmt.Sprintf(`<g class="%s" data-link="%s" data-from="%s" data-to="%s"><path class="hit" d="%s"/><path class="line" d="%s"/><title>%s</title></g>`,
+			e(cls), e(k.ID), e(c), e(c), d, d, e(linkTip(k))))
+	}
 
 	b.WriteString(`<g class="cards">`)
 	for _, en := range v.Entities {
@@ -280,8 +338,22 @@ func svgDrawing(v *view) string {
 		}
 		b.WriteString(`</g>`)
 	}
-	b.WriteString(`</g></svg>`)
+	b.WriteString(`</g><g class="links inside">` + strings.Join(inner, "") + `</g></svg>`)
 	return b.String()
+}
+
+// edgeLabel draws a label on an opaque mask that stays 7px clear of its
+// line: above a horizontal run, or right of a vertical one.
+func edgeLabel(r route, text string) string {
+	const charW, h, gap = 5.9, 13.0, 7.0
+	w := float64(len([]rune(text)))*charW + 8
+	x, y, beside := r.label(w)
+	rx, ry := x-w/2, y-gap-h
+	if beside {
+		rx, ry = x+gap, y-h/2
+	}
+	return fmt.Sprintf(`<rect class="label-mask" x="%.1f" y="%.1f" width="%.1f" height="%.0f" rx="2"/><text class="edge-label" x="%.1f" y="%.1f">%s</text>`,
+		rx, ry, w, h, rx+w/2, ry+h-3.5, html.EscapeString(text))
 }
 
 func clip(s string, n int) string {
@@ -292,7 +364,7 @@ func clip(s string, n int) string {
 }
 
 func writeSVG(w io.Writer, v *view) error {
-	_, err := io.WriteString(w, svgDrawing(v)+"\n")
+	_, err := io.WriteString(w, svgDrawing(v, "Bearing graph", false)+"\n")
 	return err
 }
 
@@ -301,9 +373,27 @@ var graphPage string
 
 var graphTemplate = template.Must(template.New("graph").Parse(graphPage))
 
+type focusView struct {
+	ID  string
+	SVG template.HTML
+}
+
+// writeHTML writes the whole graph as the overview, and one neighbourhood
+// view per entity that a click opens.
+// shortcut: every view is drawn up front, so the page grows with entities
+// times neighbours; draw views on demand once a server route exists.
 func writeHTML(w io.Writer, v *view) error {
-	return graphTemplate.Execute(w, struct {
-		SVG  template.HTML // built by svgDrawing, which escapes every text
-		Data *view
-	}{template.HTML(svgDrawing(v)), v}) //nolint:gosec // G203: svgDrawing escapes all text
+	//nolint:gosec // G203: svgDrawing escapes all text; graphCSS is our embedded file
+	page := struct {
+		CSS   template.CSS
+		Defs  template.HTML
+		SVG   template.HTML
+		Views []focusView
+		Data  *view
+	}{template.CSS(graphCSS), template.HTML(arrowDefs), template.HTML(svgDrawing(v, "Bearing graph", true)), nil, v}
+	for _, e := range v.Entities {
+		//nolint:gosec // G203: as above
+		page.Views = append(page.Views, focusView{e.ID, template.HTML(svgDrawing(neighbourhood(v, e.ID), e.Name, true))})
+	}
+	return graphTemplate.Execute(w, page)
 }
