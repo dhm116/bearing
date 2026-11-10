@@ -27,6 +27,14 @@ Specs:
   curl -sSfLo /tmp/github-api.json https://raw.githubusercontent.com/github/rest-api-description/fa8d7bfb041cc9ef90ac51dcb8ed8cc8a0007166/descriptions/api.github.com/api.github.com.json
   HEADING_GITHUB_SPEC=/tmp/github-api.json go test ./spike/heading/
   ```
+- **GitHub GraphQL:** the introspection result `schema.json` from
+  `octokit/graphql-schema` commit `82ff2d4` (5 MB, not committed). To
+  reproduce:
+
+  ```sh
+  curl -sSfLo /tmp/github-graphql.json https://raw.githubusercontent.com/octokit/graphql-schema/82ff2d4780080e6929ebb95608cefa22dfa05ac7/schema.json
+  HEADING_GITHUB_GRAPHQL=/tmp/github-graphql.json go test ./spike/heading/ -run GraphQL
+  ```
 
 The runner interprets the mapping; it doesn't generate Go. Code generation
 would template the same logic, so it changes nothing below.
@@ -119,3 +127,44 @@ the ADR should change:
   those in small hand-written adapters.
 - **Use vendor extensions when present** (`x-kubernetes-*`).
 - **For GitHub, evaluate the GraphQL schema** before the REST spec.
+
+## GitHub: GraphQL against REST
+
+`graphql.go` reads GitHub's GraphQL schema. Output is in
+`testdata/out/github-graphql.report.txt`.
+
+| | REST | GraphQL |
+| --- | --- | --- |
+| Kinds | 279 schemas, several per resource | 243 types implementing `Node`, one per resource (one `Repository`) |
+| Keys | 3 from routes, 110 numeric `id`, 166 none | All 243 have a global `id`; 50 also have a readable one (`nameWithOwner`, `login`, `slug`, `resourcePath`) |
+| Reaching kinds without config | 109 of 304 list routes | 100 of 243 kinds, from `viewer` through fields and connections |
+| Paging styles | 5 | 1 (Relay connections, 209 of them) |
+| References | 129 typed, 453 guessed from names | 454 typed, single-valued, plus the 209 connections |
+| Writes to avoid | 608 non-GET operations, plus POSTs that read | One `Mutation` root (242 fields), never queried |
+
+GraphQL is the simpler source for GitHub:
+
+- one type per resource, so no views to fold;
+- every kind has a key;
+- one paging style;
+- typed references throughout;
+- read-only by construction: never send a mutation.
+
+It also suits the field allow-list best. The selection set *is* the
+allow-list, so fields the mapping doesn't list are never fetched, let
+alone emitted.
+
+What it doesn't fix:
+
+- **Seeds.** The organization login still comes from config, and fields
+  with required arguments (`repository(name:)`, `issue(number:)`) still
+  need a mapping.
+- **Keys.** Global IDs are opaque, so cross-source keys still need a
+  readable field such as `nameWithOwner`.
+- **Rate limits.** GitHub charges GraphQL by query cost, so deep nested
+  connections must be paged with care.
+
+The reach count (100) doesn't follow union types, such as audit-log
+entries, so it is a floor. The 34 "repository" type names are different
+things (rulesets, audit entries, contributions), not views of
+`Repository`.

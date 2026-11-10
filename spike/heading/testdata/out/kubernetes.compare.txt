@@ -29,7 +29,7 @@ record payments-api (kubernetes.Deployment), 20 facts:
   metadata_namespace                   payments
   metadata_resource_version            4
   metadata_uid                         0b6c1d2e-0004-4a7f-9e3d-00005ee0c1a9
-  namespace                            -> 01a05a7a-ea80-7fcd-8fc7-5c45caf595a7
+  namespace                            -> 01a05a7a-ea80-71bd-9f34-b3f6a3cc373f
   spec_replicas                        2
   spec_selector_match_labels           map[app:payments-api]
   spec_template_metadata               map[labels:map[app:payments-api]]

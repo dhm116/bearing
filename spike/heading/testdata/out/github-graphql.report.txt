@@ -1,0 +1,7 @@
+object types: 913; kinds (implement Node, so keyed by a global id): 243; mutations excluded: 242
+readable key besides the id: none 193, resourcePath 34, slug 8, login 6, nameWithOwner 2
+Relay connections of kinds: 209 (one paging style)
+typed single references between kinds: 454
+kinds reachable with no config from viewer: 100; with an organization login: 100 of 243
+object types named like a repository (not connections, edges or payloads): 34
+repository types: CommitContributionsByRepository, CreatedRepositoryContribution, EnterpriseRepositoryInfo, IssueContributionsByRepository, OrgRestoreMemberMembershipRepositoryAuditEntryData, OrgUpdateDefaultRepositoryPermissionAuditEntry, OrgUpdateMemberRepositoryCreationPermissionAuditEntry, OrgUpdateMemberRepositoryInvitationPermissionAuditEntry, PrivateRepositoryForkingDisableAuditEntry, PrivateRepositoryForkingEnableAuditEntry, ProjectV2ItemFieldRepositoryValue, PullRequestContributionsByRepository, PullRequestReviewContributionsByRepository, Repository, RepositoryCodeowners, RepositoryCodeownersError, RepositoryContactLink, RepositoryIdConditionTarget, RepositoryInteractionAbility, RepositoryInvitation, RepositoryMigration, RepositoryNameConditionTarget, RepositoryPlanFeatures, RepositoryPropertyConditionTarget, RepositoryRule, RepositoryRuleConditions, RepositoryRuleset, RepositoryRulesetBypassActor, RepositoryTopic, RepositoryVisibilityChangeDisableAuditEntry, RepositoryVisibilityChangeEnableAuditEntry, RepositoryVulnerabilityAlert, TeamAddRepositoryAuditEntry, TeamRemoveRepositoryAuditEntry

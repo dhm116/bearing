@@ -99,3 +99,22 @@ func shortest(ops []Operation) Operation {
 	}
 	return best
 }
+
+// TestAnalyzeGraphQLReportsWhatGitHubsSchemaImplies compares GitHub's
+// GraphQL schema with its REST spec. Set HEADING_GITHUB_GRAPHQL to the
+// octokit/graphql-schema schema.json (see FINDINGS.md).
+func TestAnalyzeGraphQLReportsWhatGitHubsSchemaImplies(t *testing.T) {
+	p := os.Getenv("HEADING_GITHUB_GRAPHQL")
+	if p == "" {
+		t.Skip("HEADING_GITHUB_GRAPHQL not set")
+	}
+	r, err := AnalyzeGraphQL(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Kinds == 0 {
+		t.Fatal("got no kinds")
+	}
+	t.Log("\n" + r.String())
+	write(t, "testdata/out/github-graphql.report.txt", r.String()+"repository types: "+strings.Join(r.RepositoryTypes, ", ")+"\n")
+}
