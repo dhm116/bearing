@@ -84,7 +84,7 @@ const usage = `usage:
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
   bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
-  bearing graph [--format dot|json|svg|html] [--store URL]
+  bearing graph [--format dot|json|svg|html|tld] [--store URL]
   bearing mcp [--store URL | --server ADDR]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]

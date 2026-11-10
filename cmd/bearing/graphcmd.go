@@ -23,7 +23,7 @@ import (
 func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer) (err error) {
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	storeURL := fs.String("store", "", "store URL: mem:// or duckdb:///absolute/path.duckdb (default $"+storeEnv+")")
-	format := fs.String("format", "html", "dot, json, svg or html")
+	format := fs.String("format", "html", "dot, json, svg, html or tld (a tld import: github.com/Mertcikla/tld)")
 	pos, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -36,7 +36,7 @@ func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 	}
 	write, ok := graphWriters[*format]
 	if !ok {
-		return fmt.Errorf("--format %q: want dot, json, svg or html: %w", *format, errUsage)
+		return fmt.Errorf("--format %q: want dot, json, svg, html or tld: %w", *format, errUsage)
 	}
 	url := cmp.Or(*storeURL, env.Getenv(storeEnv))
 	if url == "" {
@@ -59,6 +59,7 @@ var graphWriters = map[string]func(io.Writer, *view) error{
 	"json": writeViewJSON,
 	"svg":  writeSVG,
 	"html": writeHTML,
+	"tld":  writeTLD,
 }
 
 // view is what every format draws: entities (clusters of records), the

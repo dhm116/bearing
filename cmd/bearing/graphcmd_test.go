@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -173,5 +174,60 @@ func TestGraphNeighbourhoodKeepsOnlyWhatTouchesTheEntity(t *testing.T) {
 	}
 	if len(n.Links) != 2 {
 		t.Errorf("links: got %d, want 2", len(n.Links))
+	}
+}
+
+func TestGraphTLDImportHasValidUniqueRefs(t *testing.T) {
+	t.Parallel()
+	// Jane's entity ID is her oldest record's ID, as in the store; GitHub and
+	// the directory both report her membership.
+	v := &view{
+		Entities: []vEntity{
+			{ID: "j1", Kind: "Person", Name: "Jane Doe", Records: []vRecord{{ID: "j1", Label: "github:user/jdoe"}, {ID: "j2", Label: "authentik:username/jdoe"}}},
+			{ID: "p1", Kind: "Team", Name: "Payments", Records: []vRecord{{ID: "p1"}}},
+			{ID: "u1", Name: "billing-api", Records: []vRecord{{ID: "u1"}}},
+		},
+		Facts: []vFact{
+			{ID: "f1", Subject: "j1", Predicate: "member_of", Object: "p1", Status: "asserted", Sources: []vSource{{Source: "github-acme"}}},
+			{ID: "f2", Subject: "j1", Predicate: "member_of", Object: "p1", Status: "asserted", Sources: []vSource{{Source: "directory"}}},
+			{ID: "f3", Subject: "p1", Predicate: "owns", Object: "u1", Status: "proposed"},
+		},
+		Links: []vLink{{ID: "l1", Kind: "same_as", Status: "asserted", A: "j1", B: "j2"}},
+	}
+	var b strings.Builder
+	if err := writeTLD(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	var doc struct {
+		Elements   map[string]struct{ Kind string }
+		Connectors []struct{ View, Source, Target, Label, Relationship string }
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	ref := regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	for r := range doc.Elements {
+		if !ref.MatchString(r) || r == "root" {
+			t.Errorf("element ref %q is not a tld ref", r)
+		}
+	}
+	seen := map[string]bool{}
+	for _, c := range doc.Connectors {
+		// tld keys a connector by view, ends and label; a repeat aborts the import.
+		k := c.View + "|" + c.Source + "|" + c.Target + "|" + c.Label
+		if seen[k] {
+			t.Errorf("connector %s appears twice", k)
+		}
+		seen[k] = true
+		if _, ok := doc.Elements[c.Source]; !ok {
+			t.Errorf("connector source %q is no element", c.Source)
+		}
+		if c.Relationship != "same_as" && c.Relationship != "distinct_from" && doc.Elements[c.Source].Kind == "record" {
+			t.Errorf("fact %s starts at a record, want its entity", k)
+		}
+	}
+	if len(seen) != 3 { // two member_of facts merge into one connector
+		t.Errorf("got %d connectors, want 3: %v", len(seen), seen)
 	}
 }
