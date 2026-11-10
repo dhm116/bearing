@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 72 1280 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="heading-workflow-title heading-workflow-desc" id="heading-workflow-root">
+<title id="heading-workflow-title">Generating an adapter from an OpenAPI spec</title>
+<desc id="heading-workflow-desc">An author starts a mapping from an OpenAPI spec with heading init, edits it, and runs heading generate to get an adapter, its suggested kinds and test data; heading test runs it against a mock API, and the passing adapter is installed in Bearing's settings, where the server runs it and stores namespaced records whose meaning comes from the operator's extends.</desc>
+<style>.theme-dark{display:none}@media (prefers-color-scheme: dark){.theme-light{display:none}.theme-dark{display:inline}}</style>
+<g class="theme-light">
+<defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #heading-workflow-root { --color-paper:  #F5F7F6;
+      --color-ink:    #18242A;
+      --color-muted:  #55646B;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+      #heading-workflow-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #heading-workflow-root .diagram-container { width: 100%; overflow-x: auto; }
+      #heading-workflow-root .m { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+      #heading-workflow-root .s { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+      #heading-workflow-root .name { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; fill: #18242A; }
+      #heading-workflow-root .sub { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 9px; fill: #55646B; }
+      #heading-workflow-root .tag { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 7px; fill: #6B7C82; letter-spacing: 0.08em; }
+      #heading-workflow-root .lbl { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 8px; fill: #55646B; letter-spacing: 0.06em; }
+      #heading-workflow-root .lane { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 8px; font-weight: 500; fill: #55646B; letter-spacing: 0.18em; }
+      #heading-workflow-root .rk { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 10px; fill: #6B7C82; }
+      #heading-workflow-root .rv { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 10px; fill: #18242A; }
+      #heading-workflow-root .rn { fill: #55646B; }
+      #heading-workflow-root .note { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; font-style: italic; fill: #18242A; }
+      #heading-workflow-root .leg { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 8.5px; fill: #55646B; }
+      #heading-workflow-root .diagram-container { overflow-x: visible; }</style><marker id="heading-workflow-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#55646B"/></marker><marker id="heading-workflow-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1D5E74"/></marker></defs>
+<rect width="1280" height="712" fill="#F5F7F6"/>
+<!-- lanes -->
+<line x1="40" y1="88" x2="1240" y2="88" stroke="#18242a" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="232" x2="1240" y2="232" stroke="#18242a" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="424" x2="1240" y2="424" stroke="#18242a" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="640" x2="1240" y2="640" stroke="#18242a" stroke-opacity="0.12" stroke-width="1"/>
+<text x="48" y="163" class="lane">AUTHOR</text>
+<text x="48" y="331" class="lane">HEADING</text>
+<text x="48" y="535" class="lane">BEARING</text>
+<!-- arrows -->
+<path d="M 232,188 L 232,300" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 312,328 L 448,328 Q 456,328 456,320 L 456,188" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 536,160 L 656,160 Q 664,160 664,168 L 664,300" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 760,328 L 824,328" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 1024,328 L 1072,328" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 1148,300 L 1148,120 Q 1148,112 1140,112 L 464,112 Q 456,112 456,120 L 456,132" fill="none" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 1148,356 L 1148,436 Q 1148,444 1140,444 L 260,444 Q 252,444 252,452 L 252,476" fill="none" stroke="#1D5E74" stroke-width="1.4" marker-end="url(#heading-workflow-arrow-accent)"/>
+<path d="M 352,516 L 400,516" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<path d="M 600,516 L 696,516" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/>
+<!-- arrow labels -->
+<rect x="240" y="252" width="36" height="12" rx="2" fill="#F5F7F6"/><text x="258" y="261" class="lbl" text-anchor="middle">READS</text>
+<rect x="352" y="308" width="56" height="12" rx="2" fill="#F5F7F6"/><text x="380" y="317" class="lbl" text-anchor="middle">SKELETON</text>
+<rect x="772" y="308" width="40" height="12" rx="2" fill="#F5F7F6"/><text x="792" y="317" class="lbl" text-anchor="middle">WRITES</text>
+<rect x="760" y="92" width="80" height="12" rx="2" fill="#F5F7F6"/><text x="800" y="101" class="lbl" text-anchor="middle">FIX AND RERUN</text>
+<rect x="492" y="450" width="56" height="12" rx="2" fill="#F5F7F6"/><text x="520" y="459" class="lbl" text-anchor="middle" fill="#1D5E74" style="fill:#1D5E74">INSTALL</text>
+<rect x="360" y="496" width="32" height="12" rx="2" fill="#F5F7F6"/><text x="376" y="505" class="lbl" text-anchor="middle">BOOT</text>
+<rect x="608" y="496" width="80" height="12" rx="2" fill="#F5F7F6"/><text x="648" y="505" class="lbl" text-anchor="middle">OBSERVATIONS</text>
+<!-- nodes: author lane -->
+<rect x="152" y="132" width="160" height="56" rx="6" fill="#F5F7F6"/><rect x="152" y="132" width="160" height="56" rx="6" fill="#18242a" fill-opacity="0.03" stroke="#18242a" stroke-opacity="0.30" stroke-width="1"/><rect x="160" y="138" width="28" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="174" y="147" class="tag" text-anchor="middle">SPEC</text><text x="232" y="166" class="name" text-anchor="middle">OpenAPI spec</text><text x="232" y="180" class="sub" text-anchor="middle">the vendor's, pinned</text>
+<rect x="376" y="132" width="160" height="56" rx="6" fill="#F5F7F6"/><rect x="376" y="132" width="160" height="56" rx="6" fill="#55646b" fill-opacity="0.10" stroke="#6B7C82" stroke-width="1"/><rect x="384" y="138" width="28" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="398" y="147" class="tag" text-anchor="middle">YAML</text><text x="456" y="166" class="name" text-anchor="middle">Mapping</text><text x="456" y="180" class="sub" text-anchor="middle">heading.yaml · you edit</text>
+<!-- nodes: heading lane -->
+<rect x="152" y="300" width="160" height="56" rx="6" fill="#F5F7F6"/><rect x="152" y="300" width="160" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="160" y="306" width="24" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="172" y="315" class="tag" text-anchor="middle">CLI</text><text x="232" y="334" class="name" text-anchor="middle">Start a mapping</text><text x="232" y="348" class="sub" text-anchor="middle">heading init &lt;spec&gt;</text>
+<rect x="600" y="300" width="160" height="56" rx="6" fill="#F5F7F6"/><rect x="600" y="300" width="160" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="608" y="306" width="24" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="620" y="315" class="tag" text-anchor="middle">CLI</text><text x="680" y="334" class="name" text-anchor="middle">Generate</text><text x="680" y="348" class="sub" text-anchor="middle">heading generate</text>
+<rect x="824" y="276" width="200" height="104" rx="6" fill="#F5F7F6"/><rect x="824" y="276" width="200" height="104" rx="6" fill="#1d5e74" fill-opacity="0.08" stroke="#1D5E74" stroke-width="1.2"/><rect x="832" y="282" width="24" height="12" rx="2" fill="none" stroke="#1d5e74" stroke-opacity="0.50" stroke-width="0.8"/><text x="844" y="291" class="tag" text-anchor="middle" style="fill:#1D5E74">OUT</text><text x="924" y="314" class="name" text-anchor="middle">Generated adapter</text><text x="924" y="334" class="sub" text-anchor="middle">bearing-adapter-github</text><text x="924" y="350" class="sub" text-anchor="middle">kinds.yaml · EntityKinds</text><text x="924" y="366" class="sub" text-anchor="middle">testdata/ · mocks, goldens</text>
+<rect x="1072" y="300" width="152" height="56" rx="6" fill="#F5F7F6"/><rect x="1072" y="300" width="152" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="1080" y="306" width="24" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="1092" y="315" class="tag" text-anchor="middle">CLI</text><text x="1148" y="334" class="name" text-anchor="middle">Test</text><text x="1148" y="348" class="sub" text-anchor="middle">heading test · mock API</text>
+<!-- nodes: bearing lane -->
+<rect x="152" y="476" width="200" height="80" rx="6" fill="#F5F7F6"/><rect x="152" y="476" width="200" height="80" rx="6" fill="#55646b" fill-opacity="0.10" stroke="#6B7C82" stroke-width="1"/><rect x="160" y="482" width="28" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="174" y="491" class="tag" text-anchor="middle">YAML</text><text x="252" y="512" class="name" text-anchor="middle">Settings file</text><text x="252" y="528" class="sub" text-anchor="middle">Source · command, config</text><text x="252" y="542" class="sub" text-anchor="middle">EntityKind · you set extends</text>
+<rect x="400" y="488" width="200" height="56" rx="6" fill="#F5F7F6"/><rect x="400" y="488" width="200" height="56" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="408" y="494" width="28" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="422" y="503" class="tag" text-anchor="middle">PROC</text><text x="500" y="522" class="name" text-anchor="middle">Bearing server</text><text x="500" y="536" class="sub" text-anchor="middle">runs the adapter · gRPC</text>
+<rect x="696" y="456" width="544" height="168" rx="6" fill="#F5F7F6"/><rect x="696" y="456" width="544" height="168" rx="6" fill="#18242a" fill-opacity="0.05" stroke="#55646B" stroke-width="1"/><rect x="704" y="462" width="32" height="12" rx="2" fill="none" stroke="#18242a" stroke-opacity="0.22" stroke-width="0.8"/><text x="720" y="471" class="tag" text-anchor="middle">STORE</text><text x="712" y="494" class="name">One record in the store</text>
+<text x="712" y="520" class="rk">kind</text><text x="800" y="520" class="rv">github.Repository <tspan class="rn">· extends Repository, from your settings</tspan></text>
+<text x="712" y="540" class="rk">key</text><text x="800" y="540" class="rv">github:repository/acme/payments</text>
+<text x="712" y="560" class="rk">attributes</text><text x="800" y="560" class="rv">name = payments · language = Go · archived = false</text>
+<text x="712" y="580" class="rk">owner</text><text x="800" y="580" class="rv">→ github:simple-user/acme <tspan class="rn">· asserted, from a $ref</tspan></text>
+<text x="712" y="600" class="rk">evidence</text><text x="800" y="600" class="rv">adapter/heading-github <tspan class="rn">· GET /orgs/{org}/repos</tspan></text>
+<!-- note -->
+<text x="400" y="592" class="note">Kinds arrive with no meaning;</text>
+<text x="400" y="610" class="note">extends in settings gives one.</text>
+<!-- legend -->
+<line x1="40" y1="664" x2="1240" y2="664" stroke="#18242a" stroke-opacity="0.10" stroke-width="0.8"/>
+<text x="40" y="692" class="m" font-size="8" fill="#55646B" letter-spacing="0.18em">LEGEND</text>
+<line x1="112" y1="689" x2="140" y2="689" stroke="#55646B" stroke-width="1.2" marker-end="url(#heading-workflow-arrow)"/><text x="148" y="692" class="leg">Flow</text>
+<line x1="196" y1="689" x2="224" y2="689" stroke="#1D5E74" stroke-width="1.4" marker-end="url(#heading-workflow-arrow-accent)"/><text x="232" y="692" class="leg">Handoff to Bearing</text>
+<line x1="340" y1="689" x2="368" y2="689" stroke="#55646B" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#heading-workflow-arrow)"/><text x="376" y="692" class="leg">Back to the mapping</text>
+<rect x="488" y="682" width="20" height="12" rx="2" fill="#55646b" fill-opacity="0.10" stroke="#6B7C82" stroke-width="1"/><text x="516" y="692" class="leg">You write it</text>
+<rect x="584" y="682" width="20" height="12" rx="2" fill="#1d5e74" fill-opacity="0.08" stroke="#1D5E74" stroke-width="1"/><text x="612" y="692" class="leg">Generated</text>
+<rect x="672" y="682" width="20" height="12" rx="2" fill="#18242a" fill-opacity="0.03" stroke="#18242a" stroke-opacity="0.30" stroke-width="1"/><text x="700" y="692" class="leg">External</text>
+</g>
+<g class="theme-dark">
+<defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #heading-workflow-dark-root { --color-paper:  #11191C;
+      --color-ink:    #E4ECEA;
+      --color-muted:  #98A8AD;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+      #heading-workflow-dark-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #heading-workflow-dark-root .diagram-container { width: 100%; overflow-x: auto; }
+      #heading-workflow-dark-root .m { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+      #heading-workflow-dark-root .s { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+      #heading-workflow-dark-root .name { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; fill: #E4ECEA; }
+      #heading-workflow-dark-root .sub { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 9px; fill: #98A8AD; }
+      #heading-workflow-dark-root .tag { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 7px; fill: #7C8F94; letter-spacing: 0.08em; }
+      #heading-workflow-dark-root .lbl { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 8px; fill: #98A8AD; letter-spacing: 0.06em; }
+      #heading-workflow-dark-root .lane { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 8px; font-weight: 500; fill: #98A8AD; letter-spacing: 0.18em; }
+      #heading-workflow-dark-root .rk { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 10px; fill: #7C8F94; }
+      #heading-workflow-dark-root .rv { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 10px; fill: #E4ECEA; }
+      #heading-workflow-dark-root .rn { fill: #98A8AD; }
+      #heading-workflow-dark-root .note { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; font-style: italic; fill: #E4ECEA; }
+      #heading-workflow-dark-root .leg { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 8.5px; fill: #98A8AD; }
+      #heading-workflow-dark-root .diagram-container { overflow-x: visible; }</style><marker id="heading-workflow-dark-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#98A8AD"/></marker><marker id="heading-workflow-dark-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7FC0D6"/></marker></defs>
+<rect width="1280" height="712" fill="#11191C"/>
+<!-- lanes -->
+<line x1="40" y1="88" x2="1240" y2="88" stroke="#e4ecea" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="232" x2="1240" y2="232" stroke="#e4ecea" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="424" x2="1240" y2="424" stroke="#e4ecea" stroke-opacity="0.12" stroke-width="1"/>
+<line x1="40" y1="640" x2="1240" y2="640" stroke="#e4ecea" stroke-opacity="0.12" stroke-width="1"/>
+<text x="48" y="163" class="lane">AUTHOR</text>
+<text x="48" y="331" class="lane">HEADING</text>
+<text x="48" y="535" class="lane">BEARING</text>
+<!-- arrows -->
+<path d="M 232,188 L 232,300" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 312,328 L 448,328 Q 456,328 456,320 L 456,188" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 536,160 L 656,160 Q 664,160 664,168 L 664,300" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 760,328 L 824,328" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 1024,328 L 1072,328" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 1148,300 L 1148,120 Q 1148,112 1140,112 L 464,112 Q 456,112 456,120 L 456,132" fill="none" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 1148,356 L 1148,436 Q 1148,444 1140,444 L 260,444 Q 252,444 252,452 L 252,476" fill="none" stroke="#7FC0D6" stroke-width="1.4" marker-end="url(#heading-workflow-dark-arrow-accent)"/>
+<path d="M 352,516 L 400,516" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<path d="M 600,516 L 696,516" fill="none" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/>
+<!-- arrow labels -->
+<rect x="240" y="252" width="36" height="12" rx="2" fill="#11191C"/><text x="258" y="261" class="lbl" text-anchor="middle">READS</text>
+<rect x="352" y="308" width="56" height="12" rx="2" fill="#11191C"/><text x="380" y="317" class="lbl" text-anchor="middle">SKELETON</text>
+<rect x="772" y="308" width="40" height="12" rx="2" fill="#11191C"/><text x="792" y="317" class="lbl" text-anchor="middle">WRITES</text>
+<rect x="760" y="92" width="80" height="12" rx="2" fill="#11191C"/><text x="800" y="101" class="lbl" text-anchor="middle">FIX AND RERUN</text>
+<rect x="492" y="450" width="56" height="12" rx="2" fill="#11191C"/><text x="520" y="459" class="lbl" text-anchor="middle" fill="#7FC0D6" style="fill:#7FC0D6">INSTALL</text>
+<rect x="360" y="496" width="32" height="12" rx="2" fill="#11191C"/><text x="376" y="505" class="lbl" text-anchor="middle">BOOT</text>
+<rect x="608" y="496" width="80" height="12" rx="2" fill="#11191C"/><text x="648" y="505" class="lbl" text-anchor="middle">OBSERVATIONS</text>
+<!-- nodes: author lane -->
+<rect x="152" y="132" width="160" height="56" rx="6" fill="#11191C"/><rect x="152" y="132" width="160" height="56" rx="6" fill="#e4ecea" fill-opacity="0.03" stroke="#e4ecea" stroke-opacity="0.30" stroke-width="1"/><rect x="160" y="138" width="28" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="174" y="147" class="tag" text-anchor="middle">SPEC</text><text x="232" y="166" class="name" text-anchor="middle">OpenAPI spec</text><text x="232" y="180" class="sub" text-anchor="middle">the vendor's, pinned</text>
+<rect x="376" y="132" width="160" height="56" rx="6" fill="#11191C"/><rect x="376" y="132" width="160" height="56" rx="6" fill="#98a8ad" fill-opacity="0.10" stroke="#7C8F94" stroke-width="1"/><rect x="384" y="138" width="28" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="398" y="147" class="tag" text-anchor="middle">YAML</text><text x="456" y="166" class="name" text-anchor="middle">Mapping</text><text x="456" y="180" class="sub" text-anchor="middle">heading.yaml · you edit</text>
+<!-- nodes: heading lane -->
+<rect x="152" y="300" width="160" height="56" rx="6" fill="#11191C"/><rect x="152" y="300" width="160" height="56" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="160" y="306" width="24" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="172" y="315" class="tag" text-anchor="middle">CLI</text><text x="232" y="334" class="name" text-anchor="middle">Start a mapping</text><text x="232" y="348" class="sub" text-anchor="middle">heading init &lt;spec&gt;</text>
+<rect x="600" y="300" width="160" height="56" rx="6" fill="#11191C"/><rect x="600" y="300" width="160" height="56" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="608" y="306" width="24" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="620" y="315" class="tag" text-anchor="middle">CLI</text><text x="680" y="334" class="name" text-anchor="middle">Generate</text><text x="680" y="348" class="sub" text-anchor="middle">heading generate</text>
+<rect x="824" y="276" width="200" height="104" rx="6" fill="#11191C"/><rect x="824" y="276" width="200" height="104" rx="6" fill="#7fc0d6" fill-opacity="0.10" stroke="#7FC0D6" stroke-width="1.2"/><rect x="832" y="282" width="24" height="12" rx="2" fill="none" stroke="#7fc0d6" stroke-opacity="0.50" stroke-width="0.8"/><text x="844" y="291" class="tag" text-anchor="middle" style="fill:#7FC0D6">OUT</text><text x="924" y="314" class="name" text-anchor="middle">Generated adapter</text><text x="924" y="334" class="sub" text-anchor="middle">bearing-adapter-github</text><text x="924" y="350" class="sub" text-anchor="middle">kinds.yaml · EntityKinds</text><text x="924" y="366" class="sub" text-anchor="middle">testdata/ · mocks, goldens</text>
+<rect x="1072" y="300" width="152" height="56" rx="6" fill="#11191C"/><rect x="1072" y="300" width="152" height="56" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="1080" y="306" width="24" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="1092" y="315" class="tag" text-anchor="middle">CLI</text><text x="1148" y="334" class="name" text-anchor="middle">Test</text><text x="1148" y="348" class="sub" text-anchor="middle">heading test · mock API</text>
+<!-- nodes: bearing lane -->
+<rect x="152" y="476" width="200" height="80" rx="6" fill="#11191C"/><rect x="152" y="476" width="200" height="80" rx="6" fill="#98a8ad" fill-opacity="0.10" stroke="#7C8F94" stroke-width="1"/><rect x="160" y="482" width="28" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="174" y="491" class="tag" text-anchor="middle">YAML</text><text x="252" y="512" class="name" text-anchor="middle">Settings file</text><text x="252" y="528" class="sub" text-anchor="middle">Source · command, config</text><text x="252" y="542" class="sub" text-anchor="middle">EntityKind · you set extends</text>
+<rect x="400" y="488" width="200" height="56" rx="6" fill="#11191C"/><rect x="400" y="488" width="200" height="56" rx="6" fill="#172226" stroke="#E4ECEA" stroke-width="1"/><rect x="408" y="494" width="28" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="422" y="503" class="tag" text-anchor="middle">PROC</text><text x="500" y="522" class="name" text-anchor="middle">Bearing server</text><text x="500" y="536" class="sub" text-anchor="middle">runs the adapter · gRPC</text>
+<rect x="696" y="456" width="544" height="168" rx="6" fill="#11191C"/><rect x="696" y="456" width="544" height="168" rx="6" fill="#e4ecea" fill-opacity="0.05" stroke="#98A8AD" stroke-width="1"/><rect x="704" y="462" width="32" height="12" rx="2" fill="none" stroke="#e4ecea" stroke-opacity="0.22" stroke-width="0.8"/><text x="720" y="471" class="tag" text-anchor="middle">STORE</text><text x="712" y="494" class="name">One record in the store</text>
+<text x="712" y="520" class="rk">kind</text><text x="800" y="520" class="rv">github.Repository <tspan class="rn">· extends Repository, from your settings</tspan></text>
+<text x="712" y="540" class="rk">key</text><text x="800" y="540" class="rv">github:repository/acme/payments</text>
+<text x="712" y="560" class="rk">attributes</text><text x="800" y="560" class="rv">name = payments · language = Go · archived = false</text>
+<text x="712" y="580" class="rk">owner</text><text x="800" y="580" class="rv">→ github:simple-user/acme <tspan class="rn">· asserted, from a $ref</tspan></text>
+<text x="712" y="600" class="rk">evidence</text><text x="800" y="600" class="rv">adapter/heading-github <tspan class="rn">· GET /orgs/{org}/repos</tspan></text>
+<!-- note -->
+<text x="400" y="592" class="note">Kinds arrive with no meaning;</text>
+<text x="400" y="610" class="note">extends in settings gives one.</text>
+<!-- legend -->
+<line x1="40" y1="664" x2="1240" y2="664" stroke="#e4ecea" stroke-opacity="0.10" stroke-width="0.8"/>
+<text x="40" y="692" class="m" font-size="8" fill="#98A8AD" letter-spacing="0.18em">LEGEND</text>
+<line x1="112" y1="689" x2="140" y2="689" stroke="#98A8AD" stroke-width="1.2" marker-end="url(#heading-workflow-dark-arrow)"/><text x="148" y="692" class="leg">Flow</text>
+<line x1="196" y1="689" x2="224" y2="689" stroke="#7FC0D6" stroke-width="1.4" marker-end="url(#heading-workflow-dark-arrow-accent)"/><text x="232" y="692" class="leg">Handoff to Bearing</text>
+<line x1="340" y1="689" x2="368" y2="689" stroke="#98A8AD" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#heading-workflow-dark-arrow)"/><text x="376" y="692" class="leg">Back to the mapping</text>
+<rect x="488" y="682" width="20" height="12" rx="2" fill="#98a8ad" fill-opacity="0.10" stroke="#7C8F94" stroke-width="1"/><text x="516" y="692" class="leg">You write it</text>
+<rect x="584" y="682" width="20" height="12" rx="2" fill="#7fc0d6" fill-opacity="0.10" stroke="#7FC0D6" stroke-width="1"/><text x="612" y="692" class="leg">Generated</text>
+<rect x="672" y="682" width="20" height="12" rx="2" fill="#e4ecea" fill-opacity="0.03" stroke="#e4ecea" stroke-opacity="0.30" stroke-width="1"/><text x="700" y="692" class="leg">External</text>
+</g>
+</svg>
