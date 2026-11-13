@@ -14,7 +14,8 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# `make check` runs everything below in one process. Here it is split into
+# `make check` runs everything below except the coverage gate (pull requests
+# and pushes to main only) in one process. Here it is split into
 # jobs that run side by side, so a push is answered in the time of the
 # slowest of static, race and the longest test shard, plus the gate. The
 # tests, and the same tests at the merge base, are what take the time, so
