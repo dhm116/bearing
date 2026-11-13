@@ -170,7 +170,9 @@ func New() *Adapter {
 
 // Describe implements adapter.Adapter.
 func (a *Adapter) Describe(context.Context) (adapter.DescribeResult, error) {
+	m := Module()
 	return adapter.DescribeResult{
+		Vocabulary:   &m,
 		Name:         "kubernetes",
 		Version:      Version,
 		Emits:        []model.Kind{model.KindComponent, model.KindEnvironment, model.KindTeam},
