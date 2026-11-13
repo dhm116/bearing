@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"cmp"
 	"encoding/json"
 	"testing"
 
@@ -25,8 +26,11 @@ type vocabWorld struct {
 	Modules []vocab.Module
 	// Settings are the operator's asserted mappings, with full names.
 	Settings []vocab.Mapping
-	reg      *model.Registry
-	q        *query.Querier
+	// Sources names the source publishing an adapter module, by namespace;
+	// kubernetes-acme when absent.
+	Sources map[string]string
+	reg     *model.Registry
+	q       *query.Querier
 }
 
 // newVocabWorld is the cluster with the adapter in namespaced mode; edit
@@ -58,7 +62,7 @@ func (v *vocabWorld) boot() {
 	for _, m := range append([]vocab.Module{vocab.Core()}, v.Modules...) {
 		source := ""
 		if m.Owner == vocab.OwnerAdapter {
-			source = "kubernetes-acme"
+			source = cmp.Or(v.Sources[m.Namespace], "kubernetes-acme")
 		}
 		if err := v.store.SyncModule(ctx, m, source, now); err != nil {
 			v.t.Fatal(err)
