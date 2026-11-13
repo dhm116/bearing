@@ -1,0 +1,8 @@
+version: 1.0.0
+namespace: com.acme
+terms:
+  - name: Workload
+    is: kind
+  - name: ServiceGroup
+    is: kind
+    # One on-call service that stands for several real services.
