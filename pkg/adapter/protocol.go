@@ -28,6 +28,7 @@ import (
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/vocab"
 )
 
 // ProtocolVersion is the version of the adapter service this package speaks,
@@ -60,6 +61,9 @@ type DescribeResult struct {
 	// in that system's own terms, so operators can grant exactly these.
 	Access   []string `json:"access"`
 	Webhooks bool     `json:"webhooks"`
+	// Vocabulary is the adapter's vocabulary module (ADR 13 spike), when it
+	// publishes one. Spike: JSON only, not yet in the proto DescribeResponse.
+	Vocabulary *vocab.Module `json:"vocabulary,omitempty"`
 	// WebhookSignature says how the source signs its deliveries, so the
 	// host can verify one before it is logged. Absent when the source does
 	// not sign them.

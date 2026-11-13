@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"runtime/debug"
+	"strings"
 
 	"bearing.example/pkg/vocab"
 )
@@ -20,6 +21,18 @@ func Module() vocab.Module {
 			{Name: "replicas", Is: vocab.IsAttribute, Type: "float", Cardinality: "one", Conflict: "none"},
 		},
 	}
+	for _, k := range []string{"Deployment", "StatefulSet"} {
+		m.Suggests = append(m.Suggests, vocab.Mapping{
+			ID: "k8s-" + strings.ToLower(k) + "-is-component", Subject: vocab.Full(ModuleNamespace, k),
+			Predicate: vocab.Broader, Object: vocab.Full(vocab.CoreNamespace, "Component"),
+			Justification: "A " + k + " runs one service",
+		})
+	}
+	m.Suggests = append(m.Suggests, vocab.Mapping{
+		ID: "k8s-namespace-is-environment", Subject: vocab.Full(ModuleNamespace, "Namespace"),
+		Predicate: vocab.Broader, Object: vocab.Full(vocab.CoreNamespace, "Environment"),
+		Justification: "Common, but many teams use the cluster",
+	})
 	// shortcut: the repo only; the ADR wants the build's vcs.revision too,
 	// which test binaries don't carry.
 	if bi, ok := debug.ReadBuildInfo(); ok {
