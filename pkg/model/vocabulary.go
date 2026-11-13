@@ -35,7 +35,12 @@ var (
 // ReservedNamespace is the namespace of the core kinds, which are spelled bare.
 const ReservedNamespace = "bearing"
 
-var configuredKind = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$`)
+// configuredKind is ADR 10's ns.Kind, or ADR 13's namespaced term
+// (io.k8s:Deployment; spike).
+var configuredKind = regexp.MustCompile(`^([a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*|[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+:[A-Z][A-Za-z0-9]*)$`)
+
+// coreTermPrefix is ADR 13's core namespace, which configured kinds may not use.
+const coreTermPrefix = "com.dougmccall.bearing.core:"
 
 // KindDef is one kind of the vocabulary.
 type KindDef struct {
@@ -130,7 +135,7 @@ func (r *Registry) Extend(kinds []KindDef, preds []Predicate) (*Registry, error)
 		switch {
 		case !configuredKind.MatchString(string(d.Name)):
 			return nil, fmt.Errorf("kind %q: %w: want <namespace>.<Kind>", clip(string(d.Name)), ErrKindName)
-		case ns == ReservedNamespace:
+		case ns == ReservedNamespace || strings.HasPrefix(string(d.Name), coreTermPrefix):
 			return nil, fmt.Errorf("kind %q: %w: namespace %s is reserved", clip(string(d.Name)), ErrKindName, ReservedNamespace)
 		}
 		if _, ok := n.kinds[d.Name]; ok {

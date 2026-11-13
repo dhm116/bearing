@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,21 @@ type Config struct {
 	ExcludeNamespaces []string `json:"exclude_namespaces,omitempty"` // default kube-system, kube-public, kube-node-lease
 	TeamLabel         string   `json:"team_label,omitempty"`         // default team
 	PageSize          int      `json:"page_size,omitempty"`          // default 500
+	// Namespaced emits the adapter's own io.k8s terms (ADR 13, spike):
+	// workloads as io.k8s:<Kind> with their labels, namespaces as
+	// io.k8s:Namespace, and only relations an unmapped kind may hold.
+	Namespaced bool `json:"namespaced,omitempty"`
+}
+
+// ModuleNamespace is the namespace of the adapter's vocabulary module.
+const ModuleNamespace = "io.k8s"
+
+// kind is a core kind, or in namespaced mode the adapter's own term.
+func (c *client) kind(core model.Kind, term string) string {
+	if c.cfg.Namespaced {
+		return ModuleNamespace + ":" + term
+	}
+	return string(core)
 }
 
 const configSchema = `{
@@ -82,7 +98,8 @@ const configSchema = `{
     "github_namespace": {"type": "string", "default": "github", "pattern": "^[a-z0-9][a-z0-9-]*$"},
     "exclude_namespaces": {"type": "array", "items": {"type": "string"}, "default": ["kube-system", "kube-public", "kube-node-lease"]},
     "team_label": {"type": "string", "default": "team", "description": "Label whose value names the owning team"},
-    "page_size": {"type": "integer", "minimum": 1, "default": 500}
+    "page_size": {"type": "integer", "minimum": 1, "default": 500},
+    "namespaced": {"type": "boolean", "default": false, "description": "Emit io.k8s terms (ADR 13 spike)"}
   }
 }`
 
@@ -259,9 +276,11 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 	next.Continue = more
 	if more == "" && next.advance() {
 		// Every included namespace and workload was listed to its last page.
-		return adapter.SyncResult{Observations: obs, Done: true, CompleteSync: &modelv1alpha1.CompleteSync{
-			Kinds: []string{string(model.KindComponent), string(model.KindEnvironment), string(model.KindTeam)},
-		}}, nil
+		kinds := []string{string(model.KindComponent), string(model.KindEnvironment), string(model.KindTeam)}
+		if c.cfg.Namespaced {
+			kinds = []string{c.kind("", "DaemonSet"), c.kind("", "Deployment"), c.kind("", "Namespace"), c.kind("", "StatefulSet"), string(model.KindTeam)}
+		}
+		return adapter.SyncResult{Observations: obs, Done: true, CompleteSync: &modelv1alpha1.CompleteSync{Kinds: kinds}}, nil
 	}
 	b, err := json.Marshal(next)
 	if err != nil {
@@ -358,9 +377,13 @@ func (c *client) syncNamespaces(ctx context.Context, cur cursor) (adapter.Observ
 			continue
 		}
 		names = append(names, name)
+		attrs := map[string]*structpb.Value{"name": structpb.NewStringValue(name), "cluster": structpb.NewStringValue(c.cfg.Cluster)}
+		if c.cfg.Namespaced {
+			delete(attrs, "name") // core name's domain doesn't cover an unmapped io.k8s:Namespace
+		}
 		obs = append(obs, model.NewObservation(Source, sent, &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{
-			Kind: string(model.KindEnvironment), Key: c.key("namespace", c.cfg.Cluster+"/"+name),
-			Attributes: map[string]*structpb.Value{"name": structpb.NewStringValue(name), "cluster": structpb.NewStringValue(c.cfg.Cluster)},
+			Kind: c.kind(model.KindEnvironment, "Namespace"), Key: c.key("namespace", c.cfg.Cluster+"/"+name),
+			Attributes: attrs,
 		}}))
 	}
 	return obs, names, list.Metadata.Continue, nil
@@ -499,9 +522,21 @@ func (c *client) workloadObservation(ns, kind string, w workloadItem, at time.Ti
 	}
 	key := c.workloadKey(ns, kind, name)
 	rels = append(rels, dependencies(ns, key, w.Spec.Template.Spec.Containers, idx.Services, idx.Targets)...)
+	if c.cfg.Namespaced {
+		// Core relations whose domain is Component (deployed_to, defined_in,
+		// depends_on) fail validation for a kind with no broader mapping yet.
+		rels = slices.DeleteFunc(rels, func(r *modelv1alpha1.Relation) bool { return r.GetType() != string(model.RelOwnedBy) })
+		labels := map[string]any{}
+		for k, v := range w.Metadata.Labels {
+			labels[k] = v
+		}
+		if st, err := structpb.NewStruct(labels); err == nil {
+			attrs["labels"] = structpb.NewStructValue(st)
+		}
+	}
 	return model.NewObservation(Source, at, &modelv1alpha1.ObservationData{
 		Entity: &modelv1alpha1.Entity{
-			Kind: string(model.KindComponent), Key: key,
+			Kind: c.kind(model.KindComponent, kind), Key: key,
 			Attributes: attrs,
 		},
 		Relations: rels,

@@ -54,9 +54,12 @@ CREATE TABLE IF NOT EXISTS fact (
 CREATE INDEX IF NOT EXISTS fact_subject ON fact (subject_id, predicate);
 CREATE INDEX IF NOT EXISTS fact_object ON fact (object_id, predicate);
 
--- The observations behind each fact: its provenance.
+-- The observations behind each fact: its provenance. rule names the
+-- mapping and version (r-team@2) that made the fact from the observation,
+-- or is empty when the observation stated it (ADR 13).
 CREATE TABLE IF NOT EXISTS fact_source (
     fact_id        VARCHAR NOT NULL,
     observation_id VARCHAR NOT NULL,
-    PRIMARY KEY (fact_id, observation_id)
+    rule           VARCHAR NOT NULL DEFAULT '',
+    PRIMARY KEY (fact_id, observation_id, rule)
 );

@@ -66,7 +66,7 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 func TestSyncVocabularyNilRegistryReadsAsCoreAndRetiresEveryDroppedKind(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	syncOK(t, s, vocab(t, []model.KindDef{svc, api, unit}), 1)
+	syncOK(t, s, extendCore(t, []model.KindDef{svc, api, unit}), 1)
 	read, err := s.SyncVocabulary(t.Context(), nil, at(2))
 	if err != nil {
 		t.Fatal(err)

@@ -68,7 +68,7 @@ INSERT INTO observation VALUES
 INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source) VALUES
  ('f1', 'repo-spa', 'owned_by', 't-design', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'github'),
  ('f2', 'svc-fe', 'owned_by', 't-ui', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'pagerduty');
-INSERT INTO fact_source VALUES ('f1', 'o-gh'), ('f2', 'o-pd');`)
+INSERT INTO fact_source (fact_id, observation_id) VALUES ('f1', 'o-gh'), ('f2', 'o-pd');`)
 	return s
 }
 
@@ -419,7 +419,7 @@ func TestEvidenceShowsEveryObservationSourceOfAFact(t *testing.T) {
 	t.Parallel()
 	s := teams(t)
 	load(t, s, `INSERT INTO observation VALUES ('o-bs', 'backstage', 'Repository', 'repo:spa', TIMESTAMPTZ '2026-01-02 00:00:00+00', TIMESTAMPTZ '2026-01-02 00:00:01+00', NULL, '{}')`)
-	load(t, s, `INSERT INTO fact_source VALUES ('f1', 'o-bs')`)
+	load(t, s, `INSERT INTO fact_source (fact_id, observation_id) VALUES ('f1', 'o-bs')`)
 	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"repo-spa"}, Predicates: []string{"owned_by"}})
 	var got []string
 	for _, src := range ev.Claims[0].Fact.Sources {

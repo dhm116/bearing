@@ -21,7 +21,7 @@ var (
 	anyRel = model.Predicate{Name: "routes_to", Relation: true, Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY, Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_SET}
 )
 
-func vocab(t *testing.T, kinds []model.KindDef, preds ...model.Predicate) *model.Registry {
+func extendCore(t *testing.T, kinds []model.KindDef, preds ...model.Predicate) *model.Registry {
 	t.Helper()
 	r, err := model.Core().Extend(kinds, preds)
 	if err != nil {
@@ -51,7 +51,7 @@ func retiredNull(t *testing.T, s *Store, kind string) bool {
 func TestSyncVocabularyWritesRowsOnceAndRebootChangesNothing(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	r := vocab(t, []model.KindDef{svc, api, unit}, attrP, relP)
+	r := extendCore(t, []model.KindDef{svc, api, unit}, attrP, relP)
 	syncOK(t, s, r, 1)
 	var kinds, preds int
 	count := func() {
@@ -82,10 +82,10 @@ func TestSyncVocabularyWritesRowsOnceAndRebootChangesNothing(t *testing.T) {
 func TestSyncVocabularyRetiresADroppedKindAndUnretiresItWhenReadded(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	full := vocab(t, []model.KindDef{svc, api})
+	full := extendCore(t, []model.KindDef{svc, api})
 	syncOK(t, s, full, 1)
 
-	read := syncOK(t, s, vocab(t, []model.KindDef{svc}), 5)
+	read := syncOK(t, s, extendCore(t, []model.KindDef{svc}), 5)
 	if got, ok := read.Retired("acme.Api"); !ok || !got.Equal(at(5)) {
 		t.Fatalf("got Retired(acme.Api) = %v, %v, want %v, true", got, ok, at(5))
 	}
@@ -97,7 +97,7 @@ func TestSyncVocabularyRetiresADroppedKindAndUnretiresItWhenReadded(t *testing.T
 	}
 
 	// A second boot without it keeps the first retirement time.
-	read = syncOK(t, s, vocab(t, []model.KindDef{svc}), 9)
+	read = syncOK(t, s, extendCore(t, []model.KindDef{svc}), 9)
 	if got, _ := read.Retired("acme.Api"); !got.Equal(at(5)) {
 		t.Fatalf("got retirement time %v after a second boot, want %v", got, at(5))
 	}
@@ -124,11 +124,11 @@ func TestSyncVocabularyRefusesAChangeToAStoredKindOrPredicate(t *testing.T) {
 		first, second *model.Registry
 		subject       string
 	}{
-		{"parent changed", vocab(t, []model.KindDef{svc}), vocab(t, []model.KindDef{{Name: "k8s.Service", Parent: model.KindPackage}}), "k8s.Service"},
-		{"parent dropped", vocab(t, []model.KindDef{svc}), vocab(t, []model.KindDef{{Name: "k8s.Service"}}), "k8s.Service"},
-		{"cardinality changed", vocab(t, []model.KindDef{svc}, attrP), vocab(t, []model.KindDef{svc}, many), "pager_rota"},
-		{"domain narrowed", vocab(t, []model.KindDef{svc, unit}, relP), vocab(t, []model.KindDef{svc, unit}, narrowDomain), "routes_to"},
-		{"any range narrowed", vocab(t, []model.KindDef{svc}, anyRel), vocab(t, []model.KindDef{svc}, narrowAny), "routes_to"},
+		{"parent changed", extendCore(t, []model.KindDef{svc}), extendCore(t, []model.KindDef{{Name: "k8s.Service", Parent: model.KindPackage}}), "k8s.Service"},
+		{"parent dropped", extendCore(t, []model.KindDef{svc}), extendCore(t, []model.KindDef{{Name: "k8s.Service"}}), "k8s.Service"},
+		{"cardinality changed", extendCore(t, []model.KindDef{svc}, attrP), extendCore(t, []model.KindDef{svc}, many), "pager_rota"},
+		{"domain narrowed", extendCore(t, []model.KindDef{svc, unit}, relP), extendCore(t, []model.KindDef{svc, unit}, narrowDomain), "routes_to"},
+		{"any range narrowed", extendCore(t, []model.KindDef{svc}, anyRel), extendCore(t, []model.KindDef{svc}, narrowAny), "routes_to"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,11 +148,11 @@ func TestSyncVocabularyRefusesAChangeToAStoredKindOrPredicate(t *testing.T) {
 func TestSyncVocabularyRefusalRollsBackKindWritesMadeBeforeIt(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	syncOK(t, s, vocab(t, []model.KindDef{svc, unit}, attrP, relP), 1)
+	syncOK(t, s, extendCore(t, []model.KindDef{svc, unit}, attrP, relP), 1)
 	many := attrP
 	many.Cardinality, many.Conflict = modelv1alpha1.Cardinality_CARDINALITY_MANY, modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_SET
 	// Adds acme.New and drops systemd.Unit (kind writes), then fails on pager_rota.
-	_, err := s.SyncVocabulary(t.Context(), vocab(t, []model.KindDef{svc, {Name: "acme.New", Parent: model.KindComponent}}, many, anyRel), at(2))
+	_, err := s.SyncVocabulary(t.Context(), extendCore(t, []model.KindDef{svc, {Name: "acme.New", Parent: model.KindComponent}}, many, anyRel), at(2))
 	if !errors.Is(err, store.ErrVocabularyChanged) {
 		t.Fatalf("got %v, want ErrVocabularyChanged", err)
 	}
@@ -168,12 +168,12 @@ func TestSyncVocabularyRefusalRollsBackKindWritesMadeBeforeIt(t *testing.T) {
 func TestSyncVocabularyAllowsWideningAndADomainKindDroppedWithItsRetirement(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	syncOK(t, s, vocab(t, []model.KindDef{svc, unit}, relP), 1)
+	syncOK(t, s, extendCore(t, []model.KindDef{svc, unit}, relP), 1)
 
 	// unit is dropped and leaves relP's domain with it: not a narrowing.
 	narrow := relP
 	narrow.Domain = []model.Kind{"k8s.Service"}
-	read := syncOK(t, s, vocab(t, []model.KindDef{svc}, narrow), 2)
+	read := syncOK(t, s, extendCore(t, []model.KindDef{svc}, narrow), 2)
 	if p, _ := read.Predicate("routes_to"); len(p.Domain) != 2 {
 		t.Fatalf("got domain %v, want the stored systemd.Unit kept for old facts", p.Domain)
 	}
@@ -182,7 +182,7 @@ func TestSyncVocabularyAllowsWideningAndADomainKindDroppedWithItsRetirement(t *t
 	}
 
 	// A wider domain (any kind) is allowed and sticks.
-	read = syncOK(t, s, vocab(t, []model.KindDef{svc, unit}, anyRel), 3)
+	read = syncOK(t, s, extendCore(t, []model.KindDef{svc, unit}, anyRel), 3)
 	if p, _ := read.Predicate("routes_to"); p.Domain != nil {
 		t.Fatalf("got domain %v, want any kind", p.Domain)
 	}
@@ -191,7 +191,7 @@ func TestSyncVocabularyAllowsWideningAndADomainKindDroppedWithItsRetirement(t *t
 func TestSyncVocabularyKeepsADroppedAdapterAttributeShapeForReads(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	syncOK(t, s, vocab(t, nil, attrP), 1)
+	syncOK(t, s, extendCore(t, nil, attrP), 1)
 	read := syncOK(t, s, model.Core(), 2)
 	p, ok := read.Predicate("pager_rota")
 	if !ok || p.Cardinality != attrP.Cardinality || p.Type != attrP.Type || p.Conflict != attrP.Conflict {
@@ -218,16 +218,16 @@ func TestSyncVocabularyKeepsTheTablesAcrossARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	syncOK(t, s, vocab(t, []model.KindDef{svc, api, unit}, attrP, relP), 1)
+	syncOK(t, s, extendCore(t, []model.KindDef{svc, api, unit}, attrP, relP), 1)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	s = newStore(t, Config{Path: path})
-	if _, err := s.SyncVocabulary(t.Context(), vocab(t, []model.KindDef{{Name: "k8s.Service", Parent: model.KindPackage}}), at(2)); !errors.Is(err, store.ErrVocabularyChanged) {
+	if _, err := s.SyncVocabulary(t.Context(), extendCore(t, []model.KindDef{{Name: "k8s.Service", Parent: model.KindPackage}}), at(2)); !errors.Is(err, store.ErrVocabularyChanged) {
 		t.Fatalf("got %v after restart, want the stored parent refused", err)
 	}
-	read := syncOK(t, s, vocab(t, []model.KindDef{svc, unit}, attrP, relP), 3)
+	read := syncOK(t, s, extendCore(t, []model.KindDef{svc, unit}, attrP, relP), 3)
 	if got, ok := read.Retired("acme.Api"); !ok || !got.Equal(at(3)) {
 		t.Fatalf("got Retired(acme.Api) = %v, %v, want %v, true", got, ok, at(3))
 	}

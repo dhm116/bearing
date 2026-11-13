@@ -605,7 +605,7 @@ func (g *ingest) open(ctx context.Context, c claim, vf time.Time) error {
 
 func (g *ingest) support(ctx context.Context, id string) error {
 	g.touched[id] = true
-	_, err := g.exec(ctx, `INSERT INTO fact_source VALUES (?, ?) ON CONFLICT DO NOTHING`, id, g.obsID)
+	_, err := g.exec(ctx, `INSERT INTO fact_source (fact_id, observation_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, g.obsID)
 	return err
 }
 

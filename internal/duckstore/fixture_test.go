@@ -55,7 +55,7 @@ INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidenc
  ('f11', 's-ledger', 'language', NULL, '"java"', 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'gh'),
  ('f12', 'p-alice', 'member_of', 't-pay', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 'dir'),
  ('f13', 'p-bob', 'member_of', 't-pay', NULL, 'asserted', 1, TIMESTAMPTZ '2026-02-01 00:00:00+00', NULL, 'dir');
-INSERT INTO fact_source VALUES
+INSERT INTO fact_source (fact_id, observation_id) VALUES
  ('f01', 'o3'), ('f01', 'o1'), ('f02', 'o1'), ('f03', 'o1'), ('f04', 'o1'), ('f05', 'o1'),
  ('f06', 'o1'), ('f07', 'o1'), ('f08', 'o1'), ('f09', 'o1'), ('f10', 'o3'), ('f11', 'o1'),
  ('f12', 'o1'), ('f13', 'o2');`)

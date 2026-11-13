@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
@@ -78,7 +79,8 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 		origin := "configured"
 		if model.Core().Valid(k) {
 			origin = "core"
-		} else if old, ok := stored[k]; ok && old.parent != string(reg.Parent(k)) {
+		} else if old, ok := stored[k]; ok && old.parent != string(reg.Parent(k)) && !strings.Contains(string(k), ":") {
+			// A namespaced term's parent is a dated broader mapping (ADR 13), so it may change.
 			return nil, fmt.Errorf("kind %s: %w: parent was %q, now %q: restore the parent, or define a new kind (configured kinds only grow)", k, store.ErrVocabularyChanged, model.Clip(old.parent), model.Clip(string(reg.Parent(k))))
 		}
 		// Re-adding clears retired_at; the parent is unchanged for a configured kind.
