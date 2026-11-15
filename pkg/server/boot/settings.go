@@ -48,6 +48,8 @@ type Settings struct {
 	// Matching tunes how records are joined after each sync (pkg/match);
 	// absent, matching runs with the defaults and no key rules.
 	Matching MatchingSettings `json:"matching"`
+	// SystemOne names the decision model to ask; absent, none is asked.
+	SystemOne *SystemOneSettings `json:"system_one,omitempty"`
 	// Authority overrides, per source, which linked keys the source vouches
 	// for beyond its adapter's declaration: source name, then
 	// "<issuer_type>:<key_type>", for example
@@ -424,6 +426,9 @@ func (s *Settings) check(reg *model.Registry) (*checked, error) {
 	if err := s.checkWebhooks(); err != nil {
 		return nil, err
 	}
+	if err := s.SystemOne.check(); err != nil {
+		return nil, err
+	}
 	for i := range s.Adapters {
 		a := &s.Adapters[i]
 		if err := s.checkAdapter(a); err != nil {
@@ -474,6 +479,9 @@ func (s *Settings) checkSecretIsolation(c *checked) error {
 	own := map[string]bool{}
 	if s.Auth.TokenEnv != "" {
 		own[s.Auth.TokenEnv] = true
+	}
+	if s.SystemOne != nil && s.SystemOne.APIKeyEnv != "" {
+		own[s.SystemOne.APIKeyEnv] = true
 	}
 	for _, src := range c.sources {
 		if ref := src.GetSpec().GetWebhookSecret(); ref != "" {
