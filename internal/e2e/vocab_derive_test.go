@@ -77,20 +77,41 @@ func TestVocabDeriveTeamLabel(t *testing.T) {
 		t.Errorf("%d facts hold now, want 1", len(got))
 	}
 
-	// r-team@2 is a new mapping row. The foundation has no way to close v1's
-	// row (DecideMapping closes proposals only), so both versions run and
-	// both are behind the same fact.
+	// Editing the rule in settings is a new version: r-team@2 replaces @1,
+	// whose row closes. The fact @1 made, which @2 makes too, gains a source
+	// instead of closing and reopening.
 	v.clock.Advance(time.Hour)
-	v.Settings = append(v.Settings, teamRule(2, teamKeyTrimmed))
+	v.Settings = []vocab.Mapping{teamRule(2, teamKeyTrimmed)}
 	v.boot()
 	v.sync()
-	assertSameFact(t, "r-team@2 added", first[0], ownedAt(v, paymentsWorkload, t0))
+	assertSameFact(t, "r-team@2 replaced @1", first[0], ownedAt(v, paymentsWorkload, t0))
 	o, err = v.q.Owners(ctx, paymentsWorkload, v.clock.Now(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(o.Owners) != 1 || !slices.Equal(o.Owners[0].Rules, []string{"r-team@1", "r-team@2"}) {
 		t.Errorf("owners = %+v, want one fact made by r-team@1 and r-team@2", o.Owners)
+	}
+	ms, err := v.store.Mappings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.ID == "r-team" && m.Version == 1 && m.ValidTo == nil {
+			t.Errorf("r-team@1 is still open after @2 replaced it: %+v", m)
+		}
+	}
+
+	// r-team@3 keys a different team: its fact opens and @2's closes.
+	v.clock.Advance(time.Hour)
+	v.Settings = []vocab.Mapping{teamRule(3, "kubernetes:team/acme-{{ .labels.team | lower }}")}
+	v.boot()
+	v.sync()
+	if now := ownedAt(v, paymentsWorkload, v.clock.Now()); len(now) != 1 || now[0].ID == first[0].ID {
+		t.Errorf("facts now = %+v, want one new fact from r-team@3", now)
+	}
+	if old := ownedAt(v, paymentsWorkload, t0); len(old) != 1 || old[0].ValidTo.IsZero() {
+		t.Errorf("r-team@2's fact = %+v, want it closed", old)
 	}
 }
 

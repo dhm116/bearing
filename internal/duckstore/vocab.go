@@ -90,9 +90,11 @@ func (s *Store) SyncModule(ctx context.Context, m vocab.Module, source string, n
 	return nil
 }
 
-// PutMapping opens a mapping row at m.ValidFrom. A row of the same id,
-// version and status that is still open is left alone, so a suggestion
-// repeated at every boot is recorded once. Names must be full.
+// PutMapping opens a mapping row at m.ValidFrom. A row of the same id and
+// status, at this version or a later one, that is still open is left alone,
+// so a suggestion repeated at every boot is recorded once and a decided one
+// is never reopened. An asserted version closes the asserted versions before
+// it. Names must be full.
 func (s *Store) PutMapping(ctx context.Context, m vocab.Mapping) error {
 	var target any
 	if m.Target != nil {
@@ -102,12 +104,28 @@ func (s *Store) PutMapping(ctx context.Context, m vocab.Mapping) error {
 		}
 		target = string(b)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO mapping
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("duckstore: put mapping %s: %w", m.ID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `INSERT INTO mapping
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
-		WHERE NOT EXISTS (SELECT 1 FROM mapping WHERE id = ? AND version = ? AND valid_to IS NULL AND status IN (?, 'asserted', 'rejected'))`,
+		WHERE NOT EXISTS (SELECT 1 FROM mapping WHERE id = ? AND version >= ? AND valid_to IS NULL AND status IN (?, 'asserted', 'rejected'))`,
 		m.ID, max(m.Version, 1), m.Subject, m.Predicate, m.Object, target, m.Guess, m.Status, m.Author, m.Justification, m.ValidFrom.UTC(),
 		m.ID, max(m.Version, 1), m.Status)
 	if err != nil {
+		return fmt.Errorf("duckstore: put mapping %s: %w", m.ID, err)
+	}
+	// Editing a rule is a new version (ADR 13): an asserted version closes
+	// the open asserted ones before it, so only the newest runs.
+	if n, _ := res.RowsAffected(); n > 0 && m.Status == vocab.Asserted {
+		if _, err := tx.ExecContext(ctx, `UPDATE mapping SET valid_to = ? WHERE id = ? AND version < ? AND status = 'asserted' AND valid_to IS NULL`,
+			m.ValidFrom.UTC(), m.ID, max(m.Version, 1)); err != nil {
+			return fmt.Errorf("duckstore: put mapping %s: %w", m.ID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("duckstore: put mapping %s: %w", m.ID, err)
 	}
 	return nil
