@@ -1,185 +1,198 @@
 # Spike findings: ADR 13, vocabulary as data
 
-Branch `spike/vocabulary`, never merged. Plan: [PLAN.md](PLAN.md). All
-links below are pinned to
-[`3f10827`](https://github.com/dhm116/bearing/tree/3f108271a56a339b1b5e0ea465f18a99d0236d6d),
-the tip with every stream merged.
+Branch `spike/vocabulary`, never merged. Plan and invariants:
+[PLAN.md](PLAN.md). Links are pinned to
+[`7487a31`](https://github.com/dhm116/bearing/tree/7487a31a40c6f8559990b53fc3d80990860d6ff7),
+the reworked tip with every stream merged.
 
-[B]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d
+**Verdict: ADR 13 works as written.** Each part has an end-to-end test on
+the Acme fakes that checks the answer and its evidence.
 
-**Verdict: the ADR works as written for items 1–4.** Each item has an
-end-to-end test on the Acme fakes that checks the answer and its evidence.
-The spike found eight concrete gaps for the ADR to close (listed at the
-end), and none of them is a reason to reject it. The cheapest Sprig
-option turned out smaller than the ADR estimated: 25 functions in 74
-lines.
+Every finding below was checked against the ADR's text before it was
+filed:
+- **Spike defects** break something the ADR already says.
+- **Deviations** are shortcuts this spike knowingly took.
+- **Open questions** are things the ADR doesn't answer.
 
-## What worked
+After that check, the ADR needs one addition (what closes a rule's fact)
+and three smaller answers (below). The Sprig numbers support copying: 25
+functions in 74 lines.
 
-| Item | End-to-end test | Shows |
+## The first pass, and why it was redone
+
+The first findings (at `16cbeb4`) listed eight "changes ADR 13 needs".
+Most of them were defects in the spike, not gaps in the ADR. Two
+shortcuts broke ADR decisions:
+
+| Shortcut | ADR text it broke | What it caused |
 | --- | --- | --- |
-| 1. Foundation | [`TestVocabFoundationAcme`][t1] | core module and `io.k8s` loaded into today's registry; payments-api stored as `io.k8s:Deployment`; owner answer and evidence unchanged; `fact_source.rule` is `''` for stated facts |
-| 2. Adapter module | [`TestVocabModuleAcceptBroaderAfterBoot`][t2] | the module comes from `Describe`; its suggestions are stored as proposed; accepting `k8s:Deployment broader core:Component` after first boot reboots without refusal, and "who owns payments-api" answers `payments` with evidence. **ADR 12's "extends later" blocker is gone.** |
-| 3. Derive rules | [`TestVocabDeriveTeamLabel`][t3] | `team:{{ .labels.team \| lower }}` makes owned_by, citing `r-team@1`; v2 keeps the fact id and `valid_from` and adds a source row; a version making a different fact closes the old one; no label means no fact; a bad template fails compile, naming the rule |
-| 4. Operator vocabulary | [`TestVocabOperatorModule`][t4] | `com.acme` from a file pinned to a 40-hex SHA plus a sha256; term rows record repo, ref, sha256 and `verified_by`; a one-byte change, a branch ref, a short SHA, or no checksum with no git each stop boot |
-| 5. Coverage trail (stretch) | [`TestVocabCoverageTrail`][t5] | per-step proposed facts from `guess` rules; a joiner proposes payments-api `covered_by` checkout; the score counts per claim; a stale handle shows a named break |
+| Module terms loaded into ADR 10's registry, which holds only kinds | "Every term has a namespaced name"; "Shapes and growth are per term" | attributes stayed one flat list (`tags` had to become `monitor_tags`); predicates made by rules went unchecked |
+| The Kubernetes adapter's namespaced mode still sent `owned_by`, `name` and its snapshot of core predicates | "Adapters never emit core terms" | the adapter's next sync closed rule-made facts; `deployed_to` and `defined_in` failed validation and were dropped |
 
-Unit tests pin the name rules: an ambiguous short name names both
-namespaces, an alias wins, `core` is reserved, and `k8s` alone is refused
-([vocab_test.go][u1]). They also pin grow-only per term and one owner per
-namespace ([duckstore/vocab_test.go][u2]).
+PLAN.md now opens with six invariants, and every agent brief was checked
+against them. The rework (`778531c` onward) follows them.
 
-[t1]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/e2e/vocab_foundation_test.go#L14
-[t2]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/e2e/vocab_module_test.go#L37
-[t3]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/e2e/vocab_derive_test.go#L65
-[t4]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/e2e/vocab_operator_test.go#L21
-[t5]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/e2e/vocab_trail_test.go#L133
-[u1]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/pkg/vocab/vocab_test.go
-[u2]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/internal/duckstore/vocab_test.go
+## What works
+
+| Part | End-to-end test | Shows |
+| --- | --- | --- |
+| Foundation | [`TestVocabFoundationAcme`][t1] | every kind, attribute and relation the adapter sends is an `io.k8s` term; "who owns payments-api" answers `payments` from the operator's `r-team` rule, and the answer names `r-team@1` and the observation |
+| Adapter module | [`TestVocabModuleAcceptMappingsAfterBoot`][t2] | the module comes from `Describe`, and its suggestions are stored as proposed. Before they are accepted, payments-api is no Component and has no `defined_in`; billing-api has no `depends_on`. After they are accepted and Bearing reboots on the same store, all three answer. The stored predicate stays `io.k8s:depends_on`, read as `depends_on` through `exact_match`. **ADR 12's "extends later" blocker is gone.** |
+| Shape check at boot | [`TestVocabModuleRefusesShapeMismatchAtBoot`][t2b] | an `exact_match` whose domain isn't yet broader than the core's fails boot, naming the mapping |
+| Derive rules | [`TestVocabDeriveTeamLabel`][t3], [`…Changes`][t3b], [`…BadTemplate`][t3c] | rules run inside ingest; a re-sync keeps the fact (same id and start); @2 replaces @1 and the fact gains a source; @3 keys another team, so its fact opens and @2's closes; a label change closes the old fact; no label, no fact; **a deleted workload's rule-made fact closes on the adapter's next complete sync**; a bad template fails, naming the rule |
+| Operator vocabulary | [`TestVocabOperatorModule`][t4] | `com.acme` pinned to a 40-hex SHA plus a sha256; term rows record repo, ref, sha256 and the check that passed; a one-byte change, a branch name, a short SHA, or no way to verify each stop boot |
+| Coverage trail (stretch) | [`TestVocabCoverageTrail`][t5] | per-step proposed facts from `guess` rules over namespaced attributes (`com.datadoghq:tags`); the workload → repo hop through `io.k8s:repository` `exact_match` `defined_in`; a proposed `com.acme:covered_by` scored per claim; a stale handle reports a named break |
+
+[t1]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_foundation_test.go#L17
+[t2]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_module_test.go#L60
+[t2b]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_module_test.go#L161
+[t3]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_derive_test.go#L45
+[t3b]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_derive_test.go#L130
+[t3c]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_derive_test.go#L190
+[t4]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_operator_test.go#L21
+[t5]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/e2e/vocab_trail_test.go#L163
+
+How the pieces fit:
+
+```
+Kubernetes adapter (io.k8s only)          operator settings and accepted suggestions
+  io.k8s:Deployment ────────────────broader────────────► core:Component
+  io.k8s:depends_on ────────────exact_match────────────► core:depends_on   (read at query time)
+  io.k8s:repository ────────────exact_match────────────► core:defined_in
+  io.k8s:labels ── derives r-team@2 'kubernetes:team/{{ .labels.team | lower | trim }}'
+                                     │  (runs inside Ingest)
+                                     ▼
+                     fact  payments-api owned_by payments
+                     fact_source: observation + rule r-team@2
+                     source: kubernetes-acme → closes on its next complete
+                                               sync if the workload is gone
+```
+
+Where the code is:
+- `exact_match`: [`Registry.ExactMatch`][c1] and the read path in
+  [`read.go`][c2];
+- the adapter's rewrite to `io.k8s` terms: [`namespaced`][c3];
+- rules at ingest: [`derive`][c4];
+- rule versions: [`PutMapping`][c5].
+
+[c1]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/pkg/model/vocabulary.go#L346
+[c2]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/duckstore/read.go
+[c3]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/adapters/kubernetes/kubernetes.go#L94
+[c4]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/duckstore/derive.go#L25
+[c5]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/internal/duckstore/vocab.go#L98
 
 ## Numbers
 
 | What | Value |
 | --- | --- |
-| Lines added, production Go | about 1,500 (store 460, `pkg/vocab` 840, adapter 90, fakes 100) |
-| Lines added, tests | about 1,600 |
-| Other | `core.yaml` 361 (generated), SQL 49 |
-| Existing code changed | Kubernetes adapter +44/−7 (namespaced mode, off by default); about 12 lines in `pkg/model`, `ingest.go`, `vocabulary.go` and `10_graph.sql`; no existing test or golden changed meaning |
-| New modules in `go.mod` | none (`go.yaml.in/yaml/v3` was already in the graph through testify; now direct) |
-| Test time | the six vocab e2e tests take 0.03–0.32s each, and the e2e package run takes 0.9s; `pkg/vocab` unit tests 0.2s |
-| **Sprig subset** | **25 functions, 74 lines** ([funcs.go][f]), standard library only, MIT notice kept ([SPRIG-LICENSE][fl]) |
-| Git commit check | about 12 lines: the git blob hash of the file, compared with a git runner that tests inject |
+| Production Go added | about 1,790 lines: `pkg/vocab` 935, store 520, adapter 145, fakes 115, `pkg/model` 70 |
+| Tests added | about 1,840 lines |
+| Other | `core.yaml` 361 (generated), SQL 49, PLAN and FINDINGS |
+| Existing code changed | additive: Kubernetes adapter +82/−11 (namespaced mode, off by default), store read and ingest about +50, `pkg/query` and `pkg/graph` +9 (`Rules` on a fact). No existing test or golden changed meaning. |
+| New modules | none (`go.yaml.in/yaml/v3` was already in the graph through testify) |
+| Test time | the nine vocab e2e tests run in 1.3s as a package; the slowest is 0.69s (three boots and four syncs) |
+| **Sprig subset** | **25 functions, 74 lines** ([funcs.go][f]), standard library only, MIT notice kept |
+| Git commit check | about 12 lines: the file's git blob hash, compared with an injected git runner |
 
-[f]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/pkg/vocab/funcs.go
-[fl]: https://github.com/dhm116/bearing/blob/3f108271a56a339b1b5e0ea465f18a99d0236d6d/pkg/vocab/SPRIG-LICENSE
+[f]: https://github.com/dhm116/bearing/blob/7487a31a40c6f8559990b53fc3d80990860d6ff7/pkg/vocab/funcs.go
 
-**Sprig ruling input.** The ADR estimated 55 functions and about 460
-lines. The rules here needed 25 functions in 74 lines:
-- strings: lower, upper, trim, trimPrefix, trimSuffix, replace, contains, hasPrefix, hasSuffix, trunc, quote;
+**For the Sprig ruling.** The ADR estimates 55 functions and about 460
+lines. The rules in this spike needed 25:
+- strings: lower, upper, trim, trimPrefix, trimSuffix, replace, contains,
+  hasPrefix, hasSuffix, trunc, quote;
 - lists: splitList, join, first, last;
-- the rest: default, b64enc, b64dec, sha256sum, toJson, kebabcase, snakecase, regexMatch, regexFind, regexReplaceAll.
+- the rest: default, b64enc, b64dec, sha256sum, toJson, kebabcase,
+  snakecase, regexMatch, regexFind, regexReplaceAll.
 
-Every Acme rule in this spike was written with them. Importing Sprig
-would cost 10 modules and about 10,400 lines. **Copy.** One fix is due:
-the list functions take `[]string`, but attribute lists arrive as
-`[]any`, so the trail had to go through `toJson | regexFind`.
+Importing Sprig would add 10 modules and about 10,400 lines. **Copy**, and
+add functions when a rule needs one. One fix is due: the list functions
+take `[]string`, but attribute lists arrive as `[]any`, so the trail went
+through `toJson | regexFind`.
 
-## Surprises
+## Spike defects found and fixed
 
-1. **A derived fact is closed by its adapter's next snapshot.** The derived
-   fact carries the observation's source. The adapter's next full sync
-   closes every `owned_by` fact of that source it didn't touch, and the
-   derived fact is one of them. Derive then reopens it with a new id. So
-   supersession (v1 → v2 keeps the fact) holds only if nothing re-ingests
-   between versions. The test avoids that case.
-2. **An unmapped term can't hold core relations.** An `io.k8s:Deployment`
-   with no broader mapping fails validation for `deployed_to`,
-   `defined_in` and `depends_on`, whose domain is Component, and for the
-   core `name` attribute. Namespaced mode drops them, and it still drops
-   them after the mapping is accepted. So the workload → repo hop that
-   the PagerDuty trail relies on is missing.
-3. **Attributes are still a flat namespace.** `vocab.Registry` adds kinds
-   only. Module attribute and relation terms never reach the registry:
-   - Derived predicates such as `com.datadoghq:watches` aren't checked
-     against a domain or range.
-   - An adapter can't reuse a domain-limited core attribute name: the
-     trail had to rename `tags` to `monitor_tags`.
-   This is the ADR 12 collision, moved rather than removed.
-4. **Mapping checks span two layers.** An adapter module can check only
-   that its suggestions end outside its own namespace. The rule that
-   they end at a core or operator term needs every loaded module, so it
-   lives in `Registry`.
-5. **The registry has single inheritance.** Two asserted broader mappings
-   from one term are refused. SKOS allows several broader terms; Bearing
-   can't, without a registry change.
-6. **The wire format isn't defined yet.** The module crosses the wire as
-   the Go struct. The `VocabularyModule` proto message is still needed,
-   and the server must set `Owner` itself rather than trust it from the
-   module.
-7. **Parallel worktrees share golangci-lint's lock.** Two streams
-   collided on "parallel golangci-lint is running". Worth knowing for the
-   next fan-out.
+All three break text the ADR already has.
 
-## Changes ADR 13 needs
+1. **Module terms were loaded into a registry of kinds only.** The ADR
+   says "Every term has a namespaced name." Fixed in `778531c`: module
+   relations and attributes are now namespaced predicates with their own
+   shapes.
+2. **The adapter sent core terms.** The ADR says "Adapters never emit core
+   terms." Fixed in `778531c`, along with the snapshot closing that it
+   caused.
+3. **Old rule versions never retired.** The ADR says "Editing a rule is a
+   new version." The store kept v1 running beside v2, so a v3 with a new
+   key could never close v1's fact. Fixed in `8dce17e`: an asserted
+   version closes the asserted versions before it.
 
-1. **Say which source a derived fact carries.** Either a rule source such
-   as `rule:r-team`, closed only by its own rule, or derive runs in the
-   same pass as ingest and counts as touched. The spike recommends the
-   rule source: it keeps rule facts out of the adapter's snapshot and
-   makes "a fact closes when its rule stops making it" the only closing
-   rule.
-2. **Register relation and attribute terms, not just kinds.**
-   - Namespace attribute names in the registry, so `github:id` and
-     `pagerduty:id` are different predicates (today they still share
-     `id`).
-   - Check derived predicates against their domain and range.
-3. **Let an `exact_match` or `broader` mapping carry core relations.**
-   Once `k8s:Deployment broader core:Component` is accepted, the adapter's
-   `deployed_to` and `defined_in` should validate. That needs either
-   validation that reads the booted registry (it does) and an adapter
-   that emits those relations in namespaced mode, or a rule that core
-   relations on a module term are held as proposed until a mapping makes
-   them valid.
-4. **Spell out what a rule sees.** A rule sees the entity's attributes,
-   its `key` and its `kind`:
-   - A missing field or an empty render makes no fact; any other
-     template error fails the rule.
-   - Only asserted, open rules run.
-   - A rule whose key uses no field renders for every matching entity.
-5. **Say how operator modules are verified.** `ref` is 40 lowercase hex
-   characters, and the commit check compares the git blob hash; it
-   proves the file matches the commit, not that the commit is the right
-   one. `verified_by` records every check that passed (`commit+sha256`).
-   `path` is repo-relative and serves both the read and the git lookup.
-6. **Say which layer checks which mapping rule.** The adapter module
-   checks its own namespace; the registry checks the core-or-operator
-   end. Name both, and say that a repeated suggestion never reopens a
-   decided mapping.
-7. **Allow several broader terms, or say why not.** SKOS allows several;
-   the registry's single parent refuses them.
-8. **Record the Sprig subset.** Copy, with the 25 functions above,
-   list functions over `[]any`, and the MIT notice.
+## Deviations this spike keeps
+
+None of these is an ADR finding; each is a shortcut.
+
+- **Core terms keep their bare stored names** (`owned_by`, `Component`).
+  The ADR says "Stored names are always full." Bare names act as the one
+  fixed alias of `core`, which kept the five questions' code unchanged.
+- **The proto is unchanged.** There is no `VocabularyModule` in
+  `DescribeResponse` and no module version on observations. The ADR says
+  "Proto: a `VocabularyModule` in `DescribeResponse` and a module version
+  on observations." Instead the module is a Go struct on `DescribeResult`.
+  A real server sets `Owner` itself and doesn't trust the wire.
+- **`kind` and `kind_predicate` stay beside `term`, `prefix` and
+  `mapping`.** The ADR says the new tables replace them.
+- **No `bearing vocab review|accept|reject` commands, and no real git
+  runner.** Tests call `DecideMapping` and inject the runner.
+- **`core.yaml` lives in `pkg/vocab/`** so it can be embedded; the ADR
+  puts it in `vocab/`.
+
+## What ADR 13 needs
+
+1. **What closes a rule's fact (Doug, 2026-11-15).** The ADR covers
+   versions ("Only facts that differ close or open"). It doesn't cover a
+   fact whose subject goes away. Proposed text:
+   - A fact a rule made keeps its observation's source.
+   - When no webhook reports the change, it closes on evidence: either the
+     observation's own adapter reports the subject gone on its next sync
+     (a complete snapshot, or an audit log it reads), or other adapters'
+     observations support closing it, such as a PR that removes the
+     Deployment.
+   - The second kind is inferred, so it only proposes the close, as a
+     trail does.
+
+   The spike builds the first kind.
+2. **When an `exact_match` is checked.** The ADR says the shapes are
+   "checked at boot". If the operator accepts `io.k8s:depends_on
+   exact_match depends_on` before the workload kinds are broader than
+   Component, the next boot fails. A mapping decision shouldn't be able
+   to stop Bearing. Proposed text: `bearing vocab accept` refuses a
+   mapping that wouldn't pass the boot check, naming what it needs
+   first, and the boot check stays as the backstop.
+3. **Several broader terms.** The ADR says "`extends` becomes a dated
+   `broader` row." It doesn't say whether a term may have more than one.
+   SKOS allows several. The registry allows one parent, so the spike
+   refuses a second and says why. The ADR should rule on it.
+4. **Which check `verified_by` records.** The explainer says each term
+   row records "which check passed". When both the commit check and the
+   checksum check run, the spike records `sha256`. The ADR should say
+   whether to record both (`commit+sha256`).
 
 ## For the trail ADR (still open in ADR 13)
 
-- Independence is per claim (subject, predicate, object), after folding
-  a "describes" record (Terraform's copy of a monitor) onto what it
-  describes:
-  - Datadog only: 1/2 × 1/2 = 0.25.
-  - Adding the Terraform config: 0.25, unchanged.
-  - Adding Terraform's repo reference, a second claim: 2/3 × 1/2 ≈ 0.33.
-- Each step's strength is n/(n+1) (ADR 7's Strength with a prior of 1),
-  and the steps multiply.
-- The joined link is a proposed fact (source `trail`, rule
-  `trail-coverage@1`): its confidence is the score, its qualifiers name
-  the path, and `fact_source` lists every observation on the path. Facts
-  fit because it relates entities; identity links (not `same_as`) and
-  mappings (terms) don't.
-- The trail is anchored on the repo, because a Datadog tag doesn't carry
-  the workload's cluster and namespace. The ADR needs a step that
-  resolves a service name to a Component.
-- `covered_by` has no natural owner. Choose core `covered_by`, or reuse
-  `on_call_for` with a wider domain.
-- Skipped, and listed for that ADR:
-  - closing trails that no longer join;
-  - combining several monitors for one service;
-  - decay and contrary evidence;
-  - the Kev System One feature, which would judge whether
-    `@pagerduty-checkout` is the service "Checkout Platform".
-
-## Deviations from the ADR in this spike
-
-- `kind` and `kind_predicate` stay beside the new tables. The Kubernetes
-  adapter's namespaced mode is off by default, so existing tests are
-  untouched.
-- `core.yaml` lives in `pkg/vocab/`, not `vocab/`, because `go:embed`
-  can't reach a parent directory.
-- There is no proto `VocabularyModule`; `DescribeResult` carries the Go
-  struct.
-- The real git runner for the commit check isn't written; tests inject
-  one.
-- No `bearing vocab review|accept|reject` commands: the tests call
-  `DecideMapping`.
-- The coverage gate was skipped for stream commits after the foundation
-  (Doug: it belongs to PR workflows,
-  [dhm116/bearing#325](https://github.com/dhm116/bearing/pull/325)).
+- **Independence is per claim** (subject, predicate, object), after a
+  record that describes another (Terraform's copy of a monitor) is folded
+  onto it. Each step's strength is n/(n+1), and the steps multiply:
+  - Datadog only: 0.25.
+  - Adding the Terraform config: still 0.25.
+  - Adding Terraform's repo reference, a second claim: about 0.33.
+- **The joined link needs a term.** The spike puts `covered_by` in the
+  operator's namespace (`com.acme`), not PagerDuty's, because the server's
+  joiner makes it. That works, but it means an operator module declares a
+  term the server writes. The trail ADR should choose between that, a core
+  term, and reusing `on_call_for`.
+- **Name resolution.** A Datadog `service:` tag names a service, not a
+  workload. The fake monitor carries `kube_cluster_name`, `kube_namespace`
+  and `kube_deployment` tags so a rule can build the workload key, and the
+  key only handles Deployments. A real trail needs a step that resolves a
+  service name to a Component, which is where a Kev System One judgement
+  belongs. Kev was skipped.
+- **Not built:** closing trails that stop joining, combining several
+  monitors, and decay or contrary evidence.
