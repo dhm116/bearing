@@ -9,6 +9,7 @@ repository itself, so it stays current without edits here:
 | Page | Comes from |
 | --- | --- |
 | Spec | Every Markdown file in [`docs/spec/`](../docs/spec/), rendered as is |
+| Guides, Security, Brand | Every Markdown file in [`docs/`](../docs/), [`docs/security/`](../docs/security/) and [`docs/brand/`](../docs/brand/), rendered as is; the decision records in `docs/adr` stay on GitHub |
 | Roadmap | [`roadmap.yaml`](roadmap.yaml); statuses follow milestones and issues read from GitHub at build time |
 | Home, How it works | Hand-written templates in [`templates/`](templates/) |
 | Logo, colors, type | [`docs/brand/`](../docs/brand/) (the logo SVGs are copied, the tokens are mirrored in [`static/css/tokens.css`](static/css/tokens.css)) |
@@ -66,7 +67,8 @@ and `TestHandWrittenPagesStayInPlainTerms` checks the mechanical ones:
 
 ## Common changes
 
-**A spec document.** Add or edit the Markdown in `docs/spec/`.
+**A spec document or guide.** Add or edit the Markdown in `docs/spec/`, or
+in `docs/`, `docs/security/` or `docs/brand/` for a guide.
 Nothing to change here. Link between documents with relative `.md` links as you would
 for GitHub (relative, or from the repository root with a leading `/`); the
 generator rewrites them to site pages, sends links to code and other files
