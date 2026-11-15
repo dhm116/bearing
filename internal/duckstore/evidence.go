@@ -130,9 +130,9 @@ func (s *Store) evFacts(ctx context.Context, db querier, r graph.EvidenceRequest
 	where, args := holdsAt(r.At, true)
 	where += ` AND ` + from + `.cluster_id IN (` + placeholders(len(clusters)) + `)`
 	args = append(args, anySlice(clusters)...)
-	if len(r.Predicates) > 0 {
-		where += ` AND f.predicate IN (` + placeholders(len(r.Predicates)) + `)`
-		args = append(args, anySlice(r.Predicates)...)
+	if ps := s.matches(r.Predicates); len(ps) > 0 {
+		where += ` AND f.predicate IN (` + placeholders(len(ps)) + `)`
+		args = append(args, anySlice(ps)...)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT `+from+`.cluster_id, `+to+`.cluster_id, coalesce(`+to+`.kind, ''),
 	f.id, f.subject_id, f.predicate, f.object_id, CAST(f.value AS VARCHAR), f.status, f.confidence, f.valid_from, f.valid_to,

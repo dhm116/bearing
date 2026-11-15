@@ -249,8 +249,9 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 			args = append(args, string(f.Subject))
 		}
 		if f.Predicate != "" {
-			where += ` AND f.predicate = ?`
-			args = append(args, f.Predicate)
+			ps := s.reg.Matches(f.Predicate) // with its exact_match terms (ADR 13)
+			where += ` AND f.predicate IN (` + placeholders(len(ps)) + `)`
+			args = append(args, anySlice(ps)...)
 		}
 		if f.Object != "" {
 			where += ` AND oe.cluster_id = ?`
@@ -296,9 +297,9 @@ func (s *Store) Walk(ctx context.Context, r graph.WalkRequest) ([]graph.Step, er
 		}
 		where, args := holdsAt(r.At, true)
 		where += ` AND f.object_id IS NOT NULL`
-		if len(r.Predicates) > 0 {
-			where += ` AND f.predicate IN (` + placeholders(len(r.Predicates)) + `)`
-			args = append(args, anySlice(r.Predicates)...)
+		if ps := s.matches(r.Predicates); len(ps) > 0 {
+			where += ` AND f.predicate IN (` + placeholders(len(ps)) + `)`
+			args = append(args, anySlice(ps)...)
 		}
 		args = append(args, string(start), r.MaxDepth)
 		rows, err := db.QueryContext(ctx, `
@@ -452,6 +453,29 @@ SELECT fact_id, id, source, observed_at, url, n FROM (
 			facts[i].SourceCount = n
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("load sources: %w", err)
+	}
+	return attachRules(ctx, db, facts, ids, idx)
+}
+
+// attachRules adds the derives rules behind each fact (ADR 13, spike).
+func attachRules(ctx context.Context, db querier, facts []*graph.Fact, ids []string, idx map[string][]int) error {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT fact_id, rule FROM fact_source
+		WHERE rule <> '' AND fact_id IN (`+placeholders(len(ids))+`) ORDER BY fact_id, rule`, anySlice(ids)...)
+	if err != nil {
+		return fmt.Errorf("load rules: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var factID, rule string
+		if err := rows.Scan(&factID, &rule); err != nil {
+			return fmt.Errorf("load rules: %w", err)
+		}
+		for _, i := range idx[factID] {
+			facts[i].Rules = append(facts[i].Rules, rule)
+		}
+	}
 	return rows.Err()
 }
 
@@ -540,4 +564,13 @@ func read[T any](ctx context.Context, s *Store, f func(db querier) (T, error)) (
 	}
 	defer func() { _ = tx.Rollback() }()
 	return f(tx)
+}
+
+// matches is preds with every term exact_match reads as one of them.
+func (s *Store) matches(preds []string) []string {
+	var out []string
+	for _, p := range preds {
+		out = append(out, s.reg.Matches(p)...)
+	}
+	return out
 }

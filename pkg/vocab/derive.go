@@ -63,9 +63,15 @@ func (rs *Rules) Match(kind string) []*Rule {
 // plus key and kind. A missing field or an empty result is no key, not an
 // error.
 func (r *Rule) Key(kind, key string, attrs map[string]any) (string, error) {
+	// A field of the subject's own namespace is also there by its term name
+	// (.labels for io.k8s:labels); any other is there by its full name.
+	ns, _, _ := Split(r.subject)
 	data := map[string]any{}
 	for k, v := range attrs {
 		data[k] = v
+		if t, ok := strings.CutPrefix(k, ns+":"); ok {
+			data[t] = v
+		}
 	}
 	data["key"], data["kind"] = key, kind
 	var b bytes.Buffer

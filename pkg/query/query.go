@@ -109,6 +109,9 @@ type Fact struct {
 	// observation. SourceCount is how many observations there are in all.
 	Sources     []Source `json:"sources"`
 	SourceCount int      `json:"source_count"`
+	// Rules are the derives rules, with their versions, that made the fact
+	// from the sources (ADR 13, spike); empty when a source stated it.
+	Rules []string `json:"rules,omitempty"`
 }
 
 // Entity is the answer to Get: the entity, its keys and the facts it is the
@@ -506,6 +509,7 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	out := Fact{
 		Subject: sub, Predicate: f.Predicate, Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status),
 		Confidence: f.Confidence, ValidFrom: f.ValidFrom, SourceCount: f.SourceCount, Sources: make([]Source, len(f.Sources)),
+		Rules: f.Rules,
 	}
 	if f.Object != "" {
 		obj, err := l.ref(ctx, f.Object)
@@ -568,6 +572,7 @@ func merge(facts []graph.Fact) []graph.Fact {
 			cur.Confidence = max(cur.Confidence, f.Confidence)
 			cur.Sources = append(cur.Sources, f.Sources...)
 			cur.SourceCount += f.SourceCount
+			cur.Rules = slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(cur.Rules), f.Rules...))))
 		}
 		out = append(out, finish(cur))
 	}

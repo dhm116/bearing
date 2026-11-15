@@ -55,7 +55,8 @@ func newVocabWorld(t *testing.T, edit func(*kubernetes.Config)) *vocabWorld {
 }
 
 // boot syncs the core and every module, stores the modules' suggestions and
-// the settings, and builds the registry from the mappings in force now.
+// the settings, and builds the registry and the derives rules from the
+// mappings in force now.
 func (v *vocabWorld) boot() {
 	v.t.Helper()
 	ctx, now := v.t.Context(), v.clock.Now()
@@ -95,7 +96,12 @@ func (v *vocabWorld) boot() {
 	if err != nil {
 		v.t.Fatal(err)
 	}
+	rules, err := vocab.Compile(ms)
+	if err != nil {
+		v.t.Fatal(err)
+	}
 	v.store.SetRegistry(read)
+	v.store.SetRules(rules)
 	v.reg = read
 	v.q = &query.Querier{Graph: v.store, Registry: read, Now: v.clock.Now}
 }
@@ -119,8 +125,21 @@ func (v *vocabWorld) sync() []*eventv1alpha1.Observation {
 					v.t.Fatalf("%s: %v", o.GetId(), err)
 				}
 			}
+			// A complete sync, as the host applies it: what the source no longer
+			// reports closes, rule-made facts included (ADR 13 invariant 5).
+			var kinds []model.Kind
+			for _, k := range res.CompleteSync.GetKinds() {
+				kinds = append(kinds, model.Kind(k))
+			}
+			started := all[0].GetTime().AsTime()
+			for _, o := range all {
+				if t := o.GetTime().AsTime(); t.Before(started) {
+					started = t
+				}
+			}
 			if _, err := v.store.Ingest(v.t.Context(), graph.IngestRequest{
 				Source: "kubernetes-acme", Observations: all, Authoritative: authoritative(v.t, "kubernetes"),
+				Complete: kinds, SyncStarted: started,
 			}); err != nil {
 				v.t.Fatal(err)
 			}
@@ -131,6 +150,20 @@ func (v *vocabWorld) sync() []*eventv1alpha1.Observation {
 	v.t.Fatal("sync did not finish")
 	return nil
 }
+
+// teamRule is Acme's ownership rule, as the demo's settings would ship it:
+// the adapter emits only labels, and this rule makes owned_by from one.
+func teamRule(version int, key string) vocab.Mapping {
+	return vocab.Mapping{
+		ID: "r-team", Version: version, Subject: "io.k8s:Deployment", Predicate: vocab.Derives,
+		Object:        vocab.CoreNamespace + ":owned_by",
+		Target:        &vocab.Target{Kind: vocab.CoreNamespace + ":Team", Key: key},
+		Justification: "Platform policy: every workload has a team label",
+	}
+}
+
+// teamKey is r-team's first key template.
+const teamKey = "kubernetes:team/{{ .labels.team | lower }}"
 
 // paymentsWorkload is payments-api's workload key.
 var paymentsWorkload = workload("deployment", "payments", "payments-api")

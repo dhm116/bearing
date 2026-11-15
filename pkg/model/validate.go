@@ -539,7 +539,7 @@ func (c *checker) observationData(path string, d *modelv1alpha1.ObservationData,
 				if len(preds) > 1 {
 					c.add(codeMalformed, pp, `"*" must be the only predicate`)
 				}
-			case !ValidAttributeName(p):
+			case !ValidAttributeName(p) && !namespacedTerm.MatchString(p):
 				c.add(codeMalformed, pp, "%q is not a predicate name", clip(p))
 			case s.GetDirection() == modelv1alpha1.Direction_DIRECTION_IN:
 				if reg, ok := c.reg.Predicate(p); ok && !reg.Relation {

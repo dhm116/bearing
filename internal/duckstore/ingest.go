@@ -36,6 +36,11 @@ func (s *Store) Ingest(ctx context.Context, r graph.IngestRequest) (graph.Ingest
 		if err := g.observation(ctx, o); err != nil {
 			return graph.IngestResult{}, fmt.Errorf("observation %s: %w", o.GetId(), err)
 		}
+		if s.rules != nil {
+			if err := g.derive(ctx, o, s.rules); err != nil {
+				return graph.IngestResult{}, fmt.Errorf("observation %s: derive: %w", o.GetId(), err)
+			}
+		}
 	}
 	if err := g.complete(ctx, r.Complete, r.SyncStarted); err != nil {
 		return graph.IngestResult{}, fmt.Errorf("complete sync: %w", err)

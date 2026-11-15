@@ -39,6 +39,9 @@ const ReservedNamespace = "bearing"
 // (io.k8s:Deployment; spike).
 var configuredKind = regexp.MustCompile(`^([a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*|[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+:[A-Z][A-Za-z0-9]*)$`)
 
+// namespacedTerm is an ADR 13 attribute or relation term: io.k8s:labels.
+var namespacedTerm = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+:[a-z][a-z0-9_]*$`)
+
 // coreTermPrefix is ADR 13's core namespace, which configured kinds may not use.
 const coreTermPrefix = "com.dougmccall.bearing.core:"
 
@@ -64,6 +67,9 @@ type Registry struct {
 	kinds    map[Kind]KindDef
 	preds    map[string]Predicate
 	children map[Kind][]Kind
+	// exact maps a predicate to the module terms exact_match says mean the
+	// same (ADR 13, spike); reads of the predicate include them.
+	exact map[string][]string
 }
 
 var coreKinds = []Kind{
@@ -129,7 +135,7 @@ func (r *Registry) index() {
 // domain or range adds nothing, and one that is nil already stays any kind).
 func (r *Registry) Extend(kinds []KindDef, preds []Predicate) (*Registry, error) {
 	r = r.self()
-	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds)}
+	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds), exact: maps.Clone(r.exact)}
 	for _, d := range kinds {
 		ns, _, _ := strings.Cut(string(d.Name), ".")
 		switch {
@@ -170,7 +176,7 @@ func (r *Registry) addPredicate(p Predicate) error {
 	if IsCorePredicate(p.Name) || p.Name == PredicateExists {
 		return fmt.Errorf("%w: only the core claims it", ErrPredicateName)
 	}
-	if !ValidAttributeName(p.Name) {
+	if !ValidAttributeName(p.Name) && !namespacedTerm.MatchString(p.Name) {
 		return fmt.Errorf("%w: lowercase letters, digits and underscores, no '.'", ErrPredicateName)
 	}
 	for _, k := range slices.Concat(p.Domain, p.Range) {
@@ -233,7 +239,7 @@ func (r *Registry) Retired(k Kind) (time.Time, bool) {
 // with r's. Kinds r already has are left alone.
 func (r *Registry) WithRetired(kinds []KindDef, preds []Predicate) *Registry {
 	r = r.self()
-	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds)}
+	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds), exact: maps.Clone(r.exact)}
 	for _, d := range kinds {
 		if _, ok := n.kinds[d.Name]; !ok {
 			n.kinds[d.Name] = d
@@ -327,4 +333,57 @@ func (r *Registry) InRange(p Predicate, k Kind) bool { return r.within(p.Range, 
 
 func (r *Registry) within(kinds []Kind, k Kind) bool {
 	return kinds == nil || slices.ContainsFunc(kinds, func(d Kind) bool { return r.IsA(k, d) })
+}
+
+// ErrExactMatch means an exact_match pairs predicates whose shapes disagree.
+var ErrExactMatch = errors.New("exact_match shapes disagree")
+
+// ExactMatch returns a registry where reads of core include term (ADR 13,
+// spike); r is unchanged. Both must be registered with the same relation
+// flag, type, cardinality and conflict policy, and term's domain and range
+// must lie within core's (a nil range on term is taken as core's). A term
+// matches at most one predicate.
+func (r *Registry) ExactMatch(term, core string) (*Registry, error) {
+	r = r.self()
+	t, ok1 := r.preds[term]
+	c, ok2 := r.preds[core]
+	switch {
+	case !ok1 || !ok2:
+		return nil, fmt.Errorf("%s exact_match %s: %w: both must be registered", term, core, ErrExactMatch)
+	case t.Relation != c.Relation || t.Type != c.Type || t.Cardinality != c.Cardinality || t.Conflict != c.Conflict:
+		return nil, fmt.Errorf("%s exact_match %s: %w: relation flag, type, cardinality or conflict policy differ", term, core, ErrExactMatch)
+	}
+	for _, side := range []struct {
+		name      string
+		own, core []Kind
+	}{{"domain", t.Domain, c.Domain}, {"range", t.Range, c.Range}} {
+		for _, k := range side.own {
+			if !r.within(side.core, k) {
+				return nil, fmt.Errorf("%s exact_match %s: %w: %s %s is not within %s's (map it broader first)", term, core, ErrExactMatch, side.name, k, core)
+			}
+		}
+		if side.own == nil && side.core != nil && side.name == "domain" {
+			return nil, fmt.Errorf("%s exact_match %s: %w: %s's domain is any kind", term, core, ErrExactMatch, term)
+		}
+	}
+	for p, ts := range r.exact {
+		if p != core && slices.Contains(ts, term) {
+			return nil, fmt.Errorf("%s exact_match %s: %w: already matches %s", term, core, ErrExactMatch, p)
+		}
+	}
+	n := &Registry{kinds: r.kinds, preds: r.preds, children: r.children, exact: maps.Clone(r.exact)}
+	if n.exact == nil {
+		n.exact = map[string][]string{}
+	}
+	if !slices.Contains(n.exact[core], term) {
+		n.exact[core] = append(slices.Clone(n.exact[core]), term)
+		slices.Sort(n.exact[core])
+	}
+	return n, nil
+}
+
+// Matches is name and every term exact_match says means the same, sorted:
+// what a read of name must include.
+func (r *Registry) Matches(name string) []string {
+	return slices.Sorted(slices.Values(append([]string{name}, r.self().exact[name]...)))
 }

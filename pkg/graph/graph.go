@@ -172,6 +172,10 @@ type Fact struct {
 	// observation twice.
 	Sources     []Source
 	SourceCount int
+	// Rules name the derives rules and versions (r-team@2) that made the
+	// fact from those observations, sorted; empty when the observations
+	// stated it (ADR 13, spike).
+	Rules []string
 }
 
 // Source is one observation behind a fact: the provenance an answer shows.

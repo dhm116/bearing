@@ -11,41 +11,18 @@ import (
 	"bearing.example/pkg/vocab"
 )
 
-// DeriveResult counts what Derive did.
-type DeriveResult struct {
-	Opened, Supported, Closed int
-}
+// SetRules sets the derives rules the server booted with (ADR 13, spike).
+// Ingest runs them on each observation, in its transaction. Call it before
+// the first Ingest, as SetRegistry.
+func (s *Store) SetRules(r *vocab.Rules) { s.rules = r }
 
-// Derive writes the facts derives rules make from observations already
-// ingested (ADR 13, spike), in one transaction. Each fact cites the
-// observation and the rule (fact_source.rule, id@version). A rule version
-// that makes a fact another version made adds a source row to it: the fact
-// keeps its id and valid_from. A fact only an earlier version of a rule made,
-// which the rule no longer makes, closes. source is the configured source
-// whose observations these are; the facts carry it.
-func (s *Store) Derive(ctx context.Context, source string, obs []*eventv1alpha1.Observation, rules *vocab.Rules) (DeriveResult, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return DeriveResult{}, fmt.Errorf("duckstore: derive: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	g := &ingest{tx: tx, s: s, source: source, recorded: s.now().UTC().Truncate(time.Microsecond)}
-	var res DeriveResult
-	for _, o := range obs {
-		if err := g.derive(ctx, o, rules, &res); err != nil {
-			return DeriveResult{}, fmt.Errorf("duckstore: derive: observation %s: %w", o.GetId(), err)
-		}
-	}
-	if _, err := recluster(ctx, tx, s.reg, g.dirty); err != nil {
-		return DeriveResult{}, fmt.Errorf("duckstore: derive: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return DeriveResult{}, fmt.Errorf("duckstore: derive: commit: %w", err)
-	}
-	return res, nil
-}
-
-func (g *ingest) derive(ctx context.Context, o *eventv1alpha1.Observation, rules *vocab.Rules, res *DeriveResult) error {
+// derive writes the facts the rules make from one ingested observation. Each
+// cites the observation and the rule (fact_source.rule, id@version) and
+// carries the observation's source, so the source's later complete sync
+// closes it when the subject is gone. A rule version that makes a fact
+// another version made adds a source row to it: the fact keeps its id and
+// valid_from. A fact an earlier version made, which this one doesn't, closes.
+func (g *ingest) derive(ctx context.Context, o *eventv1alpha1.Observation, rules *vocab.Rules) error {
 	e := o.GetData().GetEntity()
 	if e == nil || e.GetDeleted() {
 		return nil
@@ -74,25 +51,23 @@ func (g *ingest) derive(ctx context.Context, o *eventv1alpha1.Observation, rules
 			return err
 		}
 		if key != "" {
-			if err := g.derived(ctx, subject, key, r, res); err != nil {
+			if err := g.derived(ctx, subject, key, r); err != nil {
 				return fmt.Errorf("rule %s: %w", r.Ref, err)
 			}
 		}
 		// What an earlier version of this rule made and this one did not.
-		before := g.res.Closed
 		if err := g.closeUntouched(ctx, false, `subject_id = ? AND predicate = ? AND source = ?
 			AND EXISTS (SELECT 1 FROM fact_source fs WHERE fs.fact_id = fact.id AND starts_with(fs.rule, ?))`,
 			subject, r.Predicate, g.source, r.ID+"@"); err != nil {
 			return fmt.Errorf("rule %s: %w", r.Ref, err)
 		}
-		res.Closed += g.res.Closed - before
 	}
 	return nil
 }
 
 // derived asserts one relation a rule makes: it supports the open fact of the
 // same subject, predicate, object and source, or opens one.
-func (g *ingest) derived(ctx context.Context, subject, key string, r *vocab.Rule, res *DeriveResult) error {
+func (g *ingest) derived(ctx context.Context, subject, key string, r *vocab.Rule) error {
 	obj, err := g.target(ctx, key)
 	if err != nil {
 		return err
@@ -109,7 +84,7 @@ func (g *ingest) derived(ctx context.Context, subject, key string, r *vocab.Rule
 	var id string
 	if len(open) > 0 {
 		id = open[0].id
-		res.Supported++
+		g.res.Refreshed++
 	} else {
 		status := "asserted"
 		if r.Guess {
@@ -120,7 +95,7 @@ func (g *ingest) derived(ctx context.Context, subject, key string, r *vocab.Rule
 			VALUES (?, ?, ?, ?, NULL, ?, 1, ?, NULL, ?, NULL)`, id, subject, r.Predicate, obj, status, g.observed, g.source); err != nil {
 			return err
 		}
-		res.Opened++
+		g.res.Opened++
 	}
 	g.touched[id] = true
 	_, err = g.exec(ctx, `INSERT INTO fact_source (fact_id, observation_id, rule) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, g.obsID, r.Ref)

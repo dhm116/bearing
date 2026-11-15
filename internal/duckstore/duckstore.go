@@ -19,6 +19,7 @@ import (
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/store"
+	"bearing.example/pkg/vocab"
 )
 
 // schema holds the tables. Open applies every file in name order, so a
@@ -60,6 +61,7 @@ type Store struct {
 	now   func() time.Time
 	newID func() string
 	reg   *model.Registry
+	rules *vocab.Rules // derives rules, ADR 13 spike; nil runs none
 	// linkEvery is Config.LinkEvery; set it before the first Ingest.
 	linkEvery time.Duration
 	// logWrite serializes event log writers, so offsets are handed out in

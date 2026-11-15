@@ -70,14 +70,49 @@ type Config struct {
 	ExcludeNamespaces []string `json:"exclude_namespaces,omitempty"` // default kube-system, kube-public, kube-node-lease
 	TeamLabel         string   `json:"team_label,omitempty"`         // default team
 	PageSize          int      `json:"page_size,omitempty"`          // default 500
-	// Namespaced emits the adapter's own io.k8s terms (ADR 13, spike):
-	// workloads as io.k8s:<Kind> with their labels, namespaces as
-	// io.k8s:Namespace, and only relations an unmapped kind may hold.
+	// Namespaced emits only the adapter's own io.k8s terms (ADR 13, spike):
+	// kinds, relations and attributes, plus the workload's labels. No core
+	// term: no Team entities and no owned_by; the operator's mappings and
+	// rules say what the terms mean.
 	Namespaced bool `json:"namespaced,omitempty"`
 }
 
 // ModuleNamespace is the namespace of the adapter's vocabulary module.
 const ModuleNamespace = "io.k8s"
+
+// coreToModule names the module term each core relation the adapter sends
+// becomes in namespaced mode; owned_by has none (a rule over the labels
+// makes it).
+var coreToModule = map[string]string{
+	string(model.RelDeployedTo): "in_namespace",
+	string(model.RelDefinedIn):  "repository",
+	string(model.RelDependsOn):  "depends_on",
+}
+
+// namespaced rewrites an observation's attributes, relations and snapshot
+// predicates into the module's terms.
+func namespaced(d *modelv1alpha1.ObservationData) {
+	e := d.GetEntity()
+	attrs := make(map[string]*structpb.Value, len(e.GetAttributes()))
+	for k, v := range e.GetAttributes() {
+		attrs[ModuleNamespace+":"+k] = v
+	}
+	e.Attributes = attrs
+	d.Relations = slices.DeleteFunc(d.Relations, func(r *modelv1alpha1.Relation) bool {
+		t, ok := coreToModule[r.GetType()]
+		r.Type = ModuleNamespace + ":" + t
+		return !ok
+	})
+	for _, sc := range d.GetSnapshots() {
+		var ps []string
+		for _, p := range sc.GetPredicates() {
+			if t, ok := coreToModule[p]; ok {
+				ps = append(ps, ModuleNamespace+":"+t)
+			}
+		}
+		sc.Predicates = ps
+	}
+}
 
 // kind is a core kind, or in namespaced mode the adapter's own term.
 func (c *client) kind(core model.Kind, term string) string {
@@ -280,7 +315,7 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 		// Every included namespace and workload was listed to its last page.
 		kinds := []string{string(model.KindComponent), string(model.KindEnvironment), string(model.KindTeam)}
 		if c.cfg.Namespaced {
-			kinds = []string{c.kind("", "DaemonSet"), c.kind("", "Deployment"), c.kind("", "Namespace"), c.kind("", "StatefulSet"), string(model.KindTeam)}
+			kinds = []string{c.kind("", "DaemonSet"), c.kind("", "Deployment"), c.kind("", "Namespace"), c.kind("", "StatefulSet")}
 		}
 		return adapter.SyncResult{Observations: obs, Done: true, CompleteSync: &modelv1alpha1.CompleteSync{Kinds: kinds}}, nil
 	}
@@ -379,14 +414,14 @@ func (c *client) syncNamespaces(ctx context.Context, cur cursor) (adapter.Observ
 			continue
 		}
 		names = append(names, name)
-		attrs := map[string]*structpb.Value{"name": structpb.NewStringValue(name), "cluster": structpb.NewStringValue(c.cfg.Cluster)}
-		if c.cfg.Namespaced {
-			delete(attrs, "name") // core name's domain doesn't cover an unmapped io.k8s:Namespace
-		}
-		obs = append(obs, model.NewObservation(Source, sent, &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{
+		d := &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{
 			Kind: c.kind(model.KindEnvironment, "Namespace"), Key: c.key("namespace", c.cfg.Cluster+"/"+name),
-			Attributes: attrs,
-		}}))
+			Attributes: map[string]*structpb.Value{"name": structpb.NewStringValue(name), "cluster": structpb.NewStringValue(c.cfg.Cluster)},
+		}}
+		if c.cfg.Namespaced {
+			namespaced(d)
+		}
+		obs = append(obs, model.NewObservation(Source, sent, d))
 	}
 	return obs, names, list.Metadata.Continue, nil
 }
@@ -479,7 +514,7 @@ func (c *client) syncWorkloads(ctx context.Context, cur cursor) (adapter.Observa
 	for _, w := range list.Items {
 		o := c.workloadObservation(ns, r.kind, w, sent, cur)
 		obs = append(obs, o)
-		if team := w.Metadata.Labels[c.cfg.TeamLabel]; team != "" && !teams[team] {
+		if team := w.Metadata.Labels[c.cfg.TeamLabel]; team != "" && !teams[team] && !c.cfg.Namespaced {
 			teams[team] = true
 			obs = append(obs, model.NewObservation(Source, sent, &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{
 				Kind: string(model.KindTeam), Key: c.key("team", team),
@@ -524,19 +559,7 @@ func (c *client) workloadObservation(ns, kind string, w workloadItem, at time.Ti
 	}
 	key := c.workloadKey(ns, kind, name)
 	rels = append(rels, dependencies(ns, key, w.Spec.Template.Spec.Containers, idx.Services, idx.Targets)...)
-	if c.cfg.Namespaced {
-		// Core relations whose domain is Component (deployed_to, defined_in,
-		// depends_on) fail validation for a kind with no broader mapping yet.
-		rels = slices.DeleteFunc(rels, func(r *modelv1alpha1.Relation) bool { return r.GetType() != string(model.RelOwnedBy) })
-		labels := map[string]any{}
-		for k, v := range w.Metadata.Labels {
-			labels[k] = v
-		}
-		if st, err := structpb.NewStruct(labels); err == nil {
-			attrs["labels"] = structpb.NewStructValue(st)
-		}
-	}
-	return model.NewObservation(Source, at, &modelv1alpha1.ObservationData{
+	d := &modelv1alpha1.ObservationData{
 		Entity: &modelv1alpha1.Entity{
 			Kind: c.kind(model.KindComponent, kind), Key: key,
 			Attributes: attrs,
@@ -546,7 +569,18 @@ func (c *client) workloadObservation(ns, kind string, w workloadItem, at time.Ti
 			Direction:  modelv1alpha1.Direction_DIRECTION_OUT,
 			Predicates: []string{string(model.RelDeployedTo), string(model.RelOwnedBy), string(model.RelDefinedIn), string(model.RelDependsOn)},
 		}},
-	})
+	}
+	if c.cfg.Namespaced {
+		labels := map[string]any{}
+		for k, v := range w.Metadata.Labels {
+			labels[k] = v
+		}
+		if st, err := structpb.NewStruct(labels); err == nil {
+			attrs["labels"] = structpb.NewStructValue(st)
+		}
+		namespaced(d)
+	}
+	return model.NewObservation(Source, at, d)
 }
 
 // repository returns the repository (owner/name) a workload is defined in,

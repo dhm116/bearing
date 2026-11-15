@@ -6,6 +6,33 @@ working on the Acme fakes, so the ADR can be accepted or amended with
 evidence. AGENTS.md still applies: fast tests, faked systems, DuckDB
 `:memory:`, `make check` green before every commit.
 
+## ADR 13 invariants (rework, 2026-11-15)
+
+The first pass broke these, and reported the results as ADR gaps. Every
+change and every agent brief is checked against them. A shortcut that
+breaks one is a spike defect, never an ADR finding.
+
+1. **Every term is namespaced**: kinds, relations and attributes.
+   `io.k8s:labels` and `com.datadoghq:tags` are different predicates from
+   the core's. (Core terms keep their bare stored names, `owned_by` and
+   `Component`, as the one fixed alias of `core`.)
+2. **Adapters never emit core terms.** The Kubernetes adapter emits only
+   `io.k8s` kinds, relations and attributes: no Team entities and no
+   `owned_by`, `deployed_to`, `defined_in` or `depends_on`.
+3. **Core meaning comes only from mappings and rules:** `broader` for kinds,
+   `exact_match` for relations and attributes (shape checked at boot, read at
+   query time like `broader`), and `derives` for facts nobody stated.
+4. **Every mapping ends at a core or operator term.** Adapter suggestions
+   are proposed; settings are asserted.
+5. **`derives` runs at ingest**, in the same transaction. A derived fact
+   cites the observation and `rule@version`, carries the observation's
+   source, and closes on evidence: its source's later complete sync no
+   longer reporting the subject (Doug), or the rule no longer making it.
+   Closing on other adapters' evidence (a PR that removes the Deployment)
+   would be a proposal; not built.
+6. **Grow-only per term, one owner per namespace, `core` reserved; operator
+   modules pinned and verified.**
+
 ## Shape of the spike
 
 It is built **beside** today's code, not in place of it. The core module
