@@ -179,6 +179,54 @@ on-call tool's list of live handles), not for a better model. Kev echoes
 whatever model name it is sent, so a verdict records the endpoint as well
 as the model.
 
+**Three framings across three models (`4bcb9d5`).** Every case starts with
+one multiple-choice question. The **margin** framing routes on the winner's
+probability minus the runner-up's, which means the same thing on every
+server, unlike each server's own `confidence`. The **score** framing then
+asks a three-level question about the picked pair:
+- a different service;
+- maybe an old, renamed, legacy or team-specific name, so a person should
+  check;
+- this service.
+
+The levels were written before any score was seen, following TypeSafe's
+entity-alignment cookbook. A rounded score routes to none, review or join.
+
+| Handle | Person | Jev 1.14.0 (margin, score) | OpenJev 0.1 (margin, score) | Kev-4B (margin, score) |
+| --- | --- | --- | --- | --- |
+| `-checkout-platform` | join | 0.94, 1.95 join | 0.99, 1.97 join | 0.63, 1.49 review |
+| `-checkout` | join | 0.83, 1.91 join | 0.96, 1.97 join | 0.29, 1.39 review |
+| `-payments` | join | 0.89, 1.92 join | 1.00, 1.99 join | 0.55, 1.53 join |
+| `-search` | none | 1.00, none | 0.99, none | 0.61, none |
+| `-checkout-old` | review | 0.57, 1.04 review | 0.85, 1.00 review | 0.20, 1.29 review |
+| `-checkout-legacy` | review | 0.59, 1.07 review | 0.96, 1.01 review | 0.27, 1.47 review |
+| `-checkout-oncall-emea` | review | 0.85, 1.91 join | 0.98, 1.79 join | 0.02, 1.62 join |
+| `-chekout` (typo) | join | 0.49, 1.53 join | 0.97, 1.77 join | 0.40, 1.47 review |
+| **Routed as a person would (score)** | | **7 of 8** | **7 of 8** | 4 of 8 |
+
+- **The three-level score works.** Its middle level is what catches stale
+  and legacy handles, which no pick-one framing did. Jev and OpenJev both
+  route 7 of 8 and miss the same case: a team-specific handle they score as
+  a match.
+- **The margin is the weaker signal.** Jev's margins mostly separate (clear
+  matches 0.83 or more, stale and legacy about 0.58), but the typo falls to
+  0.49. OpenJev's pick-one answers are near-certain for every handle (0.85 to
+  1.00), so its margin can't flag a stale handle at all. Use the score to
+  route, and keep the margin as evidence.
+- **OpenJev is a viable self-hosted Jev; Kev is not, for this question.**
+  OpenJev (DiffusionGemma 26B-A4B, Apache-2.0 code and weights, MLX)
+  matches Jev's routes. Kev-4B's scores bunch between 1.29 and 1.62, so it
+  can't route without calibration. The cost:
+  - OpenJev's 4-bit weights are 15 GB;
+  - on this 24 GB Mac it left 0.2 GB free, even with
+    `OPENJEV_MLX_CACHE_LIMIT_GB=2`;
+  - it took about 1.6 s per case (three calls), against about 0.1 s for
+    hosted Jev.
+
+  A real deployment wants a GPU or a 32 GB+ Mac.
+- **Not yet tested:** consistency on repeated runs, a calibration set, and
+  more than eight handles. The routes above are one run each.
+
 At a 0.5 threshold the stale handle joins. A model can only judge how
 similar two names are, not whether a handle still exists, so a stale
 handle needs evidence (PagerDuty's list of live integration handles), not
