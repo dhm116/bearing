@@ -3,7 +3,10 @@
 package e2e
 
 import (
+	"cmp"
 	"os"
+	"slices"
+	"strconv"
 	"testing"
 
 	jev "github.com/mattn/go-jev"
@@ -16,13 +19,12 @@ import (
 // before a fake stands in for them. It is not part of go test ./... and runs
 // against each destination that is configured, so one run compares them:
 //
-//   - hosted Jev when TYPESAFE_TOKEN holds an API key (make jev-test loads one
-//     through 1Password);
+//   - hosted Jev when TYPESAFE_TOKEN holds an API key;
 //
 //   - a self-hosted server when BEARING_KEV_URL is set, such as Kev (in ~/kev:
 //     uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b
 //     --port 8009) or OpenJev; BEARING_KEV_MODEL names its model if it needs
-//     one.
+//     one, and BEARING_KEV_NAME labels it in the output.
 //
 //     BEARING_KEV_URL=http://127.0.0.1:8009 go test -tags kev -run Live -v ./internal/e2e
 func TestTrailModelLive(t *testing.T) {
@@ -35,7 +37,7 @@ func TestTrailModelLive(t *testing.T) {
 		if m := os.Getenv("BEARING_KEV_MODEL"); m != "" {
 			opts = append(opts, jev.WithModel(m))
 		}
-		dests["self-hosted"] = jev.NewClient(opts...)
+		dests[cmp.Or(os.Getenv("BEARING_KEV_NAME"), "self-hosted")] = jev.NewClient(opts...)
 	}
 	if len(dests) == 0 {
 		t.Skip("set TYPESAFE_TOKEN for hosted Jev, BEARING_KEV_URL for a self-hosted server, or both")
@@ -45,34 +47,95 @@ func TestTrailModelLive(t *testing.T) {
 	}
 }
 
-// liveTrailCases asks the pages question for each handle and checks the pick.
+var livePagers = []vocab.Pager{
+	{Key: "pagerduty:service/checkout", Name: "Checkout Platform"},
+	{Key: "pagerduty:service/payments", Name: "Payments"},
+	{Key: "pagerduty:service/identity", Name: "Identity and Access"},
+}
+
+// liveCases are the handles asked about. want is the pick (a pager key or
+// vocab.NoPager), or "" to only report; route is what a person would want
+// the trail to do: join, review or none.
+var liveCases = []struct {
+	name, handle, want, route string
+}{
+	{"fuzzy handle, same service", "@pagerduty-checkout-platform", livePagers[0].Key, "join"},
+	{"short handle, same service", "@pagerduty-checkout", livePagers[0].Key, "join"},
+	{"handle for another service", "@pagerduty-payments", livePagers[1].Key, "join"},
+	{"handle for no service", "@pagerduty-search", vocab.NoPager, "none"},
+	{"stale handle", "@pagerduty-checkout-old", "", "review"},
+	{"legacy handle", "@pagerduty-checkout-legacy", "", "review"},
+	{"team handle", "@pagerduty-checkout-oncall-emea", "", "review"},
+	{"typo handle", "@pagerduty-chekout", livePagers[0].Key, "join"},
+}
+
+// scoreLevels are written before any score was seen (TypeSafe's entity
+// alignment cookbook): the middle level names the cases a person must check.
+var scoreLevels = []string{
+	"The handle pages a different service, or no service.",
+	"The handle may page this service, but it could be an old, renamed, retired, legacy or team-specific name for it, so a person should check.",
+	"The handle pages this service.",
+}
+
+// liveTrailCases asks, for each handle, the pick-one question (the trail's
+// ModelAsk) and then a three-level score on the pair it picked, and logs one
+// row per case: the pick, its p, its margin over the runner-up, the score
+// and the route each framing gives.
 func liveTrailCases(t *testing.T, c *jev.Client) {
-	pagers := []vocab.Pager{
-		{Key: "pagerduty:service/checkout", Name: "Checkout Platform"},
-		{Key: "pagerduty:service/payments", Name: "Payments"},
-		{Key: "pagerduty:service/identity", Name: "Identity and Access"},
-	}
-	tests := []struct {
-		name, handle string
-		want         string // pager key, vocab.NoPager, or "" to only report
-	}{
-		{"fuzzy handle, same service", "@pagerduty-checkout-platform", pagers[0].Key},
-		{"short handle, same service", "@pagerduty-checkout", pagers[0].Key},
-		{"handle for another service", "@pagerduty-payments", pagers[1].Key},
-		{"handle for no service", "@pagerduty-search", vocab.NoPager},
-		{"stale handle", "@pagerduty-checkout-old", ""},
-	}
-	for _, tc := range tests {
+	for _, tc := range liveCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ask := vocab.ModelAsk(c, func(vocab.Break) (string, string) { return tc.handle, "High latency " + tc.handle }, pagesQuestion)
-			v, err := ask(t.Context(), vocab.Break{}, pagers)
+			v, err := ask(t.Context(), vocab.Break{}, livePagers)
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("picked %s p=%.3f model=%s endpoint=%s", v.Pager, v.P, v.Model, v.Endpoint)
+			margin, err := choiceMargin(t, c, tc.handle)
+			if err != nil {
+				t.Fatal(err)
+			}
+			score, route := -1.0, "none"
+			if v.Pager != vocab.NoPager {
+				i := slices.IndexFunc(livePagers, func(p vocab.Pager) bool { return p.Key == v.Pager })
+				res, err := c.Evaluate(t.Context(),
+					map[string]string{"monitor_message": "High latency " + tc.handle, "handle": tc.handle, "service": livePagers[i].Name},
+					map[string]jev.Question{"q": {Type: "score", Instructions: "How does the handle relate to this on-call service?", Criteria: scoreLevels}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				score = res.Answers["q"].Score
+				route = []string{"none", "review", "join"}[min(2, int(score+0.5))]
+			}
+			t.Logf("ROW\t%s\t%s\tpick=%s\tp=%.2f\tmargin=%.2f\tscore=%.2f\troute=%s\twant=%s\tendpoint=%s",
+				tc.name, tc.handle, v.Pager, v.P, margin, score, route, tc.route, v.Endpoint)
 			if tc.want != "" && v.Pager != tc.want {
 				t.Errorf("picked %s, want %s", v.Pager, tc.want)
 			}
 		})
 	}
+}
+
+// choiceMargin asks the pick-one question again and returns the winner's
+// probability minus the runner-up's, which means the same on every server,
+// unlike each server's own confidence.
+func choiceMargin(t *testing.T, c *jev.Client, handle string) (float64, error) {
+	t.Helper()
+	opts := jev.Options{}
+	for i, p := range livePagers {
+		opts = append(opts, jev.Option{Name: "s" + strconv.Itoa(i), Desc: p.Name})
+	}
+	opts = append(opts, jev.Option{Name: vocab.NoPager, Desc: "None of these"})
+	a, err := c.Ask(t.Context(), map[string]string{"monitor_message": "High latency " + handle, "handle": handle},
+		jev.Question{Type: "choice", Instructions: pagesQuestion, Criteria: opts})
+	if err != nil {
+		return 0, err
+	}
+	ps := make([]float64, 0, len(a.Probabilities))
+	for _, p := range a.Probabilities {
+		ps = append(ps, p)
+	}
+	slices.SortFunc(ps, func(x, y float64) int { return cmp.Compare(y, x) })
+	if len(ps) < 2 {
+		return 1, nil
+	}
+	return ps[0] - ps[1], nil
 }
