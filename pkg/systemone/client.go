@@ -1,6 +1,6 @@
 // Package systemone is a client for the System One API (POST /v1/systemone)
 // that TypeSafe's Jev and the open Kev models both serve (ADR 7). It asks
-// yes/no questions and returns the model's calibrated p(true); how that p
+// multiple-choice questions and returns the model's calibrated probabilities; how that p
 // weighs against other evidence is the caller's matcher's business.
 package systemone
 
@@ -37,10 +37,11 @@ type Config struct {
 // Client asks a System One server questions.
 type Client struct{ cfg Config }
 
-// Answer is a yes/no question's reply.
-type Answer struct {
-	// P is p(true), between 0 and 1.
-	P float64
+// ChoiceAnswer is a multiple-choice question's reply.
+type ChoiceAnswer struct {
+	// Choice is the name picked; Probabilities are by name.
+	Choice        string
+	Probabilities map[string]float64
 	// Model is the model id the server reports it served; Question is the
 	// instruction asked, so evidence can name both.
 	Model, Question string
@@ -70,21 +71,22 @@ func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg}, nil
 }
 
-const noulID = "q"
+const choiceID = "q"
 
-// Noul asks one yes/no question about state (any JSON value) and returns
-// p(true).
-func (c *Client) Noul(ctx context.Context, state any, question string) (Answer, error) {
+// Choice asks one multiple-choice question about state (any JSON value):
+// which of the criteria (name -> description) fits, with the probability of
+// each name.
+func (c *Client) Choice(ctx context.Context, state any, instructions string, criteria map[string]string) (ChoiceAnswer, error) {
 	body, err := json.Marshal(map[string]any{
 		"state": state, "model": c.cfg.Model,
-		"questions": map[string]any{noulID: map[string]any{"type": "noul", "instructions": question}},
+		"questions": map[string]any{choiceID: map[string]any{"type": "choice", "instructions": instructions, "criteria": criteria}},
 	})
 	if err != nil {
-		return Answer{}, fmt.Errorf("systemone: noul: %w", err)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.BaseURL+"/v1/systemone", bytes.NewReader(body))
 	if err != nil {
-		return Answer{}, fmt.Errorf("systemone: noul: %w", err)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.cfg.APIKeyEnv != "" {
@@ -94,32 +96,36 @@ func (c *Client) Noul(ctx context.Context, state any, question string) (Answer, 
 	}
 	resp, err := c.cfg.HTTP.Do(req)
 	if err != nil {
-		return Answer{}, fmt.Errorf("systemone: noul: %w", err)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Answer{}, fmt.Errorf("systemone: noul: %w", err)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return Answer{}, fmt.Errorf("systemone: noul: server answered HTTP %d", resp.StatusCode)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: server answered HTTP %d", resp.StatusCode)
 	}
 	var out struct {
 		Model   string `json:"model"`
 		Answers map[string]struct {
-			Type string   `json:"type"`
-			Noul *float64 `json:"noul"`
+			Type          string             `json:"type"`
+			Choice        string             `json:"choice"`
+			Probabilities map[string]float64 `json:"probabilities"`
 		} `json:"answers"`
 		Usage struct {
 			InputTokens int `json:"input_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return Answer{}, fmt.Errorf("systemone: noul: decode: %w", err)
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: decode: %w", err)
 	}
-	a := out.Answers[noulID]
-	if a.Type != "noul" || a.Noul == nil || *a.Noul < 0 || *a.Noul > 1 {
-		return Answer{}, errors.New("systemone: noul: response has no noul probability")
+	a, ok := out.Answers[choiceID]
+	if !ok || a.Type != "choice" {
+		return ChoiceAnswer{}, errors.New("systemone: choice: response has no choice answer")
 	}
-	return Answer{P: *a.Noul, Model: out.Model, Question: question, InputTokens: out.Usage.InputTokens}, nil
+	if _, ok := criteria[a.Choice]; !ok {
+		return ChoiceAnswer{}, fmt.Errorf("systemone: choice: server picked %q, which was not offered", a.Choice)
+	}
+	return ChoiceAnswer{Choice: a.Choice, Probabilities: a.Probabilities, Model: out.Model, Question: instructions, InputTokens: out.Usage.InputTokens}, nil
 }
