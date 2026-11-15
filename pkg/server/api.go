@@ -155,6 +155,8 @@ var routes = []route{
 	{pattern: "GET /v1/runtimes", method: MethodRuntimes, handle: (*API).runtimes},
 	{pattern: "GET /v1/links", method: MethodLinks, handle: (*API).links},
 	{pattern: "POST /v1/links/decisions", method: MethodDecide, write: true, body: true, handle: (*API).decide},
+	{pattern: "GET /v1/mappings", method: MethodMappings, handle: (*API).mappings},
+	{pattern: "POST /v1/mappings/decisions", method: MethodDecideMapping, write: true, body: true, handle: (*API).decideMapping},
 	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
 }
 
@@ -317,7 +319,7 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return apiUnauthenticated
 	}
 	who := callerKey(caller, r)
-	if !a.rate.allow(who) || rt.method == MethodDecide && !a.decideRate.allow(who) {
+	if !a.rate.allow(who) || (rt.method == MethodDecide || rt.method == MethodDecideMapping) && !a.decideRate.allow(who) {
 		w.Header().Set("Retry-After", "10")
 		apiFail(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down", reqID)
 		return apiLimited

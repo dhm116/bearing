@@ -281,6 +281,8 @@ func (s *Server) handle(ctx context.Context, e store.Entry) (result string, err 
 		return workerApplied, s.handleObservations(ctx, e)
 	case typeLinkDecided:
 		return workerApplied, s.handleLinkDecided(ctx, e)
+	case typeMappingDecided:
+		return workerApplied, s.handleMappingDecided(ctx, e)
 	case typeEventDeadLettered:
 		// A required group reads every partition, and a record of a dead
 		// letter has nothing to apply.
