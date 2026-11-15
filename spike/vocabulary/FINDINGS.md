@@ -143,7 +143,7 @@ Links are pinned to [`b7d1ca8`](https://github.com/dhm116/bearing/tree/b7d1ca82c
 | `bearing vocab review\|accept\|reject` | [`cmd/bearing/vocab.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/cmd/bearing/vocab.go), [`pkg/server/vocab.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/server/vocab.go) | Mirrors `bearing link`: API, then the event log (a `MappingDecided` proto event), then the worker, then the store. Accept runs the boot check first and refuses with, for example, "cannot accept k8s-depends-on-is-depends-on yet: accept k8s-daemonset-is-component, … first". The worker checks again before applying. |
 | Real git runner for the operator commit check | [`pkg/vocab/git.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/git.go) | `git -C <dir> rev-parse --verify <ref>:<path>`, tested against a temporary repo. Refuses refs that start with `-`, and paths that are absolute or leave the repo. |
 | Proposed close from other adapters' evidence | [`internal/duckstore/close.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/internal/duckstore/close.go), [`TestVocabCloseFromPullRequest`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/internal/e2e/vocab_close_test.go) | A merged PR that deletes payments-api's manifest proposes closing its rule-made `owned_by` fact, stored as a `fact_close` record shaped like `identity_link`. The fact is untouched until a person confirms. Confirming closes it at the merge time and records the actor and reason. Rejecting holds, and the same PR never proposes again. A Kubernetes observation after the merge contradicts the proposal, and confirming is then refused. |
-| Kev System One judgement on the trail's pages step | [`pkg/systemone`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/systemone/client.go), [`trail_model.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/trail_model.go), [live test](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/trail_model_live_test.go) (`-tags kev`) | One multiple-choice question per broken step, over the observed PagerDuty services plus "none". The step's p multiplies its strength and is never a deposit (ADR 7: "nothing Bearing inferred or answered can reinforce itself"). |
+| System One judgement on the trail's pages step | [`trail_model.go`](https://github.com/dhm116/bearing/blob/15cc88a/pkg/vocab/trail_model.go) over [go-jev](https://github.com/mattn/go-jev), [live test](https://github.com/dhm116/bearing/blob/15cc88a/internal/e2e/vocab_trail_live_test.go) (`-tags kev`) | One multiple-choice question per broken step, over the observed on-call services plus "none". The step's p multiplies its strength and is never a deposit (ADR 7: "nothing Bearing inferred or answered can reinforce itself"). go-jev (MIT, standard library only) replaced the spike's own client, and the same code calls hosted Jev or a self-hosted server. Core code takes the question's wording from the caller, so no vendor is named outside adapters and integration tests. |
 
 **Calling a real Kev changed the design.** The first version asked a yes/no
 question per service, and its tests faked p = 0.9 for a match and 0.1 for a
@@ -160,6 +160,24 @@ results with three services:
 | `@pagerduty-payments` | Payments | 0.70 |
 | `@pagerduty-search` | none | 0.70 |
 | `@pagerduty-checkout-old` (stale) | Checkout Platform | 0.56 |
+
+**Hosted Jev against Kev, in one run (`15cc88a`).** `make jev-test` loads
+a TypeSafe key through 1Password, and the test runs against every
+configured destination:
+
+| Handle | Jev 1.14.0 | Kev-4B |
+| --- | --- | --- |
+| `@pagerduty-checkout-platform` | Checkout 0.97 | Checkout 0.78 |
+| `@pagerduty-checkout` | Checkout 0.91 | Checkout 0.58 |
+| `@pagerduty-payments` | Payments 0.94 | Payments 0.73 |
+| `@pagerduty-search` | none 1.00 | none 0.72 |
+| `@pagerduty-checkout-old` (stale) | Checkout 0.76 | Checkout 0.54 |
+
+The two agree on every pick, and Jev is much more confident. Both join the
+stale handle, so detecting a stale handle is a job for evidence (the
+on-call tool's list of live handles), not for a better model. Kev echoes
+whatever model name it is sent, so a verdict records the endpoint as well
+as the model.
 
 At a 0.5 threshold the stale handle joins. A model can only judge how
 similar two names are, not whether a handle still exists, so a stale
