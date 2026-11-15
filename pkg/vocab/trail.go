@@ -50,6 +50,10 @@ type Claim struct {
 	// Hop is the fact that carries a watched workload on to its repository
 	// (workload defined_in repo); empty when the claim stops at the workload.
 	Hop []Edge
+	// Model is the System One verdict that resolved this claim's object: the
+	// handle named no observed record, and the model said an observed one is
+	// it. Nil for a claim the keys proved.
+	Model *Verdict
 }
 
 // Coverage is a joined trail: Service is covered by Pager, via Monitor.
@@ -73,6 +77,8 @@ type Break struct {
 	Monitor, MonitorKey string
 	Step                string // the predicate that resolves nowhere
 	Claim               Claim
+	// Verdict is the model's best answer when it was asked and said no.
+	Verdict *Verdict
 }
 
 // Join finds every service ← monitor → pager path in edges and scores it,

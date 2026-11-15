@@ -95,9 +95,13 @@ func TerraformMonitor(at time.Time, handle string) *eventv1alpha1.Observation {
 	})
 }
 
-// PagerDutyService is the checkout service.
+// FuzzyHandle names checkout by its display name, not its key.
+const FuzzyHandle = "@pagerduty-checkout-platform"
+
+// PagerDutyService is the checkout service; its display name differs from
+// its key's last segment.
 func PagerDutyService(at time.Time) *eventv1alpha1.Observation {
-	return entity(PagerDutySource, at, vocab.Full(PagerDutyNamespace, "Service"), CheckoutKey, map[string]any{vocab.Full(PagerDutyNamespace, "name"): "checkout"})
+	return entity(PagerDutySource, at, vocab.Full(PagerDutyNamespace, "Service"), CheckoutKey, map[string]any{vocab.Full(PagerDutyNamespace, "name"): "Checkout Platform"})
 }
 
 func monitorTags() []any {

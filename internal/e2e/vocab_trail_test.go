@@ -1,15 +1,22 @@
 package e2e
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
+	"bearing.example/pkg/systemone"
 	"bearing.example/pkg/vocab"
 )
 
@@ -312,4 +319,112 @@ func (w *coverageWorld) proposeOne(score float64) proposed {
 		w.t.Fatalf("covered_by facts = %v, %v; want one", fs, err)
 	}
 	return proposed{cs[0], fs[0].ID}
+}
+
+// fakeKev is a System One server that answers every noul question with p,
+// and remembers the requests.
+func fakeKev(t *testing.T, p float64) (*systemone.Client, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		var req struct {
+			State     map[string]string
+			Questions map[string]struct{ Instructions string }
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		asked = append(asked, req.Questions["q"].Instructions+" | "+req.State["monitor_message"]+" | "+req.State["service_name"])
+		mu.Unlock()
+		_ = json.NewEncoder(rw).Encode(map[string]any{"model": "kev-fake", "answers": map[string]any{"q": map[string]any{"type": "noul", "noul": p}}})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := systemone.New(systemone.Config{BaseURL: srv.URL, HTTP: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
+}
+
+// TestVocabCoverageTrailModel: a handle that keys no observed service
+// (@pagerduty-checkout-platform against pagerduty:service/checkout) is
+// settled by a System One model's p, scaling the pages step, not adding to
+// it. The exact-match cases above never reach the model.
+func TestVocabCoverageTrailModel(t *testing.T) {
+	t.Parallel()
+	run := func(t *testing.T, p float64) (*coverageWorld, []vocab.Coverage, []vocab.Break, []string) {
+		w := newCoverageWorld(t)
+		w.rules(fakes.DatadogSource, fakes.DatadogMonitor(w.clock.Now(), fakes.FuzzyHandle), datadogRules...)
+		edges, err := w.store.TrailEdges(t.Context(), []string{watchesPred, pagesPred, describesPred, definedIn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pagers, err := w.store.TrailPagers(t.Context(), vocab.Full(fakes.PagerDutyNamespace, "name"))
+		if err != nil || len(pagers) != 1 {
+			t.Fatalf("pagers = %v, %v; want checkout", pagers, err)
+		}
+		kev, asked := fakeKev(t, p)
+		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return fakes.FuzzyHandle, "High latency " + fakes.FuzzyHandle })
+		cs, bs, err := coverageTrail.JoinModel(context.Background(), edges, pagers, ask, 0.5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w, cs, bs, asked()
+	}
+	wantAsk := `Is the PagerDuty service named "Checkout Platform" the one the handle "@pagerduty-checkout-platform" pages? | High latency @pagerduty-checkout-platform | Checkout Platform`
+
+	t.Run("model says yes", func(t *testing.T) {
+		t.Parallel()
+		w, cs, bs, asked := run(t, 0.9)
+		if len(cs) != 1 || len(bs) != 0 || !slices.Equal(asked, []string{wantAsk}) {
+			t.Fatalf("coverage = %+v, breaks %+v, asked %q; want one trail, no break, one question", cs, bs, asked)
+		}
+		c := cs[0]
+		// reach 1/2 x pages 1/2 x p 0.9: the model scales the step down, never up.
+		if c.PagerKey != fakes.CheckoutKey || math.Abs(c.Score-0.25*0.9) > 1e-9 || c.Features["pages_model_p"] != 0.9 {
+			t.Errorf("trail to %s score %.4f features %v, want %s at 0.225", c.PagerKey, c.Score, c.Features, fakes.CheckoutKey)
+		}
+		m := c.Page[0].Model
+		if m == nil || m.Model != "kev-fake" || m.P != 0.9 || !strings.HasPrefix(m.Question, "Is the PagerDuty service named") {
+			t.Errorf("page evidence model = %+v, want kev-fake, its question and p 0.9", m)
+		}
+		if err := w.store.ProposeCoverage(t.Context(), coveredBy, coverageRule, cs); err != nil {
+			t.Fatal(err)
+		}
+		fs, err := w.store.Facts(t.Context(), graph.FactFilter{Predicate: coveredBy, WithProposed: true})
+		if err != nil || len(fs) != 1 || fs[0].Status != graph.Proposed {
+			t.Fatalf("covered_by = %v, %v; want one proposal", fs, err)
+		}
+		if ms, _ := fs[0].Qualifiers["models"].([]any); len(ms) != 1 {
+			t.Errorf("qualifiers = %v, want the model's verdict kept", fs[0].Qualifiers)
+		}
+	})
+
+	t.Run("model says no", func(t *testing.T) {
+		t.Parallel()
+		_, cs, bs, _ := run(t, 0.1)
+		if len(cs) != 0 || len(bs) != 1 {
+			t.Fatalf("coverage = %+v, breaks %+v; want no trail, one break", cs, bs)
+		}
+		v := bs[0].Verdict
+		if bs[0].Step != pagesPred || v == nil || v.Model != "kev-fake" || v.P != 0.1 || v.Pager != fakes.CheckoutKey {
+			t.Errorf("break = %+v verdict %+v, want %s unresolved with kev-fake's p 0.1 for %s", bs[0], v, pagesPred, fakes.CheckoutKey)
+		}
+	})
+
+	t.Run("exact handle is not asked", func(t *testing.T) {
+		t.Parallel()
+		w := newCoverageWorld(t)
+		w.rules(fakes.DatadogSource, fakes.DatadogMonitor(w.clock.Now(), fakes.CheckoutHandle), datadogRules...)
+		edges, err := w.store.TrailEdges(t.Context(), []string{watchesPred, pagesPred, describesPred, definedIn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kev, asked := fakeKev(t, 0.1)
+		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return "", "" })
+		cs, _, err := coverageTrail.JoinModel(t.Context(), edges, []vocab.Pager{{Key: fakes.CheckoutKey, Name: "x"}}, ask, 0.5)
+		if err != nil || len(cs) != 1 || cs[0].Score != 0.25 || len(asked()) != 0 {
+			t.Errorf("coverage = %+v, %v, asked %q; want the keyed trail at 0.25 and no question", cs, err, asked())
+		}
+	})
 }

@@ -71,6 +71,33 @@ func (s *Store) TrailEdges(ctx context.Context, preds []string) ([]vocab.Edge, e
 	return out, nil
 }
 
+// TrailPagers reads every observed record with a name attribute (the
+// namespaced term nameAttr), for the model to match a handle against.
+func (s *Store) TrailPagers(ctx context.Context, nameAttr string) ([]vocab.Pager, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT f.subject_id, (SELECT min(key) FROM alias WHERE entity_id = f.subject_id), f.value::VARCHAR
+		FROM fact f WHERE f.valid_to IS NULL AND f.object_id IS NULL AND f.predicate = ? ORDER BY 2`, nameAttr)
+	if err != nil {
+		return nil, fmt.Errorf("duckstore: trail pagers: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []vocab.Pager
+	for rows.Next() {
+		var p vocab.Pager
+		var v string
+		if err := rows.Scan(&p.ID, &p.Key, &v); err != nil {
+			return nil, fmt.Errorf("duckstore: trail pagers: %w", err)
+		}
+		if err := json.Unmarshal([]byte(v), &p.Name); err != nil {
+			return nil, fmt.Errorf("duckstore: trail pagers %s: %w", p.Key, err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("duckstore: trail pagers: %w", err)
+	}
+	return out, nil
+}
+
 // ProposeCoverage stores each joined trail as a proposed fact, Service
 // predicate Pager, from TrailSource, in one transaction. Its confidence is
 // the trail's score; its sources are every observation on the path, cited
@@ -85,7 +112,7 @@ func (s *Store) ProposeCoverage(ctx context.Context, predicate, rule string, cs 
 	defer func() { _ = tx.Rollback() }()
 	now := s.now().UTC().Truncate(time.Microsecond)
 	for _, c := range cs {
-		q, err := json.Marshal(map[string]any{"rule": rule, "monitor": c.MonitorKey, "path": c.Facts(), "features": c.Features})
+		q, err := json.Marshal(map[string]any{"rule": rule, "monitor": c.MonitorKey, "path": c.Facts(), "features": c.Features, "models": c.Verdicts()})
 		if err != nil {
 			return fmt.Errorf("duckstore: propose coverage: %w", err)
 		}
