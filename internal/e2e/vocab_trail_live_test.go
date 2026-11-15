@@ -69,18 +69,10 @@ var liveCases = []struct {
 	{"typo handle", "@pagerduty-chekout", livePagers[0].Key, "join"},
 }
 
-// scoreLevels are written before any score was seen (TypeSafe's entity
-// alignment cookbook): the middle level names the cases a person must check.
-var scoreLevels = []string{
-	"The handle pages a different service, or no service.",
-	"The handle may page this service, but it could be an old, renamed, retired, legacy or team-specific name for it, so a person should check.",
-	"The handle pages this service.",
-}
-
-// liveTrailCases asks, for each handle, the pick-one question (the trail's
-// ModelAsk) and then a three-level score on the pair it picked, and logs one
-// row per case: the pick, its p, its margin over the runner-up, the score
-// and the route each framing gives.
+// liveTrailCases asks, for each handle, the trail's ModelAsk (the pick-one
+// question, then the three-level score on the pick) and logs one row per
+// case: the pick, its p, its margin over the runner-up, the score and the
+// route.
 func liveTrailCases(t *testing.T, c *jev.Client) {
 	for _, tc := range liveCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,20 +85,8 @@ func liveTrailCases(t *testing.T, c *jev.Client) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			score, route := -1.0, "none"
-			if v.Pager != vocab.NoPager {
-				i := slices.IndexFunc(livePagers, func(p vocab.Pager) bool { return p.Key == v.Pager })
-				res, err := c.Evaluate(t.Context(),
-					map[string]string{"monitor_message": "High latency " + tc.handle, "handle": tc.handle, "service": livePagers[i].Name},
-					map[string]jev.Question{"q": {Type: "score", Instructions: "How does the handle relate to this on-call service?", Criteria: scoreLevels}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				score = res.Answers["q"].Score
-				route = []string{"none", "review", "join"}[min(2, int(score+0.5))]
-			}
 			t.Logf("ROW\t%s\t%s\tpick=%s\tp=%.2f\tmargin=%.2f\tscore=%.2f\troute=%s\twant=%s\tendpoint=%s",
-				tc.name, tc.handle, v.Pager, v.P, margin, score, route, tc.route, v.Endpoint)
+				tc.name, tc.handle, v.Pager, v.P, margin, v.Score, v.Route, tc.route, v.Endpoint)
 			if tc.want != "" && v.Pager != tc.want {
 				t.Errorf("picked %s, want %s", v.Pager, tc.want)
 			}

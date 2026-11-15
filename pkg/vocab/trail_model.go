@@ -17,33 +17,56 @@ type Pager struct{ ID, Key, Name string }
 // NoPager is the Verdict.Pager when the model picked none of the records.
 const NoPager = "none"
 
+// Routes a Verdict gives a broken step.
+const (
+	RouteJoin   = "join"   // the handle names the record: the trail joins
+	RouteReview = "review" // it may name it: the break stays for a person
+	RouteNone   = "none"   // it names no record
+)
+
+// ScoreQuestion and ScoreLevels are the second question, asked about the
+// record the first one picked. The levels were written before any score was
+// seen; the middle one names the cases a person must check (TypeSafe's
+// entity-alignment cookbook). A score rounds to a level: none, review, join.
+var (
+	ScoreQuestion = "How does the handle relate to this on-call service?"
+	ScoreLevels   = []string{
+		"The handle pages a different service, or no service.",
+		"The handle may page this service, but it could be an old, renamed, retired, legacy or team-specific name for it, so a person should check.",
+		"The handle pages this service.",
+	}
+)
+
 // Verdict is a System One model's answer to "which record does that handle
-// name": the model, the question and the probability of the record it
-// picked (or of NoPager), kept as evidence.
+// name, and how surely": the pick, its probability, the score of the pair and
+// the route it gives, kept as evidence.
 type Verdict struct {
 	// Model is what the server says it served; some servers echo the name
 	// they were sent, so Endpoint records which server answered.
 	Model, Endpoint, Question string
-	P                         float64
-	Pager                     string // key of the record picked, or NoPager
+	P                         float64 // the pick's probability
+	Pager                     string  // key of the record picked, or NoPager
+	Score                     float64 // 0 to 2 on ScoreLevels; unset for NoPager
+	Route                     string  // RouteJoin, RouteReview or RouteNone
 }
 
 // Ask puts one question for one broken pages step with every observed pager
 // as an option.
 type Ask func(ctx context.Context, b Break, pagers []Pager) (Verdict, error)
 
-// JoinModel is Join, then asks the model once per broken pages step which
-// observed pager the unresolved handle names. A pick at or above joinAt (not
-// "none") is taken as that step's object, and the trail joins again through
-// it; otherwise the break keeps the verdict. A step the keys already proved is never asked
-// about, since only an unobserved object breaks.
+// JoinModel is Join, then asks the model about each broken pages step: which
+// observed pager the unresolved handle names, and how surely. A verdict that
+// routes to join makes the pick that step's object, and the trail joins again
+// through it; review or none leaves the break, with the verdict on it for a
+// person. A step the keys already proved is never asked about, since only an
+// unobserved object breaks.
 //
 // The verdict is a feature, not a deposit: ADR 7 lets only independent
 // source observations reinforce a link ("nothing Bearing inferred or
 // answered can reinforce itself"), so p can only scale the step's strength
 // (n/(n+1) of the handle's claims) down, never add to it. A trail's score
 // is the product of its steps, so it carries the factor too.
-func (t Trail) JoinModel(ctx context.Context, edges []Edge, pagers []Pager, ask Ask, joinAt float64) ([]Coverage, []Break, error) {
+func (t Trail) JoinModel(ctx context.Context, edges []Edge, pagers []Pager, ask Ask) ([]Coverage, []Break, error) {
 	cs, breaks := t.Join(edges)
 	if ask == nil || len(breaks) == 0 {
 		return cs, breaks, nil
@@ -60,7 +83,7 @@ func (t Trail) JoinModel(ctx context.Context, edges []Edge, pagers []Pager, ask 
 		}
 		for _, f := range b.Claim.Facts {
 			verdicts[f.Fact] = best
-			if best.Pager != NoPager && best.P >= joinAt {
+			if best.Route == RouteJoin {
 				i := slices.IndexFunc(pagers, func(p Pager) bool { return p.Key == best.Pager })
 				if i >= 0 {
 					resolved[f.Fact] = pagers[i]
@@ -110,9 +133,11 @@ func (c Coverage) Verdicts() []Verdict {
 // caller reads them from the monitor.
 type Handle func(b Break) (handle, message string)
 
-// ModelAsk puts one multiple-choice question per broken step to a System
-// One model: the message and handle are the state, each pager an option.
-// Options are named by index, never by user text, and "none" is always one.
+// ModelAsk puts two questions per broken step to a System One model. First,
+// one multiple-choice question: the message and handle are the state, each
+// pager an option (named by index, never by user text), and "none" is always
+// one. Then, about the pick, a score on ScoreLevels, whose rounded level is
+// the route.
 // The caller words the question in its tools' terms, as it reads the handle:
 // the joiner knows no tool.
 func ModelAsk(c *jev.Client, h Handle, question string) Ask {
@@ -139,7 +164,31 @@ func ModelAsk(c *jev.Client, h Handle, question string) Ask {
 				return Verdict{}, fmt.Errorf("ask %s: picked %q, which was not offered", c.URL(), a.Choice)
 			}
 			v.Pager = pagers[i].Key
+			res, err := c.Evaluate(ctx, map[string]string{"monitor_message": msg, "handle": handle, "service": pagers[i].Name},
+				map[string]jev.Question{"q": {Type: "score", Instructions: ScoreQuestion, Criteria: ScoreLevels}})
+			if err != nil {
+				return Verdict{}, fmt.Errorf("ask %s: %w", c.URL(), err)
+			}
+			sa := res.Answers["q"]
+			if sa == nil || sa.Type != "score" {
+				return Verdict{}, fmt.Errorf("ask %s: no score answer", c.URL())
+			}
+			v.Score = sa.Score
 		}
+		v.Route = route(v)
 		return v, nil
+	}
+}
+
+// route rounds a verdict's score to a level: under 0.5 none, under 1.5
+// review, else join. A pick of none is none.
+func route(v Verdict) string {
+	switch {
+	case v.Pager == NoPager || v.Score < 0.5:
+		return RouteNone
+	case v.Score < 1.5:
+		return RouteReview
+	default:
+		return RouteJoin
 	}
 }

@@ -328,8 +328,9 @@ func (w *coverageWorld) proposeOne(score float64) proposed {
 
 // fakeKev is a System One server that answers every choice question by
 // picking the option whose description is pick ("none" is always offered)
-// at probability p, and remembers the requests.
-func fakeKev(t *testing.T, pick string, p float64) (*jev.Client, func() []string) {
+// at probability p, and every score question with score, and remembers the
+// choice requests.
+func fakeKev(t *testing.T, pick string, p, score float64) (*jev.Client, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
 	var asked []string
@@ -337,12 +338,24 @@ func fakeKev(t *testing.T, pick string, p float64) (*jev.Client, func() []string
 		var req struct {
 			State     map[string]string
 			Questions map[string]struct {
+				Type         string
 				Instructions string
-				Criteria     map[string]string
+				Criteria     json.RawMessage
 			}
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		q := req.Questions["q"]
+		raw := req.Questions["q"]
+		if raw.Type == "score" {
+			_ = json.NewEncoder(rw).Encode(map[string]any{"model": "kev-fake", "answers": map[string]any{"q": map[string]any{
+				"type": "score", "score": score,
+			}}})
+			return
+		}
+		q := struct {
+			Instructions string
+			Criteria     map[string]string
+		}{Instructions: raw.Instructions}
+		_ = json.Unmarshal(raw.Criteria, &q.Criteria)
 		var names []string
 		choice := "none"
 		for name, desc := range q.Criteria {
@@ -370,7 +383,7 @@ func fakeKev(t *testing.T, pick string, p float64) (*jev.Client, func() []string
 // it. The exact-match cases above never reach the model.
 func TestVocabCoverageTrailModel(t *testing.T) {
 	t.Parallel()
-	run := func(t *testing.T, pick string, p float64) (*coverageWorld, []vocab.Coverage, []vocab.Break, []string) {
+	run := func(t *testing.T, pick string, p, score float64) (*coverageWorld, []vocab.Coverage, []vocab.Break, []string) {
 		w := newCoverageWorld(t)
 		w.rules(fakes.DatadogSource, fakes.DatadogMonitor(w.clock.Now(), fakes.FuzzyHandle), datadogRules...)
 		edges, err := w.store.TrailEdges(t.Context(), []string{watchesPred, pagesPred, describesPred, definedIn})
@@ -381,9 +394,9 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 		if err != nil || len(pagers) != 1 {
 			t.Fatalf("pagers = %v, %v; want checkout", pagers, err)
 		}
-		kev, asked := fakeKev(t, pick, p)
+		kev, asked := fakeKev(t, pick, p, score)
 		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return fakes.FuzzyHandle, "High latency " + fakes.FuzzyHandle }, pagesQuestion)
-		cs, bs, err := coverageTrail.JoinModel(context.Background(), edges, pagers, ask, 0.5)
+		cs, bs, err := coverageTrail.JoinModel(context.Background(), edges, pagers, ask)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -393,7 +406,7 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 
 	t.Run("model picks checkout", func(t *testing.T) {
 		t.Parallel()
-		w, cs, bs, asked := run(t, "Checkout Platform", 0.74)
+		w, cs, bs, asked := run(t, "Checkout Platform", 0.74, 1.9)
 		if len(cs) != 1 || len(bs) != 0 || !slices.Equal(asked, []string{wantAsk}) {
 			t.Fatalf("coverage = %+v, breaks %+v, asked %q; want one trail, no break, one question", cs, bs, asked)
 		}
@@ -403,8 +416,8 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 			t.Errorf("trail to %s score %.4f features %v, want %s at 0.185", c.PagerKey, c.Score, c.Features, fakes.CheckoutKey)
 		}
 		m := c.Page[0].Model
-		if m == nil || m.Model != "kev-fake" || m.P != 0.74 || !strings.HasPrefix(m.Question, "Which PagerDuty service") {
-			t.Errorf("page evidence model = %+v, want kev-fake, its question and p 0.74", m)
+		if m == nil || m.Model != "kev-fake" || m.P != 0.74 || m.Score != 1.9 || m.Route != vocab.RouteJoin || !strings.HasPrefix(m.Question, "Which PagerDuty service") {
+			t.Errorf("page evidence model = %+v, want kev-fake, its question, p 0.74, score 1.9 and join", m)
 		}
 		if err := w.store.ProposeCoverage(t.Context(), coveredBy, coverageRule, cs); err != nil {
 			t.Fatal(err)
@@ -420,21 +433,22 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 
 	t.Run("model picks none", func(t *testing.T) {
 		t.Parallel()
-		_, cs, bs, _ := run(t, "none", 0.6)
+		_, cs, bs, _ := run(t, "none", 0.6, 2)
 		if len(cs) != 0 || len(bs) != 1 {
 			t.Fatalf("coverage = %+v, breaks %+v; want no trail, one break", cs, bs)
 		}
 		v := bs[0].Verdict
-		if bs[0].Step != pagesPred || v == nil || v.Model != "kev-fake" || v.P != 0.6 || v.Pager != vocab.NoPager {
+		if bs[0].Step != pagesPred || v == nil || v.Model != "kev-fake" || v.P != 0.6 || v.Pager != vocab.NoPager || v.Route != vocab.RouteNone {
 			t.Errorf("break = %+v verdict %+v, want %s unresolved with kev-fake's none at 0.6", bs[0], v, pagesPred)
 		}
 	})
 
-	t.Run("pick below the join threshold", func(t *testing.T) {
+	t.Run("a pick the score sends to review leaves the break for a person", func(t *testing.T) {
 		t.Parallel()
-		_, cs, bs, _ := run(t, "Checkout Platform", 0.4)
-		if len(cs) != 0 || len(bs) != 1 || bs[0].Verdict == nil || bs[0].Verdict.Pager != fakes.CheckoutKey || bs[0].Verdict.P != 0.4 {
-			t.Errorf("coverage = %+v, breaks %+v; want no trail and the break keeping checkout at 0.4", cs, bs)
+		_, cs, bs, _ := run(t, "Checkout Platform", 0.91, 1.0)
+		v := bs[0].Verdict
+		if len(cs) != 0 || len(bs) != 1 || v == nil || v.Pager != fakes.CheckoutKey || v.Score != 1.0 || v.Route != vocab.RouteReview {
+			t.Errorf("coverage = %+v, breaks %+v; want no trail and the break keeping checkout for review", cs, bs)
 		}
 	})
 
@@ -446,9 +460,9 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		kev, asked := fakeKev(t, "none", 0.1)
+		kev, asked := fakeKev(t, "none", 0.1, 0)
 		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return "", "" }, pagesQuestion)
-		cs, _, err := coverageTrail.JoinModel(t.Context(), edges, []vocab.Pager{{Key: fakes.CheckoutKey, Name: "x"}}, ask, 0.5)
+		cs, _, err := coverageTrail.JoinModel(t.Context(), edges, []vocab.Pager{{Key: fakes.CheckoutKey, Name: "x"}}, ask)
 		if err != nil || len(cs) != 1 || cs[0].Score != 0.25 || len(asked()) != 0 {
 			t.Errorf("coverage = %+v, %v, asked %q; want the keyed trail at 0.25 and no question", cs, err, asked())
 		}
