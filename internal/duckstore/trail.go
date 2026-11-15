@@ -22,8 +22,18 @@ func (s *Store) TrailEdges(ctx context.Context, preds []string) ([]vocab.Edge, e
 	if len(preds) == 0 {
 		return nil, nil
 	}
-	args := make([]any, len(preds))
-	for i, p := range preds {
+	// A fact stored under a term that exact_match reads as one of preds (an
+	// adapter's repository as defined_in) is returned under the pred asked for.
+	back := map[string]string{}
+	var stored []string
+	for _, p := range preds {
+		for _, m := range s.reg.Matches(p) {
+			back[m] = p
+			stored = append(stored, m)
+		}
+	}
+	args := make([]any, len(stored))
+	for i, p := range stored {
 		args[i] = p
 	}
 	//nolint:gosec // only placeholders are spliced in; values are bound
@@ -33,7 +43,7 @@ func (s *Store) TrailEdges(ctx context.Context, preds []string) ([]vocab.Edge, e
 			EXISTS (SELECT 1 FROM alias a JOIN observation o ON o.key = a.key WHERE a.entity_id = f.object_id),
 			fs.observation_id, fs.rule
 		FROM fact f JOIN fact_source fs ON fs.fact_id = f.id
-		WHERE f.valid_to IS NULL AND f.object_id IS NOT NULL AND f.predicate IN (?`+strings.Repeat(", ?", len(preds)-1)+`)
+		WHERE f.valid_to IS NULL AND f.object_id IS NOT NULL AND f.predicate IN (?`+strings.Repeat(", ?", len(stored)-1)+`)
 		ORDER BY f.id, fs.observation_id, fs.rule`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: trail edges: %w", err)
@@ -47,6 +57,7 @@ func (s *Store) TrailEdges(ctx context.Context, preds []string) ([]vocab.Edge, e
 		if err := rows.Scan(&e.Fact, &e.Subject, &e.Object, &e.Predicate, &status, &e.SubjectKey, &e.ObjectKey, &e.ObjectObserved, &c.Observation, &c.Rule); err != nil {
 			return nil, fmt.Errorf("duckstore: trail edges: %w", err)
 		}
+		e.Predicate = back[e.Predicate]
 		if n := len(out); n > 0 && out[n-1].Fact == e.Fact {
 			out[n-1].Cites = append(out[n-1].Cites, c)
 			continue

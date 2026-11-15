@@ -19,6 +19,8 @@ const (
 	DatadogNamespace   = "com.datadoghq"
 	TerraformNamespace = "com.hashicorp.terraform"
 	PagerDutyNamespace = "com.pagerduty"
+	// OperatorNamespace is Acme's own module, which holds covered_by.
+	OperatorNamespace = "com.acme"
 
 	DatadogSource   = "datadog-acme"
 	TerraformSource = "terraform-acme"
@@ -38,10 +40,9 @@ const (
 )
 
 // CoverageModules are the vocabulary modules the three adapters would
-// publish: their kinds, and the relations proposing rules make between
-// them. The relations are not core: watches and pages are Datadog's
-// words, describes Terraform's, and covered_by (the joined link) is
-// PagerDuty's.
+// publish: each adapter's kinds, relations and attributes, all in its own
+// namespace. The joined covered_by link is not here: the server's joiner
+// makes it, so it is an operator term (see CoverageOperator).
 func CoverageModules() []vocab.Module {
 	rel := func(name string) vocab.Term {
 		return vocab.Term{Name: name, Is: vocab.IsRelation, Cardinality: "many", Conflict: "none"}
@@ -51,24 +52,34 @@ func CoverageModules() []vocab.Module {
 	}
 	return []vocab.Module{
 		{Owner: vocab.OwnerAdapter, Namespace: DatadogNamespace, Version: "0.1.0", Source: vocab.Source{VerifiedBy: "build"}, Terms: []vocab.Term{
-			{Name: "Monitor", Is: vocab.IsKind}, rel("watches"), rel("pages"), attr("monitor_tags", "json"), attr("message", "string"),
+			{Name: "Monitor", Is: vocab.IsKind}, rel("watches"), rel("pages"), attr("tags", "json"), attr("message", "string"),
 		}},
 		{Owner: vocab.OwnerAdapter, Namespace: TerraformNamespace, Version: "0.1.0", Source: vocab.Source{VerifiedBy: "build"}, Terms: []vocab.Term{
-			{Name: "Resource", Is: vocab.IsKind}, rel("describes"), attr("monitor_id", "string"), attr("module_source", "string"),
+			{Name: "Resource", Is: vocab.IsKind}, rel("describes"), attr("monitor_id", "string"), attr("tags", "json"), attr("message", "string"), attr("module_source", "string"),
 		}},
 		{Owner: vocab.OwnerAdapter, Namespace: PagerDutyNamespace, Version: "0.1.0", Source: vocab.Source{VerifiedBy: "build"}, Terms: []vocab.Term{
-			{Name: "Service", Is: vocab.IsKind}, rel("covered_by"), attr("service_name", "string"),
+			{Name: "Service", Is: vocab.IsKind}, attr("name", "string"),
 		}},
 	}
 }
 
+// CoverageOperator is the operator module that holds the joined link, as
+// testdata/vocab/acme.yaml holds Acme's other terms: the joiner is the
+// operator's, so its facts live in the operator's namespace, never an
+// adapter's.
+func CoverageOperator() vocab.Module {
+	return vocab.Module{Owner: vocab.OwnerOperator, Namespace: OperatorNamespace, Version: "0.1.0", Source: vocab.Source{VerifiedBy: "sha256"}, Terms: []vocab.Term{
+		{Name: "covered_by", Is: vocab.IsRelation, Cardinality: "many", Conflict: "none"},
+	}}
+}
+
 // DatadogMonitor is monitor 123 as Datadog's API reports it, notifying
-// handle. Attribute names avoid the core's tags and name, whose domains
-// don't cover an unmapped kind.
+// handle. Its Kubernetes tags name the workload; attribute names are
+// Datadog's own (com.datadoghq:tags), not the core's.
 func DatadogMonitor(at time.Time, handle string) *eventv1alpha1.Observation {
 	return entity(DatadogSource, at, vocab.Full(DatadogNamespace, "Monitor"), MonitorKey, map[string]any{
-		"monitor_tags": []any{"service:payments-api", "env:prod"},
-		"message":      "High latency " + handle,
+		vocab.Full(DatadogNamespace, "tags"):    monitorTags(),
+		vocab.Full(DatadogNamespace, "message"): "High latency " + handle,
 	})
 }
 
@@ -77,16 +88,20 @@ func DatadogMonitor(at time.Time, handle string) *eventv1alpha1.Observation {
 // the payments-api repository its module comes from.
 func TerraformMonitor(at time.Time, handle string) *eventv1alpha1.Observation {
 	return entity(TerraformSource, at, vocab.Full(TerraformNamespace, "Resource"), MonitorResourceKey, map[string]any{
-		"monitor_id":    "123",
-		"monitor_tags":  []any{"service:payments-api", "env:prod"},
-		"message":       "High latency " + handle,
-		"module_source": "github.com/acme/payments-api//terraform/monitors?ref=v1.4.2",
+		vocab.Full(TerraformNamespace, "monitor_id"):    "123",
+		vocab.Full(TerraformNamespace, "tags"):          monitorTags(),
+		vocab.Full(TerraformNamespace, "message"):       "High latency " + handle,
+		vocab.Full(TerraformNamespace, "module_source"): "github.com/acme/payments-api//terraform/monitors?ref=v1.4.2",
 	})
 }
 
 // PagerDutyService is the checkout service.
 func PagerDutyService(at time.Time) *eventv1alpha1.Observation {
-	return entity(PagerDutySource, at, vocab.Full(PagerDutyNamespace, "Service"), CheckoutKey, map[string]any{"service_name": "checkout"})
+	return entity(PagerDutySource, at, vocab.Full(PagerDutyNamespace, "Service"), CheckoutKey, map[string]any{vocab.Full(PagerDutyNamespace, "name"): "checkout"})
+}
+
+func monitorTags() []any {
+	return []any{"service:payments-api", "env:prod", "kube_cluster_name:" + ClusterID, "kube_namespace:payments", "kube_deployment:payments-api"}
 }
 
 func entity(source string, at time.Time, kind, key string, attrs map[string]any) *eventv1alpha1.Observation {
