@@ -212,7 +212,9 @@ entity-alignment cookbook. A rounded score routes to none, review or join.
   matches 0.83 or more, stale and legacy about 0.58), but the typo falls to
   0.49. OpenJev's pick-one answers are near-certain for every handle (0.85 to
   1.00), so its margin can't flag a stale handle at all. Use the score to
-  route, and keep the margin as evidence.
+  route, and keep the margin as evidence. The trail now does this: the pick-one
+  question finds the candidate, and the score's route decides (`4b9a6b2`).
+  A review leaves the break, with the verdict on it, for a person.
 - **OpenJev is a viable self-hosted Jev; Kev is not, for this question.**
   OpenJev (DiffusionGemma 26B-A4B, Apache-2.0 code and weights, MLX)
   matches Jev's routes. Kev-4B's scores bunch between 1.29 and 1.62, so it
