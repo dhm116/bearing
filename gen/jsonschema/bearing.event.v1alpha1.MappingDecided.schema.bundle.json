@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "bearing.event.v1alpha1.Actor.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Actor is who asked for an event.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "description": "True for an agent.",
+          "type": "boolean"
+        },
+        "subject": {
+          "default": "",
+          "description": "What the authenticator proved: \"token\" for the API token, or\n \"local:\u003cuid\u003e\" for the socket's caller, or \"system:\u003cname\u003e\" for a Bearing\n component (the scheduler).",
+          "type": "string"
+        }
+      },
+      "title": "Actor",
+      "type": "object"
+    },
+    "bearing.event.v1alpha1.MappingDecided.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "MappingDecided is a person's decision on a proposed vocabulary mapping or\n rule (ADR 13). It is appended to the core/vocabulary partition and\n applied in order, once.",
+      "patternProperties": {
+        "^(mappingId)$": {
+          "default": "",
+          "description": "The mapping's id.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/bearing.event.v1alpha1.Actor.schema.json",
+          "description": "Who decided: what the authenticator proved. Never an agent."
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "pattern": "^DECISION_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "DECISION_ACCEPT",
+                "DECISION_REJECT"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What was decided.",
+          "title": "Decision"
+        },
+        "mapping_id": {
+          "default": "",
+          "description": "The mapping's id.",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why, as free text. Required, never interpreted, clipped to 1 KiB.",
+          "type": "string"
+        }
+      },
+      "title": "Mapping Decided",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.event.v1alpha1.MappingDecided.schema.bundle.json",
+  "$ref": "#/$defs/bearing.event.v1alpha1.MappingDecided.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

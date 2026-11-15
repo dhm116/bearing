@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,9 +20,14 @@ import (
 // spike). One partition means one worker applies them in the order logged.
 const vocabPartition store.Partition = "core/vocabulary"
 
-// typeMappingDecided is the CloudEvents type of a mapping decision. It has no
-// proto message: the spike may not touch proto/, so the data is plain JSON.
-const typeMappingDecided = "dev.bearing.mapping_decided.v1"
+// typeMappingDecided is the CloudEvents type of a mapping decision.
+var typeMappingDecided = mustType(&eventv1alpha1.MappingDecided{})
+
+// mappingDecisions maps the API's words to the event's enum.
+var mappingDecisions = map[string]eventv1alpha1.MappingDecided_Decision{
+	"accept": eventv1alpha1.MappingDecided_DECISION_ACCEPT,
+	"reject": eventv1alpha1.MappingDecided_DECISION_REJECT,
+}
 
 // ErrNoVocabulary means the server was not given a Vocabulary.
 var ErrNoVocabulary = errors.New("server: vocabulary decisions are not configured")
@@ -56,15 +60,6 @@ type MappingDecision struct {
 	Decision string
 	ID       string
 	Why      string
-}
-
-// mappingDecided is the data of a typeMappingDecided event.
-type mappingDecided struct {
-	ID       string `json:"id"`
-	Decision string `json:"decision"`
-	Why      string `json:"why"`
-	Actor    string `json:"actor"`
-	Agent    bool   `json:"agent,omitempty"`
 }
 
 // Validate reports, as an error wrapping graph.ErrInvalidDecision, why d is
@@ -204,7 +199,9 @@ func (s *Server) DecideMapping(ctx context.Context, d MappingDecision, actor *ev
 	} else if _, _, err := s.openProposal(ctx, d.ID); err != nil {
 		return Logged{}, err
 	}
-	data, err := json.Marshal(mappingDecided{ID: d.ID, Decision: d.Decision, Why: clipReason(d.Why), Actor: actor.GetSubject()})
+	data, err := model.EncodeJSON(&eventv1alpha1.MappingDecided{
+		MappingId: d.ID, Decision: mappingDecisions[d.Decision], Reason: clipReason(d.Why), Actor: actor,
+	})
 	if err != nil {
 		return Logged{}, fmt.Errorf("encode mapping decision: %w", err)
 	}
@@ -229,8 +226,8 @@ func (s *Server) DecideMapping(ctx context.Context, d MappingDecision, actor *ev
 // passes is dead-lettered, never applied. A mapping already decided, as when
 // the event is applied twice, changes nothing.
 func (s *Server) handleMappingDecided(ctx context.Context, e store.Entry) error {
-	var msg mappingDecided
-	if err := json.Unmarshal(e.Data, &msg); err != nil {
+	msg := &eventv1alpha1.MappingDecided{}
+	if err := model.DecodeJSON(e.Data, msg); err != nil {
 		return permanentError{fmt.Errorf("event %s: %w", e.ID, err)}
 	}
 	if e.Partition != vocabPartition {
@@ -239,25 +236,28 @@ func (s *Server) handleMappingDecided(ctx context.Context, e store.Entry) error 
 	if s.cfg.Vocab == nil {
 		return fmt.Errorf("event %s: %w", e.ID, ErrNoVocabulary)
 	}
-	if msg.Actor == "" || msg.Agent {
+	if msg.GetActor().GetSubject() == "" || msg.GetActor().GetAgent() {
 		return permanentError{fmt.Errorf("event %s: not decided by a person", e.ID)}
 	}
-	status := map[string]string{"accept": vocab.Asserted, "reject": vocab.Rejected}[msg.Decision]
+	status := map[eventv1alpha1.MappingDecided_Decision]string{
+		eventv1alpha1.MappingDecided_DECISION_ACCEPT: vocab.Asserted, eventv1alpha1.MappingDecided_DECISION_REJECT: vocab.Rejected,
+	}[msg.GetDecision()]
 	if status == "" {
-		return permanentError{fmt.Errorf("event %s: decision %q is not accept or reject", e.ID, model.Clip(msg.Decision))}
+		return permanentError{fmt.Errorf("event %s: decision %s is not accept or reject", e.ID, msg.GetDecision())}
 	}
-	if msg.Decision == "accept" {
-		if err := s.checkMapping(ctx, msg.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+	id := msg.GetMappingId()
+	if status == vocab.Asserted {
+		if err := s.checkMapping(ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
 			if errors.Is(err, ErrMappingRefused) {
 				return permanentError{fmt.Errorf("event %s: %w", e.ID, err)}
 			}
 			return fmt.Errorf("event %s: %w", e.ID, err)
 		}
 	}
-	err := s.cfg.Vocab.Store.DecideMapping(ctx, msg.ID, status, msg.Actor, clipReason(msg.Why), e.Time)
+	err := s.cfg.Vocab.Store.DecideMapping(ctx, id, status, msg.GetActor().GetSubject(), clipReason(msg.GetReason()), e.Time)
 	if errors.Is(err, store.ErrNotFound) {
 		telemetry.Logger(pkgName).WarnContext(ctx, "a mapping decision changed nothing: the mapping was already decided, or the event was applied before",
-			"event", e.ID, "decision", msg.Decision, "mapping", model.Clip(msg.ID))
+			"event", e.ID, "decision", msg.GetDecision().String(), "mapping", model.Clip(id))
 		return nil
 	}
 	if err != nil {

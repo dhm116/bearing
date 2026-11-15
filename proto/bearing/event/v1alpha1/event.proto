@@ -132,6 +132,29 @@ message LinkDecided {
   Actor actor = 6;
 }
 
+// MappingDecided is a person's decision on a proposed vocabulary mapping or
+// rule (ADR 13). It is appended to the core/vocabulary partition and
+// applied in order, once.
+message MappingDecided {
+  // What the person decided.
+  enum Decision {
+    // Not set; refused.
+    DECISION_UNSPECIFIED = 0;
+    // Assert the proposal.
+    DECISION_ACCEPT = 1;
+    // Reject the proposal.
+    DECISION_REJECT = 2;
+  }
+  // The mapping's id.
+  string mapping_id = 1;
+  // What was decided.
+  Decision decision = 2;
+  // Why, as free text. Required, never interpreted, clipped to 1 KiB.
+  string reason = 3;
+  // Who decided: what the authenticator proved. Never an agent.
+  Actor actor = 4;
+}
+
 // Actor is who asked for an event.
 message Actor {
   // What the authenticator proved: "token" for the API token, or

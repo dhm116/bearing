@@ -94,6 +94,59 @@ func (LinkDecided_Decision) EnumDescriptor() ([]byte, []int) {
 	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{5, 0}
 }
 
+// What the person decided.
+type MappingDecided_Decision int32
+
+const (
+	// Not set; refused.
+	MappingDecided_DECISION_UNSPECIFIED MappingDecided_Decision = 0
+	// Assert the proposal.
+	MappingDecided_DECISION_ACCEPT MappingDecided_Decision = 1
+	// Reject the proposal.
+	MappingDecided_DECISION_REJECT MappingDecided_Decision = 2
+)
+
+// Enum value maps for MappingDecided_Decision.
+var (
+	MappingDecided_Decision_name = map[int32]string{
+		0: "DECISION_UNSPECIFIED",
+		1: "DECISION_ACCEPT",
+		2: "DECISION_REJECT",
+	}
+	MappingDecided_Decision_value = map[string]int32{
+		"DECISION_UNSPECIFIED": 0,
+		"DECISION_ACCEPT":      1,
+		"DECISION_REJECT":      2,
+	}
+)
+
+func (x MappingDecided_Decision) Enum() *MappingDecided_Decision {
+	p := new(MappingDecided_Decision)
+	*p = x
+	return p
+}
+
+func (x MappingDecided_Decision) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MappingDecided_Decision) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_event_v1alpha1_event_proto_enumTypes[1].Descriptor()
+}
+
+func (MappingDecided_Decision) Type() protoreflect.EnumType {
+	return &file_bearing_event_v1alpha1_event_proto_enumTypes[1]
+}
+
+func (x MappingDecided_Decision) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MappingDecided_Decision.Descriptor instead.
+func (MappingDecided_Decision) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{6, 0}
+}
+
 // Observation is a CloudEvents 1.0 event carrying one observation, in
 // structured mode: its ProtoJSON is the CloudEvents JSON form.
 type Observation struct {
@@ -598,6 +651,81 @@ func (x *LinkDecided) GetActor() *Actor {
 	return nil
 }
 
+// MappingDecided is a person's decision on a proposed vocabulary mapping or
+// rule (ADR 13). It is appended to the core/vocabulary partition and
+// applied in order, once.
+type MappingDecided struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The mapping's id.
+	MappingId string `protobuf:"bytes,1,opt,name=mapping_id,json=mappingId,proto3" json:"mapping_id,omitempty"`
+	// What was decided.
+	Decision MappingDecided_Decision `protobuf:"varint,2,opt,name=decision,proto3,enum=bearing.event.v1alpha1.MappingDecided_Decision" json:"decision,omitempty"`
+	// Why, as free text. Required, never interpreted, clipped to 1 KiB.
+	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Who decided: what the authenticator proved. Never an agent.
+	Actor         *Actor `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MappingDecided) Reset() {
+	*x = MappingDecided{}
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MappingDecided) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MappingDecided) ProtoMessage() {}
+
+func (x *MappingDecided) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MappingDecided.ProtoReflect.Descriptor instead.
+func (*MappingDecided) Descriptor() ([]byte, []int) {
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MappingDecided) GetMappingId() string {
+	if x != nil {
+		return x.MappingId
+	}
+	return ""
+}
+
+func (x *MappingDecided) GetDecision() MappingDecided_Decision {
+	if x != nil {
+		return x.Decision
+	}
+	return MappingDecided_DECISION_UNSPECIFIED
+}
+
+func (x *MappingDecided) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *MappingDecided) GetActor() *Actor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
 // Actor is who asked for an event.
 type Actor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -613,7 +741,7 @@ type Actor struct {
 
 func (x *Actor) Reset() {
 	*x = Actor{}
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -625,7 +753,7 @@ func (x *Actor) String() string {
 func (*Actor) ProtoMessage() {}
 
 func (x *Actor) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[6]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -638,7 +766,7 @@ func (x *Actor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Actor.ProtoReflect.Descriptor instead.
 func (*Actor) Descriptor() ([]byte, []int) {
-	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{6}
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Actor) GetSubject() string {
@@ -690,7 +818,7 @@ type EventDeadLettered struct {
 
 func (x *EventDeadLettered) Reset() {
 	*x = EventDeadLettered{}
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -702,7 +830,7 @@ func (x *EventDeadLettered) String() string {
 func (*EventDeadLettered) ProtoMessage() {}
 
 func (x *EventDeadLettered) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[7]
+	mi := &file_bearing_event_v1alpha1_event_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -715,7 +843,7 @@ func (x *EventDeadLettered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventDeadLettered.ProtoReflect.Descriptor instead.
 func (*EventDeadLettered) Descriptor() ([]byte, []int) {
-	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{7}
+	return file_bearing_event_v1alpha1_event_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EventDeadLettered) GetEventId() string {
@@ -828,7 +956,17 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\x0fDECISION_REJECT\x10\x02\x12\x11\n" +
 	"\rDECISION_JOIN\x10\x03\x12\x12\n" +
 	"\x0eDECISION_SPLIT\x10\x04\x12\x1a\n" +
-	"\x16DECISION_UNDO_DISTINCT\x10\x05\"7\n" +
+	"\x16DECISION_UNDO_DISTINCT\x10\x05\"\x99\x02\n" +
+	"\x0eMappingDecided\x12\x1d\n" +
+	"\n" +
+	"mapping_id\x18\x01 \x01(\tR\tmappingId\x12K\n" +
+	"\bdecision\x18\x02 \x01(\x0e2/.bearing.event.v1alpha1.MappingDecided.DecisionR\bdecision\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x123\n" +
+	"\x05actor\x18\x04 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\"N\n" +
+	"\bDecision\x12\x18\n" +
+	"\x14DECISION_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fDECISION_ACCEPT\x10\x01\x12\x13\n" +
+	"\x0fDECISION_REJECT\x10\x02\"7\n" +
 	"\x05Actor\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\bR\x05agent\"\x9a\x02\n" +
@@ -857,39 +995,43 @@ func file_bearing_event_v1alpha1_event_proto_rawDescGZIP() []byte {
 	return file_bearing_event_v1alpha1_event_proto_rawDescData
 }
 
-var file_bearing_event_v1alpha1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_bearing_event_v1alpha1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_bearing_event_v1alpha1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_bearing_event_v1alpha1_event_proto_goTypes = []any{
 	(LinkDecided_Decision)(0),        // 0: bearing.event.v1alpha1.LinkDecided.Decision
-	(*Observation)(nil),              // 1: bearing.event.v1alpha1.Observation
-	(*SyncRequested)(nil),            // 2: bearing.event.v1alpha1.SyncRequested
-	(*WebhookReceived)(nil),          // 3: bearing.event.v1alpha1.WebhookReceived
-	(*Header)(nil),                   // 4: bearing.event.v1alpha1.Header
-	(*ObservationsEmitted)(nil),      // 5: bearing.event.v1alpha1.ObservationsEmitted
-	(*LinkDecided)(nil),              // 6: bearing.event.v1alpha1.LinkDecided
-	(*Actor)(nil),                    // 7: bearing.event.v1alpha1.Actor
-	(*EventDeadLettered)(nil),        // 8: bearing.event.v1alpha1.EventDeadLettered
-	(*timestamppb.Timestamp)(nil),    // 9: google.protobuf.Timestamp
-	(*v1alpha1.ObservationData)(nil), // 10: bearing.model.v1alpha1.ObservationData
-	(*v1alpha1.CompleteSync)(nil),    // 11: bearing.model.v1alpha1.CompleteSync
+	(MappingDecided_Decision)(0),     // 1: bearing.event.v1alpha1.MappingDecided.Decision
+	(*Observation)(nil),              // 2: bearing.event.v1alpha1.Observation
+	(*SyncRequested)(nil),            // 3: bearing.event.v1alpha1.SyncRequested
+	(*WebhookReceived)(nil),          // 4: bearing.event.v1alpha1.WebhookReceived
+	(*Header)(nil),                   // 5: bearing.event.v1alpha1.Header
+	(*ObservationsEmitted)(nil),      // 6: bearing.event.v1alpha1.ObservationsEmitted
+	(*LinkDecided)(nil),              // 7: bearing.event.v1alpha1.LinkDecided
+	(*MappingDecided)(nil),           // 8: bearing.event.v1alpha1.MappingDecided
+	(*Actor)(nil),                    // 9: bearing.event.v1alpha1.Actor
+	(*EventDeadLettered)(nil),        // 10: bearing.event.v1alpha1.EventDeadLettered
+	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
+	(*v1alpha1.ObservationData)(nil), // 12: bearing.model.v1alpha1.ObservationData
+	(*v1alpha1.CompleteSync)(nil),    // 13: bearing.model.v1alpha1.CompleteSync
 }
 var file_bearing_event_v1alpha1_event_proto_depIdxs = []int32{
-	9,  // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
-	10, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
-	7,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
-	4,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
-	9,  // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
-	1,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
-	11, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
-	9,  // 7: bearing.event.v1alpha1.ObservationsEmitted.sync_started:type_name -> google.protobuf.Timestamp
+	11, // 0: bearing.event.v1alpha1.Observation.time:type_name -> google.protobuf.Timestamp
+	12, // 1: bearing.event.v1alpha1.Observation.data:type_name -> bearing.model.v1alpha1.ObservationData
+	9,  // 2: bearing.event.v1alpha1.SyncRequested.actor:type_name -> bearing.event.v1alpha1.Actor
+	5,  // 3: bearing.event.v1alpha1.WebhookReceived.headers:type_name -> bearing.event.v1alpha1.Header
+	11, // 4: bearing.event.v1alpha1.WebhookReceived.received_at:type_name -> google.protobuf.Timestamp
+	2,  // 5: bearing.event.v1alpha1.ObservationsEmitted.observations:type_name -> bearing.event.v1alpha1.Observation
+	13, // 6: bearing.event.v1alpha1.ObservationsEmitted.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
+	11, // 7: bearing.event.v1alpha1.ObservationsEmitted.sync_started:type_name -> google.protobuf.Timestamp
 	0,  // 8: bearing.event.v1alpha1.LinkDecided.decision:type_name -> bearing.event.v1alpha1.LinkDecided.Decision
-	7,  // 9: bearing.event.v1alpha1.LinkDecided.actor:type_name -> bearing.event.v1alpha1.Actor
-	9,  // 10: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	9,  // 9: bearing.event.v1alpha1.LinkDecided.actor:type_name -> bearing.event.v1alpha1.Actor
+	1,  // 10: bearing.event.v1alpha1.MappingDecided.decision:type_name -> bearing.event.v1alpha1.MappingDecided.Decision
+	9,  // 11: bearing.event.v1alpha1.MappingDecided.actor:type_name -> bearing.event.v1alpha1.Actor
+	11, // 12: bearing.event.v1alpha1.EventDeadLettered.event_time:type_name -> google.protobuf.Timestamp
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_bearing_event_v1alpha1_event_proto_init() }
@@ -902,8 +1044,8 @@ func file_bearing_event_v1alpha1_event_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_event_v1alpha1_event_proto_rawDesc), len(file_bearing_event_v1alpha1_event_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   8,
+			NumEnums:      2,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
