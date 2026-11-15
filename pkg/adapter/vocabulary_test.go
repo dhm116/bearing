@@ -39,7 +39,7 @@ func TestDescribeOverTheProtocolCarriesTheModuleButNotItsOwner(t *testing.T) {
 	want, _ := publisher{}.Describe(t.Context())
 	w := *want.Vocabulary
 	// What the core decides, whatever the adapter said.
-	w.Owner, w.Source.VerifiedBy = vocab.OwnerAdapter, "adapter:pub-source"
+	w.Owner, w.Source.VerifiedBy = vocab.OwnerAdapter, "" // the publisher is SyncModule's source argument
 	w.Suggests = []vocab.Mapping{{ID: "w", Subject: "io.example:Widget", Predicate: vocab.Broader, Object: vocab.CoreNamespace + ":Component", Status: vocab.Proposed}}
 	if !reflect.DeepEqual(*d.Vocabulary, w) {
 		t.Errorf("got %+v, want %+v", *d.Vocabulary, w)

@@ -37,7 +37,7 @@ INSERT INTO alias VALUES
  ('svc:legacy-api', 's-old', 'gh', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00'),
  ('svc:ledger', 's-ledger', 'gh', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00'),
  ('svc:db', 's-db', 'gh', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00');
-INSERT INTO observation VALUES
+INSERT INTO observation (id, source, kind, key, observed_at, recorded_at, url, payload) VALUES
  ('o1', 'gh', 'Service', 'svc:api', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:01+00', 'https://example.test/o1', '{}'),
  ('o2', 'dir', 'Person', 'person:bob', TIMESTAMPTZ '2026-02-01 00:00:00+00', TIMESTAMPTZ '2026-02-01 00:00:01+00', NULL, '{}'),
  ('o3', 'gh', 'Service', 'svc:api', TIMESTAMPTZ '2026-06-01 00:00:00+00', TIMESTAMPTZ '2026-06-01 00:00:01+00', NULL, '{}');

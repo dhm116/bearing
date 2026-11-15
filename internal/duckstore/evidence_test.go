@@ -62,7 +62,7 @@ INSERT INTO entity VALUES
  ('svc-fe', 'Component', 'frontend', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'svc-fe'),
  ('t-design', 'Team', 'design', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-design'),
  ('t-ui', 'Team', 'UI Team', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-ui');
-INSERT INTO observation VALUES
+INSERT INTO observation (id, source, kind, key, observed_at, recorded_at, url, payload) VALUES
  ('o-gh', 'github', 'Repository', 'repo:spa', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:01+00', NULL, '{}'),
  ('o-pd', 'pagerduty', 'Component', 'svc:fe', TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:01+00', NULL, '{}');
 INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source) VALUES
@@ -418,7 +418,7 @@ func TestEvidenceFailsOnACancelledContext(t *testing.T) {
 func TestEvidenceShowsEveryObservationSourceOfAFact(t *testing.T) {
 	t.Parallel()
 	s := teams(t)
-	load(t, s, `INSERT INTO observation VALUES ('o-bs', 'backstage', 'Repository', 'repo:spa', TIMESTAMPTZ '2026-01-02 00:00:00+00', TIMESTAMPTZ '2026-01-02 00:00:01+00', NULL, '{}')`)
+	load(t, s, `INSERT INTO observation (id, source, kind, key, observed_at, recorded_at, url, payload) VALUES ('o-bs', 'backstage', 'Repository', 'repo:spa', TIMESTAMPTZ '2026-01-02 00:00:00+00', TIMESTAMPTZ '2026-01-02 00:00:01+00', NULL, '{}')`)
 	load(t, s, `INSERT INTO fact_source (fact_id, observation_id) VALUES ('f1', 'o-bs')`)
 	ev := evidenceOf(t, s, graph.EvidenceRequest{From: []graph.EntityID{"repo-spa"}, Predicates: []string{"owned_by"}})
 	var got []string

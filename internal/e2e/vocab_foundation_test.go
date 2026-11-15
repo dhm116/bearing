@@ -62,6 +62,10 @@ func TestVocabFoundationAcme(t *testing.T) {
 		t.Errorf("fact_source rules = %v, %v; want stated facts ('') and r-team@1's", rules, err)
 	}
 
+	if got, err := v.store.ModuleVersions(t.Context(), "kubernetes-acme"); err != nil || len(got) != 1 || got[0] != "io.k8s@"+kubernetes.Version {
+		t.Errorf("module versions = %v, %v; want io.k8s@%s on every observation", got, err, kubernetes.Version)
+	}
+
 	terms, err := v.store.Terms(t.Context(), vocab.CoreNamespace)
 	if err != nil || len(terms) != len(vocab.Core().Terms) || terms[0].Source.VerifiedBy != "build" {
 		t.Errorf("core terms: %d rows, %v; want %d from the build", len(terms), err, len(vocab.Core().Terms))

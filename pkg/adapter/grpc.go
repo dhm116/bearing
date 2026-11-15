@@ -352,9 +352,6 @@ func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 		return DescribeResult{}, err
 	}
 	d := describeFromProto(res.Msg)
-	if d.Vocabulary != nil {
-		d.Vocabulary.Source.VerifiedBy = "adapter:" + r.name // which source published it
-	}
 	if d.ProtocolVersion == 0 {
 		d.ProtocolVersion = 1
 	}

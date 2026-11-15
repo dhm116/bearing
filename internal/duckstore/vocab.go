@@ -243,3 +243,22 @@ func (s *Store) RuleCounts(ctx context.Context) (map[string]int, error) {
 	}
 	return out, rows.Err()
 }
+
+// ModuleVersions lists the module versions a source's observations were made
+// under, sorted (ADR 13, spike).
+func (s *Store) ModuleVersions(ctx context.Context, source string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT module_version FROM observation WHERE source = ? AND module_version IS NOT NULL ORDER BY 1`, source)
+	if err != nil {
+		return nil, fmt.Errorf("duckstore: module versions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("duckstore: module versions: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

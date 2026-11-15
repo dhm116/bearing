@@ -124,9 +124,10 @@ func (g *ingest) observation(ctx context.Context, o *eventv1alpha1.Observation) 
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
-	n, err := g.exec(ctx, `INSERT INTO observation VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+	n, err := g.exec(ctx, `INSERT INTO observation (id, source, kind, key, observed_at, recorded_at, url, payload, module_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 		g.obsID, g.source, e.GetKind(), e.GetKey(), g.observed, g.recorded,
-		nullIfEmpty(d.GetEvidence().GetUrl()), string(payload))
+		nullIfEmpty(d.GetEvidence().GetUrl()), string(payload), nullIfEmpty(o.GetModuleVersion()))
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
