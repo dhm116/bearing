@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyDeprecation says what replaces a term.",
+      "patternProperties": {
+        "^(replacedBy)$": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "consider": {
+          "description": "Terms to consider instead.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "replaced_by": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        },
+        "since": {
+          "default": "",
+          "description": "The module version that deprecated it.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Deprecation",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.VocabularyDeprecation.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

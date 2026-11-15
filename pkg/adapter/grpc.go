@@ -30,6 +30,7 @@ import (
 	"bearing.example/gen/go/bearing/adapter/v1alpha1/adapterv1alpha1connect"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/telemetry"
+	"bearing.example/pkg/vocab"
 )
 
 // Serve answers the adapter service (ADR 4) for a on lis until ctx ends. It
@@ -194,6 +195,9 @@ func describeToProto(d DescribeResult) *adapterv1alpha1.DescribeResponse {
 	if w := d.WebhookSignature; w != nil {
 		out.WebhookSignature = &adapterv1alpha1.WebhookSignature{Scheme: w.Scheme, SignatureHeader: w.SignatureHeader, SignaturePrefix: w.SignaturePrefix}
 	}
+	if d.Vocabulary != nil {
+		out.Vocabulary = vocab.ToProto(*d.Vocabulary)
+	}
 	return out
 }
 
@@ -202,6 +206,7 @@ func describeFromProto(d *adapterv1alpha1.DescribeResponse) DescribeResult {
 		Name: d.GetName(), Version: d.GetVersion(), ConfigSchema: json.RawMessage(d.GetConfigSchema()),
 		Access: d.GetAccess(), Webhooks: d.GetWebhooks(), ProtocolVersion: d.GetProtocolVersion(),
 	}
+	out.Vocabulary = vocab.FromProto(d.GetVocabulary())
 	for _, k := range d.GetEmits() {
 		out.Emits = append(out.Emits, model.Kind(k))
 	}
@@ -347,6 +352,9 @@ func (r *Remote) Describe(ctx context.Context) (DescribeResult, error) {
 		return DescribeResult{}, err
 	}
 	d := describeFromProto(res.Msg)
+	if d.Vocabulary != nil {
+		d.Vocabulary.Source.VerifiedBy = "adapter:" + r.name // which source published it
+	}
 	if d.ProtocolVersion == 0 {
 		d.ProtocolVersion = 1
 	}

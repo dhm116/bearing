@@ -31,6 +31,11 @@ message Observation {
   string bearingsource = 7;
   // The observation. Required.
   bearing.model.v1alpha1.ObservationData data = 8;
+  // The adapter's vocabulary module and version the observation's terms come
+  // from, such as "io.k8s@0.4.0" (ADR 13). Outside the id, which stays the
+  // entity key and time, so it never affects deduplication. Empty for an
+  // adapter that uses the core's terms.
+  string module_version = 9;
 }
 
 // SyncRequested asks for a sync of one source. The sync is identified by

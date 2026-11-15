@@ -61,8 +61,9 @@ type DescribeResult struct {
 	// in that system's own terms, so operators can grant exactly these.
 	Access   []string `json:"access"`
 	Webhooks bool     `json:"webhooks"`
-	// Vocabulary is the adapter's vocabulary module (ADR 13 spike), when it
-	// publishes one. Spike: JSON only, not yet in the proto DescribeResponse.
+	// Vocabulary is the adapter's vocabulary module (ADR 13), when it
+	// publishes one. On the core's side its Owner is always the adapter,
+	// whatever the adapter sent.
 	Vocabulary *vocab.Module `json:"vocabulary,omitempty"`
 	// WebhookSignature says how the source signs its deliveries, so the
 	// host can verify one before it is logged. Absent when the source does

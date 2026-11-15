@@ -77,6 +77,10 @@
           "description": "The adapter's version, such as \"0.3.0\".",
           "type": "string"
         },
+        "vocabulary": {
+          "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyModule.schema.json",
+          "description": "The vocabulary the adapter publishes (ADR 13): its own namespace of\n terms and the mappings it suggests. Additive; absent when it has none.\n The core never reads an owner from it: it sets the owner itself."
+        },
         "webhook_signature": {
           "$ref": "#/$defs/bearing.adapter.v1alpha1.WebhookSignature.schema.json",
           "description": "How deliveries are signed; set when webhooks is."
@@ -88,6 +92,191 @@
         }
       },
       "title": "Describe Response",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyDeprecation says what replaces a term.",
+      "patternProperties": {
+        "^(replacedBy)$": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "consider": {
+          "description": "Terms to consider instead.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "replaced_by": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        },
+        "since": {
+          "default": "",
+          "description": "The module version that deprecated it.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Deprecation",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularyMapping.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyMapping is a mapping the adapter suggests, with full names.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "Stable ID, such as \"k8s-namespace-is-environment\".",
+          "type": "string"
+        },
+        "justification": {
+          "default": "",
+          "description": "Why, in a sentence.",
+          "type": "string"
+        },
+        "object": {
+          "default": "",
+          "description": "The full name of the term it maps to.",
+          "type": "string"
+        },
+        "predicate": {
+          "default": "",
+          "description": "\"broader\", \"exact_match\" or \"close_match\".",
+          "type": "string"
+        },
+        "subject": {
+          "default": "",
+          "description": "The full name of the adapter's term.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Mapping",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularyModule.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyModule is the terms one adapter publishes in one namespace, at\n one version (ADR 13).",
+      "properties": {
+        "namespace": {
+          "default": "",
+          "description": "A reverse domain, such as \"io.k8s\". The core refuses \"core\" and any\n namespace another owner holds.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularySource.schema.json",
+          "description": "Where the module came from."
+        },
+        "suggests": {
+          "description": "Mappings to other namespaces' terms. Arrive proposed, never asserted.",
+          "items": {
+            "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyMapping.schema.json"
+          },
+          "type": "array"
+        },
+        "terms": {
+          "description": "The terms, each defined once.",
+          "items": {
+            "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyTerm.schema.json"
+          },
+          "type": "array"
+        },
+        "version": {
+          "default": "",
+          "description": "The module's version, such as \"0.4.0\"; observations name it.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Module",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularySource.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularySource is where a module came from.",
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "The module's path in it.",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "description": "The commit or tag.",
+          "type": "string"
+        },
+        "repo": {
+          "default": "",
+          "description": "The repository.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Source",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularyTerm.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyTerm is one kind, relation or attribute.",
+      "properties": {
+        "cardinality": {
+          "default": "",
+          "description": "\"one\" or \"many\".",
+          "type": "string"
+        },
+        "conflict": {
+          "default": "",
+          "description": "\"none\", \"one\" or \"set\".",
+          "type": "string"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json",
+          "description": "Set when the owner retires the term."
+        },
+        "domain": {
+          "description": "The kinds a relation or attribute applies to.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "is": {
+          "default": "",
+          "description": "\"kind\", \"relation\" or \"attribute\".",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "The bare name, such as \"Deployment\" or \"in_namespace\".",
+          "type": "string"
+        },
+        "range": {
+          "description": "The kinds a relation points at.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "default": "",
+          "description": "An attribute's value type: \"string\", \"float\", \"bool\", \"time\" or \"json\".",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Term",
       "type": "object"
     },
     "bearing.adapter.v1alpha1.WebhookSignature.schema.json": {

@@ -53,6 +53,82 @@ message DescribeResponse {
   // not support. Absent (0) means 1, the version before this field; once 1
   // is dropped, an adapter that sends nothing is refused.
   uint32 protocol_version = 8;
+  // The vocabulary the adapter publishes (ADR 13): its own namespace of
+  // terms and the mappings it suggests. Additive; absent when it has none.
+  // The core never reads an owner from it: it sets the owner itself.
+  VocabularyModule vocabulary = 9;
+}
+
+// VocabularyModule is the terms one adapter publishes in one namespace, at
+// one version (ADR 13).
+message VocabularyModule {
+  // A reverse domain, such as "io.k8s". The core refuses "core" and any
+  // namespace another owner holds.
+  string namespace = 1;
+  // The module's version, such as "0.4.0"; observations name it.
+  string version = 2;
+  // Where the module came from.
+  VocabularySource source = 3;
+  // The terms, each defined once.
+  repeated VocabularyTerm terms = 4;
+  // Mappings to other namespaces' terms. Arrive proposed, never asserted.
+  repeated VocabularyMapping suggests = 5;
+}
+
+// VocabularySource is where a module came from.
+message VocabularySource {
+  // The repository.
+  string repo = 1;
+  // The module's path in it.
+  string path = 2;
+  // The commit or tag.
+  string ref = 3;
+}
+
+// VocabularyTerm is one kind, relation or attribute.
+message VocabularyTerm {
+  // The bare name, such as "Deployment" or "in_namespace".
+  string name = 1;
+  // "kind", "relation" or "attribute".
+  string is = 2;
+  // An attribute's value type: "string", "float", "bool", "time" or "json".
+  string type = 3;
+  // "one" or "many".
+  string cardinality = 4;
+  // "none", "one" or "set".
+  string conflict = 5;
+  // The kinds a relation or attribute applies to.
+  repeated string domain = 6;
+  // The kinds a relation points at.
+  repeated string range = 7;
+  // Set when the owner retires the term.
+  VocabularyDeprecation deprecated = 8;
+}
+
+// VocabularyDeprecation says what replaces a term.
+message VocabularyDeprecation {
+  // The module version that deprecated it.
+  string since = 1;
+  // The full name of the replacement.
+  string replaced_by = 2;
+  // Terms to consider instead.
+  repeated string consider = 3;
+  // Why.
+  string reason = 4;
+}
+
+// VocabularyMapping is a mapping the adapter suggests, with full names.
+message VocabularyMapping {
+  // Stable ID, such as "k8s-namespace-is-environment".
+  string id = 1;
+  // The full name of the adapter's term.
+  string subject = 2;
+  // "broader", "exact_match" or "close_match".
+  string predicate = 3;
+  // The full name of the term it maps to.
+  string object = 4;
+  // Why, in a sentence.
+  string justification = 5;
 }
 
 // WebhookSignature says how a source signs its webhook deliveries, so the

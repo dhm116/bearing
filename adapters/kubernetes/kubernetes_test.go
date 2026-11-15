@@ -335,3 +335,34 @@ func TestDescribeMatchesTheDeclaration(t *testing.T) {
 		t.Fatalf("Handle: got %v, want ErrNotSupported", err)
 	}
 }
+
+func TestNamespacedObservationsNameTheirModuleVersionWithoutChangingTheirID(t *testing.T) {
+	t.Parallel()
+	sync := func(namespaced bool) map[string]string { // id -> module version
+		r := newRig(t, func(c *Config) { c.Namespaced = namespaced })
+		r.playUntil(fakes.ClusterCreatedAt.Add(time.Hour))
+		obs, _ := r.sync()
+		out := map[string]string{}
+		for _, o := range obs {
+			out[o.GetId()] = o.GetModuleVersion()
+		}
+		return out
+	}
+	plain, ns := sync(false), sync(true)
+	if len(ns) == 0 {
+		t.Fatal("no observations")
+	}
+	for id, v := range ns {
+		if _, ok := plain[id]; !ok {
+			t.Errorf("observation %s: id only in namespaced mode, want the same ids as without the version", id)
+		}
+		if want := ModuleNamespace + "@" + Version; v != want {
+			t.Errorf("observation %s: got module version %q, want %q", id, v, want)
+		}
+	}
+	for id, v := range plain {
+		if v != "" {
+			t.Errorf("observation %s: got module version %q in default mode, want none", id, v)
+		}
+	}
+}

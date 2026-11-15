@@ -141,6 +141,18 @@ func TestValidateAdapterObservationRejectsBearingSource(t *testing.T) {
 	wantCode(t, ValidateAdapterObservation(Core(), o), codeMalformed)
 }
 
+func TestValidateChecksTheModuleVersionShape(t *testing.T) {
+	o := observationWith(nil)
+	o.ModuleVersion = "io.k8s@0.4.0"
+	if err := ValidateObservation(Core(), o); err != nil {
+		t.Fatalf("got %v, want a module version accepted", err)
+	}
+	for _, bad := range []string{"io.k8s", "k8s@1", "io.k8s@", "io.k8s@1 2", "io.k8s@\n"} {
+		o.ModuleVersion = bad
+		wantCode(t, ValidateObservation(Core(), o), codeMalformed)
+	}
+}
+
 func TestValidateRejectsInvalidUTF8(t *testing.T) {
 	o := observationWith(map[string]*structpb.Value{"description": structpb.NewStringValue("\xff")})
 	o.Data.Entity.Aliases = []string{"test:repo/\xff"}
