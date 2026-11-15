@@ -1,0 +1,31 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.VocabularySource.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularySource is where a module came from.",
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "The module's path in it.",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "description": "The commit or tag.",
+          "type": "string"
+        },
+        "repo": {
+          "default": "",
+          "description": "The repository.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Source",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.VocabularySource.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularySource.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

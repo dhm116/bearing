@@ -1,0 +1,41 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.VocabularyMapping.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyMapping is a mapping the adapter suggests, with full names.",
+      "properties": {
+        "id": {
+          "default": "",
+          "description": "Stable ID, such as \"k8s-namespace-is-environment\".",
+          "type": "string"
+        },
+        "justification": {
+          "default": "",
+          "description": "Why, in a sentence.",
+          "type": "string"
+        },
+        "object": {
+          "default": "",
+          "description": "The full name of the term it maps to.",
+          "type": "string"
+        },
+        "predicate": {
+          "default": "",
+          "description": "\"broader\", \"exact_match\" or \"close_match\".",
+          "type": "string"
+        },
+        "subject": {
+          "default": "",
+          "description": "The full name of the adapter's term.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Mapping",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.VocabularyMapping.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyMapping.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

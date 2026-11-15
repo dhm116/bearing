@@ -310,6 +310,11 @@ func (a *Adapter) Sync(ctx context.Context, p adapter.SyncParams) (res adapter.S
 	if err != nil {
 		return adapter.SyncResult{}, err
 	}
+	if c.cfg.Namespaced {
+		for _, o := range obs {
+			o.ModuleVersion = ModuleNamespace + "@" + Version // outside the id: dedup is unchanged
+		}
+	}
 	next.Continue = more
 	if more == "" && next.advance() {
 		// Every included namespace and workload was listed to its last page.

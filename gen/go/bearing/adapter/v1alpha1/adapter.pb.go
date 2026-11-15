@@ -88,8 +88,12 @@ type DescribeResponse struct {
 	// not support. Absent (0) means 1, the version before this field; once 1
 	// is dropped, an adapter that sends nothing is refused.
 	ProtocolVersion uint32 `protobuf:"varint,8,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The vocabulary the adapter publishes (ADR 13): its own namespace of
+	// terms and the mappings it suggests. Additive; absent when it has none.
+	// The core never reads an owner from it: it sets the owner itself.
+	Vocabulary    *VocabularyModule `protobuf:"bytes,9,opt,name=vocabulary,proto3" json:"vocabulary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DescribeResponse) Reset() {
@@ -178,6 +182,425 @@ func (x *DescribeResponse) GetProtocolVersion() uint32 {
 	return 0
 }
 
+func (x *DescribeResponse) GetVocabulary() *VocabularyModule {
+	if x != nil {
+		return x.Vocabulary
+	}
+	return nil
+}
+
+// VocabularyModule is the terms one adapter publishes in one namespace, at
+// one version (ADR 13).
+type VocabularyModule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A reverse domain, such as "io.k8s". The core refuses "core" and any
+	// namespace another owner holds.
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// The module's version, such as "0.4.0"; observations name it.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Where the module came from.
+	Source *VocabularySource `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	// The terms, each defined once.
+	Terms []*VocabularyTerm `protobuf:"bytes,4,rep,name=terms,proto3" json:"terms,omitempty"`
+	// Mappings to other namespaces' terms. Arrive proposed, never asserted.
+	Suggests      []*VocabularyMapping `protobuf:"bytes,5,rep,name=suggests,proto3" json:"suggests,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VocabularyModule) Reset() {
+	*x = VocabularyModule{}
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VocabularyModule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VocabularyModule) ProtoMessage() {}
+
+func (x *VocabularyModule) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VocabularyModule.ProtoReflect.Descriptor instead.
+func (*VocabularyModule) Descriptor() ([]byte, []int) {
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *VocabularyModule) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *VocabularyModule) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *VocabularyModule) GetSource() *VocabularySource {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *VocabularyModule) GetTerms() []*VocabularyTerm {
+	if x != nil {
+		return x.Terms
+	}
+	return nil
+}
+
+func (x *VocabularyModule) GetSuggests() []*VocabularyMapping {
+	if x != nil {
+		return x.Suggests
+	}
+	return nil
+}
+
+// VocabularySource is where a module came from.
+type VocabularySource struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The repository.
+	Repo string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	// The module's path in it.
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// The commit or tag.
+	Ref           string `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VocabularySource) Reset() {
+	*x = VocabularySource{}
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VocabularySource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VocabularySource) ProtoMessage() {}
+
+func (x *VocabularySource) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VocabularySource.ProtoReflect.Descriptor instead.
+func (*VocabularySource) Descriptor() ([]byte, []int) {
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *VocabularySource) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *VocabularySource) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *VocabularySource) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+// VocabularyTerm is one kind, relation or attribute.
+type VocabularyTerm struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The bare name, such as "Deployment" or "in_namespace".
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// "kind", "relation" or "attribute".
+	Is string `protobuf:"bytes,2,opt,name=is,proto3" json:"is,omitempty"`
+	// An attribute's value type: "string", "float", "bool", "time" or "json".
+	Type string `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	// "one" or "many".
+	Cardinality string `protobuf:"bytes,4,opt,name=cardinality,proto3" json:"cardinality,omitempty"`
+	// "none", "one" or "set".
+	Conflict string `protobuf:"bytes,5,opt,name=conflict,proto3" json:"conflict,omitempty"`
+	// The kinds a relation or attribute applies to.
+	Domain []string `protobuf:"bytes,6,rep,name=domain,proto3" json:"domain,omitempty"`
+	// The kinds a relation points at.
+	Range []string `protobuf:"bytes,7,rep,name=range,proto3" json:"range,omitempty"`
+	// Set when the owner retires the term.
+	Deprecated    *VocabularyDeprecation `protobuf:"bytes,8,opt,name=deprecated,proto3" json:"deprecated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VocabularyTerm) Reset() {
+	*x = VocabularyTerm{}
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VocabularyTerm) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VocabularyTerm) ProtoMessage() {}
+
+func (x *VocabularyTerm) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VocabularyTerm.ProtoReflect.Descriptor instead.
+func (*VocabularyTerm) Descriptor() ([]byte, []int) {
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *VocabularyTerm) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *VocabularyTerm) GetIs() string {
+	if x != nil {
+		return x.Is
+	}
+	return ""
+}
+
+func (x *VocabularyTerm) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *VocabularyTerm) GetCardinality() string {
+	if x != nil {
+		return x.Cardinality
+	}
+	return ""
+}
+
+func (x *VocabularyTerm) GetConflict() string {
+	if x != nil {
+		return x.Conflict
+	}
+	return ""
+}
+
+func (x *VocabularyTerm) GetDomain() []string {
+	if x != nil {
+		return x.Domain
+	}
+	return nil
+}
+
+func (x *VocabularyTerm) GetRange() []string {
+	if x != nil {
+		return x.Range
+	}
+	return nil
+}
+
+func (x *VocabularyTerm) GetDeprecated() *VocabularyDeprecation {
+	if x != nil {
+		return x.Deprecated
+	}
+	return nil
+}
+
+// VocabularyDeprecation says what replaces a term.
+type VocabularyDeprecation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The module version that deprecated it.
+	Since string `protobuf:"bytes,1,opt,name=since,proto3" json:"since,omitempty"`
+	// The full name of the replacement.
+	ReplacedBy string `protobuf:"bytes,2,opt,name=replaced_by,json=replacedBy,proto3" json:"replaced_by,omitempty"`
+	// Terms to consider instead.
+	Consider []string `protobuf:"bytes,3,rep,name=consider,proto3" json:"consider,omitempty"`
+	// Why.
+	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VocabularyDeprecation) Reset() {
+	*x = VocabularyDeprecation{}
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VocabularyDeprecation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VocabularyDeprecation) ProtoMessage() {}
+
+func (x *VocabularyDeprecation) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VocabularyDeprecation.ProtoReflect.Descriptor instead.
+func (*VocabularyDeprecation) Descriptor() ([]byte, []int) {
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *VocabularyDeprecation) GetSince() string {
+	if x != nil {
+		return x.Since
+	}
+	return ""
+}
+
+func (x *VocabularyDeprecation) GetReplacedBy() string {
+	if x != nil {
+		return x.ReplacedBy
+	}
+	return ""
+}
+
+func (x *VocabularyDeprecation) GetConsider() []string {
+	if x != nil {
+		return x.Consider
+	}
+	return nil
+}
+
+func (x *VocabularyDeprecation) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// VocabularyMapping is a mapping the adapter suggests, with full names.
+type VocabularyMapping struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Stable ID, such as "k8s-namespace-is-environment".
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The full name of the adapter's term.
+	Subject string `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	// "broader", "exact_match" or "close_match".
+	Predicate string `protobuf:"bytes,3,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	// The full name of the term it maps to.
+	Object string `protobuf:"bytes,4,opt,name=object,proto3" json:"object,omitempty"`
+	// Why, in a sentence.
+	Justification string `protobuf:"bytes,5,opt,name=justification,proto3" json:"justification,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VocabularyMapping) Reset() {
+	*x = VocabularyMapping{}
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VocabularyMapping) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VocabularyMapping) ProtoMessage() {}
+
+func (x *VocabularyMapping) ProtoReflect() protoreflect.Message {
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VocabularyMapping.ProtoReflect.Descriptor instead.
+func (*VocabularyMapping) Descriptor() ([]byte, []int) {
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *VocabularyMapping) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *VocabularyMapping) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *VocabularyMapping) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *VocabularyMapping) GetObject() string {
+	if x != nil {
+		return x.Object
+	}
+	return ""
+}
+
+func (x *VocabularyMapping) GetJustification() string {
+	if x != nil {
+		return x.Justification
+	}
+	return ""
+}
+
 // WebhookSignature says how a source signs its webhook deliveries, so the
 // core can check them before the adapter sees them.
 type WebhookSignature struct {
@@ -195,7 +618,7 @@ type WebhookSignature struct {
 
 func (x *WebhookSignature) Reset() {
 	*x = WebhookSignature{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[2]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +630,7 @@ func (x *WebhookSignature) String() string {
 func (*WebhookSignature) ProtoMessage() {}
 
 func (x *WebhookSignature) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[2]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +643,7 @@ func (x *WebhookSignature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WebhookSignature.ProtoReflect.Descriptor instead.
 func (*WebhookSignature) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{2}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *WebhookSignature) GetScheme() string {
@@ -263,7 +686,7 @@ type SyncRequest struct {
 
 func (x *SyncRequest) Reset() {
 	*x = SyncRequest{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[3]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +698,7 @@ func (x *SyncRequest) String() string {
 func (*SyncRequest) ProtoMessage() {}
 
 func (x *SyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[3]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +711,7 @@ func (x *SyncRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncRequest.ProtoReflect.Descriptor instead.
 func (*SyncRequest) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{3}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SyncRequest) GetConfig() []byte {
@@ -329,7 +752,7 @@ type SyncResponse struct {
 
 func (x *SyncResponse) Reset() {
 	*x = SyncResponse{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[4]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -341,7 +764,7 @@ func (x *SyncResponse) String() string {
 func (*SyncResponse) ProtoMessage() {}
 
 func (x *SyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[4]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -354,7 +777,7 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{4}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SyncResponse) GetObservations() []*v1alpha1.Observation {
@@ -402,7 +825,7 @@ type HandleRequest struct {
 
 func (x *HandleRequest) Reset() {
 	*x = HandleRequest{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[5]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +837,7 @@ func (x *HandleRequest) String() string {
 func (*HandleRequest) ProtoMessage() {}
 
 func (x *HandleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[5]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +850,7 @@ func (x *HandleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HandleRequest.ProtoReflect.Descriptor instead.
 func (*HandleRequest) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{5}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *HandleRequest) GetConfig() []byte {
@@ -469,7 +892,7 @@ type HeaderValues struct {
 
 func (x *HeaderValues) Reset() {
 	*x = HeaderValues{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[6]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -481,7 +904,7 @@ func (x *HeaderValues) String() string {
 func (*HeaderValues) ProtoMessage() {}
 
 func (x *HeaderValues) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[6]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -494,7 +917,7 @@ func (x *HeaderValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeaderValues.ProtoReflect.Descriptor instead.
 func (*HeaderValues) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{6}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HeaderValues) GetValues() []string {
@@ -515,7 +938,7 @@ type HandleResponse struct {
 
 func (x *HandleResponse) Reset() {
 	*x = HandleResponse{}
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[7]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -527,7 +950,7 @@ func (x *HandleResponse) String() string {
 func (*HandleResponse) ProtoMessage() {}
 
 func (x *HandleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[7]
+	mi := &file_bearing_adapter_v1alpha1_adapter_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -540,7 +963,7 @@ func (x *HandleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HandleResponse.ProtoReflect.Descriptor instead.
 func (*HandleResponse) Descriptor() ([]byte, []int) {
-	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{7}
+	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *HandleResponse) GetObservations() []*v1alpha1.Observation {
@@ -555,7 +978,7 @@ var File_bearing_adapter_v1alpha1_adapter_proto protoreflect.FileDescriptor
 const file_bearing_adapter_v1alpha1_adapter_proto_rawDesc = "" +
 	"\n" +
 	"&bearing/adapter/v1alpha1/adapter.proto\x12\x18bearing.adapter.v1alpha1\x1a\"bearing/event/v1alpha1/event.proto\x1a(bearing/model/v1alpha1/observation.proto\"\x11\n" +
-	"\x0fDescribeRequest\"\xb3\x02\n" +
+	"\x0fDescribeRequest\"\xff\x02\n" +
 	"\x10DescribeResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x14\n" +
@@ -564,7 +987,43 @@ const file_bearing_adapter_v1alpha1_adapter_proto_rawDesc = "" +
 	"\x06access\x18\x05 \x03(\tR\x06access\x12\x1a\n" +
 	"\bwebhooks\x18\x06 \x01(\bR\bwebhooks\x12W\n" +
 	"\x11webhook_signature\x18\a \x01(\v2*.bearing.adapter.v1alpha1.WebhookSignatureR\x10webhookSignature\x12)\n" +
-	"\x10protocol_version\x18\b \x01(\rR\x0fprotocolVersion\"\x80\x01\n" +
+	"\x10protocol_version\x18\b \x01(\rR\x0fprotocolVersion\x12J\n" +
+	"\n" +
+	"vocabulary\x18\t \x01(\v2*.bearing.adapter.v1alpha1.VocabularyModuleR\n" +
+	"vocabulary\"\x97\x02\n" +
+	"\x10VocabularyModule\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12B\n" +
+	"\x06source\x18\x03 \x01(\v2*.bearing.adapter.v1alpha1.VocabularySourceR\x06source\x12>\n" +
+	"\x05terms\x18\x04 \x03(\v2(.bearing.adapter.v1alpha1.VocabularyTermR\x05terms\x12G\n" +
+	"\bsuggests\x18\x05 \x03(\v2+.bearing.adapter.v1alpha1.VocabularyMappingR\bsuggests\"L\n" +
+	"\x10VocabularySource\x12\x12\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12\x10\n" +
+	"\x03ref\x18\x03 \x01(\tR\x03ref\"\x85\x02\n" +
+	"\x0eVocabularyTerm\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x0e\n" +
+	"\x02is\x18\x02 \x01(\tR\x02is\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12 \n" +
+	"\vcardinality\x18\x04 \x01(\tR\vcardinality\x12\x1a\n" +
+	"\bconflict\x18\x05 \x01(\tR\bconflict\x12\x16\n" +
+	"\x06domain\x18\x06 \x03(\tR\x06domain\x12\x14\n" +
+	"\x05range\x18\a \x03(\tR\x05range\x12O\n" +
+	"\n" +
+	"deprecated\x18\b \x01(\v2/.bearing.adapter.v1alpha1.VocabularyDeprecationR\n" +
+	"deprecated\"\x82\x01\n" +
+	"\x15VocabularyDeprecation\x12\x14\n" +
+	"\x05since\x18\x01 \x01(\tR\x05since\x12\x1f\n" +
+	"\vreplaced_by\x18\x02 \x01(\tR\n" +
+	"replacedBy\x12\x1a\n" +
+	"\bconsider\x18\x03 \x03(\tR\bconsider\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\x99\x01\n" +
+	"\x11VocabularyMapping\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12\x1c\n" +
+	"\tpredicate\x18\x03 \x01(\tR\tpredicate\x12\x16\n" +
+	"\x06object\x18\x04 \x01(\tR\x06object\x12$\n" +
+	"\rjustification\x18\x05 \x01(\tR\rjustification\"\x80\x01\n" +
 	"\x10WebhookSignature\x12\x16\n" +
 	"\x06scheme\x18\x01 \x01(\tR\x06scheme\x12)\n" +
 	"\x10signature_header\x18\x02 \x01(\tR\x0fsignatureHeader\x12)\n" +
@@ -608,38 +1067,48 @@ func file_bearing_adapter_v1alpha1_adapter_proto_rawDescGZIP() []byte {
 	return file_bearing_adapter_v1alpha1_adapter_proto_rawDescData
 }
 
-var file_bearing_adapter_v1alpha1_adapter_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_bearing_adapter_v1alpha1_adapter_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_bearing_adapter_v1alpha1_adapter_proto_goTypes = []any{
 	(*DescribeRequest)(nil),        // 0: bearing.adapter.v1alpha1.DescribeRequest
 	(*DescribeResponse)(nil),       // 1: bearing.adapter.v1alpha1.DescribeResponse
-	(*WebhookSignature)(nil),       // 2: bearing.adapter.v1alpha1.WebhookSignature
-	(*SyncRequest)(nil),            // 3: bearing.adapter.v1alpha1.SyncRequest
-	(*SyncResponse)(nil),           // 4: bearing.adapter.v1alpha1.SyncResponse
-	(*HandleRequest)(nil),          // 5: bearing.adapter.v1alpha1.HandleRequest
-	(*HeaderValues)(nil),           // 6: bearing.adapter.v1alpha1.HeaderValues
-	(*HandleResponse)(nil),         // 7: bearing.adapter.v1alpha1.HandleResponse
-	nil,                            // 8: bearing.adapter.v1alpha1.HandleRequest.HeadersEntry
-	(*v1alpha1.Observation)(nil),   // 9: bearing.event.v1alpha1.Observation
-	(*v1alpha11.CompleteSync)(nil), // 10: bearing.model.v1alpha1.CompleteSync
+	(*VocabularyModule)(nil),       // 2: bearing.adapter.v1alpha1.VocabularyModule
+	(*VocabularySource)(nil),       // 3: bearing.adapter.v1alpha1.VocabularySource
+	(*VocabularyTerm)(nil),         // 4: bearing.adapter.v1alpha1.VocabularyTerm
+	(*VocabularyDeprecation)(nil),  // 5: bearing.adapter.v1alpha1.VocabularyDeprecation
+	(*VocabularyMapping)(nil),      // 6: bearing.adapter.v1alpha1.VocabularyMapping
+	(*WebhookSignature)(nil),       // 7: bearing.adapter.v1alpha1.WebhookSignature
+	(*SyncRequest)(nil),            // 8: bearing.adapter.v1alpha1.SyncRequest
+	(*SyncResponse)(nil),           // 9: bearing.adapter.v1alpha1.SyncResponse
+	(*HandleRequest)(nil),          // 10: bearing.adapter.v1alpha1.HandleRequest
+	(*HeaderValues)(nil),           // 11: bearing.adapter.v1alpha1.HeaderValues
+	(*HandleResponse)(nil),         // 12: bearing.adapter.v1alpha1.HandleResponse
+	nil,                            // 13: bearing.adapter.v1alpha1.HandleRequest.HeadersEntry
+	(*v1alpha1.Observation)(nil),   // 14: bearing.event.v1alpha1.Observation
+	(*v1alpha11.CompleteSync)(nil), // 15: bearing.model.v1alpha1.CompleteSync
 }
 var file_bearing_adapter_v1alpha1_adapter_proto_depIdxs = []int32{
-	2,  // 0: bearing.adapter.v1alpha1.DescribeResponse.webhook_signature:type_name -> bearing.adapter.v1alpha1.WebhookSignature
-	9,  // 1: bearing.adapter.v1alpha1.SyncResponse.observations:type_name -> bearing.event.v1alpha1.Observation
-	10, // 2: bearing.adapter.v1alpha1.SyncResponse.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
-	8,  // 3: bearing.adapter.v1alpha1.HandleRequest.headers:type_name -> bearing.adapter.v1alpha1.HandleRequest.HeadersEntry
-	9,  // 4: bearing.adapter.v1alpha1.HandleResponse.observations:type_name -> bearing.event.v1alpha1.Observation
-	6,  // 5: bearing.adapter.v1alpha1.HandleRequest.HeadersEntry.value:type_name -> bearing.adapter.v1alpha1.HeaderValues
-	0,  // 6: bearing.adapter.v1alpha1.AdapterService.Describe:input_type -> bearing.adapter.v1alpha1.DescribeRequest
-	3,  // 7: bearing.adapter.v1alpha1.AdapterService.Sync:input_type -> bearing.adapter.v1alpha1.SyncRequest
-	5,  // 8: bearing.adapter.v1alpha1.AdapterService.Handle:input_type -> bearing.adapter.v1alpha1.HandleRequest
-	1,  // 9: bearing.adapter.v1alpha1.AdapterService.Describe:output_type -> bearing.adapter.v1alpha1.DescribeResponse
-	4,  // 10: bearing.adapter.v1alpha1.AdapterService.Sync:output_type -> bearing.adapter.v1alpha1.SyncResponse
-	7,  // 11: bearing.adapter.v1alpha1.AdapterService.Handle:output_type -> bearing.adapter.v1alpha1.HandleResponse
-	9,  // [9:12] is the sub-list for method output_type
-	6,  // [6:9] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	7,  // 0: bearing.adapter.v1alpha1.DescribeResponse.webhook_signature:type_name -> bearing.adapter.v1alpha1.WebhookSignature
+	2,  // 1: bearing.adapter.v1alpha1.DescribeResponse.vocabulary:type_name -> bearing.adapter.v1alpha1.VocabularyModule
+	3,  // 2: bearing.adapter.v1alpha1.VocabularyModule.source:type_name -> bearing.adapter.v1alpha1.VocabularySource
+	4,  // 3: bearing.adapter.v1alpha1.VocabularyModule.terms:type_name -> bearing.adapter.v1alpha1.VocabularyTerm
+	6,  // 4: bearing.adapter.v1alpha1.VocabularyModule.suggests:type_name -> bearing.adapter.v1alpha1.VocabularyMapping
+	5,  // 5: bearing.adapter.v1alpha1.VocabularyTerm.deprecated:type_name -> bearing.adapter.v1alpha1.VocabularyDeprecation
+	14, // 6: bearing.adapter.v1alpha1.SyncResponse.observations:type_name -> bearing.event.v1alpha1.Observation
+	15, // 7: bearing.adapter.v1alpha1.SyncResponse.complete_sync:type_name -> bearing.model.v1alpha1.CompleteSync
+	13, // 8: bearing.adapter.v1alpha1.HandleRequest.headers:type_name -> bearing.adapter.v1alpha1.HandleRequest.HeadersEntry
+	14, // 9: bearing.adapter.v1alpha1.HandleResponse.observations:type_name -> bearing.event.v1alpha1.Observation
+	11, // 10: bearing.adapter.v1alpha1.HandleRequest.HeadersEntry.value:type_name -> bearing.adapter.v1alpha1.HeaderValues
+	0,  // 11: bearing.adapter.v1alpha1.AdapterService.Describe:input_type -> bearing.adapter.v1alpha1.DescribeRequest
+	8,  // 12: bearing.adapter.v1alpha1.AdapterService.Sync:input_type -> bearing.adapter.v1alpha1.SyncRequest
+	10, // 13: bearing.adapter.v1alpha1.AdapterService.Handle:input_type -> bearing.adapter.v1alpha1.HandleRequest
+	1,  // 14: bearing.adapter.v1alpha1.AdapterService.Describe:output_type -> bearing.adapter.v1alpha1.DescribeResponse
+	9,  // 15: bearing.adapter.v1alpha1.AdapterService.Sync:output_type -> bearing.adapter.v1alpha1.SyncResponse
+	12, // 16: bearing.adapter.v1alpha1.AdapterService.Handle:output_type -> bearing.adapter.v1alpha1.HandleResponse
+	14, // [14:17] is the sub-list for method output_type
+	11, // [11:14] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_bearing_adapter_v1alpha1_adapter_proto_init() }
@@ -653,7 +1122,7 @@ func file_bearing_adapter_v1alpha1_adapter_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_adapter_v1alpha1_adapter_proto_rawDesc), len(file_bearing_adapter_v1alpha1_adapter_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

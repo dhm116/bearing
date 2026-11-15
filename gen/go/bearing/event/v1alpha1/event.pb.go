@@ -114,7 +114,12 @@ type Observation struct {
 	// core, never by adapters.
 	Bearingsource string `protobuf:"bytes,7,opt,name=bearingsource,proto3" json:"bearingsource,omitempty"`
 	// The observation. Required.
-	Data          *v1alpha1.ObservationData `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
+	Data *v1alpha1.ObservationData `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
+	// The adapter's vocabulary module and version the observation's terms come
+	// from, such as "io.k8s@0.4.0" (ADR 13). Outside the id, which stays the
+	// entity key and time, so it never affects deduplication. Empty for an
+	// adapter that uses the core's terms.
+	ModuleVersion string `protobuf:"bytes,9,opt,name=module_version,json=moduleVersion,proto3" json:"module_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -203,6 +208,13 @@ func (x *Observation) GetData() *v1alpha1.ObservationData {
 		return x.Data
 	}
 	return nil
+}
+
+func (x *Observation) GetModuleVersion() string {
+	if x != nil {
+		return x.ModuleVersion
+	}
+	return ""
 }
 
 // SyncRequested asks for a sync of one source. The sync is identified by
@@ -773,7 +785,7 @@ var File_bearing_event_v1alpha1_event_proto protoreflect.FileDescriptor
 
 const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\n" +
-	"\"bearing/event/v1alpha1/event.proto\x12\x16bearing.event.v1alpha1\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x02\n" +
+	"\"bearing/event/v1alpha1/event.proto\x12\x16bearing.event.v1alpha1\x1a(bearing/model/v1alpha1/observation.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcf\x02\n" +
 	"\vObservation\x12 \n" +
 	"\vspecversion\x18\x01 \x01(\tR\vspecversion\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x16\n" +
@@ -782,7 +794,8 @@ const file_bearing_event_v1alpha1_event_proto_rawDesc = "" +
 	"\x04time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12(\n" +
 	"\x0fdatacontenttype\x18\x06 \x01(\tR\x0fdatacontenttype\x12$\n" +
 	"\rbearingsource\x18\a \x01(\tR\rbearingsource\x12;\n" +
-	"\x04data\x18\b \x01(\v2'.bearing.model.v1alpha1.ObservationDataR\x04data\"\\\n" +
+	"\x04data\x18\b \x01(\v2'.bearing.model.v1alpha1.ObservationDataR\x04data\x12%\n" +
+	"\x0emodule_version\x18\t \x01(\tR\rmoduleVersion\"\\\n" +
 	"\rSyncRequested\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x123\n" +
 	"\x05actor\x18\x02 \x01(\v2\x1d.bearing.event.v1alpha1.ActorR\x05actor\"\xb4\x01\n" +

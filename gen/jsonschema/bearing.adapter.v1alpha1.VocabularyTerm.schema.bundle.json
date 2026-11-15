@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyDeprecation says what replaces a term.",
+      "patternProperties": {
+        "^(replacedBy)$": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "consider": {
+          "description": "Terms to consider instead.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "description": "Why.",
+          "type": "string"
+        },
+        "replaced_by": {
+          "default": "",
+          "description": "The full name of the replacement.",
+          "type": "string"
+        },
+        "since": {
+          "default": "",
+          "description": "The module version that deprecated it.",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Deprecation",
+      "type": "object"
+    },
+    "bearing.adapter.v1alpha1.VocabularyTerm.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyTerm is one kind, relation or attribute.",
+      "properties": {
+        "cardinality": {
+          "default": "",
+          "description": "\"one\" or \"many\".",
+          "type": "string"
+        },
+        "conflict": {
+          "default": "",
+          "description": "\"none\", \"one\" or \"set\".",
+          "type": "string"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyDeprecation.schema.json",
+          "description": "Set when the owner retires the term."
+        },
+        "domain": {
+          "description": "The kinds a relation or attribute applies to.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "is": {
+          "default": "",
+          "description": "\"kind\", \"relation\" or \"attribute\".",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "The bare name, such as \"Deployment\" or \"in_namespace\".",
+          "type": "string"
+        },
+        "range": {
+          "description": "The kinds a relation points at.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "default": "",
+          "description": "An attribute's value type: \"string\", \"float\", \"bool\", \"time\" or \"json\".",
+          "type": "string"
+        }
+      },
+      "title": "Vocabulary Term",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.VocabularyTerm.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyTerm.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
