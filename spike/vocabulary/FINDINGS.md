@@ -14,9 +14,10 @@ filed:
 - **Deviations** are shortcuts this spike knowingly took.
 - **Open questions** are things the ADR doesn't answer.
 
-After that check, the ADR needs one addition (what closes a rule's fact)
-and three smaller answers (below). The Sprig numbers support copying: 25
-functions in 74 lines.
+After that check, the ADR needed one addition (what closes a rule's fact)
+and three smaller answers (below). ADR 13 was amended with them in
+`208c0bb`. The Sprig numbers support copying: 25 functions in 74 lines.
+Round 2 (below) built the items round 1 left out.
 
 ## The first pass, and why it was redone
 
@@ -83,6 +84,9 @@ Where the code is:
 
 ## Numbers
 
+These are round 1's, after the rework. Round 2 added about 2,580 lines
+more, excluding `gen/`.
+
 | What | Value |
 | --- | --- |
 | Production Go added | about 1,790 lines: `pkg/vocab` 935, store 520, adapter 145, fakes 115, `pkg/model` 70 |
@@ -125,6 +129,44 @@ All three break text the ADR already has.
    key could never close v1's fact. Fixed in `8dce17e`: an asserted
    version closes the asserted versions before it.
 
+## Round 2: the items that weren't built (2026-11-15)
+
+After ADR 13 was amended (`208c0bb`), four streams built what round 1
+left out. Each was right-sized: Sonnet for the proto, CLI and Kev work,
+Opus for the proposed close. When a stream raised a question, I settled it
+together with a ponytail review, choosing the option we both favoured.
+Links are pinned to [`b7d1ca8`](https://github.com/dhm116/bearing/tree/b7d1ca82cf5125f3af31bf0e823da95c96505518).
+
+| Item | Where | Result |
+| --- | --- | --- |
+| `VocabularyModule` in `DescribeResponse`, module version on observations | [`pkg/vocab/proto.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/proto.go), `proto/`, [`75_module_version.sql`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/internal/duckstore/75_module_version.sql) | The module travels over the real gRPC Describe call. The core sets the owner itself and marks suggestions proposed, whatever the adapter sends (tested with an adapter that claims to be core). Each observation stores `io.k8s@<version>` outside its payload and id. The protocol version stays 1. |
+| `bearing vocab review\|accept\|reject` | [`cmd/bearing/vocab.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/cmd/bearing/vocab.go), [`pkg/server/vocab.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/server/vocab.go) | Mirrors `bearing link`: API, then the event log (a `MappingDecided` proto event), then the worker, then the store. Accept runs the boot check first and refuses with, for example, "cannot accept k8s-depends-on-is-depends-on yet: accept k8s-daemonset-is-component, … first". The worker checks again before applying. |
+| Real git runner for the operator commit check | [`pkg/vocab/git.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/git.go) | `git -C <dir> rev-parse --verify <ref>:<path>`, tested against a temporary repo. Refuses refs that start with `-`, and paths that are absolute or leave the repo. |
+| Proposed close from other adapters' evidence | [`internal/duckstore/close.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/internal/duckstore/close.go), [`TestVocabCloseFromPullRequest`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/internal/e2e/vocab_close_test.go) | A merged PR that deletes payments-api's manifest proposes closing its rule-made `owned_by` fact, stored as a `fact_close` record shaped like `identity_link`. The fact is untouched until a person confirms. Confirming closes it at the merge time and records the actor and reason. Rejecting holds, and the same PR never proposes again. A Kubernetes observation after the merge contradicts the proposal, and confirming is then refused. |
+| Kev System One judgement on the trail's pages step | [`pkg/systemone`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/systemone/client.go), [`trail_model.go`](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/trail_model.go), [live test](https://github.com/dhm116/bearing/blob/b7d1ca82cf5125f3af31bf0e823da95c96505518/pkg/vocab/trail_model_live_test.go) (`-tags kev`) | One multiple-choice question per broken step, over the observed PagerDuty services plus "none". The step's p multiplies its strength and is never a deposit (ADR 7: "nothing Bearing inferred or answered can reinforce itself"). |
+
+**Calling a real Kev changed the design.** The first version asked a yes/no
+question per service, and its tests faked p = 0.9 for a match and 0.1 for a
+mismatch. Kev-4B, run locally, answered yes to nearly everything: 0.58 for
+`@pagerduty-payments` against Checkout Platform, 0.65 for an unrelated
+service, and about 0.8 for everything under stricter wording. A
+multiple-choice question with a "none" option does tell them apart. Live
+results with three services:
+
+| Handle | Kev picked | p |
+| --- | --- | --- |
+| `@pagerduty-checkout-platform` | Checkout Platform | 0.78 |
+| `@pagerduty-checkout` | Checkout Platform | 0.61 |
+| `@pagerduty-payments` | Payments | 0.70 |
+| `@pagerduty-search` | none | 0.70 |
+| `@pagerduty-checkout-old` (stale) | Checkout Platform | 0.56 |
+
+At a 0.5 threshold the stale handle joins. A model can only judge how
+similar two names are, not whether a handle still exists, so a stale
+handle needs evidence (PagerDuty's list of live integration handles), not
+a higher threshold. The threshold must also be calibrated on labelled
+examples before it decides anything (ADR 7).
+
 ## Deviations this spike keeps
 
 None of these is an ADR finding; each is a shortcut.
@@ -132,15 +174,14 @@ None of these is an ADR finding; each is a shortcut.
 - **Core terms keep their bare stored names** (`owned_by`, `Component`).
   The ADR says "Stored names are always full." Bare names act as the one
   fixed alias of `core`, which kept the five questions' code unchanged.
-- **The proto is unchanged.** There is no `VocabularyModule` in
-  `DescribeResponse` and no module version on observations. The ADR says
-  "Proto: a `VocabularyModule` in `DescribeResponse` and a module version
-  on observations." Instead the module is a Go struct on `DescribeResult`.
-  A real server sets `Owner` itself and doesn't trust the wire.
 - **`kind` and `kind_predicate` stay beside `term`, `prefix` and
   `mapping`.** The ADR says the new tables replace them.
-- **No `bearing vocab review|accept|reject` commands, and no real git
-  runner.** Tests call `DecideMapping` and inject the runner.
+- **No boot path loads vocabulary modules.** `pkg/server/boot` builds the
+  server with no modules or mappings. The end-to-end helper and the
+  `cmd/bearing` tests set them directly, and the vocab API answers 501 in a
+  real server.
+- **The close and trail proposers run as passes that tests call.** They
+  aren't wired into ingest or the server, and closes have no CLI.
 - **`core.yaml` lives in `pkg/vocab/`** so it can be embedded; the ADR
   puts it in `vocab/`.
 
@@ -193,6 +234,22 @@ None of these is an ADR finding; each is a shortcut.
   and `kube_deployment` tags so a rule can build the workload key, and the
   key only handles Deployments. A real trail needs a step that resolves a
   service name to a Component, which is where a Kev System One judgement
-  belongs. Kev was skipped.
-- **Not built:** closing trails that stop joining, combining several
-  monitors, and decay or contrary evidence.
+  belongs.
+- **A model judgement is a feature, not evidence.** The step's p multiplies
+  its strength. Ask one multiple-choice question per broken step, over the
+  observed records plus "none", not one yes/no question per record (see
+  round 2). Calibrate the join threshold on labelled examples, and detect a
+  stale handle with evidence rather than the model.
+- **A proposed close is its own record.** It is dated and attributed,
+  shaped like `identity_link`, and sits beside the fact. Only a person
+  confirms it, and the close takes effect at the time the evidence names,
+  such as the merge. The fact's own source observing the subject later
+  contradicts the proposal. "The same evidence" means the same fact and the
+  same cause record. The step needs an operator or core term (`removes`
+  here), the same naming question as `covered_by`.
+- **Not built:**
+  - closing trails that stop joining;
+  - combining several monitors;
+  - decay or contrary evidence;
+  - Kev on the service-name → Component step;
+  - a confirmed close can't be undone.
