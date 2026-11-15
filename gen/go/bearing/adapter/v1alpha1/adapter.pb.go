@@ -193,7 +193,7 @@ func (x *DescribeResponse) GetVocabulary() *VocabularyModule {
 // one version (ADR 13).
 type VocabularyModule struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A reverse domain, such as "io.k8s". The core refuses "core" and any
+	// A reverse domain, such as "com.example.tool". The core refuses "core" and any
 	// namespace another owner holds.
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	// The module's version, such as "0.4.0"; observations name it.

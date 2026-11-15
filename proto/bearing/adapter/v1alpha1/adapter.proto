@@ -62,7 +62,7 @@ message DescribeResponse {
 // VocabularyModule is the terms one adapter publishes in one namespace, at
 // one version (ADR 13).
 message VocabularyModule {
-  // A reverse domain, such as "io.k8s". The core refuses "core" and any
+  // A reverse domain, such as "com.example.tool". The core refuses "core" and any
   // namespace another owner holds.
   string namespace = 1;
   // The module's version, such as "0.4.0"; observations name it.

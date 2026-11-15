@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Names resolves short names (k8s:Deployment) to full ones
-// (io.k8s:Deployment). A short name is a namespace's last segment, valid
+// Names resolves short names (tool:Widget) to full ones
+// (com.example.tool:Widget). A short name is a namespace's last segment, valid
 // while only one loaded namespace ends in it; an operator alias wins over
 // it; core always means CoreNamespace. Stored names are always full.
 type Names struct {
@@ -25,7 +25,7 @@ func NewNames(namespaces []string, aliases map[string]string) (*Names, error) {
 	n := &Names{loaded: map[string]bool{CoreNamespace: true}, short: map[string][]string{}, aliases: map[string]string{}}
 	for _, ns := range namespaces {
 		if !reverseDomain.MatchString(ns) {
-			return nil, fmt.Errorf("namespace %q: %w: want a reverse domain such as io.k8s", ns, ErrNamespace)
+			return nil, fmt.Errorf("namespace %q: %w: want a reverse domain such as com.example.tool", ns, ErrNamespace)
 		}
 		if n.loaded[ns] && ns != CoreNamespace {
 			continue

@@ -36,10 +36,10 @@ var (
 const ReservedNamespace = "bearing"
 
 // configuredKind is ADR 10's ns.Kind, or ADR 13's namespaced term
-// (io.k8s:Deployment; spike).
+// (com.example.tool:Widget; spike).
 var configuredKind = regexp.MustCompile(`^([a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*|[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+:[A-Z][A-Za-z0-9]*)$`)
 
-// namespacedTerm is an ADR 13 attribute or relation term: io.k8s:labels.
+// namespacedTerm is an ADR 13 attribute or relation term: com.example.tool:labels.
 var namespacedTerm = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+:[a-z][a-z0-9_]*$`)
 
 // coreTermPrefix is ADR 13's core namespace, which configured kinds may not use.

@@ -45,6 +45,10 @@ const (
 )
 
 // guess is a proposing derives rule, in force.
+// pagesQuestion is the trail question in PagerDuty's terms, as the operator
+// would configure it for that tool.
+const pagesQuestion = "Which PagerDuty service does the handle page? Pick none if no service matches the handle."
+
 func guess(id, subject, object, kind, key string) vocab.Mapping {
 	return vocab.Mapping{
 		ID: id, Version: 1, Subject: subject, Predicate: vocab.Derives, Object: object,
@@ -380,14 +384,14 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 			t.Fatalf("pagers = %v, %v; want checkout", pagers, err)
 		}
 		kev, asked := fakeKev(t, pick, p)
-		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return fakes.FuzzyHandle, "High latency " + fakes.FuzzyHandle })
+		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return fakes.FuzzyHandle, "High latency " + fakes.FuzzyHandle }, pagesQuestion)
 		cs, bs, err := coverageTrail.JoinModel(context.Background(), edges, pagers, ask, 0.5)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return w, cs, bs, asked()
 	}
-	wantAsk := "Which PagerDuty service does the handle page? Pick none if no service matches the handle. | High latency @pagerduty-checkout-platform | @pagerduty-checkout-platform | Checkout Platform,None of these services"
+	wantAsk := "Which PagerDuty service does the handle page? Pick none if no service matches the handle. | High latency @pagerduty-checkout-platform | @pagerduty-checkout-platform | Checkout Platform,None of these"
 
 	t.Run("model picks checkout", func(t *testing.T) {
 		t.Parallel()
@@ -445,7 +449,7 @@ func TestVocabCoverageTrailModel(t *testing.T) {
 			t.Fatal(err)
 		}
 		kev, asked := fakeKev(t, "none", 0.1)
-		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return "", "" })
+		ask := vocab.ModelAsk(kev, func(vocab.Break) (string, string) { return "", "" }, pagesQuestion)
 		cs, _, err := coverageTrail.JoinModel(t.Context(), edges, []vocab.Pager{{Key: fakes.CheckoutKey, Name: "x"}}, ask, 0.5)
 		if err != nil || len(cs) != 1 || cs[0].Score != 0.25 || len(asked()) != 0 {
 			t.Errorf("coverage = %+v, %v, asked %q; want the keyed trail at 0.25 and no question", cs, err, asked())

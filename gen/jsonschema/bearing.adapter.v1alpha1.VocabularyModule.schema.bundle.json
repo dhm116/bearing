@@ -79,7 +79,7 @@
       "properties": {
         "namespace": {
           "default": "",
-          "description": "A reverse domain, such as \"io.k8s\". The core refuses \"core\" and any\n namespace another owner holds.",
+          "description": "A reverse domain, such as \"com.example.tool\". The core refuses \"core\" and any\n namespace another owner holds.",
           "type": "string"
         },
         "source": {

@@ -169,7 +169,7 @@ type Observation struct {
 	// The observation. Required.
 	Data *v1alpha1.ObservationData `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
 	// The adapter's vocabulary module and version the observation's terms come
-	// from, such as "io.k8s@0.4.0" (ADR 13). Outside the id, which stays the
+	// from, such as "com.example.tool@0.4.0" (ADR 13). Outside the id, which stays the
 	// entity key and time, so it never affects deduplication. Empty for an
 	// adapter that uses the core's terms.
 	ModuleVersion string `protobuf:"bytes,9,opt,name=module_version,json=moduleVersion,proto3" json:"module_version,omitempty"`

@@ -9,7 +9,7 @@ import (
 
 func rule(ver int, key string) Mapping {
 	return Mapping{
-		ID: "r-team", Version: ver, Subject: "io.k8s:Deployment", Predicate: Derives, Object: CoreNamespace + ":owned_by",
+		ID: "r-team", Version: ver, Subject: "com.example.cluster:Deployment", Predicate: Derives, Object: CoreNamespace + ":owned_by",
 		Target: &Target{Kind: CoreNamespace + ":Team", Key: key}, Status: Asserted,
 	}
 }
@@ -36,9 +36,9 @@ func TestRulesKeyRendersOverAttributesKeyAndKind(t *testing.T) {
 		want       string
 		wantErr    bool
 	}{
-		{"label", `kubernetes:team/{{ .labels.team | trim | lower }}`, "kubernetes:team/payments", false},
+		{"label", `cluster:team/{{ .labels.team | trim | lower }}`, "cluster:team/payments", false},
 		{"untrimmed keeps the space", `t/{{ .labels.team | lower }}`, "t/ payments", false},
-		{"key and kind", `{{ .kind }}|{{ .key }}`, "io.k8s:Deployment|k", false},
+		{"key and kind", `{{ .kind }}|{{ .key }}`, "com.example.cluster:Deployment|k", false},
 		{"missing field is no key", `t/{{ .labels.owner }}`, "", false},
 		{"missing attribute is no key", `t/{{ .annotations.x }}`, "", false},
 		{"empty render is no key", `{{ "" }}`, "", false},
@@ -51,7 +51,7 @@ func TestRulesKeyRendersOverAttributesKeyAndKind(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := rs.Match("io.k8s:Deployment")[0].Key("io.k8s:Deployment", "k", attrs)
+			got, err := rs.Match("com.example.cluster:Deployment")[0].Key("com.example.cluster:Deployment", "k", attrs)
 			if (err != nil) != tc.wantErr || got != tc.want {
 				t.Errorf("got %q, %v; want %q (error %v)", got, err, tc.want, tc.wantErr)
 			}
@@ -71,11 +71,11 @@ func TestRulesMatchSkipsOtherKindsAndRulesNotInForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := rs.Match("io.k8s:Deployment")
+	got := rs.Match("com.example.cluster:Deployment")
 	if len(got) != 1 || got[0].Ref != "r-team@4" || got[0].Predicate != "owned_by" || got[0].Kind != "Team" || !got[0].Guess {
 		t.Errorf("match = %+v, want only r-team@4 (owned_by, Team, guess)", got)
 	}
-	if n := len(rs.Match("io.k8s:Pod")); n != 0 {
+	if n := len(rs.Match("com.example.cluster:Pod")); n != 0 {
 		t.Errorf("matched %d rules for another kind", n)
 	}
 }

@@ -32,7 +32,7 @@ type Retire struct {
 	// Removes is the predicate the guess rule makes.
 	Removes string
 	// At is the attribute of the cause's observation that says when the
-	// change took effect (com.github:merged_at); empty means the
+	// change took effect (a pull request's merge time); empty means the
 	// observation's own time.
 	At string
 }

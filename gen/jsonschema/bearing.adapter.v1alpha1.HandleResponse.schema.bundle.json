@@ -23,7 +23,7 @@
       "patternProperties": {
         "^(moduleVersion)$": {
           "default": "",
-          "description": "The adapter's vocabulary module and version the observation's terms come\n from, such as \"io.k8s@0.4.0\" (ADR 13). Outside the id, which stays the\n entity key and time, so it never affects deduplication. Empty for an\n adapter that uses the core's terms.",
+          "description": "The adapter's vocabulary module and version the observation's terms come\n from, such as \"com.example.tool@0.4.0\" (ADR 13). Outside the id, which stays the\n entity key and time, so it never affects deduplication. Empty for an\n adapter that uses the core's terms.",
           "type": "string"
         }
       },
@@ -49,7 +49,7 @@
         },
         "module_version": {
           "default": "",
-          "description": "The adapter's vocabulary module and version the observation's terms come\n from, such as \"io.k8s@0.4.0\" (ADR 13). Outside the id, which stays the\n entity key and time, so it never affects deduplication. Empty for an\n adapter that uses the core's terms.",
+          "description": "The adapter's vocabulary module and version the observation's terms come\n from, such as \"com.example.tool@0.4.0\" (ADR 13). Outside the id, which stays the\n entity key and time, so it never affects deduplication. Empty for an\n adapter that uses the core's terms.",
           "type": "string"
         },
         "source": {

@@ -143,11 +143,11 @@ func TestValidateAdapterObservationRejectsBearingSource(t *testing.T) {
 
 func TestValidateChecksTheModuleVersionShape(t *testing.T) {
 	o := observationWith(nil)
-	o.ModuleVersion = "io.k8s@0.4.0"
+	o.ModuleVersion = "com.example.cluster@0.4.0"
 	if err := ValidateObservation(Core(), o); err != nil {
 		t.Fatalf("got %v, want a module version accepted", err)
 	}
-	for _, bad := range []string{"io.k8s", "k8s@1", "io.k8s@", "io.k8s@1 2", "io.k8s@\n"} {
+	for _, bad := range []string{"com.example.cluster", "cluster@1", "com.example.cluster@", "com.example.cluster@1 2", "com.example.cluster@\n"} {
 		o.ModuleVersion = bad
 		wantCode(t, ValidateObservation(Core(), o), codeMalformed)
 	}

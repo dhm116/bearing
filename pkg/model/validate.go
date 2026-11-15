@@ -296,13 +296,13 @@ func ValidateAdapterObservation(reg *Registry, o *eventv1alpha1.Observation) err
 }
 
 // moduleVersion is namespace@version, as the adapter's vocabulary module
-// names itself (io.k8s@0.4.0).
+// names itself (com.example.tool@0.4.0).
 var moduleVersion = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+@[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`)
 
 func (c *checker) observation(o *eventv1alpha1.Observation) {
 	c.enums("", o)
 	if v := o.GetModuleVersion(); v != "" && !moduleVersion.MatchString(v) {
-		c.add(codeMalformed, "module_version", "must look like io.k8s@0.4.0")
+		c.add(codeMalformed, "module_version", "must look like com.example.tool@0.4.0")
 	}
 	if o.GetSpecversion() != SpecVersion {
 		c.add(codeMalformed, "specversion", "must be %q", SpecVersion)

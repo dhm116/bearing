@@ -12,8 +12,9 @@ type Trail struct {
 	// Watches links a monitor to the service it watches; Pages, to the
 	// on-call service it notifies.
 	Watches, Pages string
-	// Describes links a record that configures a monitor (a Terraform
-	// resource) to the monitor; the record's claims are the monitor's.
+	// Describes links a record that configures a monitor (an
+	// infrastructure-as-code definition) to the monitor; the record's claims
+	// are the monitor's.
 	Describes string
 	// DefinedIn links the monitor's configuration to a repository, and a
 	// watched workload to the repository it is defined in: either way that
@@ -41,9 +42,9 @@ type Cite struct{ Observation, Rule string }
 
 // Claim is one thing the sources say about a monitor, with every fact that
 // says it. A fact from a record that describes the monitor counts as the
-// monitor's own (Via holds the describes facts): the Terraform resource and
-// Datadog's API are the intent and outcome of one configuration, so they
-// back one claim, not two.
+// monitor's own (Via holds the describes facts): a definition of the monitor
+// and the monitoring tool's own record of it are the intent and outcome of
+// one configuration, so they back one claim, not two.
 type Claim struct {
 	Subject, Predicate, Object string
 	Facts, Via                 []Edge

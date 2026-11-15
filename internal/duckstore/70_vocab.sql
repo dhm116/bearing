@@ -3,7 +3,7 @@
 
 -- Who owns each namespace, and where its module came from.
 CREATE TABLE IF NOT EXISTS prefix (
-    namespace   VARCHAR PRIMARY KEY,  -- full, such as io.k8s
+    namespace   VARCHAR PRIMARY KEY,  -- full, such as com.example.tool
     owner       VARCHAR NOT NULL,     -- core, adapter or operator
     source      VARCHAR NOT NULL,     -- the configured source that published it; '' for core and operator
     version     VARCHAR NOT NULL,     -- the module version last loaded
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS prefix (
 -- One row per term. A term only grows: its shape never changes and it is
 -- never dropped, only deprecated.
 CREATE TABLE IF NOT EXISTS term (
-    name        VARCHAR PRIMARY KEY,  -- full: io.k8s:Deployment
+    name        VARCHAR PRIMARY KEY,  -- full: com.example.tool:Widget
     namespace   VARCHAR NOT NULL,
     is_a        VARCHAR NOT NULL,     -- kind, relation or attribute
     shape       VARCHAR NOT NULL,     -- what grow-only compares

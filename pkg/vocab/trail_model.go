@@ -111,11 +111,13 @@ type Handle func(b Break) (handle, message string)
 // ModelAsk puts one multiple-choice question per broken step to a System
 // One model: the message and handle are the state, each pager an option.
 // Options are named by index, never by user text, and "none" is always one.
-func ModelAsk(c *systemone.Client, h Handle) Ask {
+// The caller words the question in its tools' terms, as it reads the handle:
+// the joiner knows no tool.
+func ModelAsk(c *systemone.Client, h Handle, question string) Ask {
 	return func(ctx context.Context, b Break, pagers []Pager) (Verdict, error) {
 		handle, msg := h(b)
-		const q = "Which PagerDuty service does the handle page? Pick none if no service matches the handle."
-		criteria := map[string]string{NoPager: "None of these services"}
+		q := question
+		criteria := map[string]string{NoPager: "None of these"}
 		for i, p := range pagers {
 			criteria["s"+strconv.Itoa(i)] = p.Name
 		}

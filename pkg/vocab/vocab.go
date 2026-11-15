@@ -153,7 +153,7 @@ func Parse(b []byte) (Module, error) {
 // well-formed term names, and a known Is.
 func (m Module) Check() error {
 	if !reverseDomain.MatchString(m.Namespace) {
-		return fmt.Errorf("module %q: %w: want a reverse domain such as io.k8s", m.Namespace, ErrNamespace)
+		return fmt.Errorf("module %q: %w: want a reverse domain such as com.example.tool", m.Namespace, ErrNamespace)
 	}
 	if m.Version == "" {
 		return fmt.Errorf("module %s: %w: no version", m.Namespace, ErrModule)

@@ -75,10 +75,10 @@ func TestCoreModuleMatchesRegistry(t *testing.T) {
 
 func TestParseRefusesBadModules(t *testing.T) {
 	for name, src := range map[string]string{
-		"bare namespace": "namespace: k8s\nversion: 1\nterms: []",
-		"no version":     "namespace: io.k8s\nterms: []",
-		"twice":          "namespace: io.k8s\nversion: 1\nterms: [{name: Pod, is: kind}, {name: Pod, is: kind}]",
-		"bad is":         "namespace: io.k8s\nversion: 1\nterms: [{name: Pod, is: thing}]",
+		"bare namespace": "namespace: cluster\nversion: 1\nterms: []",
+		"no version":     "namespace: com.example.cluster\nterms: []",
+		"twice":          "namespace: com.example.cluster\nversion: 1\nterms: [{name: Pod, is: kind}, {name: Pod, is: kind}]",
+		"bad is":         "namespace: com.example.cluster\nversion: 1\nterms: [{name: Pod, is: thing}]",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Parse([]byte(src)); err == nil {
@@ -89,22 +89,22 @@ func TestParseRefusesBadModules(t *testing.T) {
 }
 
 func TestNamesRefuseBareNamespace(t *testing.T) {
-	if _, err := NewNames([]string{"k8s"}, nil); !errors.Is(err, ErrNamespace) {
+	if _, err := NewNames([]string{"cluster"}, nil); !errors.Is(err, ErrNamespace) {
 		t.Fatalf("got %v, want ErrNamespace", err)
 	}
 }
 
 func TestNamesResolveShortNames(t *testing.T) {
-	n, err := NewNames([]string{"io.k8s", "com.github"}, nil)
+	n, err := NewNames([]string{"com.example.cluster", "com.example.git"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for in, want := range map[string]string{
-		"k8s:Deployment":        "io.k8s:Deployment",
-		"io.k8s:Deployment":     "io.k8s:Deployment",
-		"github:topics":         "com.github:topics",
-		"core:Component":        CoreNamespace + ":Component",
-		CoreNamespace + ":Team": CoreNamespace + ":Team",
+		"cluster:Deployment":             "com.example.cluster:Deployment",
+		"com.example.cluster:Deployment": "com.example.cluster:Deployment",
+		"git:topics":                     "com.example.git:topics",
+		"core:Component":                 CoreNamespace + ":Component",
+		CoreNamespace + ":Team":          CoreNamespace + ":Team",
 	} {
 		got, err := n.Resolve(in)
 		if err != nil || got != want {
@@ -117,30 +117,30 @@ func TestNamesResolveShortNames(t *testing.T) {
 }
 
 func TestNamesAmbiguousShortNameNamesBoth(t *testing.T) {
-	n, err := NewNames([]string{"io.k8s", "dev.example.k8s"}, nil)
+	n, err := NewNames([]string{"com.example.cluster", "org.example.cluster"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = n.Resolve("k8s:Deployment")
-	if !errors.Is(err, ErrAmbiguous) || !strings.Contains(err.Error(), "dev.example.k8s or io.k8s") {
+	_, err = n.Resolve("cluster:Deployment")
+	if !errors.Is(err, ErrAmbiguous) || !strings.Contains(err.Error(), "com.example.cluster or org.example.cluster") {
 		t.Fatalf("got %v, want ErrAmbiguous naming both namespaces", err)
 	}
-	if got, err := n.Resolve("io.k8s:Deployment"); err != nil || got != "io.k8s:Deployment" {
+	if got, err := n.Resolve("com.example.cluster:Deployment"); err != nil || got != "com.example.cluster:Deployment" {
 		t.Errorf("full name: got %q, %v", got, err)
 	}
 }
 
 func TestNamesAliasWins(t *testing.T) {
-	n, err := NewNames([]string{"io.k8s", "dev.example.k8s"}, map[string]string{"k8s": "io.k8s", "ex": "dev.example.k8s"})
+	n, err := NewNames([]string{"com.example.cluster", "org.example.cluster"}, map[string]string{"cluster": "com.example.cluster", "ex": "org.example.cluster"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for in, want := range map[string]string{"k8s:Pod": "io.k8s:Pod", "ex:Pod": "dev.example.k8s:Pod"} {
+	for in, want := range map[string]string{"cluster:Pod": "com.example.cluster:Pod", "ex:Pod": "org.example.cluster:Pod"} {
 		if got, err := n.Resolve(in); err != nil || got != want {
 			t.Errorf("Resolve(%s) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	if _, err := NewNames([]string{"io.k8s"}, map[string]string{"x": "org.missing"}); !errors.Is(err, ErrNamespace) {
+	if _, err := NewNames([]string{"com.example.cluster"}, map[string]string{"x": "org.missing"}); !errors.Is(err, ErrNamespace) {
 		t.Errorf("alias to an unloaded namespace: got %v, want ErrNamespace", err)
 	}
 }
@@ -162,45 +162,45 @@ func TestNamesCoreReserved(t *testing.T) {
 }
 
 func TestRegistryParentsFromBroaderMappings(t *testing.T) {
-	k8s := Module{Owner: OwnerAdapter, Namespace: "io.k8s", Version: "0.1.0", Terms: []Term{{Name: "Deployment", Is: IsKind}}}
+	cluster := Module{Owner: OwnerAdapter, Namespace: "com.example.cluster", Version: "0.1.0", Terms: []Term{{Name: "Deployment", Is: IsKind}}}
 	acme := Module{Owner: OwnerOperator, Namespace: "com.acme", Version: "1.0.0", Terms: []Term{{Name: "Workload", Is: IsKind}}}
-	gh := Module{Owner: OwnerAdapter, Namespace: "com.github", Version: "0.1.0", Terms: []Term{{Name: "Repo", Is: IsKind}}}
+	git := Module{Owner: OwnerAdapter, Namespace: "com.example.git", Version: "0.1.0", Terms: []Term{{Name: "Repo", Is: IsKind}}}
 	t0 := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	m := func(s, o string) Mapping {
 		return Mapping{ID: s + ">" + o, Subject: s, Predicate: Broader, Object: o, Status: Asserted, ValidFrom: t0}
 	}
-	r, err := Registry(model.Core(), []Module{k8s, acme}, []Mapping{
-		m("io.k8s:Deployment", "com.acme:Workload"), m("com.acme:Workload", CoreNamespace+":Component"),
+	r, err := Registry(model.Core(), []Module{cluster, acme}, []Mapping{
+		m("com.example.cluster:Deployment", "com.acme:Workload"), m("com.acme:Workload", CoreNamespace+":Component"),
 	}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.IsA("io.k8s:Deployment", model.KindComponent) {
-		t.Error("io.k8s:Deployment is not a Component through com.acme:Workload")
+	if !r.IsA("com.example.cluster:Deployment", model.KindComponent) {
+		t.Error("com.example.cluster:Deployment is not a Component through com.acme:Workload")
 	}
-	before, err := Registry(model.Core(), []Module{k8s}, []Mapping{m("io.k8s:Deployment", CoreNamespace+":Component")}, t0.Add(-time.Hour))
-	if err != nil || before.Parent("io.k8s:Deployment") != "" {
-		t.Errorf("a mapping not yet in force: parent %q, %v", before.Parent("io.k8s:Deployment"), err)
+	before, err := Registry(model.Core(), []Module{cluster}, []Mapping{m("com.example.cluster:Deployment", CoreNamespace+":Component")}, t0.Add(-time.Hour))
+	if err != nil || before.Parent("com.example.cluster:Deployment") != "" {
+		t.Errorf("a mapping not yet in force: parent %q, %v", before.Parent("com.example.cluster:Deployment"), err)
 	}
-	if _, err := Registry(model.Core(), []Module{k8s, gh}, []Mapping{m("io.k8s:Deployment", "com.github:Repo")}, t0); !errors.Is(err, ErrMapping) {
+	if _, err := Registry(model.Core(), []Module{cluster, git}, []Mapping{m("com.example.cluster:Deployment", "com.example.git:Repo")}, t0); !errors.Is(err, ErrMapping) {
 		t.Errorf("adapter to adapter: got %v, want ErrMapping", err)
 	}
 }
 
 func TestNamesEdgeCases(t *testing.T) {
-	n, err := NewNames([]string{"io.k8s", "io.k8s", CoreNamespace, "dev.example.k8s"}, map[string]string{"kube": "io.k8s"})
+	n, err := NewNames([]string{"com.example.cluster", "com.example.cluster", CoreNamespace, "org.example.cluster"}, map[string]string{"cl": "com.example.cluster"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"Deployment", "k8s:", "nope:Thing"} {
+	for _, bad := range []string{"Deployment", "cluster:", "nope:Thing"} {
 		if _, err := n.Resolve(bad); !errors.Is(err, ErrUnknownTerm) {
 			t.Errorf("Resolve(%q): got %v, want ErrUnknownTerm", bad, err)
 		}
 	}
 	for full, want := range map[string]string{
-		"io.k8s:Pod":          "kube:Pod",            // the alias
-		"dev.example.k8s:Pod": "dev.example.k8s:Pod", // k8s is ambiguous
-		CoreNamespace + ":X":  "core:X",
+		"com.example.cluster:Pod": "cl:Pod",                  // the alias
+		"org.example.cluster:Pod": "org.example.cluster:Pod", // cluster is ambiguous
+		CoreNamespace + ":X":      "core:X",
 	} {
 		if got := n.Short(full); got != want {
 			t.Errorf("Short(%s) = %s, want %s", full, got, want)
@@ -209,7 +209,7 @@ func TestNamesEdgeCases(t *testing.T) {
 }
 
 func TestParseRefusesBadYAMLAndNames(t *testing.T) {
-	for _, src := range []string{"namespace: [", "namespace: io.k8s\nversion: 1\nterms: [{name: bad-name, is: kind}]"} {
+	for _, src := range []string{"namespace: [", "namespace: com.example.cluster\nversion: 1\nterms: [{name: bad-name, is: kind}]"} {
 		if _, err := Parse([]byte(src)); !errors.Is(err, ErrModule) {
 			t.Errorf("Parse(%q): got %v, want ErrModule", src, err)
 		}
@@ -220,20 +220,20 @@ func TestParseRefusesBadYAMLAndNames(t *testing.T) {
 }
 
 func TestRegistryRefusesBadBroader(t *testing.T) {
-	k8s := Module{Owner: OwnerAdapter, Namespace: "io.k8s", Version: "0.1.0", Terms: []Term{{Name: "Deployment", Is: IsKind}, {Name: "labels", Is: IsAttribute}}}
+	cluster := Module{Owner: OwnerAdapter, Namespace: "com.example.cluster", Version: "0.1.0", Terms: []Term{{Name: "Deployment", Is: IsKind}, {Name: "labels", Is: IsAttribute}}}
 	t0 := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	m := func(s, o string) Mapping {
 		return Mapping{ID: s + ">" + o, Subject: s, Predicate: Broader, Object: o, Status: Asserted, ValidFrom: t0}
 	}
 	for name, ms := range map[string][]Mapping{
-		"subject not a module kind": {m("io.k8s:labels", CoreNamespace+":Component")},
-		"two parents":               {m("io.k8s:Deployment", CoreNamespace+":Component"), m("io.k8s:Deployment", CoreNamespace+":Package")},
+		"subject not a module kind": {m("com.example.cluster:labels", CoreNamespace+":Component")},
+		"two parents":               {m("com.example.cluster:Deployment", CoreNamespace+":Component"), m("com.example.cluster:Deployment", CoreNamespace+":Package")},
 	} {
-		if _, err := Registry(model.Core(), []Module{Core(), k8s}, ms, t0); !errors.Is(err, ErrMapping) {
+		if _, err := Registry(model.Core(), []Module{Core(), cluster}, ms, t0); !errors.Is(err, ErrMapping) {
 			t.Errorf("%s: got %v, want ErrMapping", name, err)
 		}
 	}
-	if _, err := Registry(model.Core(), []Module{k8s}, []Mapping{m("io.k8s:Deployment", CoreNamespace+":Nothing")}, t0); err == nil {
+	if _, err := Registry(model.Core(), []Module{cluster}, []Mapping{m("com.example.cluster:Deployment", CoreNamespace+":Nothing")}, t0); err == nil {
 		t.Error("a parent that isn't a kind: got nil error")
 	}
 }
