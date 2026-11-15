@@ -9,7 +9,7 @@ repository itself, so it stays current without edits here:
 | Page | Comes from |
 | --- | --- |
 | Spec | Every Markdown file in [`docs/spec/`](../docs/spec/), rendered as is |
-| Guides, Security, Brand | Every Markdown file in [`docs/`](../docs/), [`docs/security/`](../docs/security/) and [`docs/brand/`](../docs/brand/), rendered as is; the decision records in `docs/adr` stay on GitHub |
+| Guides, Contributing, Security, Brand | Every Markdown file in [`docs/`](../docs/) (split by `exclude` into guides for using Bearing and pages for building it), [`docs/security/`](../docs/security/) and [`docs/brand/`](../docs/brand/), rendered as is. The decision records in `docs/adr` stay on GitHub, so a published page's link to one goes there |
 | Roadmap | [`roadmap.yaml`](roadmap.yaml); statuses follow milestones and issues read from GitHub at build time |
 | Home, How it works | Hand-written templates in [`templates/`](templates/) |
 | Logo, colors, type | [`docs/brand/`](../docs/brand/) (the logo SVGs are copied, the tokens are mirrored in [`static/css/tokens.css`](static/css/tokens.css)) |
@@ -51,7 +51,9 @@ Bearing, so it logs with plain `slog` and calls GitHub without `otelhttp`.
 
 The site is for people who are new to Bearing, and may be new to software
 engineering. The hand-written pages and `roadmap.yaml` follow these rules,
-and `TestHandWrittenPagesStayInPlainTerms` checks the mechanical ones:
+and `TestHandWrittenPagesStayInPlainTerms` checks the mechanical ones. The
+pages rendered from `docs/` (Spec, Guides, Contributing, Security, Brand)
+keep their own technical wording:
 
 - Lead with the everyday problem and how Bearing helps. Prefer a diagram
   to a paragraph.

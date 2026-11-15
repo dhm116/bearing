@@ -55,10 +55,20 @@ collections:
   - id: guides
     title: Guides
     short: Guides
-    description: How Bearing works inside, how to run it, and how it is built and reviewed.
+    description: How Bearing works inside, how to run it, and what it reports about itself.
     dir: docs
     path: guides
-    order: [architecture.md, demo.md, mcp.md, telemetry.md, identity-evaluation.md, edge-cases.md, review-process.md]
+    order: [architecture.md, demo.md, mcp.md, telemetry.md]
+    exclude: [review-process.md, edge-cases.md, identity-evaluation.md]
+  # The rest of docs/: for people building Bearing, not using it.
+  - id: contributing
+    title: Contributing
+    short: Contributing
+    description: How Bearing is built, tested and reviewed, for people working on it.
+    dir: docs
+    path: contributing
+    order: [review-process.md, edge-cases.md, identity-evaluation.md]
+    exclude: [architecture.md, demo.md, mcp.md, telemetry.md]
   - id: security
     title: Security
     short: Security
