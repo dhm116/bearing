@@ -973,7 +973,7 @@ k8s:replicas a sh:PropertyShape ;
         <li><strong>A person promotes</strong> it.</li>
       </ul>
       One subtlety: independence is judged per claim, not per observation. A Terraform definition and the Datadog API describing the same monitor are the intent and the outcome of one claim: what the monitor is configured to do. They back that step once, and they are not two reasons to believe the service is covered. But the same Terraform observation can make a <em>different</em> claim, such as referring to the repository that payments-api comes from. That is a second path from the service to the monitor, and it does count as separate confirmation. So one observation can support several steps, several observations can back one step, and the proposal's score combines its steps: alternative paths for the same step add up, while a step every path shares counts once. ADR 13 only needs <code>derives</code> rules that can emit proposed facts. Joining hops into a proposed relation belongs in its own ADR, extending ADR 7's matchers.</li>
-    <li><strong>Copy Sprig, or import it?</strong> Measured <a href="#sprig">below</a>. The recommendation is to copy a 55-function subset.</li>
+    <li><strong>Copy Sprig, or import it?</strong> Measured <a href="#sprig">below</a>. The recommendation is to copy: the spike's rules needed only 25 functions.</li>
   </ul>
 
   <h3 id="sprig">Sprig, measured</h3>
@@ -998,7 +998,7 @@ k8s:replicas a sh:PropertyShape ;
         <li><strong>Import Sprig, and pick the functions we allow.</strong> The same dependencies, because Go compiles in the whole package, but fewer functions to reason about.</li>
         <li><strong>Copy the functions rules need, keeping Sprig's names.</strong> A 55-function set covers strings, regex, lists, dicts, defaults, URL and path parts, JSON, base64 and <code>sha256sum</code>. That is about <strong>460 lines</strong> of Sprig, which is MIT-licensed, so we keep its notice. Only 6 of the 55 reach a dependency. Case conversion (<code>snakecase</code>, <code>kebabcase</code>, <code>camelcase</code>) is about 40 lines to rewrite; <code>int</code> becomes <code>strconv</code>; <code>semver</code> and <code>semverCompare</code> reuse the version comparison already in <code>pkg/query</code>. That means no new modules.</li>
       </ul>
-      <p><strong>Recommendation: copy.</strong> About 500 lines plus table tests, in code that rarely changes, beats ten modules and a deny-list. Templates keep Sprig's names, so anyone who knows Helm can write them, and a missing function can be added when a rule needs it.</p>
+      <p><strong>Recommendation: copy.</strong> The <a href="https://github.com/dhm116/bearing/blob/ff9c9dd/spike/vocabulary/FINDINGS.md">spike</a> wrote every rule it needed with 25 of these functions, in 74 lines. At most about 500 lines plus table tests, in code that rarely changes, beats ten modules and a deny-list. Templates keep Sprig's names, so anyone who knows Helm can write them, and a missing function can be added when a rule needs it.</p>
     </div>
   </div>
 </main>
