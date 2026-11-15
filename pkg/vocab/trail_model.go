@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"bearing.example/pkg/systemone"
+	jev "github.com/mattn/go-jev"
 )
 
 // Pager is an observed record a handle might page, with the name its source
@@ -21,9 +21,11 @@ const NoPager = "none"
 // name": the model, the question and the probability of the record it
 // picked (or of NoPager), kept as evidence.
 type Verdict struct {
-	Model, Question string
-	P               float64
-	Pager           string // key of the record picked, or NoPager
+	// Model is what the server says it served; some servers echo the name
+	// they were sent, so Endpoint records which server answered.
+	Model, Endpoint, Question string
+	P                         float64
+	Pager                     string // key of the record picked, or NoPager
 }
 
 // Ask puts one question for one broken pages step with every observed pager
@@ -113,21 +115,29 @@ type Handle func(b Break) (handle, message string)
 // Options are named by index, never by user text, and "none" is always one.
 // The caller words the question in its tools' terms, as it reads the handle:
 // the joiner knows no tool.
-func ModelAsk(c *systemone.Client, h Handle, question string) Ask {
+func ModelAsk(c *jev.Client, h Handle, question string) Ask {
 	return func(ctx context.Context, b Break, pagers []Pager) (Verdict, error) {
 		handle, msg := h(b)
-		q := question
-		criteria := map[string]string{NoPager: "None of these"}
+		opts := make(jev.Options, 0, len(pagers)+1)
 		for i, p := range pagers {
-			criteria["s"+strconv.Itoa(i)] = p.Name
+			opts = append(opts, jev.Option{Name: "s" + strconv.Itoa(i), Desc: p.Name})
 		}
-		a, err := c.Choice(ctx, map[string]string{"monitor_message": msg, "handle": handle}, q, criteria)
+		opts = append(opts, jev.Option{Name: NoPager, Desc: "None of these"})
+		res, err := c.Evaluate(ctx, map[string]string{"monitor_message": msg, "handle": handle},
+			map[string]jev.Question{"q": {Type: "choice", Instructions: question, Criteria: opts}})
 		if err != nil {
-			return Verdict{}, err
+			return Verdict{}, fmt.Errorf("ask %s: %w", c.URL(), err)
 		}
-		v := Verdict{Model: a.Model, Question: q, Pager: NoPager, P: a.Probabilities[a.Choice]}
+		a := res.Answers["q"]
+		if a == nil || a.Type != "choice" {
+			return Verdict{}, fmt.Errorf("ask %s: no choice answer", c.URL())
+		}
+		v := Verdict{Model: res.Model, Endpoint: c.URL(), Question: question, Pager: NoPager, P: a.Probabilities[a.Choice]}
 		if a.Choice != NoPager {
-			i, _ := strconv.Atoi(strings.TrimPrefix(a.Choice, "s"))
+			i, err := strconv.Atoi(strings.TrimPrefix(a.Choice, "s"))
+			if err != nil || i < 0 || i >= len(pagers) || !strings.HasPrefix(a.Choice, "s") {
+				return Verdict{}, fmt.Errorf("ask %s: picked %q, which was not offered", c.URL(), a.Choice)
+			}
 			v.Pager = pagers[i].Key
 		}
 		return v, nil

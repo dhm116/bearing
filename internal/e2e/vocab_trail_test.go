@@ -12,11 +12,12 @@ import (
 	"sync"
 	"testing"
 
+	jev "github.com/mattn/go-jev"
+
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
 	"bearing.example/internal/fakes"
 	"bearing.example/pkg/graph"
 	"bearing.example/pkg/model"
-	"bearing.example/pkg/systemone"
 	"bearing.example/pkg/vocab"
 )
 
@@ -328,7 +329,7 @@ func (w *coverageWorld) proposeOne(score float64) proposed {
 // fakeKev is a System One server that answers every choice question by
 // picking the option whose description is pick ("none" is always offered)
 // at probability p, and remembers the requests.
-func fakeKev(t *testing.T, pick string, p float64) (*systemone.Client, func() []string) {
+func fakeKev(t *testing.T, pick string, p float64) (*jev.Client, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
 	var asked []string
@@ -359,10 +360,7 @@ func fakeKev(t *testing.T, pick string, p float64) (*systemone.Client, func() []
 		}}})
 	}))
 	t.Cleanup(srv.Close)
-	c, err := systemone.New(systemone.Config{BaseURL: srv.URL, HTTP: srv.Client()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := jev.NewClient(jev.WithURL(jev.Endpoint(srv.URL)), jev.WithHTTPClient(srv.Client()), jev.WithModel("kev-fake"))
 	return c, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
 }
 

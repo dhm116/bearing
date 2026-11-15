@@ -3,6 +3,7 @@ module bearing.example
 go 1.27.3
 
 require (
+	github.com/mattn/go-jev v0.0.3
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
