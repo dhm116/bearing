@@ -24,6 +24,12 @@ const (
 	// MethodDecide records a person's decision on an identity link, which
 	// appends a LinkDecided event.
 	MethodDecide Method = "links.decide"
+	// MethodMappings is "which mappings are waiting for review": bearing
+	// vocab review.
+	MethodMappings Method = "mappings.list"
+	// MethodDecideMapping records a person's decision on a proposed mapping,
+	// which appends a mapping decision event.
+	MethodDecideMapping Method = "mappings.decide"
 	// MethodSyncRequest asks for a sync of one Source, which appends a
 	// SyncRequested event.
 	MethodSyncRequest Method = "sync.request"

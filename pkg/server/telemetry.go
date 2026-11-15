@@ -106,6 +106,8 @@ func eventTypeLabel(typ string) string {
 		return "event_dead_lettered"
 	case typeLinkDecided:
 		return "link_decided"
+	case typeMappingDecided:
+		return "mapping_decided"
 	}
 	return "other"
 }

@@ -38,6 +38,13 @@
 //	bearing link split <ref> <ref>
 //	bearing link undo-distinct <link ID>
 //
+// reviews the mappings adapters suggest, and decides them the same way (an
+// accept the next boot would refuse is refused first, naming what it needs):
+//
+//	bearing vocab review
+//	bearing vocab accept <mapping ID> --why "every Deployment is a service" --server /run/bearing/api.sock
+//	bearing vocab reject <mapping ID> --why "namespaces are not environments"
+//
 // The queries take --store (or $BEARING_STORE) to read a store, or --server (or
 // $BEARING_SERVER) to ask a running server, which answers the same questions
 // the same way: its Unix socket, which needs no token, or https://host:port with
@@ -84,6 +91,8 @@ const usage = `usage:
   bearing links [--proposed] [--entity REF] [--limit N] [--store URL | --server ADDR] [--json]
   bearing link accept|reject|undo-distinct <link ID> [--reason TEXT] --server ADDR [--json]
   bearing link join|split <ref> <ref> [--reason TEXT] --server ADDR [--json]
+  bearing vocab review [--json] --server ADDR
+  bearing vocab accept|reject <mapping ID> --why TEXT --server ADDR [--json]
   bearing mcp [--store URL | --server ADDR]
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
@@ -155,7 +164,7 @@ func startInvocation(ctx context.Context, args []string) (context.Context, trace
 // its subcommand. Arguments such as a subject never go in it.
 func spanName(args []string) string {
 	switch {
-	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source" || args[0] == "link"):
+	case len(args) >= 2 && (args[0] == "adapter" || args[0] == "source" || args[0] == "link" || args[0] == "vocab"):
 		return "bearing " + args[0] + " " + args[1]
 	case len(args) >= 1 && (isQueryCommand(args[0]) || args[0] == "server" || args[0] == "mcp"):
 		return "bearing " + args[0]
@@ -183,6 +192,8 @@ func runWith(ctx context.Context, env queryEnv, args []string, stdout io.Writer)
 		return mcpCmd(ctx, env, args[1:], stdout)
 	case "link":
 		return linkCmd(ctx, env, args[1:], stdout)
+	case "vocab":
+		return vocabCmd(ctx, env, args[1:], stdout)
 	case "adapter":
 		if len(args) < 2 {
 			return errUsage

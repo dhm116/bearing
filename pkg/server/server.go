@@ -97,6 +97,9 @@ type Config struct {
 	// Links carries out people's decisions on identity links (DecideLink);
 	// nil means the server takes none.
 	Links LinkDecider
+	// Vocab carries out people's decisions on proposed mappings (ADR 13,
+	// spike); nil means the server takes none.
+	Vocab *Vocabulary
 	// Sources are the configured sources.
 	Sources []Source
 	// Active maps a source to the kinds it keeps (core and configured, among

@@ -47,6 +47,11 @@ var decisionFields = map[string]bool{"decision": true, "link_id": true, "a": tru
 // are exactly the field names, each once, each a string. encoding/json alone
 // would take a key in any case and the last of two.
 func decodeDecision(body io.Reader) (map[string]string, error) {
+	return decodeStrings(body, decisionFields)
+}
+
+// decodeStrings is decodeDecision for any set of field names.
+func decodeStrings(body io.Reader, fields map[string]bool) (map[string]string, error) {
 	dec := json.NewDecoder(body)
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return nil, errors.Join(errors.New("not an object"), err)
@@ -58,7 +63,7 @@ func decodeDecision(body io.Reader) (map[string]string, error) {
 			return nil, err
 		}
 		k, _ := t.(string)
-		if !decisionFields[k] {
+		if !fields[k] {
 			return nil, errors.New("unknown field")
 		}
 		if _, dup := out[k]; dup {
