@@ -24,3 +24,18 @@ func TestTrailJoinNeedsAWatchClaim(t *testing.T) {
 		t.Errorf("path = %v, want all four facts", got)
 	}
 }
+
+// TestTrailJoinHopsFromWorkloadToRepo: a monitor that watches a workload
+// covers the repository the workload is defined in, and the hop is evidence.
+func TestTrailJoinHopsFromWorkloadToRepo(t *testing.T) {
+	t.Parallel()
+	tr := Trail{Watches: "watches", Pages: "pages", Describes: "describes", DefinedIn: "defined_in"}
+	cs, _ := tr.Join([]Edge{
+		{Fact: "f1", Subject: "mon", Object: "wl", Predicate: "watches", ObjectObserved: true},
+		{Fact: "f2", Subject: "wl", Object: "repo", Predicate: "defined_in", ObjectObserved: true},
+		{Fact: "f3", Subject: "mon", Object: "pd", Predicate: "pages", ObjectObserved: true},
+	})
+	if len(cs) != 1 || cs[0].Service != "repo" || cs[0].Score != 0.25 || len(cs[0].Facts()) != 3 {
+		t.Fatalf("join = %+v; want one trail to repo at 0.25 citing all three facts", cs)
+	}
+}

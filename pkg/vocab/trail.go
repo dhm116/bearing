@@ -15,8 +15,9 @@ type Trail struct {
 	// Describes links a record that configures a monitor (a Terraform
 	// resource) to the monitor; the record's claims are the monitor's.
 	Describes string
-	// DefinedIn links the monitor's configuration to a repository: when that
-	// repository is the watched service, a second path to it.
+	// DefinedIn links the monitor's configuration to a repository, and a
+	// watched workload to the repository it is defined in: either way that
+	// repository is the covered service.
 	DefinedIn string
 }
 
@@ -46,6 +47,9 @@ type Cite struct{ Observation, Rule string }
 type Claim struct {
 	Subject, Predicate, Object string
 	Facts, Via                 []Edge
+	// Hop is the fact that carries a watched workload on to its repository
+	// (workload defined_in repo); empty when the claim stops at the workload.
+	Hop []Edge
 }
 
 // Coverage is a joined trail: Service is covered by Pager, via Monitor.
@@ -85,6 +89,7 @@ func (t Trail) Join(edges []Edge) ([]Coverage, []Break) {
 	type ck struct{ s, p, o string }
 	claims := map[ck]*Claim{}
 	keys := map[string]string{}
+	hops := map[string][]Edge{} // workload -> its defined_in facts
 	for _, e := range edges {
 		keys[e.Subject], keys[e.Object] = e.SubjectKey, e.ObjectKey
 		if e.Predicate != t.Watches && e.Predicate != t.Pages && e.Predicate != t.DefinedIn {
@@ -93,6 +98,9 @@ func (t Trail) Join(edges []Edge) ([]Coverage, []Break) {
 		subj, via := e.Subject, []Edge(nil)
 		if d, ok := describes[e.Subject]; ok {
 			subj, via = d.Object, []Edge{d}
+		} else if e.Predicate == t.DefinedIn {
+			hops[e.Subject] = append(hops[e.Subject], e)
+			continue
 		}
 		k := ck{subj, e.Predicate, e.Object}
 		c := claims[k]
@@ -119,6 +127,14 @@ func (t Trail) Join(edges []Edge) ([]Coverage, []Break) {
 		switch c.Predicate {
 		case t.Watches:
 			watched[c.Subject] = true
+			if hs := hops[c.Object]; len(hs) > 0 {
+				for _, h := range hs {
+					hc := c
+					hc.Hop = []Edge{h}
+					add(reach, c.Subject, h.Object, hc)
+				}
+				continue
+			}
 			add(reach, c.Subject, c.Object, c)
 		case t.DefinedIn:
 			add(reach, c.Subject, c.Object, c)
@@ -165,7 +181,7 @@ func (t Trail) Join(edges []Edge) ([]Coverage, []Break) {
 func observations(cs []Claim) map[string]bool {
 	out := map[string]bool{}
 	for _, c := range cs {
-		for _, e := range slices.Concat(c.Facts, c.Via) {
+		for _, e := range slices.Concat(c.Facts, c.Via, c.Hop) {
 			for _, ct := range e.Cites {
 				out[ct.Observation] = true
 			}
@@ -179,7 +195,7 @@ func observations(cs []Claim) map[string]bool {
 func (c Coverage) Facts() []string {
 	var ids []string
 	for _, cl := range slices.Concat(c.Reach, c.Page) {
-		for _, e := range slices.Concat(cl.Facts, cl.Via) {
+		for _, e := range slices.Concat(cl.Facts, cl.Via, cl.Hop) {
 			ids = append(ids, e.Fact)
 		}
 	}
