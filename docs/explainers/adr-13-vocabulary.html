@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Vocabulary as Data</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,6 +40,7 @@ pre code { border: 0; padding: 0; background: none; font-size: inherit; }
 @media (max-width: 960px) { .split { grid-template-columns: minmax(0, 1fr); } }
 figure { margin: 4px 0; overflow-x: auto; }
 figure svg { display: block; width: 100%; min-width: 640px; max-width: 1040px; height: auto; }
+figure img { display: block; width: 100%; min-width: 640px; max-width: 1040px; height: auto; }
 figcaption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
 .callout { border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; border: 1px solid var(--rule); background: var(--surface); }
 .callout strong { font-family: var(--display); font-size: 1.02rem; }
@@ -906,6 +908,52 @@ k8s:replicas a sh:PropertyShape ;
 }</code></pre>
   </div>
   <p>IRIs are <code>https://bearing.dougmccall.com/ns/&lt;full namespace&gt;#&lt;term&gt;</code>. Export always writes full namespaces; the short names become Turtle prefix labels.</p>
+
+  <!-- PROPOSED DIAGRAMS -->
+  <h2 id="proposed-diagrams">Proposed diagrams</h2>
+  <p>How the vocabulary changes the parts of Bearing the docs already draw. These are proposals: the diagrams in <code>docs/</code> on <code>main</code> describe what ships, and change as each part is built. The flows were checked on the <a href="https://github.com/dhm116/bearing/blob/cca5732/spike/vocabulary/FINDINGS.md">spike</a>.</p>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-concepts-dark.svg">
+      <img src="../diagrams/adr13-concepts.svg" alt="From observation to answer, with the vocabulary">
+    </picture>
+    <figcaption>An adapter emits observations in its own terms. The core, adapter and operator modules define the terms; mappings and rules give them core meaning; facts cite the observation and, when a rule made them, the rule and its version.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-ingest-dark.svg">
+      <img src="../diagrams/adr13-ingest.svg" alt="Inside an ingest, with derive rules">
+    </picture>
+    <figcaption>Derive rules run in the same transaction as the observation. A new rule version that makes the same fact adds a source; a fact a rule stopped making closes; the source's next complete sync closes rule-made facts whose subject is gone.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-modules-dark.svg">
+      <img src="../diagrams/adr13-modules.svg" alt="How a vocabulary module arrives">
+    </picture>
+    <figcaption>An adapter publishes its module in Describe, and the operator's module comes from a pinned file. Each is checked (one owner per namespace, terms only grow, the pin verifies) before it reaches the store; suggestions arrive proposed, and the registry is built from the mappings in force.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-decisions-dark.svg">
+      <img src="../diagrams/adr13-decisions.svg" alt="Deciding a mapping">
+    </picture>
+    <figcaption>bearing vocab accept runs the boot check first and refuses a mapping that would stop Bearing booting. An accepted decision goes through the event log; the worker checks again before asserting it, and the next boot reads it.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-trail-decider-dark.svg">
+      <img src="../diagrams/adr13-trail-decider.svg" alt="How the trail decides a broken step">
+    </picture>
+    <figcaption>For a step whose handle names no observed record, a System One model picks one candidate, then scores the pair on three levels. The rounded score joins the trail, leaves the break for a person, or makes no link. The model's p only scales the step down; it never reinforces.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-server-planned-dark.svg">
+      <img src="../diagrams/adr13-server-planned.svg" alt="What is planned, and where it plugs in">
+    </picture>
+    <figcaption>The model matcher is configured by system_one: hosted Jev or any server that speaks /v1/systemone. It judges identity links and decides the trail's broken steps.</figcaption>
+  </figure>
 
   <!-- CONSEQUENCES -->
   <h2>What this changes, and what it deliberately doesn't</h2>

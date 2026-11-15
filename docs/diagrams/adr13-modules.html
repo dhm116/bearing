@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How a vocabulary module arrives</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Sans+TC:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #F5F7F6;
+      --color-ink:    #18242A;
+      --color-muted:  #55646B;
+      --color-accent: #1D5E74;
+      --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-sans:    'IBM Plex Sans', 'Noto Sans KR', 'Noto Sans TC', system-ui, sans-serif;
+      --font-mono:    'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1320px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Proposed · ADR 13</p>
+    <h1>How a vocabulary module arrives</h1>
+    <div class="diagram-container">
+<svg viewBox="0 0 1280 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="adr13-modules-title adr13-modules-desc">
+<title id="adr13-modules-title">How a vocabulary module arrives</title>
+<desc id="adr13-modules-desc">Sequence of how modules arrive at boot: the adapter's Describe module is checked for namespace ownership and growth, the operator's pinned file is verified, both feed the store, and the registry is built from the modules plus the mappings in force; any failed check stops boot.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#55646B"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1D5E74"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4B5198"/></marker><marker id="arrow-bad" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#A33A3A"/></marker><marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#55646B" stroke-width="1.2"/></marker></defs>
+<rect width="100%" height="100%" fill="#F5F7F6"/>
+<g>
+<!-- zones -->
+
+<!-- arrows -->
+<path d="M 200,128 L 300,128" fill="none" stroke="#4B5198" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 460,128 L 560,128" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 720,128 L 820,128" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 980,128 H 1152 Q 1160,128 1160,136 V 200" fill="none" stroke="#1D5E74" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+<path d="M 1160,336 L 1160,264" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 200,464 L 300,464" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 460,464 H 892 Q 900,464 900,456 V 160" fill="none" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 380,160 L 380,272" fill="none" stroke="#A33A3A" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-bad)"/>
+<path d="M 640,160 L 640,272" fill="none" stroke="#A33A3A" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-bad)"/>
+<path d="M 380,432 L 380,336" fill="none" stroke="#A33A3A" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-bad)"/>
+<!-- labels -->
+<rect x="220" y="108" width="60" height="12" rx="2" fill="#F5F7F6"/><text x="250" y="117" fill="#4B5198" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">DESCRIBE</text>
+<rect x="476" y="108" width="68" height="12" rx="2" fill="#F5F7F6"/><text x="510" y="117" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">OWNER SET</text>
+<rect x="750" y="108" width="40" height="12" rx="2" fill="#F5F7F6"/><text x="770" y="117" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">TERMS</text>
+<rect x="1036" y="108" width="60" height="12" rx="2" fill="#F5F7F6"/><text x="1066" y="117" fill="#1D5E74" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">IN FORCE</text>
+<rect x="1072" y="284" width="76" height="12" rx="2" fill="#F5F7F6"/><text x="1110" y="293" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">CORE TERMS</text>
+<rect x="212" y="444" width="76" height="12" rx="2" fill="#F5F7F6"/><text x="250" y="453" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">FILE @ SHA</text>
+<rect x="912" y="392" width="56" height="12" rx="2" fill="#F5F7F6"/><text x="940" y="401" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">CHECKED</text>
+<rect x="392" y="204" width="88" height="12" rx="2" fill="#F5F7F6"/><text x="436" y="213" fill="#A33A3A" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SECOND OWNER</text>
+<rect x="652" y="204" width="92" height="12" rx="2" fill="#F5F7F6"/><text x="698" y="213" fill="#A33A3A" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">SHAPE CHANGED</text>
+<rect x="392" y="372" width="88" height="12" rx="2" fill="#F5F7F6"/><text x="436" y="381" fill="#A33A3A" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.06em">PIN MISMATCH</text>
+<!-- nodes -->
+<rect x="40" y="96" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="40" y="96" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="48" y="102" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="64" y="111" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">PROC</text><text x="120" y="126" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Adapter</text><text x="120" y="141" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">Describe returns a module</text>
+<rect x="300" y="96" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="300" y="96" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="308" y="102" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="324" y="111" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text><text x="380" y="126" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Claim namespace</text><text x="380" y="141" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">one owner · no core terms</text>
+<rect x="560" y="96" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="560" y="96" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="568" y="102" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="584" y="111" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text><text x="640" y="126" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Check growth</text><text x="640" y="141" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">a term only grows</text>
+<rect x="820" y="96" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="820" y="96" width="160" height="64" rx="6" fill="rgba(24,36,42,0.05)" stroke="#55646B" stroke-width="1"/><rect x="828" y="102" width="38" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="847" y="111" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text><text x="900" y="126" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Store</text><text x="900" y="141" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">terms · proposed mappings</text>
+<rect x="1080" y="200" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="1080" y="200" width="160" height="64" rx="6" fill="rgba(29,94,116,0.08)" stroke="#1D5E74" stroke-width="1"/><rect x="1088" y="206" width="27" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="1101.5" y="215" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">REG</text><text x="1160" y="230" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Registry</text><text x="1160" y="245" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">modules + mappings in force</text>
+<rect x="1080" y="336" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="1080" y="336" width="160" height="64" rx="6" fill="rgba(85,100,107,0.10)" stroke="#6B7C82" stroke-width="1"/><rect x="1088" y="342" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="1104" y="351" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text><text x="1160" y="366" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Core module</text><text x="1160" y="381" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">built in, ships with it</text>
+<rect x="40" y="432" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="40" y="432" width="160" height="64" rx="6" fill="rgba(85,100,107,0.10)" stroke="#6B7C82" stroke-width="1"/><rect x="48" y="438" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="64" y="447" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">FILE</text><text x="120" y="462" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Operator file</text><text x="120" y="477" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">repo · path · commit SHA</text>
+<rect x="300" y="432" width="160" height="64" rx="6" fill="#F5F7F6"/><rect x="300" y="432" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#18242A" stroke-width="1"/><rect x="308" y="438" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="324" y="447" fill="#6B7C82" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text><text x="380" y="462" fill="#18242A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Verify the pin</text><text x="380" y="477" fill="#55646B" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">git commit or sha256</text>
+<rect x="300" y="272" width="420" height="64" rx="6" fill="#F5F7F6"/><rect x="300" y="272" width="420" height="64" rx="6" fill="#F6E3E3" stroke="#A33A3A" stroke-width="1"/><rect x="308" y="278" width="32" height="12" rx="2" fill="none" stroke="rgba(24,36,42,0.22)" stroke-width="0.8"/><text x="324" y="287" fill="#A33A3A" font-size="7" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle" letter-spacing="0.08em">STOP</text><text x="510" y="302" fill="#A33A3A" font-size="12" font-weight="600" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="middle">Boot stops</text><text x="510" y="317" fill="#A33A3A" font-size="9" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" text-anchor="middle">refused before any mapping is read</text>
+</g>
+<text x="932" y="212" fill="#18242A" font-size="14" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">Suggestions arrive</text><text x="932" y="230" fill="#18242A" font-size="14" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">proposed. Only</text><text x="932" y="248" fill="#18242A" font-size="14" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">accepted mappings</text><text x="932" y="266" fill="#18242A" font-size="14" font-style="italic" font-family="'IBM Plex Sans', system-ui, sans-serif" text-anchor="start">are in force.</text><path d="M 936,196 Q 944,176 952,164" fill="none" stroke="rgba(24,36,42,0.4)" stroke-width="1" stroke-dasharray="4,3"/><circle cx="952" cy="162" r="2" fill="#18242A"/>
+<line x1="40" y1="536" x2="1240" y2="536" stroke="rgba(24,36,42,0.1)" stroke-width="0.8"/><text x="40" y="564" fill="#55646B" font-size="8" font-family="'IBM Plex Mono', ui-monospace, Menlo, monospace" letter-spacing="0.18em">LEGEND</text><line x1="112" y1="561" x2="140" y2="561" stroke="#55646B" stroke-width="1.2" marker-end="url(#arrow)"/><text x="148" y="564" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Flow</text><line x1="196" y1="561" x2="224" y2="561" stroke="#4B5198" stroke-width="1.2" marker-end="url(#arrow-link)"/><text x="232" y="564" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Describe call</text><line x1="316" y1="561" x2="344" y2="561" stroke="#A33A3A" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-bad)"/><text x="352" y="564" fill="#55646B" font-size="8.5" font-family="'IBM Plex Sans', system-ui, sans-serif">Refusal</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>
