@@ -58,17 +58,21 @@ shapes) without their machinery.
   the commit when git can reach the repo, or against the checksum when
   offline; boot stops if neither check can run or one fails. Core and
   adapter modules record their build commit. Each term row records where
-  it came from.
+  it came from and every check that passed (`commit`, `sha256`, or both).
 - **Shapes and growth are per term.** A term only grows (ADR 10's rule,
   scoped to the term). A term shares a shape with a core term only
-  through `exact_match`, checked at boot.
+  through `exact_match`. Shapes are checked when a mapping is accepted
+  and again at boot: `bearing vocab accept` refuses a mapping that would
+  fail, naming what it needs first (such as the `broader` mapping its
+  domain depends on), so a mapping decision can't stop Bearing booting.
 - **Mappings and rules are records,** with the shape of `identity_link`:
   subject, predicate (`broader`, `exact_match`, `close_match`,
   `derives`), object, status, author, justification, version and
   `valid_from`/`valid_to`. Adapter suggestions and imports start proposed;
   the operator accepts or rejects them. Mappings in the operator's
   settings are asserted. `extends` becomes a dated `broader` row, so it
-  can be added later.
+  can be added later. A term has at most one `broader` term in force; a
+  second is refused, until a use case justifies more.
 - **Every mapping ends at a core or operator term.** No mapping links two
   adapters' terms, until a use case justifies it.
 - **`derives` rules run in the server at ingest.** A rule's key is a Go
@@ -80,6 +84,13 @@ shapes) without their machinery.
   rule and version. A rule built from a fixed field asserts; one that
   guesses only proposes (ADR 2). What a template can't express stays in
   adapter middleware (ADR 12), inside the adapter process.
+- **A derived fact closes on evidence.** It keeps its observation's
+  source. It closes when the rule stops making it, or, when no webhook
+  reports the change, when the observation's own adapter reports its
+  subject gone on a later sync (a complete snapshot, or an audit log the
+  adapter reads). Other adapters' observations can also support closing
+  it, such as a pull request that removes the Deployment; that is
+  inferred, so it only proposes the close, which the operator confirms.
 - **Deprecation, not deletion.** Terms, mappings and rules carry
   `deprecated: {since, replaced_by, consider, reason}`. `replaced_by`
   names exactly one successor, and ingest rewrites to it. `consider`
@@ -115,13 +126,16 @@ shapes) without their machinery.
   ingest, plus `bearing vocab review|accept|reject` and YAML packs; then
   ADR 12's generic adapter.
 - **Still open:**
-  - Copy a deterministic subset of Sprig (about 55 functions, about 460
-    lines, no new modules) or import it (10 modules, about 10,400 lines,
-    plus a deny-list for the 14 functions "hermetic" still lets through).
+  - Copy a deterministic subset of Sprig, or import it (10 modules, about
+    10,400 lines, plus a deny-list for the 14 functions "hermetic" still
+    lets through). The spike's rules needed 25 functions in 74 lines, and
+    the recommendation is to copy them, adding one when a rule needs it.
   - Links that only a trail of clues supports, such as payments-api →
     Datadog monitor → PagerDuty service. Each step is a proposed fact
     from a rule. Joining steps into a proposed relation, reinforced per
     independent claim and checked by a System One model, extends ADR 7's
     matchers and needs its own ADR.
+- The spike on [`spike/vocabulary`](https://github.com/dhm116/bearing/blob/ff9c9dd/spike/vocabulary/FINDINGS.md)
+  shows this decision working on the Acme fakes.
 - The illustrated explainer is
   [`docs/explainers/adr-13-vocabulary.html`](../explainers/adr-13-vocabulary.html).
