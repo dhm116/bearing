@@ -1,6 +1,6 @@
 # 12. One generic OpenAPI adapter, driven by a mapping
 
-Date: 2026-11-09 · Status: proposed
+Date: 2026-11-09, revised 2026-11-16 to build on ADR 13 · Status: proposed
 
 ## Context
 
@@ -60,10 +60,10 @@ found:
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adapter-workflow-dark.svg">
-    <img src="../diagrams/adapter-workflow.svg" alt="Swimlane of the adapter workflow. bearing adapter init reads the author's OpenAPI spec and writes a mapping skeleton, mapping.yaml, which the author edits. The generic OpenAPI adapter runs the mapping, GET only, emitting listed fields only, optionally with the author's Go middleware registered through Use. bearing adapter check and sync test it against a mock API; a failure sends the author back to the mapping. A passing adapter is installed in Bearing's settings as a Source with its mapping and EntityKinds, where the operator sets extends. The server runs it over gRPC, and its observations become records such as a github.Repository keyed github:repository/acme/payments, with an asserted owner link from a $ref and the GET route as evidence.">
+    <img src="../diagrams/adapter-workflow.svg" alt="Swimlane of the adapter workflow. bearing adapter init reads the author's OpenAPI spec and writes a mapping skeleton, mapping.yaml, which the author edits. The generic OpenAPI adapter runs the mapping, GET only, emitting listed fields only, optionally with the author's Go middleware registered through Use. bearing adapter check and sync test it against a mock API; a failure sends the author back to the mapping. A passing adapter is installed in Bearing's settings as a Source with its mapping. It publishes its vocabulary module, and the mappings the operator accepts give its terms meaning. The server runs it over gRPC, and its observations become records such as a com.github:Repository keyed github:repository/acme/payments, with an asserted owner link from a $ref and the GET route as evidence.">
   </picture>
-- **`bearing adapter init <spec>`** writes a mapping skeleton and
-  suggested `EntityKind` config from the spec. It guesses list and
+- **`bearing adapter init <spec>`** writes a mapping skeleton from the
+  spec, with suggested mappings to the core vocabulary (ADR 13). It guesses list and
   single-item routes, keys from routes or `id`, path-parameter sources,
   paging and references. Anything it can't guess is marked TODO.
   **`bearing adapter check`** validates a mapping against its spec.
@@ -77,7 +77,7 @@ found:
   - references;
   - which schemas are views of one kind (GitHub's `repository`,
     `full-repository` and `minimal-repository` become one
-    `github.Repository`);
+    `com.github:Repository`);
   - the **fields to emit. Nothing is emitted unless the mapping lists
     it.** `init` lists every field unticked, and payload kinds such as
     Kubernetes `Secret` and `ConfigMap` are left out.
@@ -90,7 +90,7 @@ found:
   implements `Handle` (ADR 4) from the mapping:
   - which events to take, by event header and `action`;
   - which payload fields hold which kinds: `repository` is a
-    `github.Repository`, built with that kind's key, field allow-list,
+    `com.github:Repository`, built with that kind's key, field allow-list,
     views and middleware, exactly as in a sync;
   - which actions end a record (`deleted`).
 
@@ -100,12 +100,25 @@ found:
   source: GitHub could sync over GraphQL and take webhooks described by
   its REST spec. APIs with no described webhooks (OpenAPI 3.0, Kubernetes)
   are sync-only. Kubernetes watch streams are out of scope.
-- **No meaning in the adapter.** Each kind is a configured kind (ADR 10)
-  named for its API, such as `kubernetes.Deployment`, with no parent.
-  Whether it is a `Component` or an `Environment` is the operator's
-  `extends`. An embedded `$ref` is asserted as a reference only when the
-  embedded object carries the target's key. A reference guessed from a
-  field name (`owner_id`) is a proposal (ADR 2).
+- **No meaning in the adapter.** The adapter publishes the mapping as
+  its vocabulary module in `Describe` (ADR 13): a term for each kind,
+  field and reference, in the API's own reverse-domain namespace, such as
+  `io.k8s:Deployment` or `com.github:Repository`. It never emits a core
+  term. Whether a `io.k8s:Deployment` is a `Component` is an operator
+  `broader` mapping, and whether `io.k8s:repository` means `defined_in`
+  is an `exact_match`. Both are dated records, so they can be added or
+  changed after the first sync. The mapping's suggestions arrive as
+  proposed mappings, and the operator accepts them. An embedded `$ref` is
+  asserted as a reference only when the embedded object carries the
+  target's key. A reference guessed from a field name (`owner_id`) is a
+  proposal (ADR 2).
+- **A field's name and shape belong to its term.** Each mapped field is
+  an attribute term in the module's namespace, so GitHub's numeric `id`
+  and PagerDuty's text `id` are different terms and never collide. Its
+  shape (type, cardinality, conflict policy) comes from the spec's schema,
+  which `init` writes into the mapping and the author can correct. A
+  term only grows (ADR 13): changing a shape means a new term, with the
+  old one deprecated.
 - **Middleware for the rest.** The adapter is also a Go package. An
   author who needs more writes a small `main` that registers functions,
   in the style of Go HTTP middleware:
@@ -117,13 +130,18 @@ found:
   ```
 
   A handler gets the raw item and the observation built from it. It may
-  add relations, add attributes or drop the item. After every handler
-  runs, the adapter checks the observation again: only mapped or declared
-  fields leave the process. A middleware may read a secret in order to
-  parse it, but can't send it on by accident.
-- **Derive rules in config.** Simple rules, such as "label `team` names
-  `Team` key `team:<value>`", go in the operator's config next to
-  `extends`, not in Go.
+  add relations, add attributes or drop the item, all in the module's own
+  terms, which the module declares. A relation it adds is part of the
+  observation, so the observation is its evidence. It is asserted when it
+  reads a fixed field (a URL in an env var), and proposed when it guesses
+  (ADR 2). After every handler runs, the adapter checks the observation
+  again: only mapped or declared fields leave the process. A middleware
+  may read a secret in order to parse it, but can't send it on by
+  accident.
+- **Derive rules are ADR 13's `derives` mappings.** Simple rules, such as
+  "label `team` names a `Team` keyed `team:<value>`", are operator
+  mappings, not Go. They run in the server at ingest, and each fact they
+  make cites the observation and the rule's version.
 - **The schema source is a seam.** Only two things depend on the spec
   format:
   - reading the spec, so `init` and `check` can guess and validate;
@@ -155,18 +173,19 @@ found:
   secret handling are reviewed once for every API.
 - **Mappings and their pinned specs are versioned artifacts.** They need
   a home and a review path; this ADR does not choose one.
-- **The five MVP questions need operator config before a generic
-  adapter's records answer them:** `extends` to `Component`, `Team`,
-  `Repository` and `Environment`, plus derive rules. Bearing should ship
-  suggested config for its first APIs, so the demo still works out of the
-  box.
+- **The five MVP questions need accepted mappings before a generic
+  adapter's records answer them:** `broader` to `Component`, `Team`,
+  `Repository` and `Environment`, `exact_match` for relations such as
+  `defined_in` and `depends_on`, and `derives` rules such as team
+  ownership from a label. The mapping suggests them, and Bearing should
+  ship suggested mappings for its first APIs, so the demo still works out
+  of the box.
 - **The cluster-as-`Environment` draft and the separate Heading project
   are dropped.**
 - **Follow-up:**
   - `adapters/openapi` with middleware, and `Handle` for described
     webhooks;
   - `bearing adapter init` and `check`;
-  - derive rules in config;
   - the Kubernetes mapping;
   - an end-to-end test comparing it with the hand-written adapter on the
     Acme scenario.

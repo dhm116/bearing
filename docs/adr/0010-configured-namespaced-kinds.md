@@ -1,6 +1,6 @@
 # 10. Configured, namespaced kinds beside the core kinds
 
-Date: 2026-11-01 · Status: accepted
+Date: 2026-11-01 · Status: accepted, amended by ADR 13
 
 ## Context
 
@@ -116,3 +116,7 @@ operating-system `Service` are different things.
   sources can't backfill (`docs/edge-cases.md`).
 - ADR 7 is superseded in part by this: its "never across kinds" rule becomes
   the line-of-descent rule above.
+- ADR 13 amends this. A kind's parent is a dated `broader` mapping, not a
+  property fixed at first boot, so it can be added later. "One shape per
+  name" becomes one shape per namespaced term, and grow-only applies per
+  term.
