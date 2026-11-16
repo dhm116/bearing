@@ -89,8 +89,10 @@ with the reader's GitHub theme. Its colors are the home page's "Today"
 trail: green for Approve, amber for Needs Discussion, red for Request
 Changes; work in progress is teal and gently animated, and stills for
 readers who ask for reduced motion. The image's alt text carries everything
-the picture shows. `previous` lists the earlier rounds' verdicts, oldest
-first.
+the picture shows. `previous` gives every earlier round's verdict
+(`approve`, `discuss` or `changes`), oldest first, so Round 1 has none and
+Round 3 has two; `reviewcard` refuses a round past 6 or a `previous` of the
+wrong length.
 
 ```sh
 cat > /tmp/round.json <<'EOF'

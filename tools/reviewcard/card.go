@@ -213,10 +213,8 @@ func track(t theme, x, y float64, rd round) string {
 		px := x + float64(i-1)*20
 		var fill, cls string
 		switch {
-		case i < rd.Round && i <= len(rd.Previous):
+		case i < rd.Round:
 			fill, _, _, _, _ = look(t, rd.Previous[i-1])
-		case i < rd.Round: // an earlier round whose verdict wasn't given
-			fill = t.muted
 		case i == rd.Round && ov == "running":
 			fill, cls = t.accent, ` class="p"`
 		case i == rd.Round:
@@ -230,7 +228,7 @@ func track(t theme, x, y float64, rd round) string {
 	return b.String()
 }
 
-// alt is the image's text alternative: everything the cards show, with the
+// alt is the image's text alternative: everything the picture shows, with the
 // blocking findings in full.
 func alt(rd round) string {
 	parts := []string{fmt.Sprintf("Code review round %d of %d: %s.", rd.Round, maxRounds, strings.ToLower(headline[overall(rd.Reviewers)]))}

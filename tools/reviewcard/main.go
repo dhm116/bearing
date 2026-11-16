@@ -1,6 +1,6 @@
 // Command reviewcard posts and updates a pull request's review-round comment
 // (docs/review-process.md, "Review comment"). The comment shows the round as
-// a picture of one card per reviewer, in light and dark, with the findings
+// a picture with one row per reviewer, in light and dark, with the findings
 // tables under it.
 //
 // The first run for a round hides the lead's earlier review comments on the
@@ -21,8 +21,9 @@
 //
 // round.json names the round and each reviewer's state: queued, running,
 // approve, discuss or changes. Every round lists ponytail, which runs last.
-// previous, optional, gives the earlier rounds' verdicts, oldest first, for the
-// round track at the top of the card.
+// previous gives every earlier round's verdict (approve, discuss or changes),
+// oldest first, for the round track; Round 1 has none. A round past 6 is
+// refused.
 //
 //	{"round": 2, "previous": ["changes"], "reviewers": [
 //	  {"name": "security", "state": "changes", "suggestions": 3,
@@ -49,7 +50,7 @@ import (
 
 type round struct {
 	Round     int        `json:"round"`
-	Previous  []string   `json:"previous,omitempty"` // earlier rounds' verdicts, oldest first
+	Previous  []string   `json:"previous,omitempty"` // every earlier round's verdict, oldest first
 	Reviewers []reviewer `json:"reviewers"`
 }
 
@@ -166,8 +167,8 @@ func loadRound(path string) (round, error) {
 	if rd.Round < 1 || rd.Round > maxRounds {
 		return rd, fmt.Errorf("%s: round must be 1 to %d", path, maxRounds)
 	}
-	if len(rd.Previous) > rd.Round-1 {
-		return rd, fmt.Errorf("%s: round %d has %d previous verdicts, want at most %d", path, rd.Round, len(rd.Previous), rd.Round-1)
+	if len(rd.Previous) != rd.Round-1 {
+		return rd, fmt.Errorf("%s: round %d has %d previous verdicts, want %d", path, rd.Round, len(rd.Previous), rd.Round-1)
 	}
 	for _, v := range rd.Previous {
 		if v != "approve" && v != "discuss" && v != "changes" {

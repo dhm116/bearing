@@ -13,7 +13,7 @@ import (
 )
 
 func TestSVGIsWellFormedInEveryState(t *testing.T) {
-	rd := round{Round: 3, Reviewers: []reviewer{
+	rd := round{Round: 3, Previous: []string{"changes", "changes"}, Reviewers: []reviewer{
 		{Name: "security", State: "queued"},
 		{Name: "data", State: "running"},
 		{Name: "go", State: "approve", Suggestions: 1},
@@ -73,8 +73,12 @@ func TestSVGTracksEveryRoundAndAnimatesOnlyWorkInProgress(t *testing.T) {
 		t.Errorf("got %d outlined future rounds, want 3", got)
 	}
 	rd.Reviewers[1].State = "approve"
-	if s := svg(th, rd); strings.Contains(s, `class="p"`) || strings.Contains(s, `class="t"`) {
+	s = svg(th, rd)
+	if strings.Contains(s, `class="p"`) || strings.Contains(s, `class="t"`) {
 		t.Error("got animation on a finished round")
+	}
+	if got := strings.Count(s, `width="16" height="6" rx="3" fill="`+th.good+`"`); got != 1 {
+		t.Errorf("got %d segments in the approved colour, want 1 (round 3, once it is approved)", got)
 	}
 }
 
@@ -127,6 +131,7 @@ func TestLoadRoundRejectsBadInput(t *testing.T) {
 		{"no ponytail", `{"round":1,"reviewers":[{"name":"go","state":"approve"}]}`, "no ponytail"},
 		{"past the round limit", `{"round":7,"reviewers":[{"name":"ponytail","state":"queued"}]}`, "round must be 1 to 6"},
 		{"too many previous", `{"round":2,"previous":["changes","discuss"],"reviewers":[{"name":"ponytail","state":"queued"}]}`, "previous verdicts"},
+		{"too few previous", `{"round":3,"previous":["changes"],"reviewers":[{"name":"ponytail","state":"queued"}]}`, "previous verdicts"},
 		{"unknown previous", `{"round":2,"previous":["lgtm"],"reviewers":[{"name":"ponytail","state":"queued"}]}`, "unknown previous verdict"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -141,9 +146,19 @@ func TestLoadRoundRejectsBadInput(t *testing.T) {
 	}
 }
 
+func TestLoadRoundAcceptsTheLastRound(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "round.json")
+	if err := os.WriteFile(p, []byte(`{"round":6,"previous":["changes","changes","discuss","changes","changes"],"reviewers":[{"name":"ponytail","state":"queued"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRound(p); err != nil {
+		t.Fatalf("got %v, want round 6 to load", err)
+	}
+}
+
 func TestLoadRoundAcceptsAgentNames(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "round.json")
-	if err := os.WriteFile(p, []byte(`{"round":2,"reviewers":[{"name":"security-reviewer","state":"running"},{"name":"ponytail","state":"queued"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(`{"round":2,"previous":["changes"],"reviewers":[{"name":"security-reviewer","state":"running"},{"name":"ponytail","state":"queued"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rd, err := loadRound(p)
@@ -250,7 +265,7 @@ func (f *fakeGH) posted() []string {
 	return nil
 }
 
-var round2 = round{Round: 2, Reviewers: []reviewer{{Name: "security", State: "running"}, {Name: "go", State: "running"}}}
+var round2 = round{Round: 2, Previous: []string{"changes"}, Reviewers: []reviewer{{Name: "security", State: "running"}, {Name: "go", State: "running"}}}
 
 func TestPostStartsARoundAndHidesOnlyTheLeadsOldReviews(t *testing.T) {
 	f := &fakeGH{me: "lead", nextID: 100, comments: []comment{
@@ -295,7 +310,7 @@ func TestPostEditsTheRoundCommentInPlace(t *testing.T) {
 		{ID: 9, NodeID: "this", Login: "lead", Body: marker(2) + "\n<picture>..."},
 		{ID: 10, NodeID: "human", Login: "someone", Body: "Looks fine"},
 	}}
-	done := round{Round: 2, Reviewers: []reviewer{
+	done := round{Round: 2, Previous: []string{"changes"}, Reviewers: []reviewer{
 		{Name: "security", State: "changes", Blockers: []string{`Body read before the "cap" <check>`}, Suggestions: 3},
 		{Name: "go", State: "approve", Suggestions: 1},
 	}}
