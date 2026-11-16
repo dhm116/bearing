@@ -76,7 +76,7 @@ To see the five questions answered on a fictional company, run the Docker
 Compose demo: `cp .env.example .env && docker compose up -d --build`, then
 follow [`docs/demo.md`](docs/demo.md).
 
-To work on the code, you need Go 1.27.3 or later (the `go` command downloads it automatically if needed).
+To work on the code, you need Go 1.27.4 or later (the `go` command downloads it automatically if needed).
 
 ```sh
 make check         # everything CI runs: generated code is current, lint, tests with the coverage gate, govulncheck, build

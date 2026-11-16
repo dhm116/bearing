@@ -18,7 +18,7 @@ up and shared by every copy of this repository
 ([threat model](security/threat-model.md)). Never point this setup at a real
 GitHub, cluster or directory.
 
-You need Docker with Compose, and Go 1.27.3 or later to build the `bearing`
+You need Docker with Compose, and Go 1.27.4 or later to build the `bearing`
 command (`make build` writes `bin/bearing`).
 
 ## Start it
