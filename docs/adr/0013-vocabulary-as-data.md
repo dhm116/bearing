@@ -46,9 +46,12 @@ shapes) without their machinery.
   - Bearing maintainers own the **core module** (`vocab/core.yaml`, today's
     kinds and relations), generated into Go and released with Bearing.
   - Each adapter publishes its **adapter module** in `Describe`: terms in
-    its own namespace, their shapes, and suggested mappings. The first
-    source to publish a namespace owns it unless settings pin it.
-    Adapters never emit core terms.
+    its own namespace, their shapes, and suggested mappings. A namespace
+    belongs to an adapter, not to a source: every source that runs the
+    adapter (two clusters, two GitHub orgs) publishes the same module, and
+    a module whose terms differ from the stored ones is refused, naming
+    the source. A second adapter claiming the namespace is refused unless
+    settings pin the namespace to it. Adapters never emit core terms.
   - The operator may publish an **operator module** in the org's own
     namespace (`com.acme`), for terms no tool holds, such as one
     PagerDuty service that stands for several real services.
@@ -72,35 +75,63 @@ shapes) without their machinery.
   the operator accepts or rejects them. Mappings in the operator's
   settings are asserted. `extends` becomes a dated `broader` row, so it
   can be added later. A term has at most one `broader` term in force; a
-  second is refused, until a use case justifies more.
+  second is refused, until a use case justifies more, and so is a cycle.
+  Accepting or ending a `broader` mapping recomputes, in the same
+  transaction, the clusters of every record of that term and the terms
+  below it, since ADR 7's line-of-descent rule reads it.
+- **Answers use today's mappings.** `broader` and `exact_match` are read
+  at query time, as clusters are (ADR 11): an answer for a past time uses
+  the mappings in force now. A mapping decision goes through the event
+  log, as a link decision does, and is an event: Q3 ("what changed")
+  lists the mapping decisions in its window, with author and
+  justification, beside the facts that opened and closed.
 - **Every mapping ends at a core or operator term.** No mapping links two
   adapters' terms, until a use case justifies it.
 - **`derives` rules run in the server at ingest.** A rule's key is a Go
   template over the observation's allow-listed fields, with a
   deterministic set of functions under Sprig's names: no environment,
   randomness, clock or key generation. Templates are parsed at boot. One
-  that renders empty, or reads a missing field, makes no fact. Editing a
-  rule is a new version. `fact_source` gains a `rule` column naming the
-  rule and version. A rule built from a fixed field asserts; one that
-  guesses only proposes (ADR 2). What a template can't express stays in
+  that renders empty, or reads a missing field, makes no fact. Rules run
+  in the observation's ingest transaction, and a fact a rule makes is
+  written as if the observation carried it: the same last-writer-wins on
+  `observed_at`, the same guard against a stale page reopening what a
+  later one ended, the same snapshot and complete-sync closing. A rule
+  keys records in its observation's own system; joining systems is
+  identity links' work (ADR 7). Editing a rule is a new version, and boot
+  refuses a rule whose id and version are stored with a different body.
+  `fact_source` gains a `rule` column naming the rule and version; an
+  answer names the newest version in force, and older versions' rows stay
+  as history. A rule built from a fixed field asserts; one that guesses
+  only proposes (ADR 2). What a template can't express stays in
   adapter middleware (ADR 12), inside the adapter process.
 - **A derived fact closes on evidence.** It keeps its observation's
   source. It closes when the rule stops making it, or, when no webhook
   reports the change, when the observation's own adapter reports its
   subject gone on a later sync (a complete snapshot, or an audit log the
-  adapter reads). Other adapters' observations can also support closing
-  it, such as a pull request that removes the Deployment; that is
-  inferred, so it only proposes the close, which the operator confirms.
+  adapter reads). Ending a rule (rejected after it was accepted, ended,
+  or deprecated with no successor) closes, in the same transaction, the
+  open facts whose only sources are that rule's versions, at the
+  decision's time; the decision, with its author and reason, is the
+  justification Q3 shows. Other adapters' observations can also support
+  closing it, such as a pull request that removes the Deployment; that is
+  inferred, so it only proposes the close. A proposed close is a record
+  beside the fact, shaped like `identity_link`. Confirming it closes the
+  fact at the time the evidence names (the merge), and is refused when
+  the fact's own source has observed the subject since.
 - **Deprecation, not deletion.** Terms, mappings and rules carry
   `deprecated: {since, replaced_by, consider, reason}`. `replaced_by`
-  names exactly one successor, and ingest rewrites to it. `consider`
+  names exactly one successor. Reads treat the two as one term, as an
+  `exact_match` would, and ingest writes new facts under the successor,
+  so a deprecation by itself shows no change in Q3. `consider`
   lists candidates, and nothing is rewritten. Chains collapse, cycles are
   refused, and only the owner deprecates. When a successor rule makes the
   same fact, the fact gains a source instead of closing and reopening.
 - **Store:** `term`, `prefix` and `mapping` tables replace `kind` and
-  `kind_predicate`; `fact_source.rule` is added. Proto: a
-  `VocabularyModule` in `DescribeResponse` and a module version on
-  observations, both additive.
+  `kind_predicate`; `fact_source.rule` is added, and a `fact_close` table
+  holds proposed closes. Proto: a `VocabularyModule` in
+  `DescribeResponse` and a module version on observations, outside the
+  payload and the ID, so deduplication is unchanged. Both are
+  additive.
 - **Import and export.** Terms never arrive by import. `bearing vocab
   export|import --format yaml` moves mapping packs between instances and
   creates proposed mappings. Later, if asked: Turtle and JSON-LD export
@@ -112,8 +143,12 @@ shapes) without their machinery.
 
 ## Consequences
 
-- **ADR 10 is amended:** one shape per namespaced term, and `extends` is
-  a `broader` mapping. **ADR 12 gets simpler:** its three blockers are
+- **ADR 10 is amended:** one shape per namespaced term; `extends` is a
+  `broader` mapping; names are `namespace:Term` (`io.k8s:Service`, with
+  `core` reserved); the operator module, pinned to a commit, replaces the
+  `EntityKind` settings resource; and `term`, `prefix` and `mapping`
+  replace the `kind` table. **ADR 11 is amended:** answers read today's
+  mappings, and Q3 lists mapping decisions as events. **ADR 12 gets simpler:** its three blockers are
   answered here, and the generic adapter publishes a module built from
   its mapping.
 - The Kubernetes adapter suggests `k8s:Namespace broader

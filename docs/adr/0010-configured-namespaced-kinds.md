@@ -1,6 +1,6 @@
 # 10. Configured, namespaced kinds beside the core kinds
 
-Date: 2026-11-01 · Status: accepted, amended by ADR 13
+Date: 2026-11-01 · Status: accepted, amended by ADR 13 (proposed)
 
 ## Context
 
@@ -116,7 +116,10 @@ operating-system `Service` are different things.
   sources can't backfill (`docs/edge-cases.md`).
 - ADR 7 is superseded in part by this: its "never across kinds" rule becomes
   the line-of-descent rule above.
-- ADR 13 amends this. A kind's parent is a dated `broader` mapping, not a
-  property fixed at first boot, so it can be added later. "One shape per
-  name" becomes one shape per namespaced term, and grow-only applies per
-  term.
+- ADR 13 amends this, once accepted. A kind's parent is a dated
+  `broader` mapping, not a property fixed at first boot, so it can be
+  added later. "One shape per name" becomes one shape per namespaced
+  term, and grow-only applies per term. Names become `namespace:Term`
+  (`io.k8s:Service`, not `k8s.Service`), the operator module pinned to a
+  commit replaces the `EntityKind` settings resource, and the `term`,
+  `prefix` and `mapping` tables replace the `kind` table.

@@ -945,14 +945,14 @@ k8s:replicas a sh:PropertyShape ;
       <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-trail-decider-dark.svg">
       <img src="../diagrams/adr13-trail-decider.svg" alt="How the trail decides a broken step">
     </picture>
-    <figcaption>For a step whose handle names no observed record, a System One model picks one candidate, then scores the pair on three levels. The rounded score joins the trail, leaves the break for a person, or makes no link. The model's p only scales the step down; it never reinforces.</figcaption>
+    <figcaption>Illustrative: the trail belongs to a follow-up ADR. For a step whose handle names no observed record, a System One model picks one candidate, then scores the pair on three levels. The rounded score joins the trail, leaves the break for a person, or makes no link. The model's p only scales the step down; it never reinforces.</figcaption>
   </figure>
   <figure>
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-server-planned-dark.svg">
       <img src="../diagrams/adr13-server-planned.svg" alt="What is planned, and where it plugs in">
     </picture>
-    <figcaption>The model matcher is configured by system_one: hosted Jev or any server that speaks /v1/systemone. It judges identity links and decides the trail's broken steps.</figcaption>
+    <figcaption>Illustrative, for the follow-up trail ADR. The model matcher is configured by system_one: hosted Jev or any server that speaks /v1/systemone. It judges identity links and decides the trail's broken steps.</figcaption>
   </figure>
 
   <!-- CONSEQUENCES -->

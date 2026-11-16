@@ -1,6 +1,6 @@
 # 12. One generic OpenAPI adapter, driven by a mapping
 
-Date: 2026-11-09, revised 2026-11-16 to build on ADR 13 · Status: proposed
+Date: 2026-11-09, revised 2026-11-15 to build on ADR 13 · Status: proposed
 
 ## Context
 
@@ -25,7 +25,7 @@ where a path parameter such as `{org}` comes from, which field
 identifies a thing, or how pages are linked.
 
 A spike on the `spike/heading` branch
-([findings](https://github.com/dhm116/bearing/blob/spike/heading/spike/heading/FINDINGS.md))
+([findings](https://github.com/dhm116/bearing/blob/4abd5b9/spike/heading/FINDINGS.md))
 read the Kubernetes and GitHub specs, REST and GraphQL. It also ran a generic
 adapter, driven by a mapping file, against the Acme fake cluster. It
 found:
@@ -60,7 +60,7 @@ found:
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adapter-workflow-dark.svg">
-    <img src="../diagrams/adapter-workflow.svg" alt="Swimlane of the adapter workflow. bearing adapter init reads the author's OpenAPI spec and writes a mapping skeleton, mapping.yaml, which the author edits. The generic OpenAPI adapter runs the mapping, GET only, emitting listed fields only, optionally with the author's Go middleware registered through Use. bearing adapter check and sync test it against a mock API; a failure sends the author back to the mapping. A passing adapter is installed in Bearing's settings as a Source with its mapping. It publishes its vocabulary module, and the mappings the operator accepts give its terms meaning. The server runs it over gRPC, and its observations become records such as a com.github:Repository keyed github:repository/acme/payments, with an asserted owner link from a $ref and the GET route as evidence.">
+    <img src="../diagrams/adapter-workflow.svg" alt="Swimlane of the adapter workflow. bearing adapter init reads the author's OpenAPI spec and writes a mapping skeleton, mapping.yaml, which the author edits. The generic OpenAPI adapter runs the mapping with read-only calls only, emitting listed fields only, optionally with the author's Go middleware registered through Use. bearing adapter check and sync test it against a mock or real API; a failure sends the author back to the mapping. A passing adapter is installed in Bearing's settings as a Source with its mapping. It publishes its vocabulary module, and the mappings the operator accepts give its terms meaning. The server runs it over gRPC, and its observations become records such as a com.github:Repository keyed github:repository/acme/payments, with an asserted owner link from a $ref and the GET route as evidence.">
   </picture>
 - **`bearing adapter init <spec>`** writes a mapping skeleton from the
   spec, with suggested mappings to the core vocabulary (ADR 13). It guesses list and
@@ -70,6 +70,9 @@ found:
   **`bearing adapter sync`**, which exists already, runs it against a
   mock server or a real API.
 - **What the mapping holds:**
+  - the namespace its terms live in, a reverse domain for the API such as
+    `com.github` or `io.k8s`, which `init` suggests from the spec's
+    server URL;
   - which kinds to read;
   - the list route for each, with where its parameters come from;
   - the key;
@@ -132,14 +135,15 @@ found:
   A handler gets the raw item and the observation built from it. It may
   add relations, add attributes or drop the item, all in the module's own
   terms, which the module declares. A relation it adds is part of the
-  observation, so the observation is its evidence. It is asserted when it
-  reads a fixed field (a URL in an env var), and proposed when it guesses
-  (ADR 2). After every handler runs, the adapter checks the observation
+  observation, so the observation is its evidence. The module declares
+  which of its relations a handler may assert, because they read a fixed
+  field (a URL in an env var); the adapter sends any other relation a
+  handler adds as proposed (ADR 2). After every handler runs, the adapter checks the observation
   again: only mapped or declared fields leave the process. A middleware
   may read a secret in order to parse it, but can't send it on by
   accident.
 - **Derive rules are ADR 13's `derives` mappings.** Simple rules, such as
-  "label `team` names a `Team` keyed `team:<value>`", are operator
+  "label `team` names a `Team` keyed `kubernetes:team/<value>`", are operator
   mappings, not Go. They run in the server at ingest, and each fact they
   make cites the observation and the rule's version.
 - **The schema source is a seam.** Only two things depend on the spec
