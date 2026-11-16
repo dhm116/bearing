@@ -54,8 +54,9 @@ var personas = map[string][2]string{
 const (
 	width    = 620 // GitHub scales the image down on narrow screens
 	headH    = 30
-	findX    = 174 // where a row's blocking findings start, under its summary
-	maxLines = 3   // blocking lines a row shows; the last says "+N more" when there are more
+	findX    = 174        // where a row's blocking findings start, under its summary
+	pillR    = width - 12 // every verdict pill's right edge, header and rows alike
+	maxLines = 3          // blocking lines a row shows; the last says "+N more" when there are more
 	// Work in progress pulses and its clock hand turns; GitHub serves the SVG
 	// as an image, where CSS animation still runs. Reduced motion stops both.
 	style = `<style>.d{font-family:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;font-weight:700}` +
@@ -192,7 +193,7 @@ func row(t theme, r reviewer, y float64, first bool) string {
 		sum = fmt.Sprintf("%s blocking · %s %s", n(len(r.Blockers)), n(r.Suggestions), plural(r.Suggestions, "suggestion"))
 	}
 	fmt.Fprintf(&b, `<text x="160" y="27" class="s" font-size="13" fill="%s">%s</text>`, t.muted, sum)
-	b.WriteString(pill(width-12, 11, label, fg, bg, ic, r.State == "running"))
+	b.WriteString(pill(pillR, 11, label, fg, bg, ic, r.State == "running"))
 	chars := (width - findX - 12) * 10 / 63 // about 6.3px a character at 12.5px
 	for j, l := range lines(r) {
 		ly := 50 + 18*float64(j)
@@ -277,7 +278,7 @@ func svg(t theme, rd round) string {
 	if len(rs) > 1 { // a lone row already shows the verdict
 		ov := overall(rs)
 		_, fg, bg, ic, _ := look(t, ov)
-		b.WriteString(pill(width, 2, headline[ov], fg, bg, ic, ov == "running"))
+		b.WriteString(pill(pillR, 2, headline[ov], fg, bg, ic, ov == "running"))
 	}
 	fmt.Fprintf(&b, `<g transform="translate(0 %g)"><rect x=".5" y=".5" width="%d" height="%g" rx="7.5" fill="%s" stroke="%s"/>%s</g>`,
 		top, width-1, y-1, t.surface, t.line, rows.String())
