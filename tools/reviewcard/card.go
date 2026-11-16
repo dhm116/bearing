@@ -8,18 +8,19 @@ import (
 
 // Colors are the site's tokens (site/static/css/tokens.css). The states follow
 // the "Today" trail on the home page: .hop--found, --partial, --dead and --wait.
+// accent marks work in progress.
 type theme struct {
-	name, ink, muted, line, surface, sunk        string
-	good, goodSoft, warn, warnSoft, bad, badSoft string
+	name, ink, muted, line, surface, sunk, accent string
+	good, goodSoft, warn, warnSoft, bad, badSoft  string
 }
 
 var themes = []theme{
 	{
-		"light", "#18242A", "#55646B", "#D3DCDA", "#FFFFFF", "#EDF1F0",
+		"light", "#18242A", "#55646B", "#D3DCDA", "#FFFFFF", "#EDF1F0", "#1D5E74",
 		"#2F6B45", "#E3F0E7", "#A5561A", "#F7EBDF", "#A33A3A", "#F6E3E3",
 	},
 	{
-		"dark", "#E4ECEA", "#98A8AD", "#2A383D", "#172226", "#131C1F",
+		"dark", "#E4ECEA", "#98A8AD", "#2A383D", "#172226", "#131C1F", "#7FC0D6",
 		"#8DCB9F", "#1C3325", "#E3A56E", "#3A2819", "#E89A9A", "#3B1F1F",
 	},
 }
@@ -51,13 +52,19 @@ var personas = map[string][2]string{
 }
 
 const (
-	width    = 620 // two cards a row; GitHub scales the image down on narrow screens
+	width    = 620 // GitHub scales the image down on narrow screens
 	headH    = 30
-	gap      = 12
-	maxLines = 3 // blocking lines a card shows; the last says "+N more" when there are more
-	style    = `<style>.d{font-family:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;font-weight:700}` +
+	findX    = 174        // where a row's blocking findings start, under its summary
+	pillR    = width - 12 // every verdict pill's right edge, header and rows alike
+	maxLines = 3          // blocking lines a row shows; the last says "+N more" when there are more
+	// Work in progress pulses and its clock hand turns; GitHub serves the SVG
+	// as an image, where CSS animation still runs. Reduced motion stops both.
+	style = `<style>.d{font-family:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;font-weight:700}` +
 		`.s{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif}` +
-		`.m{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-weight:500}</style>`
+		`.m{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-weight:500}` +
+		`@keyframes p{50%{opacity:.3}}.p{animation:p 1.6s ease-in-out infinite}` +
+		`@keyframes t{to{transform:rotate(360deg)}}.t{animation:t 2.4s linear infinite;transform-box:fill-box;transform-origin:50% 100%}` +
+		`@media (prefers-reduced-motion:reduce){.p,.t{animation:none}}</style>`
 )
 
 // look returns a state's top band, pill text and pill background colors, the
@@ -126,16 +133,21 @@ func icon(name string, x, y, size float64, color string, sw float64) string {
 }
 
 // pill draws a verdict chip whose right edge is at right. Its width comes from
-// a character count, which holds because the label is monospace.
-func pill(right, y float64, label, fg, bg, ic string) string {
+// a character count, which holds because the label is monospace. While a
+// reviewer runs, the clock's hand turns.
+func pill(right, y float64, label, fg, bg, ic string, running bool) string {
 	w := 6 + 14 + 4 + float64(len(label))*7.2 + 10
 	x := right - w
-	return fmt.Sprintf(`<rect x="%g" y="%g" width="%g" height="22" rx="11" fill="%s"/>`, x, y, w, bg) +
-		icon(ic, x+6, y+4, 14, fg, 2.2) +
+	mark := icon(ic, x+6, y+4, 14, fg, 2.2)
+	if running {
+		mark = fmt.Sprintf(`<g transform="translate(%g %g) scale(.7)" fill="none" stroke="%s" stroke-width="2.2" stroke-linecap="round">`+
+			`<circle cx="10" cy="10" r="7"/><path class="t" d="M10 10V5.5"/></g>`, x+6, y+4, fg)
+	}
+	return fmt.Sprintf(`<rect x="%g" y="%g" width="%g" height="22" rx="11" fill="%s"/>`, x, y, w, bg) + mark +
 		fmt.Sprintf(`<text x="%g" y="%g" class="m" font-size="12" fill="%s">%s</text>`, x+24, y+15.5, fg, esc(label))
 }
 
-// lines is what a card lists under its counts: the blocking findings, capped
+// lines is what a row lists under its counts: the blocking findings, capped
 // at maxLines.
 func lines(r reviewer) []string {
 	if len(r.Blockers) <= maxLines {
@@ -144,18 +156,30 @@ func lines(r reviewer) []string {
 	return append(r.Blockers[:maxLines-1:maxLines-1], fmt.Sprintf("+%d more", len(r.Blockers)-maxLines+1))
 }
 
-func cardH(r reviewer) int { return 64 + 18*len(lines(r)) }
+func rowH(r reviewer) float64 {
+	if n := len(lines(r)); n > 0 {
+		return 48 + 18*float64(n)
+	}
+	return 44
+}
 
-func card(t theme, r reviewer, i int, x, y, w, h float64) string {
+// row draws one reviewer: a state dot, its name, its counts and its verdict,
+// with its blocking findings listed under the counts.
+func row(t theme, r reviewer, y float64, first bool) string {
 	band, fg, bg, ic, label := look(t, r.State)
 	p := personas[r.Name]
 	var b strings.Builder
-	fmt.Fprintf(&b, `<g transform="translate(%g %g)"><clipPath id="c%d"><rect width="%g" height="%g" rx="8"/></clipPath>`, x, y, i, w, h)
-	fmt.Fprintf(&b, `<rect x=".5" y=".5" width="%g" height="%g" rx="7.5" fill="%s" stroke="%s"/>`, w-1, h-1, t.surface, t.line)
-	fmt.Fprintf(&b, `<rect width="%g" height="4" fill="%s" clip-path="url(#c%d)"/>`, w, band, i)
-	b.WriteString(icon(p[1], 16, 16, 18, t.muted, 1.8))
-	fmt.Fprintf(&b, `<text x="40" y="30" class="d" font-size="17" fill="%s">%s</text>`, t.ink, esc(p[0]))
-	b.WriteString(pill(w-14, 14, label, fg, bg, ic))
+	fmt.Fprintf(&b, `<g transform="translate(0 %g)">`, y)
+	if !first {
+		fmt.Fprintf(&b, `<rect x="1" width="%d" height="1" fill="%s"/>`, width-2, t.line)
+	}
+	dot := `<circle cx="16" cy="22" r="4" fill="%s"/>`
+	if r.State == "running" {
+		band, dot = t.accent, `<circle class="p" cx="16" cy="22" r="4" fill="%s"/>`
+	}
+	fmt.Fprintf(&b, dot, band)
+	b.WriteString(icon(p[1], 30, 13, 18, t.muted, 1.8))
+	fmt.Fprintf(&b, `<text x="54" y="28" class="d" font-size="16" fill="%s">%s</text>`, t.ink, esc(p[0]))
 	n := func(v int) string { return fmt.Sprintf(`<tspan fill="%s" font-weight="600">%d</tspan>`, t.ink, v) }
 	var sum string
 	switch {
@@ -164,25 +188,53 @@ func card(t theme, r reviewer, i int, x, y, w, h float64) string {
 	case r.State == "queued":
 		sum = "Waiting to start"
 	case len(r.Blockers) == 0:
-		sum = fmt.Sprintf("No blocking findings · %s %s", n(r.Suggestions), plural(r.Suggestions, "suggestion"))
+		sum = fmt.Sprintf("No blocking · %s %s", n(r.Suggestions), plural(r.Suggestions, "suggestion"))
 	default:
 		sum = fmt.Sprintf("%s blocking · %s %s", n(len(r.Blockers)), n(r.Suggestions), plural(r.Suggestions, "suggestion"))
 	}
-	fmt.Fprintf(&b, `<text x="16" y="52" class="s" font-size="13" fill="%s">%s</text>`, t.muted, sum)
-	chars := int((w - 46) / 6.3)
+	fmt.Fprintf(&b, `<text x="160" y="27" class="s" font-size="13" fill="%s">%s</text>`, t.muted, sum)
+	b.WriteString(pill(pillR, 11, label, fg, bg, ic, r.State == "running"))
+	chars := (width - findX - 12) * 10 / 63 // about 6.3px a character at 12.5px
 	for j, l := range lines(r) {
-		ly := 72 + 18*float64(j)
-		fmt.Fprintf(&b, `<circle cx="20" cy="%g" r="2.5" fill="%s"/>`, ly-4, fg)
-		fmt.Fprintf(&b, `<text x="30" y="%g" class="s" font-size="12.5" fill="%s">%s</text>`, ly, t.ink, esc(clip(l, chars)))
+		ly := 50 + 18*float64(j)
+		fmt.Fprintf(&b, `<circle cx="%d" cy="%g" r="2.5" fill="%s"/>`, findX-10, ly-4, fg)
+		fmt.Fprintf(&b, `<text x="%d" y="%g" class="s" font-size="12.5" fill="%s">%s</text>`, findX, ly, t.ink, esc(clip(l, chars)))
 	}
 	b.WriteString(`</g>`)
 	return b.String()
 }
 
-// alt is the image's text alternative: everything the cards show, with the
+// track draws one segment per round a PR may have: earlier rounds in their
+// verdict's colour, this one pulsing while it runs, later ones outlined.
+func track(t theme, x, y float64, rd round) string {
+	var b strings.Builder
+	ov := overall(rd.Reviewers)
+	for i := 1; i <= maxRounds; i++ {
+		px := x + float64(i-1)*20
+		var fill, cls string
+		switch {
+		case i < rd.Round:
+			fill, _, _, _, _ = look(t, rd.Previous[i-1])
+		case i == rd.Round && ov == "running":
+			fill, cls = t.accent, ` class="p"`
+		case i == rd.Round:
+			fill, _, _, _, _ = look(t, ov)
+		default:
+			fmt.Fprintf(&b, `<rect x="%g" y="%g" width="15" height="5" rx="2.5" fill="none" stroke="%s"/>`, px+.5, y+.5, t.line)
+			continue
+		}
+		fmt.Fprintf(&b, `<rect%s x="%g" y="%g" width="16" height="6" rx="3" fill="%s"/>`, cls, px, y, fill)
+	}
+	return b.String()
+}
+
+// alt is the image's text alternative: everything the picture shows, with the
 // blocking findings in full.
 func alt(rd round) string {
-	parts := []string{fmt.Sprintf("Code review round %d: %s.", rd.Round, strings.ToLower(headline[overall(rd.Reviewers)]))}
+	parts := []string{fmt.Sprintf("Code review round %d of %d: %s.", rd.Round, maxRounds, strings.ToLower(headline[overall(rd.Reviewers)]))}
+	for i, v := range rd.Previous {
+		parts = append(parts, fmt.Sprintf("Round %d: %s.", i+1, strings.ToLower(headline[v])))
+	}
 	for _, r := range rd.Reviewers {
 		_, _, _, _, label := look(themes[0], r.State)
 		s := fmt.Sprintf("%s: %s", personas[r.Name][0], strings.ToLower(label))
@@ -197,44 +249,37 @@ func alt(rd round) string {
 	return strings.Join(parts, " ")
 }
 
-// svg draws the round: a header line, then the cards two to a row (one
-// full-width card when the round has a single reviewer). Each row is as tall
-// as its tallest card.
+// svg draws the round: a header with the round track and the overall
+// verdict, then one row per reviewer in a single panel.
 func svg(t theme, rd round) string {
 	rs := rd.Reviewers
-	cols := min(2, len(rs))
-	w := float64(width-(cols-1)*gap) / float64(cols)
-	var cards strings.Builder
-	y := float64(headH + 8)
-	for i := 0; i < len(rs); i += cols {
-		row := rs[i:min(i+cols, len(rs))]
-		h := 0
-		for _, r := range row {
-			h = max(h, cardH(r))
-		}
-		for j, r := range row {
-			cards.WriteString(card(t, r, i+j, float64(j)*(w+gap), y, w, float64(h)))
-		}
-		y += float64(h + gap)
-	}
+	var rows strings.Builder
+	y := 0.0
 	done := 0
-	for _, r := range rs {
+	for i, r := range rs {
+		rows.WriteString(row(t, r, y, i == 0))
+		y += rowH(r)
 		if r.done() {
 			done++
 		}
 	}
-	h := int(y) - gap
+	top := float64(headH + 8)
+	h := int(top + y)
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="%s">%s`,
 		width, h, width, h, esc(alt(rd)), style)
-	fmt.Fprintf(&b, `<text x="2" y="19" class="m" font-size="12" letter-spacing="1.2" fill="%s"><tspan fill="%s">CODE REVIEW</tspan> · ROUND %d · %d OF %d DONE</text>`,
-		t.muted, t.ink, rd.Round, done, len(rs))
-	if len(rs) > 1 { // a lone card already shows the verdict
+	head := fmt.Sprintf("ROUND %d OF %d", rd.Round, maxRounds)
+	fmt.Fprintf(&b, `<text x="2" y="19" class="m" font-size="12" letter-spacing="1.2" fill="%s"><tspan fill="%s">%s</tspan></text>`, t.muted, t.ink, head)
+	tx := 2 + float64(len(head))*8.4 + 10
+	b.WriteString(track(t, tx, 10, rd))
+	fmt.Fprintf(&b, `<text x="%g" y="19" class="m" font-size="12" letter-spacing="1.2" fill="%s">%d OF %d DONE</text>`, tx+maxRounds*20+8, t.muted, done, len(rs))
+	if len(rs) > 1 { // a lone row already shows the verdict
 		ov := overall(rs)
 		_, fg, bg, ic, _ := look(t, ov)
-		b.WriteString(pill(width, 2, headline[ov], fg, bg, ic))
+		b.WriteString(pill(pillR, 2, headline[ov], fg, bg, ic, ov == "running"))
 	}
-	b.WriteString(cards.String())
+	fmt.Fprintf(&b, `<g transform="translate(0 %g)"><rect x=".5" y=".5" width="%d" height="%g" rx="7.5" fill="%s" stroke="%s"/>%s</g>`,
+		top, width-1, y-1, t.surface, t.line, rows.String())
 	b.WriteString(`</svg>`)
 	return b.String()
 }
