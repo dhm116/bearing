@@ -1,7 +1,8 @@
 # The site's shape. Pages under `pages` are hand-designed templates; each
 # collection publishes a docs/ directory as-is, so the site follows the repo.
 # The site is for people new to Bearing: it describes the finished product,
-# so it publishes the spec but not the decision records in docs/adr.
+# so it publishes the spec and the guides in docs/, but not the decision
+# records in docs/adr.
 title: Bearing
 tagline: Get your bearings in any engineering org.
 description: >-
@@ -17,6 +18,7 @@ nav:
   - { label: How it works, href: how-it-works/ }
   - { label: Roadmap, href: roadmap/ }
   - { label: Spec, href: spec/ }
+  - { label: Guides, href: guides/ }
 
 pages:
   - template: home
@@ -50,3 +52,32 @@ collections:
     dir: docs/spec
     path: spec
     order: [concepts.md, api.md]
+  - id: guides
+    title: Guides
+    short: Guides
+    description: How Bearing works inside, how to run it, and what it reports about itself.
+    dir: docs
+    path: guides
+    order: [architecture.md, demo.md, mcp.md, telemetry.md]
+    exclude: [review-process.md, edge-cases.md, identity-evaluation.md]
+  # The rest of docs/: for people building Bearing, not using it.
+  - id: contributing
+    title: Contributing
+    short: Contributing
+    description: How Bearing is built, tested and reviewed, for people working on it.
+    dir: docs
+    path: contributing
+    order: [review-process.md, edge-cases.md, identity-evaluation.md]
+    exclude: [architecture.md, demo.md, mcp.md, telemetry.md]
+  - id: security
+    title: Security
+    short: Security
+    description: What Bearing protects, from whom, and how.
+    dir: docs/security
+    path: security
+  - id: brand
+    title: Brand
+    short: Brand
+    description: The Bearing logo, colors and type.
+    dir: docs/brand
+    path: brand
