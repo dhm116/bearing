@@ -42,10 +42,16 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	for _, page := range []string{
 		"index.html", "how-it-works/index.html", "roadmap/index.html", "404.html",
 		"spec/index.html", "spec/concepts/index.html", "search.json", ".nojekyll",
+		"guides/architecture/index.html", "contributing/review-process/index.html", "security/threat-model/index.html",
 	} {
 		if _, err := os.Stat(filepath.Join(out, page)); err != nil {
 			t.Errorf("got no %s: %v", page, err)
 		}
+	}
+	// The site keeps decision records off it; no collection's sidebar may
+	// point readers at them.
+	if g, err := os.ReadFile(filepath.Join(out, "guides/architecture/index.html")); err != nil || strings.Contains(string(g), "All decisions") {
+		t.Errorf("got a guide page that says All decisions (%v)", err)
 	}
 	home, err := os.ReadFile(filepath.Join(out, "index.html"))
 	if err != nil {
