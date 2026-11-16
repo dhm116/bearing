@@ -92,8 +92,10 @@ func TestStoreApplierDropsAndCountsObservationsOfInactiveKinds(t *testing.T) {
 			t.Errorf("dropped[%s] rose by %d, want 1", k, got)
 		}
 	}
-	if len(after) != len(before)+2 {
-		t.Errorf("got counters %v, want only the two dropped kinds added to %v", after, before)
+	for k, v := range after {
+		if k != src+"/Team/inactive" && k != src+"/Person/inactive" && v != before[k] {
+			t.Errorf("dropped[%s] went from %v to %v, want only the two dropped kinds to change", k, before[k], v)
+		}
 	}
 }
 

@@ -28,6 +28,20 @@ func spansNamed(name string, keep func(trace.ReadOnlySpan) bool) []trace.ReadOnl
 	return out
 }
 
+// waitSpans waits until at least one span with this name for which keep is
+// true has ended, and returns them. The worker commits an event's offset
+// inside its worker.process span and ends the span after, so an event can
+// read as applied before its span is recorded.
+func waitSpans(t *testing.T, name string, keep func(trace.ReadOnlySpan) bool) []trace.ReadOnlySpan {
+	t.Helper()
+	var out []trace.ReadOnlySpan
+	waitFor(t, "a "+name+" span to end", func() bool {
+		out = spansNamed(name, keep)
+		return len(out) > 0
+	})
+	return out
+}
+
 func linksTo(sp trace.ReadOnlySpan, sc oteltrace.SpanContext) bool {
 	for _, l := range sp.Links() {
 		if l.SpanContext.TraceID() == sc.TraceID() && l.SpanContext.SpanID() == sc.SpanID() {
@@ -64,7 +78,7 @@ func TestWorkerProcessStartsANewTraceLinkedToTheAppender(t *testing.T) {
 	}
 	var got []trace.ReadOnlySpan
 	for i, id := range ids {
-		ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, id) })
+		ws := waitSpans(t, "worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, id) })
 		if len(ws) != 1 {
 			t.Fatalf("event %d: got %d worker.process spans, want 1", i, len(ws))
 		}
@@ -102,7 +116,7 @@ func TestMatchRunLinksToTheSyncThatWokeIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the sync to be applied", func() bool { return h.drained(testSource) && len(h.entries(testSource)) == 2 })
-	reqSpan := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, req.ID) })
+	reqSpan := waitSpans(t, "worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, req.ID) })
 	if len(reqSpan) != 1 {
 		t.Fatalf("got %d worker.process spans for the request, want 1", len(reqSpan))
 	}
@@ -149,7 +163,7 @@ func TestEventWithAMalformedTraceparentStillApplies(t *testing.T) {
 	h := newHarness(t)
 	h.start()
 	ev := store.Event{
-		ID: testSource + "/bad-trace", Partition: store.Partition(testSource), Type: futureType,
+		ID: fmt.Sprintf("%s/bad-trace-%d", testSource, time.Now().UnixNano()), Partition: store.Partition(testSource), Type: futureType,
 		Time: time.Now(), Data: []byte(`{}`), TraceParent: "garbage", TraceState: "x=y",
 	}
 	if _, err := h.mem.Append(t.Context(), []store.Event{ev}); err != nil {
@@ -160,7 +174,7 @@ func TestEventWithAMalformedTraceparentStillApplies(t *testing.T) {
 	if len(es) != 1 || es[0].TraceParent != "" || es[0].TraceState != "" {
 		t.Fatalf("got %+v, want the event stored without its trace context", es)
 	}
-	ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, ev.ID) })
+	ws := waitSpans(t, "worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, ev.ID) })
 	if len(ws) != 1 || len(ws[0].Links()) != 0 {
 		t.Errorf("got %d worker.process spans, want 1 with no link", len(ws))
 	}
@@ -196,7 +210,7 @@ func TestWebhookDeliveryLinksToItsWorkerSpan(t *testing.T) {
 		c.Log = h.mem
 		c.Sources[0].Name = testSource
 	})
-	body := []byte(`{"zen":"x"}`)
+	body := fmt.Appendf(nil, `{"zen":"x-%d"}`, time.Now().UnixNano()) // spans are recorded process-wide
 	r.post("/webhooks/"+testSource, body, signed(body))
 	es := h.entries(testSource)
 	if len(es) != 1 {
@@ -207,7 +221,7 @@ func TestWebhookDeliveryLinksToItsWorkerSpan(t *testing.T) {
 	hooks := spansNamed("ingest.webhook", func(sp trace.ReadOnlySpan) bool {
 		return sp.SpanContext().SpanID() == store.SpanContextOf(es[0].TraceParent, "").SpanID()
 	})
-	ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, es[0].ID) })
+	ws := waitSpans(t, "worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, es[0].ID) })
 	if len(hooks) != 1 || len(ws) != 1 || !linksTo(ws[0], hooks[0].SpanContext()) {
 		t.Fatalf("got %d ingest.webhook and %d worker.process spans, want one each, linked", len(hooks), len(ws))
 	}
@@ -244,7 +258,7 @@ func TestLinkDecisionAndDeadLetterStoreTheirAppendersSpan(t *testing.T) {
 			dls = append(dls, e)
 		}
 	}
-	ws := spansNamed("worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, testSource+"/"+evID) })
+	ws := waitSpans(t, "worker.process", func(sp trace.ReadOnlySpan) bool { return hasEventID(sp, testSource+"/"+evID) })
 	if len(dls) != 1 || len(ws) != 1 {
 		t.Fatalf("got %d dead letters and %d worker.process spans, want one each", len(dls), len(ws))
 	}
