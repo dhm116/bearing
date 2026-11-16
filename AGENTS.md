@@ -37,12 +37,13 @@ tagged [`pre-pivot`](https://github.com/dhm116/bearing/tree/pre-pivot).
 
 ## Commands
 
-Go 1.27.3 or later; the `go` command downloads the toolchain if needed. A C
+Go 1.27.4 or later; the `go` command downloads the toolchain if needed. A C
 compiler is required (DuckDB needs CGO).
 
 | Command | What it does |
 | --- | --- |
-| `make check` | Everything CI runs |
+| `make check` | What CI runs, minus the coverage gate |
+| `make covergate` | The coverage gate, which only PR workflows enforce; run it to try it locally |
 | `make test` | `go vet ./...` and `go test ./...`, no external services |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`) |
 | `make fmt` | gofumpt and goimports |

@@ -1,0 +1,1004 @@
+<title>Vocabulary as Data</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-width proposal; prose and its example sit side by side on wide screens, diagrams capped at 960px. */
+:root {
+  --bg: #f6f7f8; --surface: #ffffff; --ink: #18212b; --muted: #556270; --rule: #d7dde3;
+  --accent: #0f766e; --accent-tint: #dff3f0; --core: #3b4fa8; --core-tint: #e6e9f8;
+  --bad: #b42318; --bad-tint: #fde8e6; --ok: #1f7a3a; --ok-tint: #e3f4e8; --warn: #8a5800; --warn-tint: #fdf1d8;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11171d; --surface: #18212a; --ink: #e6ebef; --muted: #a3afba; --rule: #2c3743;
+  --accent: #4fd1c0; --accent-tint: #133a37; --core: #9fb0ff; --core-tint: #1e2547;
+  --bad: #ff8a7a; --bad-tint: #3d1d1a; --ok: #6fd18e; --ok-tint: #173523; --warn: #f2c063; --warn-tint: #3a2e14; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11171d; --surface: #18212a; --ink: #e6ebef; --muted: #a3afba; --rule: #2c3743;
+  --accent: #4fd1c0; --accent-tint: #133a37; --core: #9fb0ff; --core-tint: #1e2547;
+  --bad: #ff8a7a; --bad-tint: #3d1d1a; --ok: #6fd18e; --ok-tint: #173523; --warn: #f2c063; --warn-tint: #3a2e14; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+main { padding-block: 48px 96px; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 4.5vw, 3rem); }
+h2 { font-size: 1.7rem; margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.15rem; margin-top: 8px; }
+p, ul, ol { margin: 0; }
+li + li { margin-top: 4px; }
+.eyebrow { font: 500 .75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 1.12rem; color: var(--muted); }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; }
+pre { margin: 0; overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; font: 13px/1.55 var(--mono); }
+pre code { border: 0; padding: 0; background: none; font-size: inherit; }
+.c { color: var(--muted); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.split > * { min-width: 0; display: grid; gap: 12px; }
+@media (max-width: 960px) { .split { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 4px 0; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 640px; max-width: 1040px; height: auto; }
+figcaption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+.callout { border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; border: 1px solid var(--rule); background: var(--surface); }
+.callout strong { font-family: var(--display); font-size: 1.02rem; }
+.decision { background: var(--accent-tint); border-color: var(--accent); }
+.decision strong { color: var(--accent); }
+.note { background: var(--warn-tint); border-color: var(--warn); }
+.note strong { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+th { font: 600 .75rem/1.2 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
+.pill { display: inline-block; font: 500 .72rem/1.6 var(--mono); padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+.p-core { background: var(--core-tint); color: var(--core); }
+.p-adapter { background: var(--accent-tint); color: var(--accent); }
+.p-op { background: var(--warn-tint); color: var(--warn); }
+.p-bad { background: var(--bad-tint); color: var(--bad); }
+.p-ok { background: var(--ok-tint); color: var(--ok); }
+.challenges { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.ch { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.ch .when { font: 500 .72rem/1 var(--mono); color: var(--muted); letter-spacing: .05em; text-transform: uppercase; }
+.ch h4 { margin: 0; font: 600 1rem/1.3 var(--display); }
+.ch p { font-size: .92rem; }
+.ch .root { font-size: .85rem; color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 6px; }
+/* SVG tokens */
+.s-box { fill: var(--surface); stroke: var(--rule); stroke-width: 1.5; }
+.s-band { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+.s-core { fill: var(--core-tint); stroke: var(--core); stroke-width: 1.5; }
+.s-acc { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 1.5; }
+.s-op { fill: var(--warn-tint); stroke: var(--warn); stroke-width: 1.5; }
+.s-bad { fill: var(--bad-tint); stroke: var(--bad); stroke-width: 1.5; }
+.s-ok { fill: var(--ok-tint); stroke: var(--ok); stroke-width: 1.5; }
+.s-dash { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.s-line { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.s-line-acc { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+.s-line-core { stroke: var(--core); stroke-width: 1.8; fill: none; }
+.s-line-op { stroke: var(--warn); stroke-width: 1.8; fill: none; }
+.s-life { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.t { fill: var(--ink); font: 600 13.5px var(--body); }
+.t-b { fill: var(--ink); font: 400 12.5px var(--body); }
+.t-s { fill: var(--muted); font: 400 11px var(--mono); }
+.t-m { fill: var(--ink); font: 400 11.5px var(--mono); }
+.t-lane { fill: var(--muted); font: 600 11px var(--mono); letter-spacing: .06em; }
+.t-core { fill: var(--core); font: 600 11px var(--mono); }
+.t-acc { fill: var(--accent); font: 600 11px var(--mono); }
+.t-op { fill: var(--warn); font: 600 11px var(--mono); }
+.t-bad { fill: var(--bad); font: 600 12px var(--body); }
+.t-ok { fill: var(--ok); font: 600 12px var(--body); }
+.head { fill: var(--muted); } .head-acc { fill: var(--accent); } .head-core { fill: var(--core); } .head-op { fill: var(--warn); }
+</style>
+
+<main>
+  <div class="eyebrow">Proposed ADR 13 · 2026-11-12 · draft for discussion</div>
+  <h1>Vocabulary as data</h1>
+  <p class="lede">Bearing's kinds, fact names and the rules that connect them become versioned, published data, each with a clear owner. Adapters publish the terms they use. The operator relates them with reviewed mappings. Bearing keeps a small core vocabulary so the five questions mean the same thing everywhere.</p>
+
+  <div class="callout decision"><strong>The decision in five lines</strong>
+    <ol>
+      <li><strong>Every term has a namespaced name.</strong> Namespaces are reverse domains (<code>io.k8s</code>, <code>com.github</code>), written short when that is unambiguous: <code>core:owned_by</code>, <code>github:topics</code>, <code>k8s:Deployment</code>. Two adapters can no longer collide on a name.</li>
+      <li><strong>Bearing ships a core vocabulary module</strong> (<code>core@1</code>): today's built-in kinds and relations, kept in a source file, versioned and aligned to Backstage, W3C ORG, OpenTelemetry and SPDX.</li>
+      <li><strong>Each adapter publishes its own vocabulary module</strong> through <code>Describe</code>: its kinds and fields, their shapes, and the core terms it suggests they map to.</li>
+      <li><strong>Mappings and rules are records</strong>, not frozen properties. "A Deployment is a Component", "label <code>team</code> names the owner" and "these two fields mean the same thing" each carry an author, a status (asserted or proposed) and a time range.</li>
+      <li><strong>Every fact names its evidence:</strong> the observation and, when a rule made it, the rule and the rule's version.</li>
+    </ol>
+  </div>
+  <p>We borrow the <em>ideas</em> of the semantic-web standards (namespaced names, SKOS's <code>broader</code> and <code>exactMatch</code>, SSSOM's attributed mappings, PROV's derivations, SHACL's shapes). We don't take on their <em>machinery</em>: no OWL reasoner, triple store or SPARQL. A Turtle/JSON-LD export is possible later and costs little, but nothing depends on it.</p>
+
+  <!-- CHALLENGES -->
+  <h2>The problems we keep solving one at a time</h2>
+  <p>Each of these was fixed locally when it came up. Taken together, they share one root cause.</p>
+
+  <div class="challenges">
+    <div class="ch"><span class="when">ADR 6 · Oct 20</span><h4>A small, fixed list of kinds</h4><p>Eleven kinds and thirteen relations live in <code>pkg/model/registry.go</code>. A new domain (Vault, systemd) has nowhere to go without a Bearing release.</p><p class="root">The meaning lives in code that only Bearing can change.</p></div>
+    <div class="ch"><span class="when">ADR 10 · Nov 1</span><h4>Configured kinds, frozen once set</h4><p>Operators add <code>k8s.Service</code> with <code>extends</code>. To keep answers stable, a parent can never change and a name gets one shape. Both rules are sound, but they make every early choice permanent.</p><p class="root">A mapping is stored as a property of the kind, so it has no history of its own.</p></div>
+    <div class="ch"><span class="when">ADR 11 · Nov 6</span><h4>Two sources, two names for one team</h4><p>GitHub says "design" owns the frontend, PagerDuty says "UI Team". We stopped picking a winner and show both claims with their evidence.</p><p class="root">"Who decides" was solved for identity, but not for vocabulary.</p></div>
+    <div class="ch"><span class="when">Kubernetes adapter</span><h4>The adapter decides what a namespace is</h4><p>It emits every namespace as an <code>Environment</code>. For most people the cluster is the environment. Fixing that takes a code change and a release.</p><p class="root">The adapter assigns meaning that belongs to the operator.</p></div>
+    <div class="ch"><span class="when">ADR 12 review · Nov 10</span><h4>Choosing <code>extends</code> later is refused</h4><p>ADR 12 lets the operator decide what a kind means after install. ADR 10 refuses a changed parent, so the first edit stops Bearing from starting.</p><p class="root">Again, the mapping is frozen into the kind.</p></div>
+    <div class="ch"><span class="when">ADR 12 review · Nov 10</span><h4>Mapped field names collide</h4><p>GitHub's <code>id</code> is a number and PagerDuty's is text. Both are called <code>id</code>, and ADR 10 allows one shape per name.</p><p class="root">Names have no namespace, so every adapter shares one flat list.</p></div>
+    <div class="ch"><span class="when">ADR 12 review · Nov 10</span><h4>Derived facts lack provenance</h4><p>"Label <code>team</code> names the owner" makes a fact that no observation stated. Which evidence backs it? Is it asserted or a guess?</p><p class="root">Rules aren't records, so a fact can't point to one.</p></div>
+  </div>
+
+  <div class="callout note"><strong>The common root</strong>
+    <p>Three things are mixed together today: <em>names</em> (what a term is called), <em>meanings</em> (what it is a type of, and what it equals) and <em>rules</em> (how one fact follows from another). They live in two places, Go code and one settings block, with no namespace, no version, no author and no history. Every problem above is one of those missing pieces surfacing in a new spot. ADR 13 gives each piece an owner and a record.</p>
+  </div>
+
+  <!-- 1. PIECES AND OWNERS -->
+  <h2>The pieces and who owns them</h2>
+  <p>Each layer has exactly one owner, who is the only party that can change it. Everything flows down to facts, and every fact can be traced back up.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 560" role="img" aria-labelledby="a1t a1d">
+      <title id="a1t">Vocabulary layers and their owners</title>
+      <desc id="a1d">Five layers, each with an owner. Bearing maintainers own the core vocabulary. Adapter authors own adapter vocabularies, which point up to core terms. The operator owns mappings and rules, which connect adapter terms to core terms. Adapters, reading sources, produce observations that use adapter terms. Bearing's store turns observations and rules into facts, and queries read facts through the core vocabulary to answer questions.</desc>
+      <defs>
+        <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+        <marker id="mc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-core"/></marker>
+        <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-acc"/></marker>
+        <marker id="mo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-op"/></marker>
+      </defs>
+      <!-- lanes -->
+      <rect x="0" y="0" width="1000" height="104" class="s-band"/>
+      <rect x="0" y="112" width="1000" height="104" class="s-band"/>
+      <rect x="0" y="224" width="1000" height="104" class="s-band"/>
+      <rect x="0" y="336" width="1000" height="104" class="s-band"/>
+      <rect x="0" y="448" width="1000" height="104" class="s-band"/>
+      <text x="16" y="28" class="t-lane">BEARING</text><text x="16" y="44" class="t-lane">MAINTAINERS</text>
+      <text x="16" y="140" class="t-lane">ADAPTER</text><text x="16" y="156" class="t-lane">AUTHORS</text>
+      <text x="16" y="252" class="t-lane">OPERATOR</text><text x="16" y="268" class="t-s">(the team</text><text x="16" y="282" class="t-s">running Bearing)</text>
+      <text x="16" y="364" class="t-lane">SOURCES</text><text x="16" y="380" class="t-s">via adapters</text>
+      <text x="16" y="476" class="t-lane">BEARING</text><text x="16" y="492" class="t-lane">CORE</text>
+      <!-- core vocab -->
+      <rect x="170" y="14" width="810" height="76" rx="6" class="s-core"/>
+      <text x="186" y="38" class="t">Core vocabulary  core@1</text>
+      <text x="186" y="60" class="t-m">core:Component · core:Team · core:Person · core:Repository · core:Environment</text>
+      <text x="186" y="78" class="t-m">core:owned_by · core:depends_on · core:member_of · core:runtime · …</text>
+      <!-- adapter vocabs -->
+      <rect x="170" y="126" width="380" height="76" rx="6" class="s-acc"/>
+      <text x="186" y="150" class="t">github@1.2</text>
+      <text x="186" y="172" class="t-m">github:Repository · github:Team</text>
+      <text x="186" y="190" class="t-m">github:id · github:topics</text>
+      <rect x="600" y="126" width="380" height="76" rx="6" class="s-acc"/>
+      <text x="616" y="150" class="t">k8s@0.4</text>
+      <text x="616" y="172" class="t-m">k8s:Deployment · k8s:Namespace</text>
+      <text x="616" y="190" class="t-m">k8s:labels · k8s:replicas · k8s:image</text>
+      <!-- mappings -->
+      <rect x="170" y="238" width="810" height="76" rx="6" class="s-op"/>
+      <text x="186" y="262" class="t">Mappings and rules  (records with author, status, time)</text>
+      <text x="186" y="284" class="t-m">k8s:Deployment  broader     core:Component       asserted · by ops</text>
+      <text x="186" y="302" class="t-m">k8s:labels[team] derives    core:owned_by → Team  asserted · rule r-team@2</text>
+      <!-- observations -->
+      <rect x="170" y="350" width="380" height="76" rx="6" class="s-box"/>
+      <text x="186" y="374" class="t">Observations from GitHub</text>
+      <text x="186" y="396" class="t-m">github:Repository acme/payments</text>
+      <text x="186" y="414" class="t-s">vocabulary github@1.2</text>
+      <rect x="600" y="350" width="380" height="76" rx="6" class="s-box"/>
+      <text x="616" y="374" class="t">Observations from Kubernetes</text>
+      <text x="616" y="396" class="t-m">k8s:Deployment payments-api</text>
+      <text x="616" y="414" class="t-s">labels {team: payments} · k8s@0.4</text>
+      <!-- store -->
+      <rect x="170" y="462" width="460" height="76" rx="6" class="s-box"/>
+      <text x="186" y="486" class="t">Facts</text>
+      <text x="186" y="508" class="t-m">payments-api core:owned_by team:payments</text>
+      <text x="186" y="526" class="t-s">evidence: obs k8s/…/payments-api + rule r-team@2</text>
+      <rect x="680" y="462" width="300" height="76" rx="6" class="s-core"/>
+      <text x="696" y="486" class="t">Answers</text>
+      <text x="696" y="508" class="t-m">"Who owns payments-api?"</text>
+      <text x="696" y="526" class="t-s">read through core terms</text>
+      <!-- arrows -->
+      <path d="M360 126V92" class="s-line-core" marker-end="url(#mc)"/>
+      <path d="M790 126V92" class="s-line-core" marker-end="url(#mc)"/>
+      <text x="372" y="112" class="t-core">extends core</text>
+      <text x="802" y="112" class="t-core">extends core</text>
+      <path d="M360 426V460" class="s-line" marker-end="url(#m)"/>
+      <path d="M520 426V460" class="s-line" marker-end="url(#m)"/>
+      <path d="M980 276H992V444H600V460" class="s-line-op" marker-end="url(#mo)"/>
+      <text x="740" y="459" class="t-op">rules applied at ingest</text>
+      <path d="M630 500H676" class="s-line" marker-end="url(#m)"/>
+    </svg>
+    <figcaption>Color shows ownership: blue is Bearing's, teal is the adapter author's, amber is the operator's. Adapters never assign meaning, and the operator never edits the core.</figcaption>
+  </figure>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th>Owner</th><th>Lives in</th><th>Changes by</th><th>Can say</th><th>Can't say</th></tr></thead>
+    <tbody>
+      <tr><td>Core vocabulary</td><td><span class="pill p-core">Bearing maintainers</span></td><td><code>vocab/core.yaml</code>, compiled into the server</td><td>A Bearing release (PR + review)</td><td>What a Team, Component or owned_by <em>is</em> and what shape it has</td><td>Anything about one org's tools</td></tr>
+      <tr><td>Adapter vocabulary</td><td><span class="pill p-adapter">Adapter author</span></td><td>The adapter binary; sent in <code>Describe</code></td><td>An adapter release</td><td>Terms in its own namespace, their shapes, and suggested mappings</td><td>Terms in another namespace, or that its term <em>is</em> a core kind (only suggest it)</td></tr>
+      <tr><td>Operator vocabulary</td><td><span class="pill p-op">Operator</span></td><td>A file in the org's repo, named in settings with a pinned commit</td><td>A new commit and version</td><td>Terms no adapter publishes, such as <code>acme:ServiceGroup</code>, in the org's own namespace</td><td>Terms in a core or adapter namespace</td></tr>
+      <tr><td>Mappings and rules</td><td><span class="pill p-op">Operator</span></td><td>Settings file, or <code>bearing vocab</code> commands that go through the event log</td><td>Edit + restart, or accept/reject</td><td>What adapter terms mean here: broader, equivalent, derive</td><td>New core terms</td></tr>
+      <tr><td>Observations</td><td><span class="pill p-adapter">Source, via adapter</span></td><td><code>observation</code> table, append-only</td><td>Never edited</td><td>What the tool showed, in adapter terms</td><td>Anything not in the tool</td></tr>
+      <tr><td>Facts</td><td><span class="pill p-core">Bearing core</span></td><td><code>fact</code> + <code>fact_source</code></td><td>Ingest only</td><td>Statements with evidence: observation and, when a rule made it, the rule</td><td>Anything without evidence</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 2. ARCHITECTURE -->
+  <h2>Architecture today and proposed</h2>
+  <figure>
+    <svg viewBox="0 0 1000 520" role="img" aria-labelledby="a2t a2d">
+      <title id="a2t">Today versus proposed</title>
+      <desc id="a2d">Today: registry.go holds core kinds and relations in code; the settings file adds EntityKinds with a frozen extends; adapters declare bare field names; ingest writes facts with observation sources. Proposed: a core vocabulary file is generated into Go and a published module; adapters publish vocabulary modules in Describe; the settings file holds mappings and rules as records; at boot the server builds a vocabulary registry of term, prefix and mapping tables; ingest normalizes names, applies rules and records the rule in fact_source.</desc>
+      <defs>
+        <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+      </defs>
+      <text x="20" y="28" class="t-lane">TODAY</text>
+      <text x="520" y="28" class="t-lane">PROPOSED (ADR 13)</text>
+      <path d="M500 16V510" class="s-life"/>
+      <!-- today -->
+      <rect x="20" y="44" width="200" height="70" rx="6" class="s-box"/>
+      <text x="34" y="68" class="t">registry.go</text>
+      <text x="34" y="88" class="t-s">11 kinds, 13 relations,</text>
+      <text x="34" y="104" class="t-s">bare names, in Go</text>
+      <rect x="250" y="44" width="220" height="70" rx="6" class="s-box"/>
+      <text x="264" y="68" class="t">Settings: EntityKind</text>
+      <text x="264" y="88" class="t-s">extends frozen at first boot</text>
+      <text x="264" y="104" class="t-s">one shape per bare name</text>
+      <rect x="20" y="150" width="450" height="64" rx="6" class="s-box"/>
+      <text x="34" y="174" class="t">Server boot → kind, kind_predicate tables</text>
+      <text x="34" y="196" class="t-s">grow-only check against last boot</text>
+      <path d="M120 114V146" class="s-line" marker-end="url(#m2)"/>
+      <path d="M360 114V146" class="s-line" marker-end="url(#m2)"/>
+      <rect x="20" y="250" width="200" height="70" rx="6" class="s-box"/>
+      <text x="34" y="274" class="t">Adapter Describe</text>
+      <text x="34" y="294" class="t-s">fields: bare names,</text>
+      <text x="34" y="310" class="t-s">kinds it emits</text>
+      <rect x="250" y="250" width="220" height="70" rx="6" class="s-box"/>
+      <text x="264" y="274" class="t">Adapter Sync</text>
+      <text x="264" y="294" class="t-s">observations, may assign</text>
+      <text x="264" y="310" class="t-s">core kinds (Environment)</text>
+      <rect x="20" y="356" width="450" height="64" rx="6" class="s-box"/>
+      <text x="34" y="380" class="t">Ingest → fact, fact_source(fact, observation)</text>
+      <text x="34" y="402" class="t-s">no place to record a rule</text>
+      <path d="M360 320V352" class="s-line" marker-end="url(#m2)"/>
+      <rect x="20" y="446" width="450" height="56" rx="6" class="s-bad"/>
+      <text x="34" y="470" class="t-bad">Pain: names collide · meanings frozen · rules invisible</text>
+      <text x="34" y="490" class="t-s">adapters choose meaning; operators can't revisit it</text>
+      <!-- proposed -->
+      <rect x="520" y="44" width="140" height="70" rx="6" class="s-core"/>
+      <text x="534" y="68" class="t">core@1</text>
+      <text x="534" y="88" class="t-s">vocab/core.yaml</text>
+      <text x="534" y="104" class="t-s">generated Go</text>
+      <rect x="680" y="44" width="140" height="70" rx="6" class="s-acc"/>
+      <text x="694" y="68" class="t">Adapter modules</text>
+      <text x="694" y="88" class="t-s">in Describe:</text>
+      <text x="694" y="104" class="t-s">github, k8s, …</text>
+      <rect x="840" y="44" width="140" height="70" rx="6" class="s-op"/>
+      <text x="854" y="68" class="t">Mappings</text>
+      <text x="854" y="88" class="t-s">settings + CLI,</text>
+      <text x="854" y="104" class="t-s">dated records</text>
+      <rect x="520" y="150" width="460" height="64" rx="6" class="s-box"/>
+      <text x="534" y="174" class="t">Vocabulary registry → term, prefix, mapping tables</text>
+      <text x="534" y="196" class="t-s">checks: own namespace only · shapes · grow-only per term</text>
+      <path d="M590 114V146" class="s-line" marker-end="url(#m2)"/>
+      <path d="M750 114V146" class="s-line" marker-end="url(#m2)"/>
+      <path d="M910 114V146" class="s-line" marker-end="url(#m2)"/>
+      <rect x="520" y="250" width="460" height="70" rx="6" class="s-acc"/>
+      <text x="534" y="274" class="t">Adapter Sync</text>
+      <text x="534" y="294" class="t-s">observations in its own terms only (k8s:Deployment, k8s:labels)</text>
+      <text x="534" y="310" class="t-s">each observation names its module version</text>
+      <rect x="520" y="356" width="460" height="64" rx="6" class="s-box"/>
+      <text x="534" y="380" class="t">Ingest: normalize renames · apply rules · close</text>
+      <text x="534" y="402" class="t-s">fact_source(fact, observation, rule@version)</text>
+      <path d="M750 320V352" class="s-line" marker-end="url(#m2)"/>
+      <rect x="520" y="446" width="460" height="56" rx="6" class="s-ok"/>
+      <text x="534" y="470" class="t-ok">Gain: names namespaced · meanings dated · rules cited</text>
+      <text x="534" y="490" class="t-s">queries read adapter terms through mappings to core terms</text>
+    </svg>
+    <figcaption>The store keeps its shape: observations, records, facts, identity links. What changes is that the vocabulary gets three tables of its own, and that a fact can name a rule as well as an observation.</figcaption>
+  </figure>
+
+  <div class="split">
+    <div>
+      <h3>Store changes</h3>
+      <ul>
+        <li><strong><code>term</code></strong> replaces <code>kind</code> and <code>kind_predicate</code>: one row per kind, relation or attribute. Columns: the namespaced name, the module and version that defined it, the shape (type, cardinality, conflict policy), its deprecation (<code>deprecated_since</code>, <code>replaced_by</code>, <code>consider</code>, <code>reason</code>), and its added and retired times.</li>
+        <li><strong><code>prefix</code></strong> maps a full namespace (<code>com.github</code>) to the module that owns it, plus its short name and any aliases. Only that module may define terms in that namespace. Stored names are always full; short names exist only in config and output.</li>
+        <li><strong><code>mapping</code></strong> has the same shape as <code>identity_link</code>: subject term, predicate (<code>broader</code>, <code>exact_match</code>, <code>derives</code>), object term, status, author, justification, rule version, <code>valid_from</code>/<code>valid_to</code>.</li>
+        <li><strong><code>fact_source.rule</code></strong> is a new nullable column naming the mapping and version that made the fact.</li>
+      </ul>
+      <p>No migration is needed: Bearing has no deployments yet, so the demo starts from a clean store.</p>
+    </div>
+    <div>
+      <h3>What stays exactly as it is</h3>
+      <ul>
+        <li>Observations are append-only and remain the provenance (ADR 2).</li>
+        <li>Facts keep their single time axis, asserted/proposed status, confidence and closing (ADR 6).</li>
+        <li>Records, <code>same_as</code>/<code>distinct_from</code> links and clusters (ADR 7). These are never OWL <code>sameAs</code>.</li>
+        <li>Answers show each evidence path (ADR 11). A path can now include a rule step.</li>
+        <li>DuckDB stays the store (ADR 5). Moving from kind to broader term is the same recursive CTE as today's <code>WithDescendants</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 3. CORE MODULE -->
+  <h2>How the core vocabulary is maintained and used</h2>
+  <p>The core vocabulary becomes a source file. It is reviewed like code, versioned like an API, and generated into what the server and others consume. It stays small on purpose: only terms the five questions (and their near neighbours) need.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 330" role="img" aria-labelledby="a3t a3d">
+      <title id="a3t">Core vocabulary lifecycle</title>
+      <desc id="a3d">A maintainer edits vocab/core.yaml in a pull request. Review and the grow-only check run in CI. make generate produces Go constants, an embedded module file and a Turtle export. A release tags core at a new version. At boot the server writes the core terms into the term table; ingest and queries use them.</desc>
+      <defs>
+        <marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+      </defs>
+      <rect x="10" y="40" width="160" height="84" rx="6" class="s-core"/>
+      <text x="24" y="64" class="t">Edit</text>
+      <text x="24" y="86" class="t-m">vocab/core.yaml</text>
+      <text x="24" y="104" class="t-s">in a pull request</text>
+      <path d="M170 82H206" class="s-line" marker-end="url(#m3)"/>
+      <rect x="210" y="40" width="170" height="84" rx="6" class="s-box"/>
+      <text x="224" y="64" class="t">Review + CI</text>
+      <text x="224" y="86" class="t-s">spec-reviewer</text>
+      <text x="224" y="104" class="t-s">grow-only vs last tag</text>
+      <path d="M380 82H416" class="s-line" marker-end="url(#m3)"/>
+      <rect x="420" y="40" width="170" height="84" rx="6" class="s-box"/>
+      <text x="434" y="64" class="t">make generate</text>
+      <text x="434" y="86" class="t-s">one source,</text>
+      <text x="434" y="104" class="t-s">three outputs</text>
+      <path d="M590 82H626" class="s-line" marker-end="url(#m3)"/>
+      <rect x="630" y="40" width="160" height="84" rx="6" class="s-core"/>
+      <text x="644" y="64" class="t">Release core@1.3</text>
+      <text x="644" y="86" class="t-s">with the Bearing</text>
+      <text x="644" y="104" class="t-s">release</text>
+      <path d="M790 82H826" class="s-line" marker-end="url(#m3)"/>
+      <rect x="830" y="40" width="160" height="84" rx="6" class="s-box"/>
+      <text x="844" y="64" class="t">Server boot</text>
+      <text x="844" y="86" class="t-s">writes core terms</text>
+      <text x="844" y="104" class="t-s">into term table</text>
+      <!-- outputs -->
+      <path d="M505 124V160H120V196" class="s-line" marker-end="url(#m3)"/>
+      <path d="M505 160V196" class="s-line" marker-end="url(#m3)"/>
+      <path d="M505 160H880V196" class="s-line" marker-end="url(#m3)"/>
+      <rect x="20" y="200" width="250" height="104" rx="6" class="s-box"/>
+      <text x="34" y="224" class="t">Go constants</text>
+      <text x="34" y="246" class="t-m">vocab.CoreOwnedBy</text>
+      <text x="34" y="266" class="t-s">used by pkg/query for the</text>
+      <text x="34" y="282" class="t-s">five questions</text>
+      <rect x="380" y="200" width="250" height="104" rx="6" class="s-box"/>
+      <text x="394" y="224" class="t">Embedded module</text>
+      <text x="394" y="246" class="t-m">core.json</text>
+      <text x="394" y="266" class="t-s">what boot loads; the same</text>
+      <text x="394" y="282" class="t-s">format adapters publish</text>
+      <rect x="740" y="200" width="250" height="104" rx="6" class="s-box" stroke-dasharray="5 4"/>
+      <text x="754" y="224" class="t">Turtle / JSON-LD</text>
+      <text x="754" y="246" class="t-m">core.ttl</text>
+      <text x="754" y="266" class="t-s">published docs and interop;</text>
+      <text x="754" y="282" class="t-s">optional, nothing reads it</text>
+    </svg>
+    <figcaption>One source file, three outputs. The Go constants mean the five questions stay checked at compile time, and the module file is the same format adapters publish, so the core and the adapters are loaded the same way.</figcaption>
+  </figure>
+
+  <div class="split">
+    <div>
+      <h3>Rules for the core</h3>
+      <ul>
+        <li><strong>It only grows.</strong> A term is never deleted or reshaped. A rename adds the new term and marks the old one deprecated and <code>replaced_by</code> the new. Ingest stores facts under the current name, so queries and "what changed" don't see noise when a version changes. See <a href="#deprecation">deprecation and supersession</a>.</li>
+        <li><strong>It is aligned, not invented.</strong> Each core term lists <code>exact_match</code> or <code>close_match</code> links to the standards people already use. Backstage's catalog is the closest model to ours, so it comes first; then W3C ORG for teams, OpenTelemetry for <code>service.*</code> and <code>k8s.*</code> names, and SPDX/purl for packages. These links are documentation and help with export. They don't change answers.</li>
+        <li><strong>It stays small.</strong> A new core term needs a question that uses it. Everything else belongs in an adapter's namespace.</li>
+      </ul>
+    </div>
+    <pre><code><span class="c"># vocab/core.yaml (sketch)</span>
+module: core
+version: 1.3.0
+terms:
+  - name: Component
+    is: kind
+    label: A deployable piece of software
+    exact_match: [backstage:Component]
+    close_match: [schema:SoftwareApplication]
+
+  - name: owned_by
+    is: relation
+    domain: [any]
+    range: [Team, Person]
+    cardinality: many
+    conflict: set
+    exact_match: [backstage:spec.owner]
+
+  - name: runtime
+    is: attribute
+    type: object
+    cardinality: many
+
+  - name: language_version      <span class="c"># superseded: one successor</span>
+    is: attribute
+    deprecated:
+      since: 1.3.0
+      replaced_by: runtime
+      reason: "runtime holds language and version together"</code></pre>
+  </div>
+
+  <!-- 4. ADAPTERS PUBLISH -->
+  <h2>How adapters publish their vocabulary</h2>
+  <p>An adapter describes the terms it uses, in its own namespace, when the server first calls <code>Describe</code>. Today that call already returns fields and kinds, so the change is one new message, not a new call. The adapter may <em>suggest</em> how its terms relate to the core. A suggestion arrives as a proposed mapping that only the operator can accept.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 470" role="img" aria-labelledby="a4t a4d">
+      <title id="a4t">An adapter publishes its vocabulary</title>
+      <desc id="a4d">Sequence between the Kubernetes adapter, Bearing's server, the store and the operator. The server calls Describe; the adapter returns module k8s at 0.4 with its terms and suggested mappings. The server checks the namespace, shapes and grow-only rule, writes terms, and stores suggestions as proposed mappings. The operator reviews with bearing vocab and accepts one. Sync then sends observations in k8s terms, and ingest applies the accepted mappings.</desc>
+      <defs>
+        <marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+        <marker id="m4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-acc"/></marker>
+        <marker id="m4o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-op"/></marker>
+      </defs>
+      <rect x="40" y="10" width="160" height="40" rx="6" class="s-acc"/><text x="120" y="35" text-anchor="middle" class="t">k8s adapter</text>
+      <rect x="300" y="10" width="160" height="40" rx="6" class="s-core"/><text x="380" y="35" text-anchor="middle" class="t">Bearing server</text>
+      <rect x="560" y="10" width="160" height="40" rx="6" class="s-box"/><text x="640" y="35" text-anchor="middle" class="t">Store</text>
+      <rect x="800" y="10" width="160" height="40" rx="6" class="s-op"/><text x="880" y="35" text-anchor="middle" class="t">Operator</text>
+      <path d="M120 50V460" class="s-life"/><path d="M380 50V460" class="s-life"/><path d="M640 50V460" class="s-life"/><path d="M880 50V460" class="s-life"/>
+      <!-- 1 -->
+      <path d="M380 80H124" class="s-line" marker-end="url(#m4)"/>
+      <text x="200" y="74" class="t-s">1 · Describe()</text>
+      <path d="M120 112H376" class="s-line-acc" marker-end="url(#m4a)"/>
+      <text x="132" y="106" class="t-acc">2 · module k8s@0.4: terms + suggestions</text>
+      <!-- 3 check -->
+      <rect x="392" y="126" width="266" height="64" rx="6" class="s-box"/>
+      <text x="404" y="146" class="t-m">3 · check</text>
+      <text x="404" y="164" class="t-s">namespace k8s owned by this source?</text>
+      <text x="404" y="180" class="t-s">shapes valid? grow-only vs k8s@0.3?</text>
+      <!-- 4 write -->
+      <path d="M380 214H636" class="s-line" marker-end="url(#m4)"/>
+      <text x="392" y="208" class="t-s">4 · write terms, prefix k8s</text>
+      <path d="M380 244H636" class="s-line" marker-end="url(#m4)"/>
+      <text x="392" y="238" class="t-s">5 · suggestions → mapping (proposed)</text>
+      <!-- 6 operator -->
+      <path d="M880 286H384" class="s-line-op" marker-end="url(#m4o)"/>
+      <text x="420" y="280" class="t-op">6 · bearing vocab review → accept k8s:Deployment broader core:Component</text>
+      <path d="M380 316H636" class="s-line" marker-end="url(#m4)"/>
+      <text x="392" y="310" class="t-s">7 · mapping → asserted, valid_from now</text>
+      <!-- 8 sync -->
+      <path d="M380 356H124" class="s-line" marker-end="url(#m4)"/>
+      <text x="200" y="350" class="t-s">8 · Sync()</text>
+      <path d="M120 388H376" class="s-line-acc" marker-end="url(#m4a)"/>
+      <text x="132" y="382" class="t-acc">9 · observations in k8s: terms only</text>
+      <path d="M380 420H636" class="s-line" marker-end="url(#m4)"/>
+      <text x="392" y="414" class="t-s">10 · facts, read through accepted mappings</text>
+      <text x="660" y="450" class="t-s">Unaccepted suggestions answer nothing (ADR 2).</text>
+    </svg>
+    <figcaption>The adapter author knows the API; the operator knows what it means at their company. Suggestions let the author share what they know without deciding for the operator.</figcaption>
+  </figure>
+
+  <div class="split">
+    <div>
+      <h3>The rules the server enforces</h3>
+      <ul>
+        <li><strong>Namespaces are reverse domains.</strong> <code>Describe</code> must name a full namespace such as <code>io.k8s</code>; a bare <code>k8s</code> is refused. The first source to publish a namespace owns it, unless settings pin it to a source. Another adapter that publishes <code>io.k8s:</code> terms is refused, by name. Two Kubernetes adapters for two clusters share one module and differ only by instance.</li>
+        <li><strong>Short names resolve by the last segment.</strong> <code>k8s:Deployment</code> means <code>io.k8s:Deployment</code> while only one loaded namespace ends in <code>k8s</code>. If a second one arrives, config that uses the short name fails to load, naming both, and the operator adds an alias. Stored data is unaffected, because it always holds full names. <code>core</code> is reserved for <code>com.dougmccall.bearing.core</code>.</li>
+        <li><strong>Aliases are the operator's.</strong> Settings may define <code>alias: { gh: com.github }</code>. An explicit alias wins over a short name.</li>
+        <li><strong>Shapes are per term.</strong> <code>github:id</code> (number) and <code>pagerduty:id</code> (text) are different terms, so they can't collide. A term may share a shape with a core term only through an <code>exact_match</code> mapping, and boot checks that the two shapes agree.</li>
+        <li><strong>Grow-only per term,</strong> as ADR 10 has it today, but scoped to the term rather than the whole kind. Renames use <code>deprecated</code> with <code>replaced_by</code>.</li>
+        <li><strong>Adapters never emit core terms directly.</strong> That rules out the Kubernetes adapter deciding a namespace is an <code>Environment</code>. ADR 12's generic adapter needs no special rule for this; it is the same rule.</li>
+        <li><strong>Each observation names its module version</strong> (<code>k8s@0.4</code>) as a field outside the content-derived ID, so deduplication isn't affected.</li>
+      </ul>
+    </div>
+    <pre><code><span class="c"># What Describe returns (shown as YAML; it's a proto message)</span>
+vocabulary:
+  namespace: io.k8s             <span class="c"># short name: k8s</span>
+  version: 0.4.0
+  source:                       <span class="c"># from Go build info</span>
+    repo: github.com/dhm116/bearing
+    ref: 9b1c4e2
+  terms:
+    - name: Deployment
+      is: kind
+    - name: replicas
+      is: attribute
+      type: integer
+      cardinality: one
+    - name: labels
+      is: attribute
+      type: map
+      cardinality: one
+  suggests:                     <span class="c"># proposed until accepted</span>
+    - subject: k8s:Deployment
+      predicate: broader
+      object: core:Component
+      justification: "A Deployment runs one service"
+    - subject: k8s:Namespace
+      predicate: broader
+      object: core:Environment
+      justification: "Common, but many teams use the cluster"</code></pre>
+  </div>
+
+  <!-- 5. RULES -->
+  <h2>How mappings and rules are defined, managed and maintained</h2>
+  <p>One mechanism covers all three kinds of mapping. Each is a row with a subject, a predicate and an object, plus who made it, why, how sure, and when it was in force. This is the SSSOM pattern, and it is how Bearing already treats identity links (ADR 7).</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Predicate</th><th>Means</th><th>Example</th><th>Effect on answers</th></tr></thead>
+    <tbody>
+      <tr><td><code>broader</code></td><td>Is a type of (today's <code>extends</code>)</td><td><code>k8s:Deployment broader core:Component</code></td><td>Deployments answer "who owns service X"</td></tr>
+      <tr><td><code>exact_match</code></td><td>Same meaning, same shape</td><td><code>github:Team exact_match core:Team</code></td><td>Queries for <code>core:Team</code> include GitHub teams</td></tr>
+      <tr><td><code>close_match</code></td><td>Related, for people to read</td><td><code>k8s:Namespace close_match core:Environment</code></td><td>None: documentation only</td></tr>
+      <tr><td><code>derives</code></td><td>A rule that makes a fact from an observation, with a Go template for the key</td><td><code>k8s:Deployment derives core:owned_by → core:Team key 'team:{{ .labels.team | lower }}'</code></td><td>Creates facts that cite the rule and its version</td></tr>
+    </tbody>
+  </table></div>
+
+  <figure>
+    <svg viewBox="0 0 1000 400" role="img" aria-labelledby="a5t a5d">
+      <title id="a5t">Life of a mapping, and a derived fact</title>
+      <desc id="a5d">Top: a mapping is suggested by an adapter or bearing adapter init, or written by the operator. Suggested and imported mappings start proposed; the operator accepts or rejects. An accepted mapping is asserted from a valid_from time; replacing or retiring it sets valid_to, and its facts close. Bottom: an observation with label team equals payments, plus rule r-team at version 2, produces the fact payments-api owned_by team payments, whose fact_source names both.</desc>
+      <defs>
+        <marker id="m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+      </defs>
+      <text x="20" y="24" class="t-lane">LIFE OF A MAPPING</text>
+      <rect x="20" y="40" width="190" height="72" rx="6" class="s-acc"/>
+      <text x="34" y="64" class="t">Suggested</text>
+      <text x="34" y="84" class="t-s">by an adapter, adapter</text>
+      <text x="34" y="100" class="t-s">init, or an import</text>
+      <path d="M210 76H256" class="s-line" marker-end="url(#m5)"/>
+      <rect x="260" y="40" width="170" height="72" rx="6" class="s-op"/>
+      <text x="274" y="64" class="t">Proposed</text>
+      <text x="274" y="84" class="t-s">answers nothing;</text>
+      <text x="274" y="100" class="t-s">in the review queue</text>
+      <path d="M430 76H476" class="s-line" marker-end="url(#m5)"/>
+      <text x="436" y="68" class="t-s">accept</text>
+      <rect x="480" y="40" width="200" height="72" rx="6" class="s-ok"/>
+      <text x="494" y="64" class="t">Asserted</text>
+      <text x="494" y="84" class="t-s">from valid_from; author</text>
+      <text x="494" y="100" class="t-s">and justification kept</text>
+      <path d="M680 76H726" class="s-line" marker-end="url(#m5)"/>
+      <text x="684" y="68" class="t-s">replace</text>
+      <rect x="730" y="40" width="250" height="72" rx="6" class="s-box"/>
+      <text x="744" y="64" class="t">Retired</text>
+      <text x="744" y="84" class="t-s">valid_to set; its facts close;</text>
+      <text x="744" y="100" class="t-s">history and old answers stay</text>
+      <path d="M345 112V140H300" class="s-line" marker-end="url(#m5)"/>
+      <rect x="160" y="128" width="136" height="32" rx="6" class="s-bad"/><text x="228" y="149" text-anchor="middle" class="t-bad">Rejected</text>
+      <path d="M100 160V112" class="s-dash"/>
+      <text x="20" y="180" class="t-s">or written directly by the operator in settings → starts asserted</text>
+      <!-- derived fact -->
+      <text x="20" y="226" class="t-lane">A DERIVED FACT AND ITS EVIDENCE</text>
+      <rect x="20" y="242" width="270" height="84" rx="6" class="s-box"/>
+      <text x="34" y="266" class="t">Observation obs-7f3</text>
+      <text x="34" y="288" class="t-m">k8s:Deployment payments-api</text>
+      <text x="34" y="306" class="t-m">k8s:labels {team: payments}</text>
+      <rect x="20" y="336" width="270" height="56" rx="6" class="s-op"/>
+      <text x="34" y="358" class="t">Rule r-team @ v2</text>
+      <text x="34" y="378" class="t-s">asserted · by ops · 2026-11-12</text>
+      <path d="M290 284H336V310H380" class="s-line" marker-end="url(#m5)"/>
+      <path d="M290 364H336V330H380" class="s-line" marker-end="url(#m5)"/>
+      <rect x="384" y="272" width="250" height="84" rx="6" class="s-core"/>
+      <text x="398" y="296" class="t">Ingest applies rule</text>
+      <text x="398" y="318" class="t-s">deterministic → asserted</text>
+      <text x="398" y="336" class="t-s">guess → proposed</text>
+      <path d="M634 314H680" class="s-line" marker-end="url(#m5)"/>
+      <rect x="684" y="242" width="296" height="150" rx="6" class="s-ok"/>
+      <text x="698" y="266" class="t">Fact</text>
+      <text x="698" y="288" class="t-m">payments-api core:owned_by</text>
+      <text x="698" y="306" class="t-m">  team:payments  (asserted)</text>
+      <text x="698" y="334" class="t">fact_source</text>
+      <text x="698" y="356" class="t-m">observation obs-7f3</text>
+      <text x="698" y="374" class="t-m">rule r-team@2</text>
+    </svg>
+    <figcaption>The answer to "why does Bearing think payments owns this?" now reads: Kubernetes showed label <code>team=payments</code> on 2026-11-12, and rule r-team (v2, added by ops) turns that label into ownership.</figcaption>
+  </figure>
+
+  <div class="split">
+    <div>
+      <h3>Where rules run and how they change</h3>
+      <ul>
+        <li><strong>In the server, at ingest.</strong> One place, every adapter, no adapter release. The observation is still the evidence; the rule is named next to it.</li>
+        <li><strong>Asserted or proposed.</strong> A <code>derives</code> rule built from a fixed field (a label, an annotation, a URL parsed by a known rule) is asserted, as ADR 2 says. Anything that guesses, such as name similarity or a model, may only produce proposals.</li>
+        <li><strong>Changing a rule is a new version, and v2 supersedes v1.</strong> A fact that v2 also makes keeps its identity and gains v2 as a source, so it doesn't close and reopen. Only facts that differ close or open. "What changed" shows the rule change next to them. See <a href="#deprecation">deprecation and supersession</a>.</li>
+        <li><strong>Adding <code>broader</code> later is allowed.</strong> It is a dated row now, not a frozen parent, so the ADR 12 blocker goes away. ADR 10's concern, that answers could change with no new evidence, is met because the mapping row <em>is</em> the evidence: it has an author and a date.</li>
+        <li><strong>Rules use Go templates with Sprig's functions.</strong> A template sees only the fields the observation carries, which are already allow-listed, so it can't reach a secret the adapter dropped. The function set is a deterministic subset with Sprig's names (see <a href="#sprig">Sprig, measured</a>), with no <code>env</code>, random values, UUIDs, clocks or key generation. Those would leak secrets or make the same observation give a different fact on replay. Templates are parsed at boot, and a bad one stops boot, naming the rule. A template that renders empty, or reads a missing field, makes no fact. The template text is part of the rule, so editing it is a new version.</li>
+        <li><strong>Every mapping ends at a core or operator term.</strong> No mapping goes from one adapter's term to another adapter's term. Each adapter maps to the core, which costs one mapping per term instead of one per pair. Allowing adapter-to-adapter mappings would need a real use case first.</li>
+        <li><strong>Middleware stays for what templates can't express,</strong> such as parsing <code>DATABASE_URL</code> into <code>depends_on</code>. It runs inside the adapter process (ADR 12's <code>Use</code>), so the server needs no plugin system, gRPC callback or WebAssembly. It emits terms in the adapter's own namespace, so the operator still maps them.</li>
+      </ul>
+    </div>
+    <pre><code><span class="c"># settings file: operator-owned mappings (sketch)</span>
+kind: Mapping
+spec:
+  id: k8s-deployment-is-component
+  subject: k8s:Deployment
+  predicate: broader
+  object: core:Component
+  justification: "Each Deployment is one service at Acme"
+---
+kind: Mapping
+spec:
+  id: r-team
+  version: 2
+  subject: k8s:Deployment
+  predicate: derives
+  object: core:owned_by
+  target:
+    kind: core:Team
+    key: 'team:{{ .labels.team | lower | trim }}'
+  justification: "Platform policy: every workload has a team label"
+
+<span class="c"># or from the CLI, through the event log:</span>
+<span class="c"># bearing vocab review          (lists proposed mappings)</span>
+<span class="c"># bearing vocab accept &lt;id&gt; --why "..."</span></code></pre>
+  </div>
+
+  <!-- OPERATOR VOCABULARY -->
+  <h2 id="operator-vocabulary">Operator vocabulary: terms no adapter publishes</h2>
+  <div class="split">
+    <div>
+      <p>Sometimes the org's own idea of a thing is missing from every tool. In one real org, a single PagerDuty service stands for several real services, which share its on-call schedule and escalation policy. No adapter can publish that grouping, because no single tool holds it. The core shouldn't either, because it is one org's convention.</p>
+      <p>So the operator is a third owner of terms, with the same rules as the other two:</p>
+      <ul>
+        <li><strong>Its own namespace</strong>, a reverse domain such as <code>com.acme</code>. It can't add terms to a core or adapter namespace.</li>
+        <li><strong>A pinned, verified source.</strong> The settings file names the vocabulary file's repo, path and full commit SHA, and may add a SHA-256 checksum of the file. Branch and tag names are refused. Bearing always reads a local copy of the file, then verifies it one of two ways:
+          <ul>
+            <li><strong>By commit</strong>, when the repo can be reached: the file must be exactly the blob at that commit and path.</li>
+            <li><strong>By checksum</strong>, when it can't, which covers fully offline installs: the file must match <code>sha256</code>.</li>
+          </ul>
+          If neither check can run, or one fails, boot stops and names the file. Each term row records the repo, commit, checksum and which check passed. <code>bearing vocab check</code> prints the checksum to paste into settings.</li>
+        <li><strong>Grow-only, with deprecation,</strong> exactly like core and adapter terms. Boot compares the new file with the terms already stored.</li>
+        <li><strong>Never through import.</strong> An import still only adds mappings.</li>
+      </ul>
+      <p>Core and adapter modules carry the same <code>source</code> field: the Bearing release commit for core, and the adapter's build commit, which Go records in every binary. So every term, whoever owns it, points back to a commit.</p>
+    </div>
+    <pre><code><span class="c"># settings file</span>
+kind: Vocabulary
+spec:
+  namespace: com.acme              <span class="c"># short name: acme</span>
+  source:
+    repo: github.com/acme/bearing-vocab
+    path: vocab/acme.yaml
+    ref: 3f9c2e1d8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d  <span class="c"># full SHA</span>
+    sha256: 9a7f0c...e41b       <span class="c"># optional; required offline</span>
+---
+<span class="c"># vocab/acme.yaml, at that commit</span>
+version: 1.0.0
+terms:
+  - name: ServiceGroup
+    is: kind
+    description: "One on-call service that stands for several real services"
+---
+<span class="c"># settings file: operator mappings that use it</span>
+kind: Mapping
+spec:
+  id: pd-service-is-group
+  subject: pagerduty:Service
+  predicate: broader
+  object: acme:ServiceGroup</code></pre>
+  </div>
+
+  <!-- DEPRECATION -->
+  <h2 id="deprecation">Deprecation and supersession</h2>
+  <p>A deprecated term, mapping or rule stays readable forever, but it says one of three things about what comes next. The difference matters because only the first case is safe for Bearing to act on by itself.</p>
+
+  <figure>
+    <svg viewBox="0 0 1000 300" role="img" aria-labelledby="a7t a7d">
+      <title id="a7t">Three ways an item is deprecated</title>
+      <desc id="a7d">Superseded: language_version is replaced_by runtime, one successor, so ingest rewrites new observations to runtime and old facts are read through it. Split or merged: k8s:labels is deprecated with consider k8s:label_team and k8s:label_app, several candidates, so Bearing rewrites nothing and the operator chooses with a mapping. Retired: a term deprecated with no successor keeps its history, and adapters get a warning when they still send it.</desc>
+      <defs>
+        <marker id="m7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+        <marker id="m7o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-op"/></marker>
+      </defs>
+      <!-- superseded -->
+      <text x="20" y="24" class="t-lane">SUPERSEDED · ONE SUCCESSOR</text>
+      <rect x="20" y="40" width="300" height="70" rx="6" class="s-box"/>
+      <text x="34" y="64" class="t">core:language_version</text>
+      <text x="34" y="86" class="t-s">deprecated since core@1.3</text>
+      <text x="34" y="102" class="t-s">replaced_by: core:runtime</text>
+      <path d="M320 75H366" class="s-line" marker-end="url(#m7)"/>
+      <rect x="370" y="40" width="210" height="70" rx="6" class="s-core"/>
+      <text x="384" y="64" class="t">core:runtime</text>
+      <text x="384" y="86" class="t-s">the successor</text>
+      <rect x="610" y="40" width="370" height="70" rx="6" class="s-ok"/>
+      <text x="624" y="64" class="t-ok">Bearing acts by itself</text>
+      <text x="624" y="86" class="t-s">ingest rewrites new observations;</text>
+      <text x="624" y="102" class="t-s">queries read old facts through it</text>
+      <!-- split -->
+      <text x="20" y="140" class="t-lane">SPLIT OR MERGED · SEVERAL CANDIDATES</text>
+      <rect x="20" y="156" width="300" height="70" rx="6" class="s-box"/>
+      <text x="34" y="180" class="t">k8s:labels</text>
+      <text x="34" y="202" class="t-s">deprecated since k8s@0.5</text>
+      <text x="34" y="218" class="t-s">consider: label_team, label_app</text>
+      <path d="M320 191H366" class="s-line" marker-end="url(#m7)"/>
+      <rect x="370" y="156" width="210" height="70" rx="6" class="s-acc"/>
+      <text x="384" y="180" class="t">k8s:label_team</text>
+      <text x="384" y="202" class="t">k8s:label_app</text>
+      <rect x="610" y="156" width="370" height="70" rx="6" class="s-op"/>
+      <text x="624" y="180" class="t">The operator decides</text>
+      <text x="624" y="202" class="t-s">nothing is rewritten; rules on the old</text>
+      <text x="624" y="218" class="t-s">term are flagged for review</text>
+      <!-- retired -->
+      <text x="20" y="256" class="t-lane">RETIRED · NO SUCCESSOR</text>
+      <rect x="20" y="266" width="560" height="28" rx="6" class="s-box"/>
+      <text x="34" y="285" class="t-s">history stays; an adapter still sending it gets a warning at Describe</text>
+    </svg>
+    <figcaption><code>replaced_by</code> is a promise that the new item means the same thing. <code>consider</code> is only a pointer for a person. Bearing rewrites data only on the promise.</figcaption>
+  </figure>
+
+  <div class="split">
+    <div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Field</th><th>Meaning</th><th>Who may set it</th></tr></thead>
+        <tbody>
+          <tr><td><code>since</code></td><td>The module version, or the time for a mapping, when it was deprecated</td><td>The item's owner</td></tr>
+          <tr><td><code>replaced_by</code></td><td>Exactly one successor with the same meaning and a compatible shape. Boot checks the shapes</td><td>The item's owner</td></tr>
+          <tr><td><code>consider</code></td><td>Candidates for a person to pick from, when no single successor fits</td><td>The item's owner</td></tr>
+          <tr><td><code>reason</code></td><td>Why, in a sentence. It appears in <code>bearing vocab review</code> and in answers that touch the item</td><td>The item's owner</td></tr>
+        </tbody>
+      </table></div>
+      <ul>
+        <li><strong>The owner decides.</strong> Bearing maintainers deprecate core terms, adapter authors deprecate their own terms, and the operator deprecates mappings and rules. A <code>replaced_by</code> across owners (an adapter term replaced by a core term) is only a suggestion, and arrives as a proposed mapping.</li>
+        <li><strong>Chains collapse.</strong> If A is replaced by B and B by C, ingest goes straight to C. Boot refuses cycles.</li>
+        <li><strong>Rules depending on a deprecated term are flagged.</strong> <code>bearing vocab review</code> lists them with the successor or candidates, so the operator can update them.</li>
+      </ul>
+    </div>
+    <div>
+<pre><code><span class="c"># a rule superseded by a different rule</span>
+kind: Mapping
+spec:
+  id: r-team
+  version: 2
+  subject: k8s:Deployment
+  predicate: derives
+  object: core:owned_by
+  deprecated:
+    since: 2026-12-01T00:00:00Z
+    replaced_by: r-owner-annotation
+    reason: "Ownership moved to the bearing.dev/owner annotation"</code></pre>
+<pre><code><span class="c"># how it exports (OBO and Dublin Core conventions)</span>
+core:language_version
+    owl:deprecated true ;
+    dct:isReplacedBy core:runtime .
+
+k8s:labels
+    owl:deprecated true ;
+    oboInOwl:consider k8s:label_team, k8s:label_app .</code></pre>
+      <p>Facts made by a superseded rule carry over when the successor makes the same fact: the fact gains a new source row instead of closing and reopening. So swapping a rule changes "what changed" only where the answer really changed.</p>
+    </div>
+  </div>
+
+  <!-- 6. IMPORT / EXPORT -->
+  <h2 id="import-export">Import and export: exactly what is supported</h2>
+  <p>There are two different questions here, and they have different answers. <strong>Where can a term come from?</strong> Only from an owner that versions it, deprecates it and sends data under it: a Bearing release (core) or an adapter's <code>Describe</code>. <strong>Where can a mapping come from?</strong> From anyone, but only the operator makes it count. So the adapter row in the ownership table ("terms in its own namespace, their shapes, and suggested mappings") and "import never defines terms" don't conflict. An adapter's terms arrive through <code>Describe</code>, not through <code>bearing vocab import</code>. Import is a door for mappings only.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 490" role="img" aria-labelledby="a8t a8d">
+      <title id="a8t">Where terms and mappings come from</title>
+      <desc id="a8d">Terms enter the term table from only two places: a Bearing release of the core module, and an adapter's Describe call. Mappings come from three places. The operator's settings file writes asserted mappings directly. Adapter suggestions and bearing vocab import both create proposed mappings, which the operator accepts or rejects. Import never adds a term. A mapping between two Bearing terms is used at ingest; a mapping to an outside IRI only adds a label and is written back on export.</desc>
+      <defs>
+        <marker id="m8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+        <marker id="m8o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head-op"/></marker>
+      </defs>
+      <text x="20" y="24" class="t-lane">TERMS: ONLY FROM AN OWNER THAT SENDS DATA</text>
+      <path d="M260 72H336" class="s-line-core" marker-end="url(#m8)"/>
+      <path d="M260 152H336" class="s-line-acc" marker-end="url(#m8)"/>
+      <rect x="20" y="40" width="240" height="64" rx="6" class="s-core"/>
+      <text x="34" y="66" class="t">Core release</text>
+      <text x="34" y="88" class="t-s">vocab/core.yaml · core@1</text>
+      <rect x="20" y="120" width="240" height="64" rx="6" class="s-acc"/>
+      <text x="34" y="146" class="t">Adapter Describe</text>
+      <text x="34" y="168" class="t-s">k8s@0.4 · github@1.2</text>
+      <rect x="340" y="40" width="240" height="144" rx="6" class="s-box"/>
+      <text x="354" y="66" class="t">term table</text>
+      <text x="354" y="88" class="t-s">name, shape, owner,</text>
+      <text x="354" y="104" class="t-s">version, deprecation</text>
+
+      <text x="20" y="226" class="t-lane">MAPPINGS: FROM ANYONE; ONLY THE OPERATOR MAKES THEM COUNT</text>
+      <path d="M260 274H636" class="s-line-op" marker-end="url(#m8o)"/>
+      <path d="M260 354H336" class="s-line" marker-end="url(#m8)"/>
+      <path d="M260 434H336" class="s-line" marker-end="url(#m8)"/>
+      <path d="M580 394H636" class="s-line-op" marker-end="url(#m8o)"/>
+      <rect x="20" y="242" width="240" height="64" rx="6" class="s-op"/>
+      <text x="34" y="268" class="t">Settings file</text>
+      <text x="34" y="290" class="t-s">operator-written · asserted</text>
+      <rect x="20" y="322" width="240" height="64" rx="6" class="s-box" stroke-dasharray="5 4"/>
+      <text x="34" y="348" class="t">Adapter suggestions</text>
+      <text x="34" y="370" class="t-s">in Describe · proposed</text>
+      <rect x="20" y="402" width="240" height="72" rx="6" class="s-box" stroke-dasharray="5 4"/>
+      <text x="34" y="426" class="t">bearing vocab import</text>
+      <text x="34" y="446" class="t-s">pack · SSSOM · Turtle</text>
+      <text x="34" y="463" class="t-bad">never adds a term</text>
+      <rect x="340" y="322" width="240" height="152" rx="6" class="s-op"/>
+      <text x="354" y="348" class="t">Operator review</text>
+      <text x="354" y="370" class="t-s">bearing vocab review</text>
+      <text x="354" y="386" class="t-s">accept · reject · accept-all</text>
+      <rect x="640" y="242" width="240" height="232" rx="6" class="s-box"/>
+      <text x="654" y="268" class="t">mapping table</text>
+      <text x="654" y="292" class="t-m">Bearing term → term</text>
+      <text x="654" y="308" class="t-s">used at ingest; changes</text>
+      <text x="654" y="324" class="t-s">answers once asserted</text>
+      <text x="654" y="356" class="t-m">Bearing term → outside IRI</text>
+      <text x="654" y="372" class="t-s">a label and an export</text>
+      <text x="654" y="388" class="t-s">alignment; never changes</text>
+      <text x="654" y="404" class="t-s">a fact</text>
+    </svg>
+    <figcaption>The rule in one line: terms come from whoever sends the data; mappings can come from anywhere, but only a person makes them count.</figcaption>
+  </figure>
+
+  <p><strong>Why import can't define terms.</strong> A term from a file would have no owner Bearing can hold to the grow-only and deprecation rules, and no adapter would ever send data under it, so it would be an empty name. An imported OWL class hierarchy would also bring open-world meaning and inheritance chains that Bearing doesn't evaluate. One side of an imported mapping may be outside Bearing, though: <code>ent:Application exactMatch core:Component</code> is kept as an alignment, so an org's own names show up beside the term and survive a round trip.</p>
+
+  <h3>The supported scenarios</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>Scenario</th><th>Format</th><th>What happens</th><th>Why it's useful</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-ok">Export</span></td><td><strong>Review and promote mappings.</strong> Diff staging against prod in a PR, then apply.</td><td>Native YAML (<code>Mapping</code> records)</td><td><code>bearing vocab export --format yaml</code> writes every mapping with status, author and dates.</td><td>Mappings become reviewable code, and a second instance can be set up the same way.</td><td>With the <code>bearing vocab</code> commands</td></tr>
+      <tr><td><span class="pill p-ok">Import</span></td><td><strong>Apply a mapping pack.</strong> Acme's demo suggestions, a shared pack for a popular adapter, or the export above.</td><td>Native YAML</td><td>Proposed mappings, author = the pack. The operator accepts them one by one, or all at once.</td><td>Nobody maps GitHub's 279 schemas by hand twice. Packs get shared like Grafana dashboards.</td><td>With the <code>bearing vocab</code> commands</td></tr>
+      <tr><td><span class="pill p-ok">Export</span></td><td><strong>A vocabulary reference for people.</strong> What each term means, its shape, what it maps to, and what is deprecated.</td><td>Generated docs, from the same tables</td><td>One page per namespace, linked to the core.</td><td>It answers "what does <code>github:topics</code> mean here?" without reading Go.</td><td>Cheap; any time</td></tr>
+      <tr><td><span class="pill p-op">Import</span></td><td><strong>Align with a standard or an enterprise ontology.</strong></td><td>SSSOM TSV, or Turtle with <code>skos:exactMatch</code> / <code>broader</code></td><td>Between two Bearing terms: a proposed mapping. To an outside IRI: an alignment label only.</td><td>An org with a model keeps its names, and Bearing still answers the same way.</td><td>Later, if asked</td></tr>
+      <tr><td><span class="pill p-op">Export</span></td><td><strong>Feed facts, with evidence, to a graph or catalog the org already runs.</strong></td><td>JSON-LD with PROV; terms as SKOS, shapes as SHACL</td><td><code>bearing export</code> writes facts with their observations and rule version.</td><td>Bearing integrates rather than replaces (rule 6), and the evidence travels with the fact.</td><td>Later, if asked</td></tr>
+      <tr><td><span class="pill p-bad">Not supported</span></td><td><strong>Import an ontology to create kinds or fields.</strong></td><td>—</td><td>Refused, with the terms it would have created listed.</td><td>An empty name with no owner and no data. For terms no adapter has, see <a href="#operator-vocabulary">operator vocabulary</a>.</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout note"><strong>Priority</strong>
+    <p>The two YAML rows need no RDF and fall out of the <code>bearing vocab</code> commands, so they are worth doing early. You're right that few teams that would run Bearing have an enterprise ontology, so the Turtle and JSON-LD rows stay "later, if asked". They stay cheap because the vocabulary is already data.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 1000 300" role="img" aria-labelledby="a6t a6d">
+      <title id="a6t">Export and import</title>
+      <desc id="a6d">Export: the term, mapping and fact tables are written by bearing vocab export and bearing export as Turtle or JSON-LD, using SKOS for terms and mappings, SHACL for shapes and PROV for evidence, for tools such as Protégé, Oxigraph or a docs site. Import: a mapping pack, an SSSOM file or Turtle with match triples goes through bearing vocab import, which links Bearing terms or aligns one to an outside IRI, and only creates proposed mappings for the operator to review.</desc>
+      <defs>
+        <marker id="m6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+      </defs>
+      <text x="20" y="24" class="t-lane">EXPORT (READ-ONLY, LOSSLESS)</text>
+      <rect x="20" y="40" width="200" height="90" rx="6" class="s-core"/>
+      <text x="34" y="64" class="t">Bearing tables</text>
+      <text x="34" y="86" class="t-m">term · mapping</text>
+      <text x="34" y="104" class="t-m">fact · fact_source</text>
+      <path d="M220 85H266" class="s-line" marker-end="url(#m6)"/>
+      <rect x="270" y="40" width="230" height="90" rx="6" class="s-box"/>
+      <text x="284" y="64" class="t">bearing vocab export</text>
+      <text x="284" y="86" class="t-m">--format yaml|turtle|jsonld</text>
+      <text x="284" y="104" class="t-s">bearing export (facts)</text>
+      <path d="M500 85H546" class="s-line" marker-end="url(#m6)"/>
+      <rect x="550" y="40" width="200" height="90" rx="6" class="s-box"/>
+      <text x="564" y="64" class="t">Files</text>
+      <text x="564" y="86" class="t-s">SKOS: terms, mappings</text>
+      <text x="564" y="102" class="t-s">SHACL: shapes</text>
+      <text x="564" y="118" class="t-s">PROV: evidence</text>
+      <path d="M750 85H796" class="s-line" marker-end="url(#m6)"/>
+      <rect x="800" y="40" width="180" height="90" rx="6" class="s-box" stroke-dasharray="5 4"/>
+      <text x="814" y="64" class="t">Other tools</text>
+      <text x="814" y="86" class="t-s">Protégé, Oxigraph,</text>
+      <text x="814" y="102" class="t-s">a docs site</text>
+      <text x="20" y="176" class="t-lane">IMPORT (MAPPINGS AND ALIGNMENTS ONLY, ALWAYS PROPOSED)</text>
+      <rect x="20" y="192" width="200" height="90" rx="6" class="s-box" stroke-dasharray="5 4"/>
+      <text x="34" y="216" class="t">Pack or alignment</text>
+      <text x="34" y="238" class="t-s">YAML · SSSOM TSV ·</text>
+      <text x="34" y="254" class="t-s">Turtle (skos:*Match)</text>
+      <path d="M220 237H266" class="s-line" marker-end="url(#m6)"/>
+      <rect x="270" y="192" width="230" height="90" rx="6" class="s-box"/>
+      <text x="284" y="216" class="t">bearing vocab import</text>
+      <text x="284" y="238" class="t-s">links Bearing terms, or</text>
+      <text x="284" y="254" class="t-s">one to an outside IRI</text>
+      <path d="M500 237H546" class="s-line" marker-end="url(#m6)"/>
+      <rect x="550" y="192" width="200" height="90" rx="6" class="s-op"/>
+      <text x="564" y="216" class="t">Proposed mappings</text>
+      <text x="564" y="238" class="t-s">author = the file,</text>
+      <text x="564" y="254" class="t-s">justification kept</text>
+      <path d="M750 237H796" class="s-line" marker-end="url(#m6)"/>
+      <rect x="800" y="192" width="180" height="90" rx="6" class="s-op"/>
+      <text x="814" y="216" class="t">Operator review</text>
+      <text x="814" y="238" class="t-s">accept · reject</text>
+    </svg>
+    <figcaption>Nothing outside Bearing can change what Bearing believes without a person accepting it. An import is just a large batch of suggestions. Terms never arrive this way.</figcaption>
+  </figure>
+
+  <div class="split">
+    <pre><code><span class="c"># bearing vocab export --format turtle (excerpt)</span>
+@prefix core: &lt;https://bearing.dougmccall.com/ns/com.dougmccall.bearing.core#&gt; .
+@prefix k8s:  &lt;https://bearing.dougmccall.com/ns/io.k8s#&gt; .
+@prefix skos: &lt;http://www.w3.org/2004/02/skos/core#&gt; .
+@prefix sh:   &lt;http://www.w3.org/ns/shacl#&gt; .
+
+core:Component a skos:Concept ;
+    skos:prefLabel "Component" ;
+    skos:exactMatch &lt;https://backstage.io/ns#Component&gt; .
+
+k8s:Deployment a skos:Concept ;
+    skos:broader core:Component .   <span class="c"># mapping k8s-deployment-is-component</span>
+
+k8s:replicas a sh:PropertyShape ;
+    sh:datatype xsd:integer ;
+    sh:maxCount 1 .</code></pre>
+    <pre><code><span class="c">// bearing export --format jsonld (one fact)</span>
+{
+  "@context": "https://bearing.dougmccall.com/ns/context.jsonld",
+  "@id": "fact:9c1e",
+  "subject": "k8s:deployment/prod/payments/payments-api",
+  "predicate": "core:owned_by",
+  "object": "team:payments",
+  "status": "asserted",
+  "valid_from": "2026-11-12T09:14:00Z",
+  "prov:wasDerivedFrom": ["obs:7f3"],
+  "prov:wasGeneratedBy": "mapping:r-team@2"
+}</code></pre>
+  </div>
+  <p>IRIs are <code>https://bearing.dougmccall.com/ns/&lt;full namespace&gt;#&lt;term&gt;</code>. Export always writes full namespaces; the short names become Turtle prefix labels.</p>
+
+  <!-- CONSEQUENCES -->
+  <h2>What this changes, and what it deliberately doesn't</h2>
+  <div class="split">
+    <div>
+      <h3>Changes</h3>
+      <ul>
+        <li><strong>ADR 10 is amended.</strong> <code>extends</code> becomes a <code>broader</code> mapping row that can be added and retired with dates. "One shape per name" becomes "one shape per namespaced term". Grow-only applies per term.</li>
+        <li><strong>ADR 12 gets simpler.</strong> All three review blockers are answered by this ADR instead of by special rules for the generic adapter. The generic adapter publishes a module built from the mapping; <code>init</code> writes its suggestions.</li>
+        <li><strong>The Kubernetes adapter stops emitting <code>Environment</code>.</strong> It suggests <code>k8s:Namespace broader core:Environment</code> and leaves the choice to the operator.</li>
+        <li><strong>Proto:</strong> a <code>VocabularyModule</code> message in <code>DescribeResponse</code>, plus a module version on observations. Both are additive, so the protocol version stays the same.</li>
+        <li><strong>The demo ships suggested mappings for Acme</strong>, so the five questions still work out of the box. The golden tests pin <code>core@1</code>, the Acme mappings and the fixtures.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Deliberately not doing</h3>
+      <ul>
+        <li><strong>No OWL reasoning.</strong> It is open-world, so it can't say "no owner". Its <code>sameAs</code> merges things irreversibly, and that would undo ADR 7.</li>
+        <li><strong>No triple store or SPARQL.</strong> DuckDB answers every question with the tables above.</li>
+        <li><strong>No external upper ontology as the base.</strong> The Computer Science Ontology classifies research topics, and schema.org has no ownership or dependency terms. We align to standards; we don't inherit from them.</li>
+        <li><strong>No per-observation ontology versions in queries.</strong> Ingest stores facts under the current term, and the version is kept for lineage only.</li>
+        <li><strong>No mappings between two adapters' terms.</strong> Everything maps to a core or operator term, until a use case justifies more.</li>
+        <li><strong>No import that defines terms.</strong> Terms come only from core releases and adapter modules. Import adds mappings and alignments, always as proposals.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Order of work</h3>
+  <ol>
+    <li>ADR 13 accepted; amend ADR 10 in the same PR.</li>
+    <li>Namespaced terms, plus <code>vocab/core.yaml</code> and its generator, replacing <code>registry.go</code>'s tables. No behaviour change: the core terms map one to one.</li>
+    <li><code>term</code>, <code>prefix</code> and <code>mapping</code> tables, and <code>fact_source.rule</code>. <code>extends</code> moves to <code>broader</code> rows.</li>
+    <li><code>VocabularyModule</code> in <code>Describe</code>; the three adapters publish modules; Acme ships suggested mappings.</li>
+    <li><code>derives</code> rules at ingest, plus <code>bearing vocab review|accept|reject</code>.</li>
+    <li>ADR 12's generic adapter, built on all of the above.</li>
+    <li>With step 5: <code>bearing vocab export|import --format yaml</code> for mapping packs. Later, if asked: Turtle and JSON-LD.</li>
+  </ol>
+
+  <h3>Settled on 2026-11-12</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Question</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>How expressive are <code>derives</code> rules?</td><td>Go templates with Sprig-named functions (the subset is still open). Middleware covers the rest, inside the adapter.</td></tr>
+      <tr><td>Who owns a namespace?</td><td>Reverse-domain namespaces in <code>Describe</code>, operator aliases in settings, and short names by last segment while they are unambiguous.</td></tr>
+      <tr><td>IRI base for export</td><td><code>https://bearing.dougmccall.com/ns/</code></td></tr>
+      <tr><td>Mappings between two adapters' terms?</td><td>No. Everything maps to a core or operator term.</td></tr>
+      <tr><td>Operator-defined terms?</td><td>Yes: an operator namespace, from a file pinned to a commit.</td></tr>
+      <tr><td>Record the commit, or fetch it?</td><td>Both: verify it, then record it. Verify against the commit when git can reach the repo, or against a SHA-256 checksum when offline.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Still open</h3>
+  <ul>
+    <li><strong>How is a service linked to the PagerDuty service that covers it?</strong> PagerDuty answers on-call questions, not ownership: "who can help with payments-api right now?" and "who was on call for it during the 2026-03-04 incident?" (Ownership is already handled per path by CODEOWNERS.) Usually no source states the link outright. It has to be followed as a trail of clues, any of which can be broken:
+      <ul>
+        <li>A Datadog monitor is tagged <code>service:payments-api</code>, which proposes that the monitor watches that Kubernetes service.</li>
+        <li>The same monitor's message notifies <code>@pagerduty-Checkout</code>, which proposes that it pages the PagerDuty service Checkout.</li>
+        <li>Together they propose that payments-api is covered by Checkout. A stale handle or a tag naming nothing breaks the chain, and the break is visible.</li>
+      </ul>
+      Each step is a <em>proposed</em> fact made by a rule and cites its observation (ADR 2). The joined link is a proposal whose evidence is the whole path (ADR 11). The operator confirms it either <strong>up front</strong>, from a review list, or <strong>on demand</strong>, when an answer shows "probably Checkout, via monitor 123, unconfirmed". Confirming writes an asserted fact authored by the operator, through the event log, the same way <code>bearing link accept</code> works for identity links. Other trails can back the same link: a Terraform or Crossplane definition of the monitor, or code in a repo that emits the metric the monitor watches. Or no trail exists at all, and then only the operator can supply the link. This is ADR 7's machinery applied to a relation instead of <code>same_as</code>:
+      <ul>
+        <li><strong>Candidates</strong> are paths through proposed and asserted facts.</li>
+        <li><strong>Scoring</strong> uses transparent features, plus a System One model's calibrated judgement for the fuzzy hops, such as whether <code>@pagerduty-checkout</code> is the service "Checkout Platform".</li>
+        <li><strong>Each independent observation reinforces</strong> the link; contrary evidence and time weaken it.</li>
+        <li><strong>A person promotes</strong> it.</li>
+      </ul>
+      One subtlety: independence is judged per claim, not per observation. A Terraform definition and the Datadog API describing the same monitor are the intent and the outcome of one claim: what the monitor is configured to do. They back that step once, and they are not two reasons to believe the service is covered. But the same Terraform observation can make a <em>different</em> claim, such as referring to the repository that payments-api comes from. That is a second path from the service to the monitor, and it does count as separate confirmation. So one observation can support several steps, several observations can back one step, and the proposal's score combines its steps: alternative paths for the same step add up, while a step every path shares counts once. ADR 13 only needs <code>derives</code> rules that can emit proposed facts. Joining hops into a proposed relation belongs in its own ADR, extending ADR 7's matchers.</li>
+    <li><strong>Copy Sprig, or import it?</strong> Measured <a href="#sprig">below</a>. The recommendation is to copy a 55-function subset.</li>
+  </ul>
+
+  <h3 id="sprig">Sprig, measured</h3>
+  <p>These figures are measured from Sprig v3.2.3's source, using the copy in the local Go module cache, with non-blank, non-comment lines counted. A script walked each template function's call graph inside Sprig to see which third-party package it reaches.</p>
+  <div class="split">
+    <div class="tablewrap"><table>
+      <thead><tr><th>What</th><th>Count</th></tr></thead>
+      <tbody>
+        <tr><td>Functions in <code>HermeticTxtFuncMap</code></td><td>193</td></tr>
+        <tr><td>…that use only the standard library</td><td>144</td></tr>
+        <tr><td>…that reach a third-party package</td><td>49: <code>cast</code> 26, <code>goutils</code> 8, <code>decimal</code> 5, <code>mergo</code> 4, <code>xstrings</code> 4, <code>x/crypto</code> 3, <code>copystructure</code> 2, <code>semver</code> 2</td></tr>
+        <tr><td>…that still aren't deterministic</td><td>14: <code>ago</code>, <code>randInt</code>, <code>shuffle</code>, <code>bcrypt</code>, <code>htpasswd</code>, <code>encryptAES</code>, and 8 certificate and key generators. "Hermetic" only drops env, random strings, UUIDs, dates and DNS, so Bearing would need its own deny-list anyway.</td></tr>
+        <tr><td>New modules in Bearing's <code>go.mod</code></td><td>10 (Sprig, plus 9 dependencies; <code>uuid</code> is already there)</td></tr>
+        <tr><td>Lines in those 9 dependencies</td><td>About 8,200 (<code>decimal</code> 1,557, <code>cast</code> 1,475, <code>semver</code> 1,088, <code>xstrings</code> 1,070, <code>goutils</code> 877, <code>x/crypto</code> parts 793, <code>mergo</code> 627, <code>copystructure</code> + <code>reflectwalk</code> 718)</td></tr>
+        <tr><td>Lines in Sprig itself</td><td>2,182 (1,812 behind the hermetic functions)</td></tr>
+      </tbody>
+    </table></div>
+    <div>
+      <h3>Three ways to do it</h3>
+      <ul>
+        <li><strong>Import Sprig, use its hermetic map.</strong> 193 functions and no code to write, but 10 new modules, about 10,400 lines we depend on, and a deny-list for the 14 functions above.</li>
+        <li><strong>Import Sprig, and pick the functions we allow.</strong> The same dependencies, because Go compiles in the whole package, but fewer functions to reason about.</li>
+        <li><strong>Copy the functions rules need, keeping Sprig's names.</strong> A 55-function set covers strings, regex, lists, dicts, defaults, URL and path parts, JSON, base64 and <code>sha256sum</code>. That is about <strong>460 lines</strong> of Sprig, which is MIT-licensed, so we keep its notice. Only 6 of the 55 reach a dependency. Case conversion (<code>snakecase</code>, <code>kebabcase</code>, <code>camelcase</code>) is about 40 lines to rewrite; <code>int</code> becomes <code>strconv</code>; <code>semver</code> and <code>semverCompare</code> reuse the version comparison already in <code>pkg/query</code>. That means no new modules.</li>
+      </ul>
+      <p><strong>Recommendation: copy.</strong> About 500 lines plus table tests, in code that rarely changes, beats ten modules and a deny-list. Templates keep Sprig's names, so anyone who knows Helm can write them, and a missing function can be added when a rule needs it.</p>
+    </div>
+  </div>
+</main>

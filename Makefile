@@ -21,8 +21,7 @@ COVER_OUT ?= cover.out
 COVER_TEST := go test -count=1 -timeout $(if $(GITHUB_ACTIONS),15m,20m) -coverpkg=./... -coverprofile
 
 # CI runs the tests in shards, one runner each. SHARD names one; left empty,
-# cover, covergate-base and covergate-report run every test in one go, as
-# `make check` does.
+# cover, covergate-base and covergate-report run every test in one go.
 #
 #   slow  the packages whose tests are slow enough to hold up everything else
 #   rest  every other package; add a shard here when one package grows slow
@@ -43,13 +42,15 @@ COVER_FLAGS ?= $(if $(GITHUB_ACTIONS),-require-base -require-baseline)
 
 all: fmt test build
 
-# check is everything CI runs, in one process. CI runs the same steps as
-# parallel jobs so a push is answered in the time of the slowest one: static
-# (no test run), cover (the tests), covergate-base (the same
-# tests at the merge base), race (the packages below under the race detector)
-# and covergate-report (compares the two profiles). vuln goes last because it
+# check is everything CI runs except the coverage gate, in one process. The
+# gate runs only on pull requests (and pushes to main), so a branch with no PR
+# is not held to it; `make covergate` tries it locally. CI runs the same steps
+# as parallel jobs so a push is answered in the time of the slowest one: static
+# (no test run), cover (the tests), race (the packages below under the race
+# detector), and on PRs covergate-base (the same tests at the merge base) and
+# covergate-report (compares the two profiles). vuln goes last because it
 # needs the network (vuln.go.dev).
-check: generate-check lint vet tools-test cover covergate race build vuln
+check: generate-check lint vet tools-test cover race build vuln
 
 # static is check without the test run and the coverage gate.
 static: generate-check lint vet tools-test build vuln
