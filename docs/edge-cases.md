@@ -418,3 +418,11 @@ Each entry:
 - **Example:** a pull request renames `internal/duckstore` and updates `SLOW_PKGS`. covergate runs the `slow` shard's list from the head's Makefile in the merge base's tree, where the new directory doesn't exist, so `go test` fails there.
 - **Impact:** that pull request's `baseline (slow)` job fails, and so does the gate. Its `rest` list comes from `go list` in the base's tree and is unaffected. Only a pull request that renames or adds a slow package hits this, and the next pull request after it merges works.
 - **Proposed fix:** land the rename and the `SLOW_PKGS` change in separate pull requests, or build the `slow` list from `go list` filtered to directories that exist.
+
+## A restored settings rule reopens its facts only on new observations
+
+- **Found in:** [#331](https://github.com/dhm116/bearing/pull/331), round 3
+- **Area:** vocabulary (ADR 13), derive rules
+- **Example:** the operator removes rule `r-team` from the settings and reboots, so its facts close. Then the rule is put back and Bearing reboots again.
+- **Impact:** a fact reopens only when its subject is observed again, so Q3 shows a gap, and a webhook-only source never reopens it. That is correct for what the operator did, and it is rare.
+- **Proposed fix:** when a rule is asserted, rerun it over each matching subject's latest observation. This is the same backfill a newly enabled kind needs (ADR 10).

@@ -76,7 +76,9 @@ shapes) without their machinery.
   the operator accepts or rejects them. Mappings in the operator's
   settings are asserted when boot first finds them, and ended when boot
   no longer finds them; each is a settings decision, an event like any
-  other, and finding an unchanged mapping again is not. `extends` becomes a dated `broader` row, so it
+  other, and finding an unchanged mapping again is not. A settings
+  mapping is changed only by editing the settings: `bearing vocab` refuses
+  to decide one. `extends` becomes a dated `broader` row, so it
   can be added later. A term has at most one `broader` term in force; a
   second is refused, until a use case justifies more, and so is a cycle.
   Accepting or ending a `broader` mapping recomputes, in the same
@@ -126,8 +128,9 @@ shapes) without their machinery.
   `deprecated: {since, replaced_by, consider, reason}`. `replaced_by`
   names exactly one successor of the same shape, checked as an
   `exact_match` is. The deprecation rewrites the old term's open facts to
-  the successor, keeping their IDs, start times and sources, and ingest
-  writes new facts under the successor, so a deprecation by itself shows
+  the successor, keeping their IDs, start times and sources, and merges
+  any into an open successor fact of the same subject, object and source.
+  Ingest writes new facts, and snapshot scopes, under the successor, so a deprecation by itself shows
   no change in Q3. A successor of another shape is a `consider`, and the
   change shows. `consider`
   lists candidates, and nothing is rewritten. Chains collapse, cycles are
@@ -155,7 +158,7 @@ shapes) without their machinery.
   `core` reserved); the operator module, pinned to a commit, replaces the
   `EntityKind` settings resource; and `term`, `prefix` and `mapping`
   replace the `kind` table. **ADR 11 is amended:** answers read today's
-  mappings, and Q3 lists mapping decisions as events. **ADR 12 gets simpler:** its three blockers are
+  mappings, and Q3 lists mappings accepted, rejected or ended. **ADR 12 gets simpler:** its three blockers are
   answered here, and the generic adapter publishes a module built from
   its mapping.
 - The Kubernetes adapter suggests `k8s:Namespace broader
