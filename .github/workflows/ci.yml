@@ -26,6 +26,15 @@ concurrency:
 # first and never refreshed. A push to main saves a fresh one per job; pull
 # requests restore main's latest and save nothing. baseline restores test's:
 # both are cover builds, and main's is the merge base's.
+#
+# static also caches the tool binaries (bin/tools), which take about 40 s to
+# link even with a warm build cache. The key is the hash of the tools module
+# and the Go version, so an exact hit holds binaries built from this very
+# tools/go.sum. make rebuilds a tool whose file is older than tools/go.mod,
+# and the restore leaves them older than the fresh checkout, so a hit is
+# touched to keep make from linking them again. A miss builds as before.
+# Tools only static builds are cached: covergate's key would need its own
+# sources, and it builds in seconds.
 jobs:
   # Everything that needs no test run.
   static:
@@ -50,7 +59,23 @@ jobs:
           key: go-${{ runner.os }}-static-${{ github.sha }}
           restore-keys: go-${{ runner.os }}-static-
 
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: tools
+        with:
+          path: bin/tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/go.sum', 'tools/go.mod', 'go.mod') }}
+
+      # Only an exact hit: the key proves these match tools/go.sum.
+      - if: steps.tools.outputs.cache-hit == 'true'
+        run: touch bin/tools/*
+
       - run: make static
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.tools.outputs.cache-hit != 'true'
+        with:
+          path: bin/tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/go.sum', 'tools/go.mod', 'go.mod') }}
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.ref == 'refs/heads/main'
