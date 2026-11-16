@@ -19,6 +19,17 @@ and three smaller answers (below). ADR 13 was amended with them in
 `208c0bb`. The Sprig numbers support copying: 25 functions in 74 lines.
 Round 2 (below) built the items round 1 left out.
 
+**Correction (PR #331 review).** "Works as written" overstates what the
+tests cover. The data reviewer found two gaps in this spike's code that
+its tests don't exercise:
+- `derived()` in `internal/duckstore/derive.go` has no stale-page guard,
+  so a page from T1 arriving after a webhook at T2 reopens the old owner;
+- nothing closes the facts of a rule that is rejected or ended.
+
+ADR 13 now states both rules (PR #331), and an implementation needs a
+test for each: a stale page after a webhook leaves one open owner, and
+ending a rule closes the facts only it backs.
+
 ## The first pass, and why it was redone
 
 The first findings (at `16cbeb4`) listed eight "changes ADR 13 needs".
