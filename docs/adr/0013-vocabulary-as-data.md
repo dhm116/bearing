@@ -48,9 +48,10 @@ shapes) without their machinery.
   - Each adapter publishes its **adapter module** in `Describe`: terms in
     its own namespace, their shapes, and suggested mappings. A namespace
     belongs to an adapter, not to a source: every source that runs the
-    adapter (two clusters, two GitHub orgs) publishes the same module, and
-    a module whose terms differ from the stored ones is refused, naming
-    the source. A second adapter claiming the namespace is refused unless
+    adapter (two clusters, two GitHub orgs) publishes the same module.
+    New terms are added, and a source still on an older version publishes
+    a subset; a module that changes or narrows a stored term's shape is
+    refused, naming the source. A second adapter claiming the namespace is refused unless
     settings pin the namespace to it. Adapters never emit core terms.
   - The operator may publish an **operator module** in the org's own
     namespace (`com.acme`), for terms no tool holds, such as one
@@ -73,7 +74,9 @@ shapes) without their machinery.
   `derives`), object, status, author, justification, version and
   `valid_from`/`valid_to`. Adapter suggestions and imports start proposed;
   the operator accepts or rejects them. Mappings in the operator's
-  settings are asserted. `extends` becomes a dated `broader` row, so it
+  settings are asserted when boot first finds them, and ended when boot
+  no longer finds them; each is a settings decision, an event like any
+  other, and finding an unchanged mapping again is not. `extends` becomes a dated `broader` row, so it
   can be added later. A term has at most one `broader` term in force; a
   second is refused, until a use case justifies more, and so is a cycle.
   Accepting or ending a `broader` mapping recomputes, in the same
@@ -97,11 +100,12 @@ shapes) without their machinery.
   `observed_at`, the same guard against a stale page reopening what a
   later one ended, the same snapshot and complete-sync closing. A rule
   keys records in its observation's own system; joining systems is
-  identity links' work (ADR 7). Editing a rule is a new version, and boot
-  refuses a rule whose id and version are stored with a different body.
-  `fact_source` gains a `rule` column naming the rule and version; an
-  answer names the newest version in force, and older versions' rows stay
-  as history. A rule built from a fixed field asserts; one that guesses
+  identity links' work (ADR 7). Editing a rule is a new version. Boot
+  refuses an operator rule whose id and version are stored with a
+  different body; an adapter module that does the same with a suggestion
+  is refused as a module, naming it, so Bearing still boots.
+  `fact_source` gains a `rule` column naming the rule and version, and an
+  answer names the versions behind each fact. A rule built from a fixed field asserts; one that guesses
   only proposes (ADR 2). What a template can't express stays in
   adapter middleware (ADR 12), inside the adapter process.
 - **A derived fact closes on evidence.** It keeps its observation's
@@ -120,9 +124,12 @@ shapes) without their machinery.
   the fact's own source has observed the subject since.
 - **Deprecation, not deletion.** Terms, mappings and rules carry
   `deprecated: {since, replaced_by, consider, reason}`. `replaced_by`
-  names exactly one successor. Reads treat the two as one term, as an
-  `exact_match` would, and ingest writes new facts under the successor,
-  so a deprecation by itself shows no change in Q3. `consider`
+  names exactly one successor of the same shape, checked as an
+  `exact_match` is. The deprecation rewrites the old term's open facts to
+  the successor, keeping their IDs, start times and sources, and ingest
+  writes new facts under the successor, so a deprecation by itself shows
+  no change in Q3. A successor of another shape is a `consider`, and the
+  change shows. `consider`
   lists candidates, and nothing is rewritten. Chains collapse, cycles are
   refused, and only the owner deprecates. When a successor rule makes the
   same fact, the fact gains a source instead of closing and reopening.

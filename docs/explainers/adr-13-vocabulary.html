@@ -924,7 +924,7 @@ k8s:replicas a sh:PropertyShape ;
       <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-ingest-dark.svg">
       <img src="../diagrams/adr13-ingest.svg" alt="Inside an ingest, with derive rules">
     </picture>
-    <figcaption>Derive rules run in the same transaction as the observation. A new rule version that makes the same fact adds a source; a fact a rule stopped making closes; the source's next complete sync closes rule-made facts whose subject is gone.</figcaption>
+    <figcaption>Derive rules run in the same transaction as the observation, and their facts follow its ordering rules (the ADR's text has the full set). A new rule version that makes the same fact adds a source; a fact a rule stopped making closes; the source's next complete sync closes rule-made facts whose subject is gone.</figcaption>
   </figure>
   <figure>
     <picture>
@@ -938,7 +938,7 @@ k8s:replicas a sh:PropertyShape ;
       <source media="(prefers-color-scheme: dark)" srcset="../diagrams/adr13-decisions-dark.svg">
       <img src="../diagrams/adr13-decisions.svg" alt="Deciding a mapping">
     </picture>
-    <figcaption>bearing vocab accept runs the boot check first and refuses a mapping that would stop Bearing booting. An accepted decision goes through the event log; the worker checks again before asserting it, and the next boot reads it.</figcaption>
+    <figcaption>Settings mappings are decisions too, at boot. bearing vocab accept runs the boot check first and refuses a mapping that would stop Bearing booting. An accepted decision goes through the event log; the worker checks again before asserting it, and the next boot reads it.</figcaption>
   </figure>
   <figure>
     <picture>

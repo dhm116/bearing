@@ -95,9 +95,10 @@ says how they relate.
     rule, or a person's decision with its actor and reason. An asserted
     `same_as` the store refused to apply is listed as asserted but not
     joined, as in Relations. Proposals are conjecture and never appear
-    here. Once ADR 13 is accepted, Q3 also lists the vocabulary mapping
-    decisions in the window, with author and justification, and answers
-    read today's mappings, as they read today's clusters.
+    here. Once ADR 13 is accepted, Q3 also lists the vocabulary mappings
+    accepted, rejected or ended in the window (never proposals), with
+    author and justification, and answers read today's mappings, as they
+    read today's clusters.
   - **Q4 and Q5 (dependencies):** walk facts from, or to, the service's
     records.
 - **Past times.** An answer as of a past time uses the facts valid then.
