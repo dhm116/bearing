@@ -21,8 +21,10 @@
 //
 // round.json names the round and each reviewer's state: queued, running,
 // approve, discuss or changes. Every round lists ponytail, which runs last.
+// previous, optional, gives the earlier rounds' verdicts, oldest first, for the
+// round track at the top of the card.
 //
-//	{"round": 2, "reviewers": [
+//	{"round": 2, "previous": ["changes"], "reviewers": [
 //	  {"name": "security", "state": "changes", "suggestions": 3,
 //	   "blockers": ["Webhook body is read before the size cap"]},
 //	  {"name": "go", "state": "running"},
@@ -47,8 +49,12 @@ import (
 
 type round struct {
 	Round     int        `json:"round"`
+	Previous  []string   `json:"previous,omitempty"` // earlier rounds' verdicts, oldest first
 	Reviewers []reviewer `json:"reviewers"`
 }
+
+// maxRounds is the most rounds a PR gets (docs/review-process.md, "Rounds").
+const maxRounds = 6
 
 type reviewer struct {
 	Name        string   `json:"name"` // "security" or "security-reviewer"
@@ -157,8 +163,16 @@ func loadRound(path string) (round, error) {
 	if err := dec.Decode(&rd); err != nil {
 		return rd, fmt.Errorf("%s: %w", path, err)
 	}
-	if rd.Round < 1 {
-		return rd, fmt.Errorf("%s: round must be 1 or more", path)
+	if rd.Round < 1 || rd.Round > maxRounds {
+		return rd, fmt.Errorf("%s: round must be 1 to %d", path, maxRounds)
+	}
+	if len(rd.Previous) > rd.Round-1 {
+		return rd, fmt.Errorf("%s: round %d has %d previous verdicts, want at most %d", path, rd.Round, len(rd.Previous), rd.Round-1)
+	}
+	for _, v := range rd.Previous {
+		if v != "approve" && v != "discuss" && v != "changes" {
+			return rd, fmt.Errorf("%s: unknown previous verdict %q", path, v)
+		}
 	}
 	if len(rd.Reviewers) == 0 {
 		return rd, fmt.Errorf("%s: no reviewers", path)

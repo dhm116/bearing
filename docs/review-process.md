@@ -81,16 +81,20 @@ has one PR comment, posted and kept current with
    keeps the tables too.
 
 The comment is a picture of the round with the tables under it. The
-picture has one card per reviewer, showing its verdict, its counts and its
-blocking findings, and an overall verdict once every reviewer is done. It
-comes in light and dark and switches with the reader's GitHub theme. Its
-colors are the home page's "Today" trail: green for Approve, amber for
-Needs Discussion, red for Request Changes, grey while a reviewer is
-running. The image's alt text carries everything the cards show.
+picture has a track of the PR's six possible rounds (earlier rounds in their
+verdict's color, this one pulsing while it runs) and one row per reviewer,
+showing its verdict, its counts and its blocking findings, with an overall
+verdict once every reviewer is done. It comes in light and dark and switches
+with the reader's GitHub theme. Its colors are the home page's "Today"
+trail: green for Approve, amber for Needs Discussion, red for Request
+Changes; work in progress is teal and gently animated, and stills for
+readers who ask for reduced motion. The image's alt text carries everything
+the picture shows. `previous` lists the earlier rounds' verdicts, oldest
+first.
 
 ```sh
 cat > /tmp/round.json <<'EOF'
-{"round": 2, "reviewers": [
+{"round": 2, "previous": ["changes"], "reviewers": [
   {"name": "security", "state": "changes", "suggestions": 3,
    "blockers": ["Webhook body is read before the size cap"]},
   {"name": "go", "state": "running"},
