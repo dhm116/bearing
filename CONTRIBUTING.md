@@ -14,7 +14,8 @@ right now are feedback on the [specification](docs/spec/) and new adapters.
   webhook secret.
 - Log with `telemetry.Logger`, report failures with `telemetry.Fail`, and
   add new metrics to [docs/telemetry.md](docs/telemetry.md).
-- Run `make check` (what CI runs) before sending a change.
+- Run `make check` before sending a change. It is what CI runs except the
+  coverage gate, which runs on pull requests; `make covergate` tries it locally.
 - Working with an AI coding agent? Point it at [AGENTS.md](AGENTS.md), which
   collects the commands, layout and rules in one place.
 
