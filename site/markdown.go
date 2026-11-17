@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"net/url"
 	"path"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
@@ -71,7 +73,8 @@ type Resolver interface {
 // heading IDs, removes the first H1 (the page template shows the title)
 // and rewrites relative links through res.
 func RenderMarkdown(file string, src []byte, res Resolver) (*Rendered, error) {
-	md := goldmark.New(goldmark.WithExtensions(extension.GFM, highlight))
+	md := goldmark.New(goldmark.WithExtensions(extension.GFM, highlight),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(pictureRenderer{file, res}, 100))))
 	doc := md.Parser().Parse(text.NewReader(src))
 
 	out := &Rendered{IDs: map[string]bool{}}
@@ -133,11 +136,11 @@ func RenderMarkdown(file string, src []byte, res Resolver) (*Rendered, error) {
 	if err := md.Renderer().Render(&buf, src, doc); err != nil {
 		return nil, fmt.Errorf("render %s: %w", file, err)
 	}
-	html := buf.String()
+	page := buf.String()
 	// Wide tables scroll inside their own box rather than the page.
-	html = strings.ReplaceAll(html, "<table>", `<div class="table-scroll" tabindex="0"><table>`)
-	html = strings.ReplaceAll(html, "</table>", "</table></div>")
-	out.HTML = html
+	page = strings.ReplaceAll(page, "<table>", `<div class="table-scroll" tabindex="0"><table>`)
+	page = strings.ReplaceAll(page, "</table>", "</table></div>")
+	out.HTML = page
 	return out, nil
 }
 
@@ -249,4 +252,72 @@ func repoPath(src, p string) string {
 		return path.Clean(strings.TrimPrefix(p, "/"))
 	}
 	return path.Clean(path.Join(path.Dir(src), p))
+}
+
+// pictureRenderer passes through the one raw HTML block the docs use, a
+// <picture> with light and dark diagrams, as GitHub shows it. Every other
+// raw HTML block is still omitted.
+type pictureRenderer struct {
+	file string
+	res  Resolver
+}
+
+func (p pictureRenderer) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
+	r.Register(ast.KindHTMLBlock, func(w util.BufWriter, src []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		var b strings.Builder
+		for i := range n.Lines().Len() {
+			seg := n.Lines().At(i)
+			b.Write(seg.Value(src))
+		}
+		if hb, ok := n.(*ast.HTMLBlock); ok && hb.HasClosure() {
+			b.Write(hb.ClosureLine.Value(src))
+		}
+		if out, ok := pictureBlock(b.String(), p.file, p.res); ok {
+			_, _ = w.WriteString(out)
+		} else {
+			_, _ = w.WriteString("<!-- raw HTML omitted -->\n")
+		}
+		return ast.WalkContinue, nil
+	})
+}
+
+var (
+	pictureTagRE  = regexp.MustCompile(`<(/?)([a-z]+)((?:\s+[a-z-]+="[^"]*")*)\s*/?>`)
+	pictureAttrRE = regexp.MustCompile(`([a-z-]+)="([^"]*)"`)
+	pictureAttrs  = map[string]bool{"media": true, "srcset": true, "src": true, "alt": true, "width": true, "height": true, "type": true}
+)
+
+// pictureBlock returns block with its image paths resolved through res, so
+// the images are copied. It refuses a block that is not only picture,
+// source and img tags with the attributes in pictureAttrs: the docs are
+// reviewed, but the site still never publishes scripts or handlers.
+func pictureBlock(block, file string, res Resolver) (string, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(block), "<picture") ||
+		strings.TrimSpace(pictureTagRE.ReplaceAllString(block, "")) != "" {
+		return "", false
+	}
+	ok := true
+	out := pictureTagRE.ReplaceAllStringFunc(block, func(tag string) string {
+		switch pictureTagRE.FindStringSubmatch(tag)[2] {
+		case "picture", "source", "img":
+		default:
+			ok = false
+		}
+		return pictureAttrRE.ReplaceAllStringFunc(tag, func(a string) string {
+			m := pictureAttrRE.FindStringSubmatch(a)
+			switch {
+			case !pictureAttrs[m[1]]:
+				ok = false
+			case m[1] == "src" || m[1] == "srcset":
+				// shortcut: srcset is one URL with no width descriptors, as
+				// the docs write it; split on commas if a doc ever lists more.
+				return m[1] + `="` + html.EscapeString(res.ResolveLink(file, html.UnescapeString(m[2]), true)) + `"`
+			}
+			return a
+		})
+	})
+	return out, ok
 }

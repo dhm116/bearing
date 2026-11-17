@@ -163,3 +163,34 @@ func TestClipCutsAtAWord(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, "short")
 	}
 }
+
+func TestRenderMarkdownShowsPictureBlocksWithResolvedImages(t *testing.T) {
+	src := []byte("# T\n\n<picture>\n  <source media=\"(prefers-color-scheme: dark)\" srcset=\"d/x-dark.svg\">\n  <img src=\"d/x.svg\" alt=\"An &quot;x&quot;\">\n</picture>\n")
+	r, err := RenderMarkdown("docs/a.md", src, &fakeResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`srcset="/img/d/x-dark.svg"`, `<img src="/img/d/x.svg" alt="An &quot;x&quot;">`, "</picture>"} {
+		if !strings.Contains(r.HTML, want) {
+			t.Errorf("got %s, want it to contain %s", r.HTML, want)
+		}
+	}
+}
+
+func TestRenderMarkdownOmitsPictureBlocksWithOtherHTML(t *testing.T) {
+	for name, block := range map[string]string{
+		"handler":    `<picture><img src="x.svg" onerror="alert(1)"></picture>`,
+		"script":     `<picture><script>alert(1)</script></picture>`,
+		"other text": `<picture><img src="x.svg"></picture> <b>hi</b>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, err := RenderMarkdown("x.md", []byte("# T\n\n"+block+"\n"), &fakeResolver{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(r.HTML, "raw HTML omitted") || strings.Contains(r.HTML, "<picture") {
+				t.Errorf("got %s, want the block omitted", r.HTML)
+			}
+		})
+	}
+}
