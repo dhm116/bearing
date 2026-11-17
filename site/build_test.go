@@ -53,6 +53,13 @@ func TestRepoSiteBuildsWithoutProblems(t *testing.T) {
 	if g, err := os.ReadFile(filepath.Join(out, "guides/architecture/index.html")); err != nil || strings.Contains(string(g), "All decisions") {
 		t.Errorf("got a guide page that says All decisions (%v)", err)
 	}
+	// The guides embed their diagrams as <picture> blocks, light and dark.
+	if g, err := os.ReadFile(filepath.Join(out, "guides/architecture/index.html")); err != nil || !strings.Contains(string(g), `<img src="/bearing/assets/docs/diagrams/server-flow.svg"`) {
+		t.Errorf("got the architecture guide without its diagrams (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "assets/docs/diagrams/server-flow-dark.svg")); err != nil {
+		t.Errorf("got no copied dark diagram: %v", err)
+	}
 	home, err := os.ReadFile(filepath.Join(out, "index.html"))
 	if err != nil {
 		t.Fatal(err)
