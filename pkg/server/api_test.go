@@ -208,6 +208,7 @@ func TestAPIRefusesMissingAndWrongTokensOnEveryRoute(t *testing.T) {
 		"GET /v1/changes":                {http.MethodGet, "/v1/changes", http.StatusOK, ""},
 		"GET /v1/find":                   {http.MethodGet, "/v1/find?q=payments", http.StatusOK, ""},
 		"GET /v1/runtimes":               {http.MethodGet, "/v1/runtimes?language=go&below=1.22", http.StatusOK, ""},
+		"GET /v1/graph":                  {http.MethodGet, "/v1/graph", http.StatusOK, ""},
 		"GET /v1/links":                  {http.MethodGet, "/v1/links", http.StatusOK, ""},
 		"POST /v1/links/decisions":       {http.MethodPost, "/v1/links/decisions", http.StatusAccepted, `{"decision":"join","a":"catalog:repo/payments","b":"catalog:repo/billing"}`},
 		"POST /v1/sources/{source}/sync": {http.MethodPost, "/v1/sources/" + testSource + "/sync", http.StatusAccepted, ""},

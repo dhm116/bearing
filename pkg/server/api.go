@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	eventv1alpha1 "bearing.example/gen/go/bearing/event/v1alpha1"
+	"bearing.example/pkg/graphview"
 	"bearing.example/pkg/query"
 	"bearing.example/pkg/telemetry"
 )
@@ -153,6 +154,7 @@ var routes = []route{
 	{pattern: "GET /v1/changes", method: MethodChanges, handle: (*API).changes},
 	{pattern: "GET /v1/find", method: MethodFind, handle: (*API).find},
 	{pattern: "GET /v1/runtimes", method: MethodRuntimes, handle: (*API).runtimes},
+	{pattern: "GET /v1/graph", method: MethodGraph, handle: (*API).graph},
 	{pattern: "GET /v1/links", method: MethodLinks, handle: (*API).links},
 	{pattern: "POST /v1/links/decisions", method: MethodDecide, write: true, body: true, handle: (*API).decide},
 	{pattern: "POST /v1/sources/{source}/sync", method: MethodSyncRequest, write: true, handle: (*API).sync},
@@ -703,4 +705,16 @@ func (a *API) sync(w http.ResponseWriter, r *http.Request, c Caller) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, syncAccepted{EventID: req.ID, Offset: int64(req.Offset)})
+}
+
+// graph serves every entity, fact and identity link the store holds now.
+// shortcut: spike route (spike/graph-svelte) with no paging; upgrade with a
+// neighbourhood query before an org larger than the demo.
+func (a *API) graph(w http.ResponseWriter, r *http.Request, _ Caller) {
+	if p := parseParams(r); p.err != "" {
+		badRequest(w, r, "invalid_request", p.err)
+		return
+	}
+	v, err := graphview.Build(r.Context(), a.cfg.Query.Graph)
+	a.answer(w, r, v, err)
 }

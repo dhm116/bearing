@@ -21,6 +21,8 @@ const (
 	// MethodLinks is "which identity links are waiting for review": bearing
 	// links.
 	MethodLinks Method = "links.list"
+	// MethodGraph is the whole store as one picture, for the graph view.
+	MethodGraph Method = "query.graph"
 	// MethodDecide records a person's decision on an identity link, which
 	// appends a LinkDecided event.
 	MethodDecide Method = "links.decide"

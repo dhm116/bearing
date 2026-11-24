@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "graph-web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web/graph && BEARING_TOKEN=$(grep '^BEARING_API_TOKEN=' ../../.env | cut -d= -f2-) BEARING_CA=$PWD/demo-ca.pem exec bun --bun vite dev --port 5180 --strictPort"
+      ],
+      "port": 5180
+    }
+  ]
+}
