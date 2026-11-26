@@ -42,4 +42,4 @@ export type Link = {
 	valid_from: string;
 };
 
-export type View = { entities: Entity[]; facts: Fact[]; links: Link[] };
+export type View = { entities: Entity[]; facts: Fact[]; links: Link[]; at?: string; since?: string };

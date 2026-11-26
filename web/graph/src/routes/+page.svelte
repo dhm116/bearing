@@ -6,6 +6,8 @@
 	import ChangeFeed from '#lib/components/ChangeFeed.svelte';
 	import StoryControls from '#lib/components/StoryControls.svelte';
 	import Camera from '#lib/components/Camera.svelte';
+	import TimeScrubber from '#lib/components/TimeScrubber.svelte';
+	import { compare, count, Ledger, noMarks, withGhosts } from '#lib/marks.ts';
 	import { edges as buildEdges, kindLabel, kindRank, layout, neighbours, pairs, NODE_H, type EdgeData, type NodeOf } from '#lib/graph.ts';
 	import { diff, type Change } from '#lib/diff.ts';
 	import { kindColor } from '#lib/palette.ts';
@@ -18,8 +20,17 @@
 	let view = $state.raw<View>(empty);
 	let live = $state<{ ok: boolean; error?: string; at?: string }>({ ok: false });
 	let changes = $state.raw<Change[]>([]);
-	let fresh = $state.raw<Set<string>>(new Set());
-	let changed = $state.raw<Set<string>>(new Set());
+	// How long a live change stays marked on the graph.
+	const MARK_MS = 45_000;
+	const ledger = new Ledger();
+	let ledgerTick = $state(0);
+	let ticks = $state.raw<number[]>([]);
+	// Comparing with a past moment: its time, the picture then, and how to show it.
+	let compareAt = $state<number | null>(null);
+	let compareMode = $state<'diff' | 'then'>('diff');
+	let past = $state.raw<View | null>(null);
+	let pastLoading = $state(false);
+	let pastError = $state('');
 	let focus = $state<string | null>(null);
 	let hidden = new SvelteSet<string>();
 	let proposed = $state(true);
@@ -38,7 +49,6 @@
 	}
 
 	let positions = $state.raw(new Map<string, { x: number; y: number }>());
-	let layoutKey = $state(0);
 	let gliding = $state(false);
 	let nodes = $state.raw<NodeOf[]>([]);
 	let edges = $state.raw<Edge<EdgeData>[]>([]);
@@ -49,14 +59,15 @@
 		let first = true;
 		es.addEventListener('view', (m) => {
 			const next: View = JSON.parse(m.data);
-			if (!first) {
+			if (first) {
+				ticks = readTimes(next);
+			} else {
 				const cs = diff(view, next);
 				if (cs.length) {
 					changes = [...cs.reverse(), ...changes].slice(0, 200);
-					const ids = cs.flatMap((c) => c.ids);
-					fresh = new Set(ids);
-					changed = new Set(cs.filter((c) => c.tone === 'change').flatMap((c) => c.ids));
-					setTimeout(() => ((fresh = new Set()), (changed = new Set())), 4000);
+					ticks = [...ticks, Date.now()];
+					ledger.add(compare(view, next), MARK_MS);
+					ledgerTick++;
 				}
 			}
 			first = false;
@@ -67,11 +78,66 @@
 		return () => es.close();
 	});
 
-	const kinds = $derived([...new Set(view.entities.map((e) => e.kind))].sort((a, b) => kindRank(a) - kindRank(b)));
-	const shownEntities = $derived(view.entities.filter((e) => !hidden.has(e.kind)));
+	// Live marks fade: drop the expired ones once a second.
+	$effect(() => {
+		const t = setInterval(() => ledger.prune() && ledgerTick++, 1000);
+		return () => clearInterval(t);
+	});
+
+	// The moments Bearing read something: each fact's first observation.
+	function readTimes(v: View) {
+		const ts = new Set<number>();
+		for (const f of v.facts) {
+			const first = Math.min(...f.sources.map((s) => Date.parse(s.observed_at)));
+			if (Number.isFinite(first)) ts.add(Math.floor(first / 1000) * 1000);
+		}
+		return [...ts].sort((a, b) => a - b);
+	}
+
+	// Fetch the picture at the chosen past moment (debounced while dragging).
+	$effect(() => {
+		const at = compareAt;
+		if (at === null) {
+			past = null;
+			pastError = '';
+			return;
+		}
+		let stale = false;
+		pastLoading = true;
+		const t = setTimeout(async () => {
+			try {
+				const r = await fetch('/api/graph?at=' + encodeURIComponent(new Date(at).toISOString()));
+				if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? r.statusText);
+				const v: View = await r.json();
+				if (!stale) (past = v), (pastError = '');
+			} catch (e) {
+				if (!stale) pastError = e instanceof Error ? e.message : String(e);
+			} finally {
+				if (!stale) pastLoading = false;
+			}
+		}, 200);
+		return () => {
+			stale = true;
+			clearTimeout(t);
+		};
+	});
+
+	const comparing = $derived(compareAt !== null && past !== null);
+	const marks = $derived.by(() => {
+		void ledgerTick;
+		if (comparing) return compareMode === 'diff' ? compare(past!, view) : noMarks();
+		return ledger.marks(view);
+	});
+	const drawn = $derived(withGhosts(comparing && compareMode === 'then' ? past! : view, marks));
+	const tally = $derived(count(marks));
+	const feed = $derived(comparing ? diff(past!, view, new Date(compareAt!)) : changes);
+	const since = $derived(view.since ? Date.parse(view.since) : (ticks[0] ?? 0));
+
+	const kinds = $derived([...new Set(drawn.entities.map((e) => e.kind))].sort((a, b) => kindRank(a) - kindRank(b)));
+	const shownEntities = $derived(drawn.entities.filter((e) => !hidden.has(e.kind)));
 	const shown = $derived(new Set(shownEntities.map((e) => e.id)));
-	const ps = $derived(pairs(view, { kinds: hidden, proposed, identity }, shown));
-	const byId = $derived(new Map(view.entities.map((e) => [e.id, e])));
+	const ps = $derived(pairs(drawn, { kinds: hidden, proposed, identity }, shown));
+	const byId = $derived(new Map(drawn.entities.map((e) => [e.id, e])));
 	const focused = $derived(focus ? byId.get(focus) : undefined);
 	const near = $derived(focus && shown.has(focus) ? neighbours(ps, focus) : null);
 
@@ -83,7 +149,6 @@
 			if (stale) return;
 			gliding = positions.size > 0;
 			positions = pos;
-			layoutKey++;
 			setTimeout(() => (gliding = false), 700);
 		});
 		return () => (stale = true);
@@ -100,9 +165,9 @@
 				height: NODE_H,
 				selected: e.id === focus,
 				class: near && !near.has(e.id) ? 'dim' : '',
-				data: { entity: e, fresh: fresh.has(e.id), changed: changed.has(e.id), focused: e.id === focus }
+				data: { entity: e, mark: marks.entities.get(e.id), focused: e.id === focus }
 			}));
-		edges = buildEdges(ps, positions, near ? focus : null, fresh);
+		edges = buildEdges(ps, positions, near ? focus : null, marks.facts, !comparing);
 	});
 
 	const cameraIds = $derived(near ? [...near] : []);
@@ -112,9 +177,9 @@
 		const q = query.trim().toLowerCase();
 		if (!q) return;
 		const hit =
-			view.entities.find((e) => e.name.toLowerCase() === q) ??
-			view.entities.find((e) => e.name.toLowerCase().includes(q)) ??
-			view.entities.find((e) => e.records.some((r) => r.keys.some((k) => k.toLowerCase().includes(q))));
+			drawn.entities.find((e) => e.name.toLowerCase() === q) ??
+			drawn.entities.find((e) => e.name.toLowerCase().includes(q)) ??
+			drawn.entities.find((e) => e.records.some((r) => r.keys.some((k) => k.toLowerCase().includes(q))));
 		if (hit) {
 			hidden.delete(hit.kind);
 			focus = hit.id;
@@ -196,10 +261,16 @@
 		<aside class="flex min-h-0 flex-col border-r border-neutral bg-base-100">
 			<StoryControls />
 			<div class="divider my-0"></div>
-			<div class="min-h-0 flex-1"><ChangeFeed {changes} onfocus={(id) => (focus = id)} /></div>
+			<div class="min-h-0 flex-1"><ChangeFeed
+					changes={feed}
+					onfocus={(id) => (focus = id)}
+					title={comparing ? 'Then vs now' : 'What changed'}
+					empty={comparing ? 'Nothing differs between then and now.' : 'Changes appear here as Bearing reads them.'}
+				/></div>
 		</aside>
 
-		<main class="relative min-h-0">
+		<main class="grid min-h-0 grid-rows-[1fr_auto]">
+			<div class="relative min-h-0">
 			<SvelteFlow
 				bind:nodes
 				bind:edges
@@ -214,19 +285,38 @@
 				onpaneclick={() => (focus = null)}
 				proOptions={{ hideAttribution: true }}
 			>
-				<Camera ids={cameraIds} {layoutKey} />
+				<Camera ids={cameraIds} count={nodes.length} />
 				<Background gap={22} />
 				<Controls showLock={false} />
 				<MiniMap pannable zoomable nodeColor={(n) => kindColor((n.data as NodeOf['data']).entity.kind)} />
-				<Panel position="top-left">
+				<Panel position="bottom-center">
 					<div class="flex gap-4 whitespace-nowrap rounded-box border border-neutral bg-base-100/90 px-3 py-1.5 text-[11px] text-base-content/70 backdrop-blur">
 						<span class="flex items-center gap-1.5"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="1.5" /></svg>fact</span>
 						<span class="flex items-center gap-1.5"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6 5" /></svg>proposal</span>
 						<span class="flex items-center gap-1.5 text-warning"><svg width="22" height="6"><line x1="1" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round" /></svg>maybe the same</span>
-						<span class="flex items-center gap-1.5 text-success"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="2.5" /></svg>just changed</span>
-
+						<span class="flex items-center gap-1.5 text-success"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="2.5" /></svg>added</span>
+						<span class="flex items-center gap-1.5 text-error"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" /></svg>removed</span>
 					</div>
 				</Panel>
+				{#if tally.add + tally.change + tally.remove > 0 || (compareAt !== null && compareMode === 'then')}
+					<Panel position="top-center">
+						<div class="flex items-center gap-3 rounded-full border border-neutral bg-base-100/95 py-1 pr-1 pl-4 text-xs shadow-lg backdrop-blur">
+							{#if comparing && compareMode === 'then'}
+								<span>As Bearing knew it at {new Date(compareAt!).toLocaleTimeString()} <span class="text-base-content/50">(names and joins are today's)</span></span>
+							{:else}
+								<span class="text-base-content/60">{comparing ? `Since ${new Date(compareAt!).toLocaleTimeString()}` : 'Recent'}</span>
+								<span class="flex items-center gap-1 font-medium text-success"><span class="size-2 rounded-full bg-success"></span>{tally.add} added</span>
+								<span class="flex items-center gap-1 font-medium text-warning"><span class="size-2 rounded-full bg-warning"></span>{tally.change} updated</span>
+								<span class="flex items-center gap-1 font-medium text-error"><span class="size-2 rounded-full bg-error"></span>{tally.remove} removed</span>
+							{/if}
+							{#if comparing}
+								<button class="btn btn-ghost btn-xs" onclick={() => (compareAt = null)}>Back to live</button>
+							{:else}
+								<button class="btn btn-ghost btn-xs" onclick={() => (ledger.clear(), ledgerTick++)} title="Clear the marks">Clear</button>
+							{/if}
+						</div>
+					</Panel>
+				{/if}
 			</SvelteFlow>
 
 			{#if view.entities.length === 0}
@@ -239,10 +329,12 @@
 					</div>
 				</div>
 			{/if}
+			</div>
+			<TimeScrubber {since} {ticks} bind:at={compareAt} bind:mode={compareMode} loading={pastLoading} error={pastError} />
 		</main>
 
 		{#if focused}
-			<EntityPanel entity={focused} {view} onfocus={(id) => (focus = id)} onclose={() => (focus = null)} />
+			<EntityPanel entity={focused} view={drawn} onfocus={(id) => (focus = id)} onclose={() => (focus = null)} />
 		{/if}
 	</div>
 </div>

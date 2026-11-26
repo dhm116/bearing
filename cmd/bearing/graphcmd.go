@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"bearing.example/pkg/graphview"
 )
@@ -20,6 +21,7 @@ func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	storeURL := fs.String("store", "", "store URL: mem:// or duckdb:///absolute/path.duckdb (default $"+storeEnv+")")
 	format := fs.String("format", "html", "dot, json, svg, html or tld (a tld import: github.com/Mertcikla/tld)")
+	atFlag := fs.String("at", "", "draw the graph as it was at this RFC 3339 time (default now)")
 	pos, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -34,6 +36,12 @@ func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 	if !ok {
 		return fmt.Errorf("--format %q: want dot, json, svg, html or tld: %w", *format, errUsage)
 	}
+	var at time.Time
+	if *atFlag != "" {
+		if at, err = time.Parse(time.RFC3339, *atFlag); err != nil {
+			return fmt.Errorf("--at %q: want an RFC 3339 time: %w", *atFlag, errUsage)
+		}
+	}
 	url := cmp.Or(*storeURL, env.Getenv(storeEnv))
 	if url == "" {
 		return fmt.Errorf("no store: give --store or set %s", storeEnv)
@@ -43,7 +51,7 @@ func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 		return err
 	}
 	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	v, err := buildView(ctx, g)
+	v, err := buildView(ctx, g, at.UTC())
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGraphJSONHoldsEntitiesFactsAndLinks(t *testing.T) {
@@ -229,5 +230,43 @@ func TestGraphTLDImportHasValidUniqueRefs(t *testing.T) {
 	}
 	if len(seen) != 3 { // two member_of facts merge into one connector
 		t.Errorf("got %d connectors, want 3: %v", len(seen), seen)
+	}
+}
+
+func TestGraphAtAPastTimeShowsWhatHeldThen(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	// Between the first GitHub sync and the catalog's: CODEOWNERS still
+	// named Payments, and billing had not been read.
+	out, err := w.cli("graph", "--format", "json", "--at", seedAt.Add(30*time.Second).Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v view
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	names := map[string]string{}
+	for _, e := range v.Entities {
+		names[e.ID] = e.Name
+	}
+	var got []string
+	for _, f := range v.Facts {
+		got = append(got, names[f.Subject]+" "+f.Predicate+" "+names[f.Object])
+	}
+	all := strings.Join(got, "\n")
+	if !strings.Contains(all, "payments-api approves_changes Payments") {
+		t.Errorf("then, payments-api's approver: got\n%s\nwant Payments", all)
+	}
+	if strings.Contains(all, "approves_changes Platform") {
+		t.Errorf("the later CODEOWNERS fact is drawn in the past; got:\n%s", all)
+	}
+	for _, e := range v.Entities {
+		if e.Name == "billing" {
+			t.Errorf("billing is drawn before it was read")
+		}
+	}
+	if v.At.IsZero() {
+		t.Error("the picture does not say which time it is of")
 	}
 }

@@ -30,22 +30,40 @@ Open http://localhost:5180. **Sync now** reads the three Acme sources;
 **Next step** plays one change of the story and syncs; **Auto** plays one
 every six seconds.
 
+- **Changes as they arrive.** Updates never move your zoom. What changed is
+  marked for 45 seconds: a green NEW badge and line for what was added, an
+  amber UPDATED badge for what changed, and a red dashed GONE ghost for
+  what was removed, where it was. The pill at the top counts them;
+  **Clear** drops the marks.
+- **Then and now.** Drag the scrubber under the graph back in time (ticks
+  are when Bearing read something), or press −1 min, −5 min or first read.
+  **Then vs now** marks what differs between that moment and now; **Then
+  only** shows the graph as Bearing knew it then. **Live** goes back.
+
 ## How it works
 
 ```
 browser ──EventSource──▶ /api/stream ──poll 1.5 s──▶ Bearing GET /v1/graph
+        ──fetch────────▶ /api/graph?at=T ──────────▶ Bearing GET /v1/graph?at=T
         ──fetch────────▶ /api/demo   ──────────────▶ fakes /demo/advance, Bearing sync
 ```
 
 - `GET /v1/graph` (spike route in `pkg/server`) returns `pkg/graphview`'s
-  picture, the one `bearing graph` draws.
+  picture, the one `bearing graph` draws. With `at`, it is what Bearing
+  knew at that time: facts that held then and that a source had observed by
+  then (`bearing graph --at` does the same).
 - The SvelteKit server holds the API token and polls; the browser gets the
   picture over server-sent events only when it changes.
 - The page diffs each new picture against the last for the "What changed"
-  feed and to glow what is new (green) or renamed (amber).
+  feed and the marks (`src/lib/marks.ts`); comparing diffs the past picture
+  against now the same way.
 - Columns follow kinds: people, teams, repositories, components,
   environments. Click a card to focus it and its neighbours and read its
   records, attributes, facts with their evidence, and identity links.
+
+Known limits of the past picture: records and their clusters are today's,
+so a rename or a join since then shows under the current name and entity;
+an entity with no facts at all is not drawn in the past.
 
 | Variable | Default |
 | --- | --- |

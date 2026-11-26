@@ -707,14 +707,17 @@ func (a *API) sync(w http.ResponseWriter, r *http.Request, c Caller) {
 	writeJSON(w, http.StatusAccepted, syncAccepted{EventID: req.ID, Offset: int64(req.Offset)})
 }
 
-// graph serves every entity, fact and identity link the store holds now.
+// graph serves every entity, fact and identity link the store holds now, or
+// held at the time in the at parameter.
 // shortcut: spike route (spike/graph-svelte) with no paging; upgrade with a
 // neighbourhood query before an org larger than the demo.
 func (a *API) graph(w http.ResponseWriter, r *http.Request, _ Caller) {
-	if p := parseParams(r); p.err != "" {
+	p := parseParams(r, "at")
+	at := p.when("at")
+	if p.err != "" {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	v, err := graphview.Build(r.Context(), a.cfg.Query.Graph)
+	v, err := graphview.Build(r.Context(), a.cfg.Query.Graph, at)
 	a.answer(w, r, v, err)
 }

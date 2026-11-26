@@ -28,8 +28,9 @@ async function bearing(path: string, init: RequestInit = {}) {
 	return res;
 }
 
-export async function graph(): Promise<View> {
-	return (await bearing('/v1/graph')).json();
+/** graph is the picture now, or as Bearing knew it at an RFC 3339 time. */
+export async function graph(at?: string): Promise<View> {
+	return (await bearing('/v1/graph' + (at ? '?at=' + encodeURIComponent(at) : ''))).json();
 }
 
 export async function sync(source: string) {

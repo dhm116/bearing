@@ -3,6 +3,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { Edge, Node } from '@xyflow/svelte';
 import type { Entity, Fact, Link, View } from './types.ts';
+import type { Tone } from './marks.ts';
 
 export const NODE_W = 232;
 export const NODE_H = 76;
@@ -20,8 +21,7 @@ export const kindLabel = (kind: string) => kind || 'Unseen';
 
 export type EntityData = {
 	entity: Entity;
-	fresh: boolean;
-	changed: boolean;
+	mark?: Tone;
 	focused: boolean;
 	[key: string]: unknown;
 };
@@ -110,7 +110,13 @@ export function edgeLabel(p: Pair) {
 }
 
 /** edges builds the flow edges, choosing handle sides so a line never loops back on itself. */
-export function edges(ps: Pair[], pos: Map<string, { x: number; y: number }>, focus: string | null, fresh: Set<string>): Edge<EdgeData>[] {
+export function edges(
+	ps: Pair[],
+	pos: Map<string, { x: number; y: number }>,
+	focus: string | null,
+	marks: Map<string, Tone>,
+	animate = true
+): Edge<EdgeData>[] {
 	return ps.map((p) => {
 		const a = pos.get(p.source), b = pos.get(p.target);
 		const back = a && b && b.x + NODE_W / 2 < a.x;
@@ -118,7 +124,9 @@ export function edges(ps: Pair[], pos: Map<string, { x: number; y: number }>, fo
 		const identityOnly = p.facts.length === 0;
 		const proposed = identityOnly || p.facts.every((f) => f.status !== 'asserted');
 		const touches = focus !== null && (p.source === focus || p.target === focus);
-		const isFresh = p.facts.some((f) => fresh.has(f.id)) || p.links.some((l) => fresh.has(l.id));
+		const tones = [...p.facts.map((f) => marks.get(f.id)), ...p.links.map((l) => marks.get(l.id))];
+		const gone = p.facts.length > 0 && p.facts.every((f) => marks.get(f.id) === 'remove');
+		const isFresh = !gone && tones.includes('add');
 		return {
 			id: `${p.source}>${p.target}`,
 			source: p.source,
@@ -127,9 +135,9 @@ export function edges(ps: Pair[], pos: Map<string, { x: number; y: number }>, fo
 			targetHandle: same ? 'r-in' : back ? 'r-in' : 'l-in',
 			type: 'smoothstep',
 			pathOptions: { borderRadius: 10, offset: 18 },
-			label: touches ? edgeLabel(p) : undefined,
-			animated: isFresh,
-			class: [identityOnly && 'identity', proposed && 'proposed', isFresh && 'fresh', touches && 'lit', focus && !touches && 'dim']
+			label: touches ? (gone ? 'was: ' : '') + edgeLabel(p) : undefined,
+			animated: animate && isFresh,
+			class: [identityOnly && 'identity', proposed && 'proposed', isFresh && 'fresh', gone && 'gone', touches && 'lit', focus && !touches && 'dim']
 				.filter(Boolean)
 				.join(' '),
 			data: { facts: p.facts, links: p.links }

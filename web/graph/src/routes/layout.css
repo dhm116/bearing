@@ -145,3 +145,10 @@ body {
 		transition: none;
 	}
 }
+
+/* Facts that were removed: kept for a while, drawn faint and broken. */
+.svelte-flow__edge.gone path.svelte-flow__edge-path {
+	stroke: var(--color-error);
+	stroke-dasharray: 3 3;
+	opacity: 0.75;
+}

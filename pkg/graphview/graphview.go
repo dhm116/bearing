@@ -24,6 +24,11 @@ type View struct {
 	Entities []Entity `json:"entities"`
 	Facts    []Fact   `json:"facts"`
 	Links    []Link   `json:"links"`
+	// At is the time the picture is of; zero means now.
+	At time.Time `json:"at,omitzero"`
+	// Since is when a source first observed a fact drawn: how far back At
+	// can usefully go.
+	Since time.Time `json:"since,omitzero"`
 }
 
 // Entity is one cluster of records, named by its observed record.
@@ -92,25 +97,62 @@ type Deposit struct {
 	Features map[string]float64 `json:"features,omitempty"`
 }
 
-// Build reads what holds now: every record, every open fact (proposed
-// too) and every open link.
-func Build(ctx context.Context, g graph.Graph) (*View, error) {
+// Build reads what holds at at (zero: now): every record, every fact open
+// then (proposed too) and every link open then.
+// shortcut: clusters and names are today's, so a past picture shows records
+// joined or renamed since under their current entity and name; upgrade with
+// a store read of records as of a time.
+func Build(ctx context.Context, g graph.Graph, at time.Time) (*View, error) {
 	recs, err := g.Records(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("graphview: %w", err)
 	}
-	facts, err := g.Facts(ctx, graph.FactFilter{WithProposed: true})
+	facts, err := g.Facts(ctx, graph.FactFilter{WithProposed: true, At: at})
 	if err != nil {
 		return nil, fmt.Errorf("graphview: %w", err)
 	}
-	links, err := g.Links(ctx, graph.LinkFilter{})
+	links, err := g.Links(ctx, graph.LinkFilter{WithClosed: !at.IsZero()})
 	if err != nil {
 		return nil, fmt.Errorf("graphview: %w", err)
+	}
+	if !at.IsZero() {
+		links = slices.DeleteFunc(links, func(l graph.Link) bool {
+			return l.ValidFrom.After(at) || !l.ValidTo.IsZero() && !l.ValidTo.After(at)
+		})
 	}
 
-	v := &View{Entities: []Entity{}, Facts: []Fact{}, Links: []Link{}}
+	v := &View{Entities: []Entity{}, Facts: []Fact{}, Links: []Link{}, At: at}
+	// A past picture is what Bearing knew at at: facts that held then and
+	// that a source had observed by then (a fact's valid_from can come from
+	// the source and predate Bearing reading it). An entity is drawn if one
+	// of those facts names it.
+	alive := map[string]bool{}
+	known := facts[:0]
+	for _, f := range facts {
+		first := time.Time{}
+		for _, s := range f.Sources {
+			if first.IsZero() || s.ObservedAt.Before(first) {
+				first = s.ObservedAt
+			}
+		}
+		if !at.IsZero() && (first.IsZero() || first.After(at)) {
+			continue
+		}
+		known = append(known, f)
+		alive[string(f.Subject)] = true
+		if f.Object != "" {
+			alive[string(f.Object)] = true
+		}
+		if !first.IsZero() && (v.Since.IsZero() || first.Before(v.Since)) {
+			v.Since = first
+		}
+	}
+	facts = known
 	byCluster := map[string]int{}
 	for _, r := range recs {
+		if !at.IsZero() && !alive[string(r.Cluster)] {
+			continue
+		}
 		i, ok := byCluster[string(r.Cluster)]
 		if !ok {
 			i = len(v.Entities)

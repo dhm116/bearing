@@ -2,16 +2,21 @@
 	import type { Change } from '#lib/diff.ts';
 	import { fly } from 'svelte/transition';
 
-	let { changes, onfocus }: { changes: Change[]; onfocus: (id: string) => void } = $props();
+	let {
+		changes,
+		onfocus,
+		title = 'What changed',
+		empty = 'Changes appear here as Bearing reads them.'
+	}: { changes: Change[]; onfocus: (id: string) => void; title?: string; empty?: string } = $props();
 
 	const dot = { add: 'bg-success', remove: 'bg-error', change: 'bg-warning', identity: 'bg-warning' };
 	const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 </script>
 
 <div class="flex h-full flex-col">
-	<h3 class="px-4 pt-4 pb-2 font-mono text-[11px] tracking-[0.08em] text-base-content/60 uppercase">What changed</h3>
+	<h3 class="px-4 pt-4 pb-2 font-mono text-[11px] tracking-[0.08em] text-base-content/60 uppercase">{title}</h3>
 	{#if changes.length === 0}
-		<p class="px-4 text-sm text-base-content/50">Changes appear here as Bearing reads them.</p>
+		<p class="px-4 text-sm text-base-content/50">{empty}</p>
 	{/if}
 	<ol class="flex-1 space-y-1 overflow-y-auto px-2 pb-4">
 		{#each changes as c (c)}

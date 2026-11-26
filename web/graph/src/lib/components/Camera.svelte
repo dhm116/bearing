@@ -1,17 +1,25 @@
 <script lang="ts">
-	// Lives inside <SvelteFlow> so it can move the viewport: to the focused
-	// entity and its neighbours, or to everything when focus clears.
+	// Lives inside <SvelteFlow> so it can move the viewport. It frames the
+	// whole graph once, when it first has cards, and afterwards moves only
+	// when someone focuses a card: updates that stream in never touch the
+	// zoom someone chose.
 	import { useSvelteFlow } from '@xyflow/svelte';
 
-	let { ids, layoutKey }: { ids: string[]; layoutKey: number } = $props();
+	let { ids, count }: { ids: string[]; count: number } = $props();
 	const flow = useSvelteFlow();
+	let framed = false;
 
 	$effect(() => {
+		if (framed || count === 0) return;
+		framed = true;
+		const t = setTimeout(() => flow.fitView({ padding: 0.06, maxZoom: 1.2, minZoom: 0.55 }), 60);
+		return () => clearTimeout(t);
+	});
+
+	$effect(() => {
+		if (!ids.length) return;
 		const nodes = ids.map((id) => ({ id }));
-		void layoutKey; // refit after a relayout too
-		const t = setTimeout(() => {
-			flow.fitView({ nodes: nodes.length ? nodes : undefined, duration: 500, padding: nodes.length ? 0.35 : 0.06, maxZoom: 1.2, minZoom: nodes.length ? 0.3 : 0.55 });
-		}, 30);
+		const t = setTimeout(() => flow.fitView({ nodes, duration: 500, padding: 0.35, maxZoom: 1.2, minZoom: 0.3 }), 30);
 		return () => clearTimeout(t);
 	});
 </script>

@@ -11,6 +11,8 @@ export type Change = {
 };
 
 const pred = (p: string) => p.replaceAll('_', ' ');
+const plural = (kind: string, n: number) =>
+	kind === 'unseen' ? (n > 1 ? 'records only named' : 'record only named') : n === 1 ? kind : kind.endsWith('y') ? kind.slice(0, -1) + 'ies' : kind + 's';
 
 export function diff(prev: View, next: View, at = new Date()): Change[] {
 	const out: Change[] = [];
@@ -34,7 +36,7 @@ export function diff(prev: View, next: View, at = new Date()): Change[] {
 	if (added.length > 3) {
 		const byKind = Map.groupBy(added, (e) => e.kind || 'unseen');
 		for (const [k, es] of byKind)
-			out.push({ at, tone: 'add', text: `${es.length} ${k}${es.length > 1 ? 's' : ''} appeared`, ids: es.map((e) => e.id) });
+			out.push({ at, tone: 'add', text: `${es.length} ${plural(k, es.length)} appeared`, ids: es.map((e) => e.id) });
 	} else {
 		for (const e of added) out.push({ at, tone: 'add', text: `${e.kind || 'Record'} ${e.name} appeared`, entity: e.id, ids: [e.id] });
 	}
