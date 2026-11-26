@@ -1,4 +1,4 @@
-.PHONY: all build test fmt lint vet race cover shard-check shard-profiles covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean
+.PHONY: all build test fmt lint vet race cover shard-check shard-profiles covergate covergate-base covergate-report vuln tools-test generate generate-check check static clean demo-start demo-stop demo-reset demo-status
 
 # Developer tools are pinned in tools/go.mod and built into bin/tools.
 TOOLS := bin/tools
@@ -163,3 +163,14 @@ $(COVERGATE): tools/go.mod $(wildcard tools/covergate/*.go)
 
 clean:
 	rm -rf bin cover.out
+
+# The Acme demo and the graph UI (web/graph): start, stop, wipe the data so
+# the story starts over, or show what is running.
+demo-start:
+	@demo/demo.sh start
+demo-stop:
+	@demo/demo.sh stop
+demo-reset:
+	@demo/demo.sh reset
+demo-status:
+	@demo/demo.sh status

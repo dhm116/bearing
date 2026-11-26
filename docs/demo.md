@@ -23,6 +23,11 @@ command (`make build` writes `bin/bearing`).
 
 ## Start it
 
+On the `spike/graph-svelte` branch, `make demo-start` does the Compose steps
+below and also starts a live graph of what Bearing knows
+([web/graph](../web/graph/README.md)); `make demo-stop` stops it all and
+`make demo-reset` starts the story over. By hand:
+
 ```sh
 cp .env.example .env              # demo values, not secrets
 docker compose up -d --build

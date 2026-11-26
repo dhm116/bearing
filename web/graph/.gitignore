@@ -24,3 +24,7 @@ vite.config.ts.timestamp-*
 
 # The demo CA, copied from the fakes container
 demo-ca.pem
+
+# demo/demo.sh: the dev server pid and log
+.dev.pid
+.dev.log

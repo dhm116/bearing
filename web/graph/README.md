@@ -13,23 +13,18 @@ ELK for the layout.
 
 ## Run it
 
-Start the demo (see [docs/demo.md](../../docs/demo.md)), from the repository
-root:
+You need Docker running and [Bun](https://bun.sh). From the repository root:
 
-```sh
-cp .env.example .env
-docker compose up -d --build
-docker compose cp fakes:/certs/ca.pem web/graph/demo-ca.pem
-```
+| Command | What it does |
+| --- | --- |
+| `make demo-start` | Starts Bearing and the Acme fakes ([docs/demo.md](../../docs/demo.md)) and this app in the background |
+| `make demo-stop` | Stops all three; the data stays |
+| `make demo-reset` | Stops all three and deletes the data, so the story starts over |
+| `make demo-status` | Shows what is running |
 
-Then the app:
-
-```sh
-cd web/graph
-bun install
-BEARING_TOKEN=$(grep '^BEARING_API_TOKEN=' ../../.env | cut -d= -f2-) \
-BEARING_CA=$PWD/demo-ca.pem bun --bun vite dev --port 5180
-```
+`demo/demo.sh` does the work: it copies `.env.example` to `.env` if needed,
+fetches the demo CA, and runs the app on port 5180 (`DEMO_UI_PORT` changes
+it), logging to `web/graph/.dev.log`.
 
 Open http://localhost:5180. **Sync now** reads the three Acme sources;
 **Next step** plays one change of the story and syncs; **Auto** plays one
