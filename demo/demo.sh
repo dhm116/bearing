@@ -1,6 +1,6 @@
 #!/bin/sh
 # Starts and stops the Acme demo (docker compose) and the graph UI in
-# web/graph (spike/graph-svelte). Usage: demo/demo.sh start|stop|reset|status
+# web/graph (spike/graph-svelte). Usage: demo/demo.sh start|stop|reset|status|logs
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -53,7 +53,8 @@ start() {
 	echo "  Bearing API   https://localhost:8443"
 	echo "  demo story    http://127.0.0.1:9090/demo/steps"
 	echo
-	echo "Press Sync now in the UI to read the sources. 'make demo-stop' stops it all."
+	echo "Press Sync now in the UI to read the sources. 'make demo-logs' follows the"
+	echo "logs; 'make demo-stop' stops it all."
 }
 
 stop() {
@@ -74,10 +75,20 @@ status() {
 	docker compose ps --format '{{.Service}}: {{.Status}}'
 }
 
+# logs follows the graph UI's log (its server, and errors the browser
+# reports) and Bearing's, until Ctrl-C.
+logs() {
+	[ -f "$log" ] || die "no UI log yet; run make demo-start"
+	tail -n 40 -F "$log" | awk '{ print "ui      | " $0; fflush() }' &
+	trap 'kill $! 2>/dev/null' EXIT INT TERM
+	docker compose logs -f --tail 40 bearing
+}
+
 case ${1:-} in
 start) start ;;
 stop) stop ;;
 reset) stop -v && echo "demo: data removed; the story starts over on the next start" ;;
 status) status ;;
-*) die "usage: demo/demo.sh start|stop|reset|status" ;;
+logs) logs ;;
+*) die "usage: demo/demo.sh start|stop|reset|status|logs" ;;
 esac

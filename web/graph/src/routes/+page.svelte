@@ -13,6 +13,7 @@
 	import { kindColor } from '#lib/palette.ts';
 	import type { View } from '#lib/types.ts';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { reportError } from '#lib/report.ts';
 
 	const nodeTypes = { entity: EntityNode };
 	const empty: View = { entities: [], facts: [], links: [] };
@@ -334,7 +335,22 @@
 		</main>
 
 		{#if focused}
-			<EntityPanel entity={focused} view={drawn} onfocus={(id) => (focus = id)} onclose={() => (focus = null)} />
+			<!-- A panel that fails to draw says so in place, instead of blanking the page. -->
+			<svelte:boundary onerror={(e) => reportError(e, 'entity panel')}>
+				<EntityPanel entity={focused} view={drawn} onfocus={(id) => (focus = id)} onclose={() => (focus = null)} />
+				{#snippet failed(error, reset)}
+					<aside class="flex h-full w-[400px] flex-col gap-3 border-l border-neutral bg-base-100 p-4">
+						<div role="alert" class="alert alert-soft alert-error text-sm">
+							Couldn't show this entity: {error instanceof Error ? error.message : String(error)}
+						</div>
+						<div class="flex gap-2">
+							<button class="btn btn-sm" onclick={reset}>Try again</button>
+							<button class="btn btn-ghost btn-sm" onclick={() => (focus = null)}>Close</button>
+						</div>
+						<p class="text-xs text-base-content/60">The details are in the UI log: <code>make demo-logs</code>.</p>
+					</aside>
+				{/snippet}
+			</svelte:boundary>
 		{/if}
 	</div>
 </div>

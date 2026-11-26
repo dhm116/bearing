@@ -20,6 +20,9 @@
 		const r = e?.records.find((r) => r.id === id);
 		return { entity: e, label: r?.label || r?.name || id.slice(-8) };
 	};
+	// The other entities a link reaches, each once, never this one.
+	const others = (...es: (Entity | undefined)[]) =>
+		[...new Map(es.filter((e): e is Entity => !!e && e.id !== entity.id).map((e) => [e.id, e])).values()];
 	const links = $derived(view.links.filter((l) => recIds.has(l.a) || recIds.has(l.b)));
 
 	const when = (s: string) =>
@@ -155,10 +158,9 @@
 								<span class={['badge badge-xs', l.status === 'asserted' ? 'badge-success badge-soft' : 'badge-warning badge-dash']}>{l.status}</span>
 								by rule <span class="font-mono">{l.rule}</span>
 							</div>
-							{#each [a.entity, b.entity] as other (other?.id)}
-								{#if other && other.id !== entity.id}
-									<button class="mt-2 btn btn-outline btn-xs" onclick={() => onfocus(other.id)}>open {other.name}</button>
-								{/if}
+							<!-- Both records are often this entity's own (a join), so dedupe before keying. -->
+							{#each others(a.entity, b.entity) as other (other.id)}
+								<button class="mt-2 btn btn-outline btn-xs" onclick={() => onfocus(other.id)}>open {other.name}</button>
 							{/each}
 						</li>
 					{/each}

@@ -21,6 +21,7 @@ You need Docker running and [Bun](https://bun.sh). From the repository root:
 | `make demo-stop` | Stops all three; the data stays |
 | `make demo-reset` | Stops all three and deletes the data, so the story starts over |
 | `make demo-status` | Shows what is running |
+| `make demo-logs` | Follows the UI's log (its server, and errors the page reports) and Bearing's |
 
 `demo/demo.sh` does the work: it copies `.env.example` to `.env` if needed,
 fetches the demo CA, and runs the app on port 5180 (`DEMO_UI_PORT` changes
