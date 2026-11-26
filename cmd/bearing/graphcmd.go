@@ -51,7 +51,7 @@ func graphCmd(ctx context.Context, env queryEnv, args []string, stdout io.Writer
 		return err
 	}
 	defer func() { err = errors.Join(err, closeStore(ctx)) }()
-	v, err := buildView(ctx, g, at.UTC())
+	v, err := buildView(ctx, g, graphview.Options{At: at.UTC(), Now: env.Now})
 	if err != nil {
 		return err
 	}

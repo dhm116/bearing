@@ -135,6 +135,7 @@ export function edges(
 			targetHandle: same ? 'r-in' : back ? 'r-in' : 'l-in',
 			type: 'smoothstep',
 			pathOptions: { borderRadius: 10, offset: 18 },
+			ariaLabel: (gone ? 'removed: ' : '') + edgeLabel(p),
 			label: touches ? (gone ? 'was: ' : '') + edgeLabel(p) : undefined,
 			animated: animate && isFresh,
 			class: [identityOnly && 'identity', proposed && 'proposed', isFresh && 'fresh', gone && 'gone', touches && 'lit', focus && !touches && 'dim']

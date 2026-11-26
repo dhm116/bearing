@@ -718,6 +718,7 @@ func (a *API) graph(w http.ResponseWriter, r *http.Request, _ Caller) {
 		badRequest(w, r, "invalid_request", p.err)
 		return
 	}
-	v, err := graphview.Build(r.Context(), a.cfg.Query.Graph, at)
+	q := a.cfg.Query
+	v, err := graphview.Build(r.Context(), q.Graph, graphview.Options{At: at, Now: q.Now, HalfLife: q.HalfLife})
 	a.answer(w, r, v, err)
 }

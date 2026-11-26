@@ -132,7 +132,7 @@ body {
 
 .svelte-flow__edge-label {
 	font-family: var(--font-mono);
-	font-size: 10px;
+	font-size: 11px;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 	padding: 2px 6px;
@@ -151,4 +151,30 @@ body {
 	stroke: var(--color-error);
 	stroke-dasharray: 3 3;
 	opacity: 0.75;
+}
+
+/* Browser surfaces follow the palette, not the browser's defaults. */
+::selection {
+	background: color-mix(in oklab, var(--color-primary) 35%, transparent);
+	color: var(--color-base-content);
+}
+html {
+	caret-color: var(--color-primary);
+	scrollbar-color: color-mix(in oklab, var(--color-base-content) 25%, transparent) transparent;
+	font-variant-numeric: tabular-nums;
+}
+/* In the base layer, so a utility such as focus:outline-none can still win. */
+@layer base {
+	:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+	}
+}
+/* A card the keyboard is on shows it, on the card itself. */
+.svelte-flow__node:focus {
+	outline: none;
+}
+.svelte-flow__node:focus-visible .entity {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 3px;
 }

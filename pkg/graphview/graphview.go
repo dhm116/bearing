@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"bearing.example/pkg/graph"
+	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 )
 
@@ -56,16 +57,18 @@ type Record struct {
 
 // Fact is a relation or attribute and the observations behind it.
 type Fact struct {
-	ID          string         `json:"id"`
-	Subject     string         `json:"subject"`
-	Predicate   string         `json:"predicate"`
-	Object      string         `json:"object,omitempty"`
-	Value       any            `json:"value,omitempty"`
-	Qualifiers  map[string]any `json:"qualifiers,omitempty"`
-	Status      string         `json:"status"`
-	ValidFrom   time.Time      `json:"valid_from"`
-	Sources     []Source       `json:"sources"`
-	SourceCount int            `json:"source_count"`
+	ID         string         `json:"id"`
+	Subject    string         `json:"subject"`
+	Predicate  string         `json:"predicate"`
+	Object     string         `json:"object,omitempty"`
+	Value      any            `json:"value,omitempty"`
+	Qualifiers map[string]any `json:"qualifiers,omitempty"`
+	Status     string         `json:"status"`
+	// Confidence is between 0 and 1: how sure the sources are of the fact.
+	Confidence  float64   `json:"confidence"`
+	ValidFrom   time.Time `json:"valid_from"`
+	Sources     []Source  `json:"sources"`
+	SourceCount int       `json:"source_count"`
 }
 
 // Source is one observation behind a fact.
@@ -84,6 +87,11 @@ type Link struct {
 	A         string    `json:"a"`
 	B         string    `json:"b"`
 	ValidFrom time.Time `json:"valid_from"`
+	// Strength and Certainty score the link's evidence as the review queue
+	// does (pkg/match): how strongly it says "same", and how much of it
+	// there is, both between 0 and 1.
+	Strength  float64   `json:"strength"`
+	Certainty float64   `json:"certainty"`
 	Deposits  []Deposit `json:"deposits"`
 }
 
@@ -97,12 +105,38 @@ type Deposit struct {
 	Features map[string]float64 `json:"features,omitempty"`
 }
 
-// Build reads what holds at at (zero: now): every record, every fact open
-// then (proposed too) and every link open then.
+// Options say which moment Build reads and how it scores links.
+type Options struct {
+	// At is the time to read; zero means now.
+	At time.Time
+	// Now is when link evidence is scored; nil means time.Now.
+	Now func() time.Time
+	// HalfLife is how fast a kind's link evidence fades; nil means the
+	// matching defaults (match.Config{}).
+	HalfLife func(model.Kind) time.Duration
+}
+
+// Build reads what holds at o.At: every record, every fact open then
+// (proposed too) and every link open then. A proposal between records an
+// asserted link already joined is left out, as the review queue leaves it
+// out: there is nothing left to decide.
 // shortcut: clusters and names are today's, so a past picture shows records
 // joined or renamed since under their current entity and name; upgrade with
 // a store read of records as of a time.
-func Build(ctx context.Context, g graph.Graph, at time.Time) (*View, error) {
+func Build(ctx context.Context, g graph.Graph, o Options) (*View, error) {
+	at, halfLife := o.At, o.HalfLife
+	var now time.Time
+	switch {
+	case !at.IsZero():
+		now = at // a past link is scored as it stood then
+	case o.Now != nil:
+		now = o.Now()
+	default:
+		now = time.Now()
+	}
+	if halfLife == nil {
+		halfLife = match.Config{}.HalfLifeOf
+	}
 	recs, err := g.Records(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("graphview: %w", err)
@@ -173,7 +207,7 @@ func Build(ctx context.Context, g graph.Graph, at time.Time) (*View, error) {
 		}
 		vf := Fact{
 			ID: f.ID, Subject: string(f.Subject), Predicate: f.Predicate, Object: string(f.Object),
-			Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status), ValidFrom: f.ValidFrom,
+			Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status), Confidence: f.Confidence, ValidFrom: f.ValidFrom,
 			SourceCount: f.SourceCount, Sources: make([]Source, 0, len(f.Sources)),
 		}
 		for _, s := range f.Sources {
@@ -191,10 +225,19 @@ func Build(ctx context.Context, g graph.Graph, at time.Time) (*View, error) {
 			}
 		}
 	}
+	cluster, kind := map[graph.EntityID]graph.EntityID{}, map[graph.EntityID]model.Kind{}
+	for _, r := range recs {
+		cluster[r.ID], kind[r.ID] = r.Cluster, r.Kind
+	}
 	for _, l := range links {
+		if l.Kind == graph.SameAs && l.Status == graph.Proposed && cluster[l.A] != "" && cluster[l.A] == cluster[l.B] {
+			continue
+		}
+		sc := match.ScoreOf(l.Deposits, now, halfLife(cmp.Or(kind[l.A], kind[l.B])))
 		vl := Link{
 			ID: l.ID, Kind: string(l.Kind), Status: string(l.Status), Rule: l.Rule,
-			A: string(l.A), B: string(l.B), ValidFrom: l.ValidFrom, Deposits: make([]Deposit, 0, len(l.Deposits)),
+			A: string(l.A), B: string(l.B), ValidFrom: l.ValidFrom, Strength: sc.Strength, Certainty: sc.Certainty,
+			Deposits: make([]Deposit, 0, len(l.Deposits)),
 		}
 		for _, d := range l.Deposits {
 			vl.Deposits = append(vl.Deposits, Deposit{At: d.At, Weight: d.Weight, Against: d.Against, Actor: d.Actor, Reason: d.Reason, Features: d.Features})

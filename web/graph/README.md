@@ -36,8 +36,14 @@ every six seconds.
   amber UPDATED badge for what changed, and a red dashed GONE ghost for
   what was removed, where it was. The pill at the top counts them;
   **Clear** drops the marks.
+- **Evidence.** Click a card (or press Enter on it) for its records, and for
+  every claim its confidence, each source that said it and when, and a link
+  to the evidence. Identity links show how strong their evidence is and how
+  a person decides a proposal. **?** opens a short guide; `/` finds a card,
+  `[` and `]` step through what changed, `L` goes back to live. The URL
+  keeps the card in focus and the moment compared, so it can be shared.
 - **Then and now.** Drag the scrubber under the graph back in time (ticks
-  are when Bearing read something), or press −1 min, −5 min or first read.
+  are when Bearing read something), or press 1 min ago, 5 min ago or First read.
   **Then vs now** marks what differs between that moment and now; **Then
   only** shows the graph as Bearing knew it then. **Live** goes back.
 

@@ -31,6 +31,9 @@ func TestGraphJSONHoldsEntitiesFactsAndLinks(t *testing.T) {
 		if f.Predicate == "depends_on" && f.Qualifiers["protocol"] == "http" && len(f.Sources) == 0 {
 			t.Errorf("fact %s has no sources", f.ID)
 		}
+		if f.Confidence <= 0 || f.Confidence > 1 {
+			t.Errorf("fact %s confidence: got %v, want in (0, 1]", f.ID, f.Confidence)
+		}
 	}
 	for _, want := range []string{
 		"Repository:payments-api approves_changes Team:Platform",
