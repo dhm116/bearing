@@ -1,6 +1,6 @@
 # 12. One generic OpenAPI adapter, driven by a mapping
 
-Date: 2026-11-09, revised 2026-11-15 to build on ADR 13 · Status: proposed
+Date: 2026-11-09, revised 2026-11-15 to build on ADR 13 · Status: accepted 2026-11-26
 
 ## Context
 

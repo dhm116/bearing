@@ -1,6 +1,6 @@
 # 13. Vocabulary as data
 
-Date: 2026-11-12 · Status: proposed
+Date: 2026-11-12 · Status: accepted 2026-11-26
 
 ## Context
 

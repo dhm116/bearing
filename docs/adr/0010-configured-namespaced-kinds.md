@@ -1,6 +1,6 @@
 # 10. Configured, namespaced kinds beside the core kinds
 
-Date: 2026-11-01 · Status: accepted, amended by ADR 13 (proposed)
+Date: 2026-11-01 · Status: accepted, amended by ADR 13
 
 ## Context
 
