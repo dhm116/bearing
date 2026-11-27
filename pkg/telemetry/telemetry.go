@@ -34,7 +34,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -181,7 +180,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	}
 	lp := sdklog.NewLoggerProvider(logOpts...)
 	shutdowns = append(shutdowns, lp.Shutdown)
-	global.SetLoggerProvider(lp)
+	otel.SetLoggerProvider(lp)
 
 	if lvl := cfg.Getenv("BEARING_LOG_LEVEL"); lvl != "" {
 		if err := level.UnmarshalText([]byte(lvl)); err != nil {
