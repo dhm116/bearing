@@ -185,6 +185,11 @@ and consistent.
 - Commit messages: imperative subject under about 72 characters, then a
   body saying why and anything reviewers should know.
 - Keep changes focused. Code, tests and docs for one change land together.
+- Branches are `<type>/<slug>`, so the name says what the branch is for:
+  `feat`, `fix`, `adr`, `docs`, `deps`, `ci`, `chore` or `spike`, then a
+  few words (`deps/otel-1.47`, `adr/accept-12-13`). A tool that makes its
+  own name (`claude/bold-heisenberg-635e90`) gets renamed with
+  `git branch -m` before the first push.
 - `main` holds only what Bearing ships or needs to build, test and document
   itself. Spikes live on `spike/<name>` branches and are never merged.
 - Go, plus POSIX shell for short glue. No other language for tooling.
