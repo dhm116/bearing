@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS prefix (
     path        VARCHAR,
     commit_sha  VARCHAR,              -- the commit it was read or built at
     sha256      VARCHAR,
-    verified_by VARCHAR NOT NULL      -- the check that passed: build for the core
+    verified_by VARCHAR               -- the check that passed: build for a core built at a commit; NULL: none
 );
 
 -- One row per kind, relation and attribute. name is the stored name: bare

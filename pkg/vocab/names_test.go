@@ -2,8 +2,11 @@ package vocab
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+
+	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 )
 
 func names(t *testing.T, namespaces []string, aliases map[string]string) *Names {
@@ -33,11 +36,16 @@ func TestNamesResolveShortFullCoreAndBareNames(t *testing.T) {
 	if _, err := n.Resolve("vault:Policy"); !errors.Is(err, ErrUnknownNamespace) {
 		t.Errorf("got %v, want ErrUnknownNamespace for a namespace not loaded", err)
 	}
+	for _, empty := range []string{"core:", "k8s:", "io.k8s:"} {
+		if got, err := n.Resolve(empty); !errors.Is(err, ErrNamespace) || !strings.HasPrefix(err.Error(), "vocab: ") {
+			t.Errorf("Resolve(%q) got %q, %v, want a vocab: error wrapping ErrNamespace for an empty term", empty, got, err)
+		}
+	}
 }
 
 func TestNamesRefuseABareNamespace(t *testing.T) {
 	t.Parallel()
-	for _, ns := range []string{"k8s", "", "IO.k8s", "io..k8s", "io.k8s."} {
+	for _, ns := range []string{"k8s", "", "IO.k8s", "io..k8s", "io.k8s.", "io.k8s-", "io-.k8s"} {
 		if _, err := NewNames([]string{ns}, nil); !errors.Is(err, ErrNamespace) {
 			t.Errorf("NewNames(%q) got %v, want ErrNamespace", ns, err)
 		}
@@ -64,7 +72,7 @@ func TestNamesAliasWinsOverAShortName(t *testing.T) {
 			t.Errorf("Resolve(%q) got %q, %v, want %q", written, got, err, want)
 		}
 	}
-	for alias, ns := range map[string]string{"gh": "com.github", "my.alias": "io.k8s", "own-core": CoreNamespace} {
+	for alias, ns := range map[string]string{"gh": "com.github", "my.alias": "io.k8s", "own-core": CoreNamespace, "k8s-": "io.k8s"} {
 		if _, err := NewNames([]string{"io.k8s"}, map[string]string{alias: ns}); !errors.Is(err, ErrNamespace) {
 			t.Errorf("alias %s to %s got %v, want ErrNamespace", alias, ns, err)
 		}
@@ -76,20 +84,39 @@ func TestNamesKeepCoreReserved(t *testing.T) {
 	if _, err := NewNames([]string{"io.k8s"}, map[string]string{CoreAlias: "io.k8s"}); !errors.Is(err, ErrNamespace) {
 		t.Errorf("got %v, want an alias named core refused", err)
 	}
-	// A namespace ending in core never makes core: ambiguous.
-	n := names(t, []string{"com.example.core"}, nil)
+	// A namespace ending in core would be shadowed by core:, so it is refused
+	// rather than making core: ambiguous.
+	_, err := NewNames([]string{"com.example.core"}, nil)
+	if !errors.Is(err, ErrNamespace) || !strings.Contains(err.Error(), "com.example.core") || !strings.HasPrefix(err.Error(), "vocab: ") {
+		t.Errorf("got %v, want a vocab: error refusing com.example.core", err)
+	}
+	n := names(t, []string{"com.example.corex"}, nil)
 	if got, err := n.Resolve("core:Component"); err != nil || got != "Component" {
 		t.Errorf("got %q, %v, want core:Component to stay the core term", got, err)
 	}
-	if got, err := n.Resolve("com.example.core:Widget"); err != nil || got != "com.example.core:Widget" {
-		t.Errorf("got %q, %v, want the full name of com.example.core", got, err)
-	}
 }
 
-func TestCoreModuleIsTheCoreNamespace(t *testing.T) {
+func TestCoreModuleHoldsTheCoreTermsWithTheirShapes(t *testing.T) {
 	t.Parallel()
 	m := Core()
-	if m.Namespace != CoreNamespace || m.Version == "" || len(m.Terms) == 0 {
-		t.Fatalf("got %s@%s with %d terms, want %s with a version and terms", m.Namespace, m.Version, len(m.Terms), CoreNamespace)
+	if m.Namespace != CoreNamespace || m.Version == "" {
+		t.Fatalf("got %s@%s, want %s with a version", m.Namespace, m.Version, CoreNamespace)
+	}
+	terms := map[string]Term{}
+	for _, tm := range m.Terms {
+		terms[tm.Name] = tm
+	}
+	if c := terms["Component"]; c.Type != modelv1alpha1.TermType_TERM_TYPE_KIND || c.Cardinality != 0 || c.Domain != nil {
+		t.Errorf("Component got %+v, want a kind with no shape", c)
+	}
+	owned := terms["owned_by"]
+	if owned.Type != modelv1alpha1.TermType_TERM_TYPE_RELATION || owned.Conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_SET ||
+		owned.Domain != nil || !slices.Equal(owned.Range, []string{"Team", "Person"}) {
+		t.Errorf("owned_by got %+v, want a relation from any kind to Team and Person, conflict set", owned)
+	}
+	if a := terms["archived"]; a.Type != modelv1alpha1.TermType_TERM_TYPE_ATTRIBUTE || a.ValueType != modelv1alpha1.ValueType_VALUE_TYPE_BOOL ||
+		a.Cardinality != modelv1alpha1.Cardinality_CARDINALITY_ONE || a.Conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_ONE ||
+		!slices.Equal(a.Domain, []string{"Repository"}) {
+		t.Errorf("archived got %+v, want a bool attribute of Repository, cardinality one, conflict one", a)
 	}
 }

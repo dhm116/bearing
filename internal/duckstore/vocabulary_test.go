@@ -271,12 +271,17 @@ func TestSyncVocabularyRecordsTheCoreModuleAndNamespacesEveryTerm(t *testing.T) 
 	t.Parallel()
 	s := newStore(t, Config{})
 	syncOK(t, s, withKinds(t, []model.KindDef{svc}, attrP), 1)
-	var owner, version, verified string
+	var owner, version string
+	var verified *string
 	if err := s.db.QueryRowContext(t.Context(), `SELECT owner, version, verified_by FROM prefix WHERE namespace = ?`, vocab.CoreNamespace).Scan(&owner, &version, &verified); err != nil {
 		t.Fatal(err)
 	}
-	if owner != "core" || version != vocab.Core().Version || verified != "build" {
-		t.Errorf("got prefix row %s %s %s, want core %s build", owner, version, verified, vocab.Core().Version)
+	if owner != "core" || version != vocab.Core().Version {
+		t.Errorf("got prefix row %s %s, want core %s", owner, version, vocab.Core().Version)
+	}
+	// A test binary carries no commit, so nothing was checked.
+	if want := vocab.Core().Source.Commit != ""; (verified != nil) != want || verified != nil && *verified != "build" {
+		t.Errorf("got verified_by %v, want build only when the build has a commit (%q)", verified, vocab.Core().Source.Commit)
 	}
 	for name, want := range map[string]string{
 		"io.k8s:Service": "io.k8s", "Component": vocab.CoreNamespace, "owned_by": vocab.CoreNamespace,
@@ -287,4 +292,24 @@ func TestSyncVocabularyRecordsTheCoreModuleAndNamespacesEveryTerm(t *testing.T) 
 			t.Errorf("term %s: got namespace %q, %v, want %q", name, ns, err, want)
 		}
 	}
+}
+
+// TestSyncVocabularyRefusesNarrowingACorePredicateAConfiguredKindWidened: a
+// configured kind added to a core relation's domain stays in it while the
+// kind is configured. A term only grows, now for core terms too, so dropping
+// the kind from the relation alone refuses the boot; dropping the kind with it
+// is a retirement, not a narrowing.
+func TestSyncVocabularyRefusesNarrowingACorePredicateAConfiguredKindWidened(t *testing.T) {
+	t.Parallel()
+	dep := model.Predicate{
+		Name: string(model.RelDependsOn), Relation: true, Domain: []model.Kind{"io.k8s:Service"},
+		Cardinality: modelv1alpha1.Cardinality_CARDINALITY_MANY, Conflict: modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_NONE,
+	}
+	s := newStore(t, Config{})
+	syncOK(t, s, withKinds(t, []model.KindDef{{Name: "io.k8s:Service"}}, dep), 1)
+	_, err := s.SyncVocabulary(t.Context(), withKinds(t, []model.KindDef{{Name: "io.k8s:Service"}}), at(2))
+	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "depends_on") || !strings.Contains(err.Error(), "io.k8s:Service") {
+		t.Fatalf("got %v, want ErrVocabularyChanged naming depends_on and io.k8s:Service", err)
+	}
+	syncOK(t, s, nil, 3)
 }

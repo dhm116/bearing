@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"bearing.example/pkg/vocab"
 )
 
 func TestCoreGenMatchesCoreYAML(t *testing.T) {
@@ -26,6 +28,13 @@ func TestCoreGenMatchesCoreYAML(t *testing.T) {
 	}
 }
 
+func TestCoreGenNamespaceIsTheCoreNamespace(t *testing.T) {
+	t.Parallel()
+	if coreNamespace != vocab.CoreNamespace {
+		t.Fatalf("got %s, want vocab.CoreNamespace %s", coreNamespace, vocab.CoreNamespace)
+	}
+}
+
 func TestCoreGenRefusesAMalformedModule(t *testing.T) {
 	t.Parallel()
 	head := "namespace: com.dougmccall.bearing.core\nversion: 1.0.0\nterms:\n"
@@ -38,9 +47,10 @@ func TestCoreGenRefusesAMalformedModule(t *testing.T) {
 		{"a kind with a shape", head + "  - {name: X, is: kind, cardinality: one}\n", "a kind has no"},
 		{"an attribute without a type", head + "  - {name: x, is: attribute, cardinality: one, conflict: none}\n", "needs a type"},
 		{"a relation with a type", head + "  - {name: x, is: relation, type: string, cardinality: one, conflict: none}\n", "needs a type"},
-		{"an attribute with a range", head + "  - {name: x, is: attribute, type: string, cardinality: one, conflict: none, range: [X]}\n", "no range"},
+		{"an attribute with a range", head + "  - {name: X, is: kind}\n  - {name: x, is: attribute, type: string, cardinality: one, conflict: none, range: [X]}\n", "no range"},
 		{"an unknown value type", head + "  - {name: x, is: attribute, type: text, cardinality: one, conflict: none}\n", `"text" is not a value type`},
 		{"no cardinality", head + "  - {name: x, is: relation, conflict: none}\n", "cardinality"},
+		{"a domain naming no kind", head + "  - {name: X, is: kind}\n  - {name: x, is: relation, cardinality: many, conflict: none, domain: [X], range: [Y]}\n", `"Y" is not a kind`},
 		{"an unknown conflict", head + "  - {name: x, is: relation, cardinality: many, conflict: all}\n", "conflict policy"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

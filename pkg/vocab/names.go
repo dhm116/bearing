@@ -19,7 +19,7 @@ var (
 	ErrUnknownNamespace = errors.New("unknown namespace")
 )
 
-var aliasName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var aliasName = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?$`)
 
 // Names turns the names config writes into stored names. A full name
 // (io.k8s:Service) is stored as written. A short name (k8s:Service) uses a
@@ -34,29 +34,33 @@ type Names struct {
 
 // NewNames indexes the loaded namespaces and the operator's aliases (alias
 // to namespace). It refuses a namespace that isn't a reverse domain, an alias
-// of core, and an alias of a namespace that isn't loaded. Two namespaces
+// of core, an alias of a namespace that isn't loaded, and a namespace ending
+// in core, which core: would shadow. Two namespaces
 // sharing a last segment are fine until a name uses that segment.
 func NewNames(namespaces []string, aliases map[string]string) (*Names, error) {
 	n := &Names{loaded: map[string]bool{CoreNamespace: true}, short: map[string][]string{}, aliases: map[string]string{}}
 	for _, ns := range namespaces {
 		if !ValidNamespace(ns) {
-			return nil, fmt.Errorf("namespace %.64q: %w: want a reverse domain such as io.k8s", ns, ErrNamespace)
+			return nil, fmt.Errorf("vocab: namespace %.64q: %w: want a reverse domain such as io.k8s", ns, ErrNamespace)
+		}
+		last := ns[strings.LastIndexByte(ns, '.')+1:]
+		if last == CoreAlias && ns != CoreNamespace {
+			return nil, fmt.Errorf("vocab: namespace %s: %w: its last segment, core, is reserved for %s", ns, ErrNamespace, CoreNamespace)
 		}
 		if n.loaded[ns] {
 			continue
 		}
 		n.loaded[ns] = true
-		last := ns[strings.LastIndexByte(ns, '.')+1:]
 		n.short[last] = append(n.short[last], ns)
 	}
 	for a, ns := range aliases {
 		switch {
 		case a == CoreAlias:
-			return nil, fmt.Errorf("alias %s: %w: reserved for %s", a, ErrNamespace, CoreNamespace)
+			return nil, fmt.Errorf("vocab: alias %s: %w: reserved for %s", a, ErrNamespace, CoreNamespace)
 		case !aliasName.MatchString(a):
-			return nil, fmt.Errorf("alias %.64q: %w: lowercase letters, digits and -, no '.'", a, ErrNamespace)
+			return nil, fmt.Errorf("vocab: alias %.64q: %w: lowercase letters, digits and -, starting with a letter, ending with a letter or digit", a, ErrNamespace)
 		case ns == CoreNamespace || !n.loaded[ns]:
-			return nil, fmt.Errorf("alias %s: namespace %.64q: %w: not a loaded namespace", a, ns, ErrNamespace)
+			return nil, fmt.Errorf("vocab: alias %s: namespace %.64q: %w: not a loaded namespace", a, ns, ErrNamespace)
 		}
 		n.aliases[a] = ns
 	}
@@ -70,9 +74,12 @@ func (n *Names) Resolve(name string) (string, error) {
 	if !ok {
 		return name, nil
 	}
+	if term == "" {
+		return "", fmt.Errorf("vocab: name %.64q: %w: no term after the namespace", name, ErrNamespace)
+	}
 	ns, err := n.namespace(written)
 	if err != nil {
-		return "", fmt.Errorf("name %.64q: %w", name, err)
+		return "", fmt.Errorf("vocab: name %.64q: %w", name, err)
 	}
 	if ns == CoreNamespace {
 		return term, nil

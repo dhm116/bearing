@@ -92,9 +92,11 @@ type DescribeResponse struct {
 	// source that runs the adapter publishes the same module. Absent: the
 	// adapter emits today's names, read as core terms.
 	Vocabulary *VocabularyModule `protobuf:"bytes,9,opt,name=vocabulary,proto3" json:"vocabulary,omitempty"`
-	// Whether the adapter takes an adapter mapping (ADR 14). A Source for it
-	// must then set adapter_mapping, and a Source for any other adapter must
-	// not; boot refuses either mismatch, naming both.
+	// Whether the adapter takes an adapter mapping (ADR 14). Once
+	// SourceSpec.adapter_mapping exists (stream O), a Source for such an
+	// adapter will have to set it, and a Source for any other adapter will
+	// have to leave it unset; boot will refuse either mismatch, naming both.
+	// Nothing enforces it yet.
 	TakesAdapterMapping bool `protobuf:"varint,10,opt,name=takes_adapter_mapping,json=takesAdapterMapping,proto3" json:"takes_adapter_mapping,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache

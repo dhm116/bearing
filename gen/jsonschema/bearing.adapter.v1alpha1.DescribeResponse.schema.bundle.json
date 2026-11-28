@@ -28,7 +28,7 @@
         },
         "^(takesAdapterMapping)$": {
           "default": false,
-          "description": "Whether the adapter takes an adapter mapping (ADR 14). A Source for it\n must then set adapter_mapping, and a Source for any other adapter must\n not; boot refuses either mismatch, naming both.",
+          "description": "Whether the adapter takes an adapter mapping (ADR 14). Once\n SourceSpec.adapter_mapping exists (stream O), a Source for such an\n adapter will have to set it, and a Source for any other adapter will\n have to leave it unset; boot will refuse either mismatch, naming both.\n Nothing enforces it yet.",
           "type": "boolean"
         },
         "^(webhookSignature)$": {
@@ -79,7 +79,7 @@
         },
         "takes_adapter_mapping": {
           "default": false,
-          "description": "Whether the adapter takes an adapter mapping (ADR 14). A Source for it\n must then set adapter_mapping, and a Source for any other adapter must\n not; boot refuses either mismatch, naming both.",
+          "description": "Whether the adapter takes an adapter mapping (ADR 14). Once\n SourceSpec.adapter_mapping exists (stream O), a Source for such an\n adapter will have to set it, and a Source for any other adapter will\n have to leave it unset; boot will refuse either mismatch, naming both.\n Nothing enforces it yet.",
           "type": "boolean"
         },
         "version": {

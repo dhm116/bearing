@@ -101,7 +101,7 @@
         },
         "extends": {
           "default": "",
-          "description": "The parent kind, core or configured, such as \"Component\" or\n \"k8s:Service\" (a short name, while one namespace ends in \"k8s\"); boot refuses\n an unknown parent or a cycle. Empty: none,\n so the kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
+          "description": "The parent kind, core or configured. A core kind is written bare\n (\"Component\") or as \"core:Component\"; a configured one by its full name\n (\"io.k8s:Service\") or by a short name (\"k8s:Service\") while only one\n loaded namespace ends in \"k8s\". spec.name itself must always be a full\n name. Boot refuses an unknown parent or a cycle. Empty: none, so the\n kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
           "type": "string"
         },
         "name": {

@@ -62,14 +62,15 @@ func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now tim
 	return reg.WithRetired(retired, preds), nil
 }
 
-// syncCorePrefix records the core module this build carries.
+// syncCorePrefix records the core module this build carries. A build with
+// no commit (go test, go run) records no check.
 func syncCorePrefix(ctx context.Context, tx *sql.Tx) error {
 	m := vocab.Core()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO prefix (namespace, owner, version, repo, path, commit_sha, sha256, verified_by)
-		VALUES (?, 'core', ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), nullif(?, ''), 'build')
+		VALUES (?, 'core', ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), nullif(?, ''), CASE WHEN ? = '' THEN NULL ELSE 'build' END)
 		ON CONFLICT (namespace) DO UPDATE SET version = excluded.version, repo = excluded.repo, path = excluded.path,
 			commit_sha = excluded.commit_sha, sha256 = excluded.sha256, verified_by = excluded.verified_by`,
-		m.Namespace, m.Version, m.Source.Repo, m.Source.Path, m.Source.Commit, m.Source.SHA256); err != nil {
+		m.Namespace, m.Version, m.Source.Repo, m.Source.Path, m.Source.Commit, m.Source.SHA256, m.Source.Commit); err != nil {
 		return fmt.Errorf("prefix %s: %w", m.Namespace, err)
 	}
 	return nil

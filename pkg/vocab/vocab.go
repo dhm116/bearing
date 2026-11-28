@@ -63,7 +63,7 @@ func Core() Module {
 	return m
 }
 
-var reverseDomain = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`)
+var reverseDomain = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?(\.[a-z]([a-z0-9-]*[a-z0-9])?)+$`)
 
 // ValidNamespace reports whether ns is a reverse domain such as io.k8s. A
 // single segment (k8s) is not: it is a short name.
