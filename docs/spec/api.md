@@ -63,9 +63,9 @@ is a 400. Times are RFC 3339. `find` and `runtimes` with a `kind` that is not a 
 | Route | Method | Parameters | Answer |
 | --- | --- | --- | --- |
 | `GET /v1/get` | `query.get` | `ref` (required), `at` | The entity: its kind, name, keys and the facts about it |
-| `GET /v1/owner` | `query.owner` | `ref` (required), `at`, `members` (`true`, or `false` or absent for none; any other value is 400 `invalid_request`) | Who owns it: asserted `owned_by` facts, or, when there are none, asserted `approves_changes` facts (CODEOWNERS). Each fact keeps its predicate. With `members=true`, `teams` also lists the people on each owning team that is not a person: `[{"team": Ref, "members": [{id, kind, name, key, role, since, as_of, sources}], "members_truncated"}]`. Members are the people with an asserted `member_of` fact to the team at `at`, maintainers first and then by name, at most 50 per team (`members_truncated` says more exist); a person in several sources is one entry with all their sources, and `role` is what a source gives (`maintainer` or `member` from GitHub; the directory gives none). A person who left is not listed. Without `members`, there is no `teams` field |
-| `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). Each step has its depth and fact |
-| `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first |
+| `GET /v1/owner` | `query.owner` | `ref` (required), `at`, `members` (`true`, or `false` or absent for none; any other value is 400 `invalid_request`) | Who owns it: a claim per asserted `owned_by` fact, or, when there are none, per asserted `approves_changes` fact (CODEOWNERS), and how the owners relate; see [Claims and relations](#claims-and-relations). Each claim keeps its predicate. With `members=true`, `teams` also lists the people on each owning team that is not a person: `[{"team": Ref, "members": [{id, kind, name, key, role, since, as_of, sources}], "members_truncated"}]`. Members are the people with an asserted `member_of` fact to the team at `at`, maintainers first and then by name, at most 50 per team (`members_truncated` says more exist); a person in several sources is one entry with all their sources, and `role` is what a source gives (`maintainer` or `member` from GitHub; the directory gives none). A person who left is not listed. Without `members`, there is no `teams` field |
+| `GET /v1/related` | `query.related` | `ref` (required), `predicate`, `direction` (`out`, the default, or `in`), `depth` (1 to 10, default 1), `at` | What it relates to: `out` follows facts from it (what it depends on), `in` follows facts to it (what depends on it). A claim per fact crossed, with its path; see [Claims and relations](#claims-and-relations) |
+| `GET /v1/changes` | `query.changes` | `ref`, `since`, `until`, `limit` (1 to 1,000) | Facts opened or closed in the window, newest first, and the asserted joins and splits; see [Changes answer](#changes-answer) |
 | `GET /v1/find` | `query.find` | `q` (required, at most 256 bytes), `kind`, `limit` (1 to 100, default 20) | `{"matches": [...]}`: entities whose name or keys resemble `q`, best first, each with a score from 0 to 1 |
 | `GET /v1/runtimes` | `query.runtimes` | `language` (required; `golang` means `go`, `nodejs` means `node`), `below` (a version such as `1.22`), `kind`, `at`, `limit` (1 to 1,000 entities per list, default 1,000) | Which entities declare a version of the language (`runtime` facts from manifests). With `below`: `below` lists entities with a declaration whose lowest allowed version is under it (a range such as `>=18` or `^20` counts as its lower bound), `unknown` those with none below and one that cannot be read (`lts/hydrogen`, `*`; never guessed), and `at_or_above` counts the rest; every entity shows all its declarations (`version`, `file`, `lower`, `is_below`, `is_unknown`, `sources`; see [Runtimes answer](#runtimes-answer)). Without `below`, `entities` lists every declaration. `truncated` says a list was cut at `limit`. 400 for a missing `language`, a `below` that is not a plain version, a `kind` that is not a kind, or a `limit` out of range |
 | `GET /v1/links` | `links.list` | `status` (`proposed` or `asserted`), `kind` (`same_as` or `distinct_from`), `entity` (an entity ID, record ID or key; 404 when nothing has it), `limit` (1 to 1,000, default 100) | `{"links": [...]}`: the open identity links, strongest first (below). This is the review queue when `status=proposed` |
@@ -73,9 +73,12 @@ is a 400. Times are RFC 3339. `find` and `runtimes` with a `kind` that is not a 
 | `POST /v1/sources/{source}/sync` | `sync.request` | none | 202 `{"event_id", "offset"}`, only after the request is on the event log. `event_id` names the request; `offset` is its position in the source's partition of the log. No route reads either back yet. While a source's last sync request is not yet applied, another request for it is not logged: the answer is the same 202 with the pending request's `event_id` and `offset`, so a loop of requests cannot fill the log. The pending request may already be running, in which case a change made after it started is seen by the next sync, not by this one |
 
 `ref` is an entity ID or a key such as `github:repo/acme/payments`, at most
-1,024 bytes. The answers are the JSON of the `pkg/query` types, the same ones
-the command line prints; their field names are the wire format, and within
-`/v1` fields are only added. `at` is an RFC 3339 time and asks what held
+1,024 bytes; `owner` and `related` also take a name. The answers are the JSON of the `pkg/query` types, the same ones
+the command line prints; their field names are the wire format. Within
+`/v1` fields are only added, with one exception: under
+[ADR 11](../adr/0011-answers-show-each-evidence-path.md) the `owner`,
+`related`, `changes` and `runtimes` answers changed shape (see
+[Changed under ADR 11](#changed-under-adr-11)). `at` is an RFC 3339 time and asks what held
 then; without it the answer is what holds now. With no `since`, `changes`
 asks about the last 24 hours. Every fact carries its sources: the
 observations behind it, each with its source, observed time and link:
@@ -83,9 +86,9 @@ per source the first and the latest, with `source_count` saying how many
 there are in all, counted per fact row: where several rows are merged into
 one fact the counts are summed, so one observation may be counted twice. A
 relation carries `qualifiers`, how it holds (for a dependency: protocol,
-port, service and where it was found). When
-several sources say the same thing, the answer is one fact with all of
-them.
+port, service and where it was found). In `get`,
+when several sources say the same thing, the answer is one fact with all of
+them; `owner` and `related` give each fact its own claim.
 
 **Retired kinds.** An operator can remove a configured kind from the settings.
 Facts of a record whose kind is retired still answer, because the store keeps
@@ -158,6 +161,94 @@ decide too, and the decision is attributed to `token`. Telling an agent from a
 person needs an identity provider that marks agents (OIDC); until then, keep
 the default or hold the token as you would a password.
 
+### Claims and relations
+
+`owner` and `related` answer per record, not per entity
+([ADR 11](../adr/0011-answers-show-each-evidence-path.md)), so each answer
+shows where it came from and nothing picks a winner between sources:
+
+| Field | Meaning |
+| --- | --- |
+| `subjects` | The records the question starts from, each a record reference (below) with `match` and `score`: `key` (the `ref` was its key or ID, score 1), `name` (its name, ignoring case, score 1) or `fuzzy` (its name or a key only resembles `ref`; the score, 0 to 1, says how closely). A `ref` shaped like a key (with a `:`) is never looked up by name |
+| `limit_hit` | `true` when the name lookup found more than 20 entities and only the best are subjects (absent otherwise) |
+| `claims` | One per asserted relation the subjects reach, never merged or chosen between (below); attributes are not claims |
+| `changed_since` | Only with `at`: `[{kind, at, fact}]`, the facts today's answer has that `opened` after `at`, each at its `valid_from`; newest first, then in the claims' order |
+| `relations` | How the clusters of the claims' objects relate, once per pair (below) |
+| `direction` | `related` only: `out` or `in` |
+| `teams` | `owner` with `members=true` only: as above, one per owning cluster; `team` is the first claim's object record |
+
+A **record reference** is `id` (the record's ID), `cluster` (its cluster's
+ID, which joins it to `relations`), and *omitempty* `kind`, `name`, `key`
+(the first key, sorted) and `keys` (all of them): the record's own, as its
+source described it. A record no source has described yet (a relation
+target, such as a CODEOWNERS team) has no `kind`; `cluster_kind` then gives
+its cluster's.
+
+A **claim** has:
+
+| Field | Meaning |
+| --- | --- |
+| `fact` | The fact, as in every answer, plus `id`; its `subject` and `object` are record references |
+| `start` | The subject record the path starts at, with its `match` and `score` |
+| `path` | The steps from `start` to the fact's object: at most one `same_as` hop before each fact. A hop is `{from, to, links}`, `links` being the asserted `same_as` link IDs the store applied to join the two records. A fact step is `{from, to, fact_id, predicate}`; `to` is absent for an attribute |
+| `facts`, `same_as` | How many facts and hops the path crosses |
+| `changed_since` | Only on an answer with `at`, when this fact has closed since: `[{kind: "closed", at, fact}]`, `at` being its `valid_to` |
+
+Claims are ordered by fewer facts, then fewer hops, then the smallest source
+name among the fact's sources, the object record's first key, the subject
+record's first key and the fact ID. `owner` reads `owned_by` facts and, when
+the subjects reach none, `approves_changes` facts. A fact reached by several
+paths is one claim, with its shortest path.
+
+A **relation** has `clusters` (two cluster IDs, smaller first), `kind`, and
+`links`: the open links between their records, each as in a `links` answer,
+scored at the answer's time; the deciding links first, then proposals,
+strongest first. The first `kind` that applies:
+
+1. `distinct`: an asserted `distinct_from` says they are not the same; any
+   proposal is listed after it, as contrary evidence.
+2. `asserted_not_joined`: an asserted `same_as` names them as one, but the
+   store did not join them; `reason` is `kinds_differ` or `distinct_from`.
+3. `likely_same` or `likely_distinct`: only proposals relate them; the
+   strongest is a `same_as` or a `distinct_from`.
+
+Pairs with no open link have no relation. Objects in one cluster need none:
+their hops show the links that join them.
+
+### Changed under ADR 11
+
+| Answer | Removed or renamed | Now |
+| --- | --- | --- |
+| `owner` | `subject` | `subjects`, each with `match` and `score` |
+| `owner` | `owners` (facts) | `claims`, each `{fact, start, path, facts, same_as}`, and `relations` |
+| `owner` | `teams[].team` named the cluster | it names the first claim's object record |
+| `related` | `subject` | `subjects` |
+| `related` | `steps` (`{depth, fact}`) | `claims`; a claim's `facts` is the old `depth` |
+| `related` | (unchanged) | relations only: attribute facts are never claims |
+| `changes` | facts named clusters | facts name records; `identity` is new |
+| `runtimes` | `subject` named the cluster | it names the declaring record; declarations gain `fact_id` |
+| every record reference | (new) | `cluster`, `cluster_kind`, `keys` |
+| every fact | (new) | `id` |
+
+### Changes answer
+
+`GET /v1/changes` answers `{since, until, changes, identity}`. `changes` are
+the facts opened or closed in the window, newest first, each `{kind, at,
+fact}` with record references. `identity` lists the asserted joins and splits
+of clusters in the window, newest first, one per decision (rows one decision
+changed, or one pair at one time, are one event); proposals never appear.
+Each event has:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `joined` (an asserted `same_as` opened or a `distinct_from` closed, joining two clusters), `split` (the reverse), or `asserted_not_joined` (an asserted `same_as` opened that the store refused) |
+| `at` | When |
+| `a`, `b` | The records of the row that decided the kind, as in a `links` answer |
+| `links` | Every asserted row the event opened or closed: `id`, `kind`, `change` (`opened` or `closed`), `effect` (what that did to the clusters when written: `joined`, `split`, `none` or `refused`), `a`, `b` (record IDs), and *omitempty* `promoted_from`, the proposal an asserted row promoted, whose matcher evidence stays with it |
+| `justification` | `rule` (`linked_ids` or `shared_key` from a source, a settings rule, or `person`), and *omitempty* `observation_id`, `decision` (the person's decision, its event ID), `actor` and `reason` |
+
+`limit` bounds `changes` and `identity` each.
+
 ### Runtimes answer
 
 `GET /v1/runtimes` answers one object. Lists of the mode in use are `[]` when
@@ -173,11 +264,13 @@ empty, never absent; fields of the other mode are absent.
 | `at_or_above` | With `below`: how many entities are in neither list (a number, 0 when none) |
 | `truncated` | `true` when a list was cut at `limit` (absent otherwise) |
 
-Each entity in a list is `{subject, declarations}`; `subject` is the same
-reference other answers use. Each declaration has:
+Each entity in a list is `{subject, declarations}`; `subject` is the record
+that declares, a record reference as in [Claims and relations](#claims-and-relations),
+so each source's record is listed on its own. Each declaration has:
 
 | Field | Meaning |
 | --- | --- |
+| `fact_id` | The fact behind it |
 | `version` | The declared text, such as `>=18` |
 | `file` | The manifest it came from |
 | `lower` | The lowest version it allows (absent when `is_unknown`) |

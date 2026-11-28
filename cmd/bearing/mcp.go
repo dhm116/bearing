@@ -131,9 +131,10 @@ var mcpTools = []mcpTool{
 	{
 		Name:        "owners",
 		Out:         query.Ownership{},
-		Description: "Which team or person owns an entity such as a repository or service, with the evidence for each owner (an owned_by fact, or else the CODEOWNERS approvers). Also returns the people on each owning team, with their role and since when: the people to contact or ask for review. Set members to false to omit them." + dataNote,
+		Slow:        true, // a ref that is a name is looked up like find_entities
+		Description: "Which team or person owns an entity such as a repository or service: one claim per owner fact (owned_by, or else the CODEOWNERS approvers), each naming the source's own records on its path, how the subject record matched the ref (key, name, or fuzzy with a score), and relations saying whether owners from different sources are the same (likely_same is a proposal, not a fact). Also returns the people on each owning team, with their role and since when: the people to contact or ask for review. Set members to false to omit them." + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
-			"ref":     refProp,
+			"ref":     nameRefProp,
 			"as_of":   asOfProp,
 			"members": map[string]any{"type": "boolean", "description": "list the people on each owning team, with their role and since when (default true); false omits them"},
 		}),
@@ -154,16 +155,16 @@ var mcpTools = []mcpTool{
 			if err != nil {
 				return nil, "", err
 			}
-			return o, fmt.Sprintf("%d owner(s)", len(o.Owners)), nil
+			return o, fmt.Sprintf("%d owner claim(s)", len(o.Claims)), nil
 		},
 	},
 	{
 		Name:        "changes",
 		Out:         query.Changes{},
 		Slow:        true,
-		Description: "What changed in a time window: facts that were opened or closed, newest first. Give a ref to see one entity, or leave it out for everything." + dataNote,
+		Description: "What changed in a time window: facts that were opened or closed, newest first, per record, and the asserted joins and splits of entities, each with its justification. Give a ref to see one entity, or leave it out for everything." + dataNote,
 		Schema: schema([]string{"since"}, map[string]any{
-			"ref":   strProp("an entity ID or key; omit for changes to anything"),
+			"ref":   strProp("an entity ID or key, not a name (find_entities finds one from a name); omit for changes to anything"),
 			"since": strProp("start of the window: RFC 3339, a date like 2026-10-01, or a duration back from now such as 72h or 7d"),
 			"until": strProp("end of the window, in the same forms (default now)"),
 			"limit": intProp("at most this many changes", 1, query.MaxChangesLimit),
@@ -197,11 +198,11 @@ var mcpTools = []mcpTool{
 			if err != nil {
 				return nil, "", err
 			}
-			return ch, fmt.Sprintf("%d change(s)", len(ch.Changes)), nil
+			return ch, fmt.Sprintf("%d change(s), %d join(s) or split(s)", len(ch.Changes), len(ch.Identity)), nil
 		},
 	},
-	dependencyTool("depends_on", "out", "What an entity depends on, directly or through other dependencies, and how (the qualifiers say protocol, port and so on), with the evidence."),
-	dependencyTool("depended_on_by", "in", "What depends on an entity, directly or through other dependencies, and how, with the evidence."),
+	dependencyTool("depends_on", "out", "What an entity depends on, directly or through other dependencies, and how (the qualifiers say protocol, port and so on): one claim per dependency fact, with its sources and the record path to it, and relations saying whether dependencies from different sources are the same (likely_same is a proposal, not a fact)."),
+	dependencyTool("depended_on_by", "in", "What depends on an entity, directly or through other dependencies, and how: one claim per dependency fact, with its sources and the record path to it, and relations saying whether dependents from different sources are the same (likely_same is a proposal, not a fact)."),
 	{
 		Name:        "runtimes",
 		Out:         query.Runtimes{},
@@ -273,11 +274,11 @@ var mcpTools = []mcpTool{
 func dependencyTool(name, direction, description string) mcpTool {
 	return mcpTool{
 		Name:        name,
-		Out:         query.Relations{},
+		Out:         query.Related{},
 		Slow:        true,
 		Description: description + dataNote,
 		Schema: schema([]string{"ref"}, map[string]any{
-			"ref":   refProp,
+			"ref":   nameRefProp,
 			"depth": intProp("hops to follow; 1 is direct dependencies only (default 1)", 1, query.MaxDepth),
 			"as_of": asOfProp,
 		}),
@@ -302,14 +303,17 @@ func dependencyTool(name, direction, description string) mcpTool {
 			if err != nil {
 				return nil, "", err
 			}
-			return r, fmt.Sprintf("%d dependency link(s)", len(r.Steps)), nil
+			return r, fmt.Sprintf("%d dependency claim(s)", len(r.Claims)), nil
 		},
 	}
 }
 
 var (
-	refProp  = strProp("an entity ID or a key such as github:repo/acme/payments-api; find_entities finds one from a name")
-	asOfProp = strProp("answer as the world was at this time: RFC 3339, a date like 2026-10-01, or a duration back from now such as 72h or 7d (default now)")
+	refProp = strProp("an entity ID or a key such as github:repo/acme/payments-api; find_entities finds one from a name")
+	// nameRefProp is refProp for the tools that start from records, which
+	// also look a name up (ADR 11).
+	nameRefProp = strProp("an entity ID, a key such as github:repo/acme/payments-api, or a name; a name may match several records, each reported with how closely it matched")
+	asOfProp    = strProp("answer as the world was at this time: RFC 3339, a date like 2026-10-01, or a duration back from now such as 72h or 7d (default now)")
 )
 
 func schema(required []string, props map[string]any) map[string]any {
@@ -747,7 +751,7 @@ func clipReason(s string) string {
 }
 
 const (
-	msgNotFound = "nothing matches"
+	msgNotFound = "nothing matches; find_entities finds an entity from a name"
 	msgTimeout  = "the question took too long; narrow it"
 	msgInternal = "the question could not be answered; see Bearing's log"
 )

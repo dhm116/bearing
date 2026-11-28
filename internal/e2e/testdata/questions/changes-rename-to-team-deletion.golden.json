@@ -23,6 +23,10 @@
         "status": "asserted",
         "subject": {
           "key": "github:team/acme/reliability",
+          "keys": [
+            "github:team/acme/reliability",
+            "github:team_node/T_kwDOBNeKh84AHUwE"
+          ],
           "kind": "Team",
           "name": "Reliability"
         },
@@ -55,6 +59,10 @@
         "status": "asserted",
         "subject": {
           "key": "github:team/acme/reliability",
+          "keys": [
+            "github:team/acme/reliability",
+            "github:team_node/T_kwDOBNeKh84AHUwE"
+          ],
           "kind": "Team",
           "name": "Reliability"
         },
@@ -68,9 +76,12 @@
       "fact": {
         "confidence": 1,
         "object": {
-          "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
-          "kind": "Team",
-          "name": "Payments"
+          "cluster_kind": "Team",
+          "key": "github:team/acme/payments",
+          "keys": [
+            "github:team/acme/payments"
+          ],
+          "name": "payments"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -96,6 +107,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -109,9 +125,12 @@
       "fact": {
         "confidence": 1,
         "object": {
-          "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
-          "kind": "Team",
-          "name": "Platform"
+          "cluster_kind": "Team",
+          "key": "github:team/acme/platform",
+          "keys": [
+            "github:team/acme/platform"
+          ],
+          "name": "platform"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -137,6 +156,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -150,8 +174,12 @@
         "confidence": 1,
         "object": {
           "key": "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
+          "keys": [
+            "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
+            "authentik:group_name/engineering"
+          ],
           "kind": "Team",
-          "name": "Engineering"
+          "name": "engineering"
         },
         "predicate": "member_of",
         "source_count": 1,
@@ -166,8 +194,12 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
+          "keys": [
+            "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
+            "authentik:group_name/payments"
+          ],
           "kind": "Team",
-          "name": "Payments"
+          "name": "payments"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -179,8 +211,12 @@
         "confidence": 1,
         "object": {
           "key": "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
+          "keys": [
+            "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
+            "authentik:group_name/engineering"
+          ],
           "kind": "Team",
-          "name": "Engineering"
+          "name": "engineering"
         },
         "predicate": "member_of",
         "source_count": 1,
@@ -195,8 +231,12 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
+          "keys": [
+            "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
+            "authentik:group_name/platform"
+          ],
           "kind": "Team",
-          "name": "Platform"
+          "name": "platform"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -219,6 +259,10 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
+          "keys": [
+            "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
+            "authentik:username/rpatel"
+          ],
           "kind": "Person",
           "name": "Raj Patel"
         },
@@ -244,6 +288,10 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d",
+          "keys": [
+            "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d",
+            "authentik:username/mchen"
+          ],
           "kind": "Person",
           "name": "Mei Chen"
         },
@@ -269,6 +317,10 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:user/6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
+          "keys": [
+            "authentik:user/6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
+            "authentik:username/tbecker"
+          ],
           "kind": "Person",
           "name": "Tom Becker"
         },
@@ -294,6 +346,10 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+          "keys": [
+            "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+            "authentik:username/jdoe"
+          ],
           "kind": "Person",
           "name": "Jane Doe"
         },
@@ -319,6 +375,10 @@
         "status": "asserted",
         "subject": {
           "key": "authentik:user/9e8d7c6b-5a49-4382-b716-05f4e3d2c1b0",
+          "keys": [
+            "authentik:user/9e8d7c6b-5a49-4382-b716-05f4e3d2c1b0",
+            "authentik:username/lfischer"
+          ],
           "kind": "Person",
           "name": "Lena Fischer"
         },
@@ -344,6 +404,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -370,6 +435,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -402,6 +472,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -433,6 +508,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -440,6 +520,101 @@
         "value": "https://github.com/acme/payments"
       },
       "kind": "opened"
+    }
+  ],
+  "identity": [
+    {
+      "a": {
+        "key": "github:user/meichen",
+        "kind": "Person",
+        "name": "Mei Chen",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d",
+        "kind": "Person",
+        "name": "Mei Chen",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
+    },
+    {
+      "a": {
+        "key": "github:user/rpatel",
+        "kind": "Person",
+        "name": "Raj Patel",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
+        "kind": "Person",
+        "name": "Raj Patel",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
+    },
+    {
+      "a": {
+        "key": "github:user_node/U_kgDOA1b2cw",
+        "kind": "Person",
+        "name": "Jane Doe",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+        "kind": "Person",
+        "name": "Jane Doe",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
     }
   ],
   "since": "2026-10-01T11:00:00Z",

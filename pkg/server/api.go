@@ -346,15 +346,20 @@ func (a *API) handle(ctx context.Context, w http.ResponseWriter, r *http.Request
 }
 
 // slowRead reports whether a request is one of the reads that scan the
-// graph: "what changed", a name search, or a walk deeper than one hop. They
-// share a per-caller cap and a shorter deadline (C-STORE-9).
+// graph: "what changed", a name search, owner or related given a name (a
+// name search too; pkg/query looks up any ref without a ':'), or a walk
+// deeper than one hop. They share a per-caller cap and a shorter deadline
+// (C-STORE-9).
 func slowRead(m Method, r *http.Request) bool {
+	byName := !strings.Contains(r.URL.Query().Get("ref"), ":")
 	switch m {
 	case MethodChanges, MethodFind, MethodLinks, MethodRuntimes:
 		return true
+	case MethodOwner:
+		return byName
 	case MethodRelated:
 		d, err := strconv.Atoi(r.URL.Query().Get("depth"))
-		return err == nil && d > 1
+		return byName || err == nil && d > 1
 	}
 	return false
 }

@@ -13,8 +13,8 @@
 // running server:
 //
 //	bearing get <ref>
-//	bearing owner <repo>
-//	bearing related <ref>
+//	bearing owner <repo|ref|name>
+//	bearing related <ref|name>
 //	bearing changes [--since <time>] [<ref>]
 //	bearing find <name>
 //
@@ -76,8 +76,8 @@ const usage = `usage:
   bearing adapter describe [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
   bearing adapter sync [--config cfg.json] [--settings FILE] [--max-pages N] [--address URL --tls-ca FILE --tls-cert FILE --tls-key FILE [--tls-server-name NAME | --tls-peer-id SPIFFE_ID] | -- <adapter command> [args]]
   bearing get <ref> [--store URL | --server ADDR] [--as-of T] [--json]
-  bearing owner <repo> [--store URL | --server ADDR] [--as-of T] [--json]
-  bearing related <ref> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing owner <org/repo|ref|name> [--store URL | --server ADDR] [--as-of T] [--json]
+  bearing related <ref|name> [--predicate P] [--direction out|in] [--depth N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing changes [--since T] [<ref>] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
   bearing find <name> [--kind K] [--limit N] [--store URL | --server ADDR] [--json]
   bearing runtimes --language L [--below V] [--kind K] [--limit N] [--store URL | --server ADDR] [--as-of T] [--json]
@@ -88,6 +88,7 @@ const usage = `usage:
   bearing server --settings FILE
   bearing source sync <source> [--server ADDR] [--json]
   (--server also takes --token-env VAR and --server-ca FILE; $BEARING_SERVER and $BEARING_TOKEN stand in for the flags)
+  (owner and related answer with each source's claim; a name may match several records)
 `
 
 // version is the CLI version, set at build time with -ldflags.

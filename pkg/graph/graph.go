@@ -69,7 +69,7 @@ type Graph interface {
 	// builds one path per fact, never every path.
 	Evidence(ctx context.Context, r EvidenceRequest) (Evidence, error)
 	// Changes returns the facts opened or closed in [Since, Until), newest
-	// first.
+	// first, with record-level Subject and Object (ADR 11).
 	Changes(ctx context.Context, r ChangesRequest) ([]Change, error)
 
 	// Records returns the records of one kind (every kind when empty), for
@@ -144,6 +144,15 @@ type Match struct {
 	Entity Entity
 	// Score is between 0 and 1; higher is closer.
 	Score float64
+	// Records are the entity's records whose name or a key matched, best
+	// first, each with its own score: answers start from them (ADR 11).
+	Records []RecordMatch
+}
+
+// RecordMatch is one record a Find matched.
+type RecordMatch struct {
+	ID    EntityID
+	Score float64
 }
 
 // Fact is one statement about an entity over a span of time: a relation to
@@ -194,6 +203,10 @@ type FactFilter struct {
 	At time.Time
 	// WithProposed includes proposed facts; by default only asserted ones.
 	WithProposed bool
+	// Records returns each fact's Subject and Object as record IDs instead
+	// of cluster IDs, for answers that name records (ADR 11). The filter
+	// still matches clusters.
+	Records bool
 }
 
 // Direction is which way Walk follows a fact.

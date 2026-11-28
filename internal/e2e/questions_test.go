@@ -45,13 +45,37 @@ func newStoryWorld(t *testing.T) *storyWorld {
 // fakePort matches the address of an httptest server, which changes per run.
 var fakePort = regexp.MustCompile(`http://127\.0\.0\.1:[0-9]+`)
 
-// dropIDs removes the entity IDs, which the store makes up at random (and
-// golden swaps the fakes' ports);
-// everything else, keys, times, sources and evidence URLs, stays.
+// isID says v is an ID or a list of them, not a record or a list of rows.
+func isID(v any) bool {
+	switch x := v.(type) {
+	case string:
+		return true
+	case []any:
+		if len(x) == 0 {
+			return false
+		}
+		_, s := x[0].(string)
+		return s
+	}
+	return false
+}
+
+// randomIDs are the fields that hold IDs the store makes up at random:
+// records, clusters, facts and links.
+var randomIDs = []string{"id", "cluster", "clusters", "fact_id", "links", "promoted_from", "a", "b"}
+
+// dropIDs removes the IDs the store makes up at random (and golden swaps the
+// fakes' ports); everything else, keys, times, sources and evidence URLs,
+// stays. An "a", "b" or "links" holding records or rows is kept, without its
+// IDs.
 func dropIDs(v any) {
 	switch x := v.(type) {
 	case map[string]any:
-		delete(x, "id")
+		for _, k := range randomIDs {
+			if isID(x[k]) {
+				delete(x, k)
+			}
+		}
 		for _, e := range x {
 			dropIDs(e)
 		}
@@ -158,8 +182,8 @@ func TestQuestionWhatDoesBillingAPIDependOn(t *testing.T) {
 	t.Parallel()
 	s := newStoryWorld(t)
 	got, err := s.q.Related(t.Context(), workload("deployment", "billing", "billing-api"), "depends_on", "out", 1, time.Time{})
-	if err == nil && len(got.Steps) != 2 {
-		t.Fatalf("got %d dependencies, want ledger and postgres", len(got.Steps))
+	if err == nil && len(got.Claims) != 2 {
+		t.Fatalf("got %d dependencies, want ledger and postgres", len(got.Claims))
 	}
 	checkGolden(t, "depends-on-billing-api", got, err)
 }
@@ -169,8 +193,8 @@ func TestQuestionWhatDependsOnPostgres(t *testing.T) {
 	t.Parallel()
 	s := newStoryWorld(t)
 	got, err := s.q.Related(t.Context(), workload("statefulset", "billing", "postgres"), "depends_on", "in", 1, time.Time{})
-	if err == nil && len(got.Steps) != 1 {
-		t.Fatalf("got %d dependents, want billing-api", len(got.Steps))
+	if err == nil && len(got.Claims) != 1 {
+		t.Fatalf("got %d dependents, want billing-api", len(got.Claims))
 	}
 	checkGolden(t, "depended-on-by-postgres", got, err)
 }

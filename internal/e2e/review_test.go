@@ -45,10 +45,10 @@ func TestAcmePersonReviewsATeamLink(t *testing.T) {
 	ownerKeys := func() []string {
 		t.Helper()
 		o, err := q.Owners(t.Context(), paymentsAPI, time.Time{}, false)
-		if err != nil || len(o.Owners) != 1 {
+		if err != nil || len(o.Claims) != 1 {
 			t.Fatalf("got %+v, %v, want one owner of payments-api", o, err)
 		}
-		e, err := q.Get(t.Context(), o.Owners[0].Object.ID, time.Time{})
+		e, err := q.Get(t.Context(), o.Claims[0].Fact.Object.ID, time.Time{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -151,17 +152,15 @@ func renderEntity(w io.Writer, e *query.Entity, at time.Time) error {
 	return o.flush(w)
 }
 
-func renderOwnership(w io.Writer, ow *query.Ownership, at time.Time) error {
+func renderOwnership(w io.Writer, ow *query.Ownership, at time.Time, ref string) error {
 	var o out
-	o.line(0, "owners of %s", refText(ow.Subject))
+	o.subjects("owners of", ref, ow.Answer)
 	o.line(0, "%s", when(at))
 	o.line(0, "")
-	if len(ow.Owners) == 0 {
+	if len(ow.Claims) == 0 {
 		o.line(0, "no asserted owner")
 	}
-	for _, f := range ow.Owners {
-		o.fact(0, f, false)
-	}
+	o.answer(ow.Answer, at, false)
 	for _, t := range ow.Teams {
 		o.line(0, "")
 		o.line(0, "people on %s", refText(t.Team))
@@ -183,19 +182,201 @@ func renderOwnership(w io.Writer, ow *query.Ownership, at time.Time) error {
 	return o.flush(w)
 }
 
-func renderRelations(w io.Writer, r *query.Relations, at time.Time) error {
+func renderRelated(w io.Writer, r *query.Related, at time.Time, ref string) error {
 	var o out
-	o.line(0, "relations of %s, direction %s", refText(r.Subject), r.Direction)
-	o.line(0, "%s", when(at))
+	o.subjects("relations of", ref, r.Answer)
+	o.line(0, "direction %s, %s", r.Direction, when(at))
 	o.line(0, "")
-	if len(r.Steps) == 0 {
+	if len(r.Claims) == 0 {
 		o.line(0, "none")
 	}
-	for _, s := range r.Steps {
-		o.line(0, "depth %d", s.Depth)
-		o.fact(1, s.Fact, true)
-	}
+	o.answer(r.Answer, at, true)
 	return o.flush(w)
+}
+
+// subjects names the records an answer starts from: the one a key named, or
+// every record a name lookup found, with how it matched.
+func (o *out) subjects(title, ref string, a query.Answer) {
+	if len(a.Subjects) == 1 && a.Subjects[0].Match == query.MatchKey {
+		o.line(0, "%s %s", title, refText(a.Subjects[0].Ref))
+		return
+	}
+	o.line(0, "%s %q: %d record(s) match", title, ref, len(a.Subjects))
+	for _, s := range a.Subjects {
+		how := "by name"
+		if s.Match == query.MatchFuzzy {
+			how = "fuzzily, " + percent(s.Score)
+		}
+		o.line(1, "%s: %s", refText(s.Ref), how)
+	}
+	if a.LimitHit {
+		o.line(1, "more match than shown (%d); give a key to choose one", query.MaxSubjects)
+	}
+}
+
+// answer prints each claim as a sentence with its evidence, then how the
+// claims' ends relate.
+func (o *out) answer(a query.Answer, at time.Time, showSubject bool) {
+	for _, c := range a.Claims {
+		o.line(0, "%s", claimSentence(c, at))
+		o.fact(1, c.Fact, showSubject)
+		if c.Start.Match == query.MatchFuzzy {
+			o.line(1, "starts at %s, which only resembles the question (%s)", refText(c.Start.Ref), percent(c.Start.Score))
+		}
+		if c.SameAs > 0 || c.Facts > 1 {
+			o.line(1, "path: %s", pathText(c.Path))
+		}
+		for _, ch := range c.ChangedSince {
+			o.line(1, "since then: this %s at %s", ch.Kind, stamp(ch.At))
+		}
+	}
+	if len(a.ChangedSince) > 0 {
+		o.line(0, "")
+		o.line(0, "since then")
+	}
+	for _, ch := range a.ChangedSince {
+		o.line(1, "%s, %s at %s", factSentence(ch.Fact), ch.Kind, stamp(ch.At))
+	}
+	if len(a.Relations) > 0 {
+		o.line(0, "")
+	}
+	for _, r := range a.Relations {
+		o.line(0, "%s", relationSentence(r, a.Claims))
+		for _, l := range r.Links {
+			o.line(1, "%s %s %s by %s, strength %s", l.ID, l.Kind, l.Status, l.Rule, percent(l.Score.Strength))
+			for _, d := range l.Deposits {
+				o.line(2, "%s", depositText(d))
+			}
+		}
+	}
+}
+
+// The CLI's sentences, generated from an answer's data here and nowhere
+// else (ADR 11). A proposal is worded "likely", never as a fact.
+
+// claimSentence is "github-acme says payments-api (Repository) approves_changes
+// Platform (Team).", with "As of" for a past answer.
+func claimSentence(c query.Claim, at time.Time) string {
+	s := factSentence(c.Fact) + "."
+	if !at.IsZero() {
+		s = "As of " + stamp(at) + ", " + s
+	}
+	return s
+}
+
+// factSentence is what a fact's sources say, without the full stop.
+func factSentence(f query.Fact) string {
+	var names []string
+	for _, s := range f.Sources {
+		if !slices.Contains(names, s.Source) {
+			names = append(names, s.Source)
+		}
+	}
+	slices.Sort(names)
+	who := strings.Join(names, " and ")
+	if who == "" {
+		who = "Bearing"
+	}
+	likely := ""
+	if f.Status != "asserted" {
+		likely = "likely "
+	}
+	return fmt.Sprintf("%s says %s %s%s %s", who, refName(f.Subject), likely, f.Predicate, whatName(f))
+}
+
+// relationSentence says how two clusters among the claims' objects relate.
+func relationSentence(r query.Relation, claims []query.Claim) string {
+	a, b := clusterName(r.Clusters[0], claims), clusterName(r.Clusters[1], claims)
+	strength := ""
+	for _, l := range r.Links {
+		if l.Status != "asserted" {
+			strength = fmt.Sprintf(" (strength %s%s)", percent(l.Score.Strength), featureText(l))
+			break
+		}
+	}
+	switch r.Kind {
+	case query.RelationDistinct:
+		s := fmt.Sprintf("%s and %s are not the same: an asserted distinct_from says so.", a, b)
+		if strength != "" {
+			s += " A proposal says otherwise" + strength + "."
+		}
+		return s
+	case query.RelationAssertedNotJoined:
+		why := "a distinct_from keeps them apart"
+		if r.Reason == query.ReasonKinds {
+			why = "their kinds differ"
+		}
+		return fmt.Sprintf("An asserted same_as names %s and %s as one, but they are not joined: %s.", a, b, why)
+	case query.RelationLikelyDistinct:
+		return fmt.Sprintf("%s and %s are likely not the same%s.", a, b, strength)
+	}
+	return fmt.Sprintf("%s and %s are likely the same%s.", a, b, strength)
+}
+
+// featureText is the strongest deposit's features, as "; shared_members 0.92".
+func featureText(l query.Link) string {
+	var best map[string]float64
+	var w float64
+	for _, d := range l.Deposits {
+		if !d.Against && len(d.Features) > 0 && d.Weight >= w {
+			best, w = d.Features, d.Weight
+		}
+	}
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(best)) {
+		fmt.Fprintf(&b, "; %s %.2f", k, best[k])
+	}
+	return b.String()
+}
+
+// clusterName names a cluster by the claims' objects in it.
+func clusterName(id string, claims []query.Claim) string {
+	var names []string
+	for _, c := range claims {
+		if o := c.Fact.Object; o != nil && o.Cluster == id && !slices.Contains(names, refName(*o)) {
+			names = append(names, refName(*o))
+		}
+	}
+	if len(names) == 0 {
+		return id
+	}
+	return strings.Join(names, " / ")
+}
+
+// refName is "payments-api (Repository)".
+func refName(r query.Ref) string {
+	name := cmp.Or(r.Name, r.Key, r.ID)
+	if k := cmp.Or(r.Kind, r.ClusterKind); k != "" {
+		name += " (" + k + ")"
+	}
+	return name
+}
+
+func whatName(f query.Fact) string {
+	if f.Object != nil {
+		return refName(*f.Object)
+	}
+	return what(f)
+}
+
+// pathText is a claim's path on one line: "a =same_as(l1)= b -owned_by-> c".
+func pathText(path []query.PathStep) string {
+	if len(path) == 0 {
+		return ""
+	}
+	parts := []string{refName(path[0].From)}
+	for _, p := range path {
+		to := "(value)"
+		if p.To != nil {
+			to = refName(*p.To)
+		}
+		if p.FactID == "" {
+			parts = append(parts, "=same_as("+strings.Join(p.Links, ", ")+")=", to)
+		} else {
+			parts = append(parts, "-"+p.Predicate+"->", to)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func renderChanges(w io.Writer, c *query.Changes, ref string) error {
@@ -205,7 +386,7 @@ func renderChanges(w io.Writer, c *query.Changes, ref string) error {
 		scope = " of " + ref
 	}
 	o.line(0, "changes%s from %s to %s", scope, stamp(c.Since), stamp(c.Until))
-	if len(c.Changes) == 0 {
+	if len(c.Changes) == 0 && len(c.Identity) == 0 {
 		o.line(0, "")
 		o.line(0, "nothing changed")
 	}
@@ -213,6 +394,33 @@ func renderChanges(w io.Writer, c *query.Changes, ref string) error {
 		o.line(0, "")
 		o.line(0, "%s %s", stamp(ch.At), ch.Kind)
 		o.fact(1, ch.Fact, true)
+	}
+	for _, ev := range c.Identity {
+		o.line(0, "")
+		o.line(0, "%s %s", stamp(ev.At), strings.ReplaceAll(ev.Kind, "_", " "))
+		o.line(1, "%s and %s", linkRecordText(ev.A), linkRecordText(ev.B))
+		j := ev.Justification
+		why := "by " + j.Rule
+		if j.ObservationID != "" {
+			why += ", observation " + j.ObservationID
+		}
+		if j.Actor != "" {
+			why += ", decided by " + j.Actor
+		}
+		if j.Reason != "" {
+			why += ": " + strconv.Quote(j.Reason)
+		}
+		if j.Decision != "" {
+			why += " (decision " + j.Decision + ")"
+		}
+		o.line(1, "%s", why)
+		for _, l := range ev.Links {
+			s := fmt.Sprintf("%s %s %s, %s", l.ID, l.Kind, l.Change, l.Effect)
+			if l.PromotedFrom != "" {
+				s += ", promoted from " + l.PromotedFrom
+			}
+			o.line(2, "%s", s)
+		}
 	}
 	return o.flush(w)
 }

@@ -17,7 +17,10 @@ var update = flag.Bool("update", false, "rewrite the golden answers")
 func redact(r *query.Runtimes) {
 	for _, list := range [][]query.RuntimeEntity{r.Entities, r.Below, r.Unknown} {
 		for i := range list {
-			list[i].Subject.ID = ""
+			list[i].Subject.ID, list[i].Subject.Cluster = "", ""
+			for j := range list[i].Declarations {
+				list[i].Declarations[j].FactID = ""
+			}
 		}
 	}
 }

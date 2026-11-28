@@ -85,11 +85,11 @@ func TestOwnerTakesARepoOrAKey(t *testing.T) {
 	var byRepo, byKey query.Ownership
 	ask(t, w, &byRepo, "owner", "acme/payments-api")
 	ask(t, w, &byKey, "owner", "github:repo/acme/payments-api")
-	if byRepo.Subject.ID == "" || byRepo.Subject.ID != byKey.Subject.ID {
-		t.Errorf("owner acme/payments-api is %q, and by key %q: want the same entity", byRepo.Subject.ID, byKey.Subject.ID)
+	if len(byRepo.Subjects) != 1 || len(byKey.Subjects) != 1 || byRepo.Subjects[0].ID != byKey.Subjects[0].ID {
+		t.Errorf("owner acme/payments-api is %+v, and by key %+v: want the same record", byRepo.Subjects, byKey.Subjects)
 	}
-	if len(byRepo.Owners) != 1 || byRepo.Owners[0].Object.Name != "Platform" || byRepo.Owners[0].Predicate != "approves_changes" {
-		t.Fatalf("owners = %+v, want Platform through CODEOWNERS", byRepo.Owners)
+	if len(byRepo.Claims) != 1 || byRepo.Claims[0].Fact.Object.Name != "Platform" || byRepo.Claims[0].Fact.Predicate != "approves_changes" {
+		t.Fatalf("claims = %+v, want Platform through CODEOWNERS", byRepo.Claims)
 	}
 	if _, err := w.cli("owner", "acme/payments-api", "--namespace", "nope"); !errors.Is(err, query.ErrNotFound) {
 		t.Errorf("owner in an unknown namespace: got %v, want not found", err)
@@ -127,10 +127,10 @@ func TestEveryFactCarriesItsSources(t *testing.T) {
 
 func TestRelatedJSONCarriesQualifiers(t *testing.T) {
 	w := newWorld(t)
-	var got query.Relations
+	var got query.Related
 	ask(t, w, &got, "related", "catalog:component/payments", "--predicate", "depends_on", "--depth", "1")
 	want := map[string]any{"protocol": "http", "port": 8080.0, "via": "env:LEDGER_URL"}
-	if len(got.Steps) != 1 || !reflect.DeepEqual(got.Steps[0].Fact.Qualifiers, want) {
-		t.Fatalf("got %+v, want qualifiers %v", got.Steps, want)
+	if len(got.Claims) != 1 || !reflect.DeepEqual(got.Claims[0].Fact.Qualifiers, want) {
+		t.Fatalf("got %+v, want qualifiers %v", got.Claims, want)
 	}
 }

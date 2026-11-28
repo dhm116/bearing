@@ -29,6 +29,11 @@
       ],
       "subject": {
         "key": "github:repo/acme/payments",
+        "keys": [
+          "github:repo/acme/payments",
+          "github:repo/acme/payments-api",
+          "github:repo_node/R_kgDOH1a2bw"
+        ],
         "kind": "Repository",
         "name": "payments"
       }

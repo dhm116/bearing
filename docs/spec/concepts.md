@@ -34,8 +34,13 @@ attribute.
 A **record** is what one source says about one key, with the facts it
 observed. An **entity** is one real thing (a service, a repository, a
 person, a team): a cluster of records joined by asserted `same_as` links
-([ADR 7](../adr/0007-records-identity-links-matchers.md)). Reads answer per
-entity, so asking about any of its records shows all of its facts.
+([ADR 7](../adr/0007-records-identity-links-matchers.md)). `get`, `find`
+and `links` answer per entity, so asking about any of its records shows all
+of its facts. The five questions answer per record
+([ADR 11](../adr/0011-answers-show-each-evidence-path.md)): each claim names
+the records on its path, each by its own name, and says how the owners or
+dependencies of different entities relate, so no source's name hides
+another's.
 
 Records are never merged. When an observation names a key that another
 record already holds, Bearing opens a `same_as` link between the two and

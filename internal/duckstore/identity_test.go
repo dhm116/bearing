@@ -651,3 +651,39 @@ func TestOpenAddsTheDepositActorToAnOlderFile(t *testing.T) {
 		t.Fatalf("got %d rows without an actor (%v), want the old row kept with a NULL actor", n, err)
 	}
 }
+
+// TestRecordLevelReadsNameEachRecord is ADR 11's record-level reads on two
+// joined records: Find says which record matched and how well, Facts with
+// Records and Changes name each fact's own record, while Facts without
+// Records still answers for the cluster.
+func TestRecordLevelReadsNameEachRecord(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := ingestStore(t)
+	ingestOK(t, s, "gh", obs("o1", 0, "Component", "gh:repo/api", attrs("name", "api"), rel("depends_on", "k:a/db", false)))           // id-1, id-2, fact id-3
+	ingestOK(t, s, "bs", obs("o2", 1, "Component", "bs:comp/api", attrs("name", "billing", "language", "Go"), aliases("gh:repo/api"))) // id-4, joined to id-1
+
+	m, err := s.Find(ctx, "billing", "", 0)
+	if err != nil || len(m) != 1 || m[0].Entity.ID != "id-1" {
+		t.Fatalf("Find: got %+v, %v, want the one cluster", m, err)
+	}
+	if got := m[0].Records; len(got) != 1 || got[0].ID != "id-4" || got[0].Score != 1 {
+		t.Errorf("Find: got record hits %+v, want only id-4, exactly", got)
+	}
+	recs, err := s.Facts(ctx, graph.FactFilter{Subject: "id-4", Predicate: "depends_on", Records: true})
+	if err != nil || len(recs) != 1 || recs[0].Subject != "id-1" || recs[0].Object != "id-2" {
+		t.Fatalf("Facts with Records: got %+v, %v, want the fact on id-1, its own record", recs, err)
+	}
+	cs, err := s.Changes(ctx, graph.ChangesRequest{Subject: "id-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subjects []graph.EntityID
+	for _, c := range cs {
+		subjects = append(subjects, c.Fact.Subject)
+	}
+	slices.Sort(subjects)
+	if want := []graph.EntityID{"id-1", "id-4"}; !slices.Equal(subjects, want) {
+		t.Errorf("Changes: got subjects %v, want each fact's own record %v", subjects, want)
+	}
+}

@@ -348,12 +348,12 @@ func TestAPIAnswersQueries(t *testing.T) {
 	}
 	var o query.Ownership
 	if got := w.do("reader", http.MethodGet, "/v1/owner?ref=catalog:repo/payments"); got.Code != http.StatusOK ||
-		json.Unmarshal(got.Body.Bytes(), &o) != nil || len(o.Owners) != 1 || o.Owners[0].Object.Key != "catalog:team/payments" {
+		json.Unmarshal(got.Body.Bytes(), &o) != nil || len(o.Claims) != 1 || o.Claims[0].Fact.Object.Key != "catalog:team/payments" {
 		t.Errorf("owner: got %d %s, want the payments team", got.Code, got.Body.String())
 	}
-	var r query.Relations
+	var r query.Related
 	if got := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:team/payments&predicate=owned_by&direction=in&depth=2"); got.Code != http.StatusOK ||
-		json.Unmarshal(got.Body.Bytes(), &r) != nil || len(r.Steps) != 1 || r.Steps[0].Fact.Subject.Name != "payments" {
+		json.Unmarshal(got.Body.Bytes(), &r) != nil || len(r.Claims) != 1 || r.Claims[0].Fact.Subject.Name != "payments" {
 		t.Errorf("related: got %d %s, want payments owned by the team", got.Code, got.Body.String())
 	}
 	var c query.Changes
@@ -617,7 +617,7 @@ func TestAPICapsAndTimesTheChangesReadsOfOneCaller(t *testing.T) {
 	}
 }
 
-func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
+func TestAPICapsAndTimesFindNameLookupsAndDeepRelatedLikeChanges(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesTimeout = 200 * time.Millisecond })
 	w.graph.mu.Lock()
@@ -635,6 +635,12 @@ func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
 	}
 	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&depth=2"); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("a deep related by the same caller: got %d, want 429", rec.Code)
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/owner?ref=payments"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("an owner by name, a name search, by the same caller: got %d, want 429", rec.Code)
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=payments"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a related by name by the same caller: got %d, want 429", rec.Code)
 	}
 	for range 2 {
 		if rec := <-done; rec.Code != http.StatusGatewayTimeout {

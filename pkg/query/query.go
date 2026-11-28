@@ -1,7 +1,9 @@
 // Package query answers the CLI's and the API's questions from a
 // [graph.Graph]: what an entity is, who owns it, what it relates to, what
 // changed and what matches a name. Every fact in an answer carries its
-// sources (the observations behind it) and its confidence.
+// sources (the observations behind it) and its confidence. Owners, Related,
+// Changes and Runtimes answer per record, with each claim's path (ADR 11);
+// Get, Find and Links answer per cluster.
 //
 // It is the layer between the commands and the store; its types are the
 // API's JSON (docs/spec/api.md), so nothing here prints or reads flags.
@@ -68,14 +70,26 @@ type Querier struct {
 }
 
 // Ref names an entity in an answer: enough to read it and to ask about it
-// next.
+// next. In a claim, a change or a runtime it names one record, by the
+// record's own name and key, and carries the record's cluster (ADR 11); in
+// Get, Find and team members it names a cluster and Cluster is empty.
 type Ref struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind,omitempty"`
-	Name string `json:"name,omitempty"`
-	// Key is the entity's first key, sorted.
+	ID      string `json:"id"`
+	Cluster string `json:"cluster,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	// ClusterKind is the cluster's kind, set when a record has none of its
+	// own (a relation target no source has described yet), so a placeholder
+	// still reads as the team or person its cluster is.
+	ClusterKind string `json:"cluster_kind,omitempty"`
+	Name        string `json:"name,omitempty"`
+	// Key is the first key, sorted.
 	Key string `json:"key,omitempty"`
+	// Keys are every key of a record, sorted; set in record references only.
+	Keys []string `json:"keys,omitempty"`
 }
+
+// kind is the record's kind, or its cluster's when it has none.
+func (r Ref) kind() string { return cmp.Or(r.Kind, r.ClusterKind) }
 
 // Source is one observation behind a fact.
 type Source struct {
@@ -89,6 +103,9 @@ type Source struct {
 // the store keeps per source are answered as one when they say the same
 // thing over overlapping time.
 type Fact struct {
+	// ID is the stored fact's, which a claim's path names; a fact merged from
+	// several keeps the first one's.
+	ID        string `json:"id,omitempty"`
 	Subject   Ref    `json:"subject"`
 	Predicate string `json:"predicate"`
 	Object    *Ref   `json:"object,omitempty"`
@@ -119,17 +136,19 @@ type Entity struct {
 	Facts []Fact   `json:"facts"`
 }
 
-// Ownership is the answer to Owners.
+// Ownership is the answer to Owners: a claim per owner fact the subject
+// records reach.
 type Ownership struct {
-	Subject Ref    `json:"subject"`
-	Owners  []Fact `json:"owners"`
+	Answer
 	// Teams are the people on each owning team; only when asked for
-	// (members), and only for owners that are teams.
+	// (members), and only for owners that are teams, one per cluster.
 	Teams []TeamMembers `json:"teams,omitempty"`
 }
 
 // TeamMembers is the people on one owning team at the answer's time.
 type TeamMembers struct {
+	// Team is the record the first claim names; its members are the
+	// cluster's.
 	Team    Ref      `json:"team"`
 	Members []Member `json:"members"`
 	// Truncated is set when the team has more than MaxTeamMembers people.
@@ -150,31 +169,10 @@ type Member struct {
 	Sources []Source `json:"sources"`
 }
 
-// Relations is the answer to Related.
-type Relations struct {
-	Subject   Ref    `json:"subject"`
+// Related is the answer to Related: a claim per fact the walk crossed.
+type Related struct {
+	Answer
 	Direction string `json:"direction"`
-	Steps     []Step `json:"steps"`
-}
-
-// Step is a fact Related crossed, Depth hops from the subject.
-type Step struct {
-	Depth int  `json:"depth"`
-	Fact  Fact `json:"fact"`
-}
-
-// Change is a fact that was opened or closed At.
-type Change struct {
-	Kind string    `json:"kind"`
-	At   time.Time `json:"at"`
-	Fact Fact      `json:"fact"`
-}
-
-// Changes is the answer to Changes, newest first.
-type Changes struct {
-	Since   time.Time `json:"since"`
-	Until   time.Time `json:"until"`
-	Changes []Change  `json:"changes"`
 }
 
 // Match is one Find result.
@@ -206,55 +204,51 @@ func (q *Querier) Get(ctx context.Context, ref string, at time.Time) (*Entity, e
 	return out, nil
 }
 
-// Owners returns the asserted owned_by facts of the entity at at or, when it
-// has none, its asserted approves_changes facts (CODEOWNERS). Each fact keeps
-// its predicate, so a caller sees which rule answered. With members it also
-// lists the people on each owning team (current members at at, maintainers
-// first); without, it asks the store nothing more.
+// Owners answers which team or person owns the entity ref names (ADR 11):
+// a claim per asserted owned_by fact the subject records reach at at or,
+// when they reach none, per approves_changes fact (CODEOWNERS). Each claim
+// keeps its predicate, so a caller sees which rule answered. With members it
+// also lists the people on each owning team (current members at at,
+// maintainers first); without, it asks the store nothing more.
 func (q *Querier) Owners(ctx context.Context, ref string, at time.Time, members bool) (*Ownership, error) {
-	e, err := q.entity(ctx, ref)
+	subs, hit, err := q.subjects(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	var facts []graph.Fact
-	for _, p := range []string{predOwnedBy, predApprovesChanges} {
-		if facts, err = q.Graph.Facts(ctx, graph.FactFilter{Subject: e.ID, Predicate: p, At: at}); err != nil {
-			return nil, fmt.Errorf("%s of %s: %w", p, e.ID, err)
-		}
-		if len(facts) > 0 {
-			break
-		}
-	}
-	l := q.currentLabeler(at)
-	out := &Ownership{Subject: l.add(e)}
-	if out.Owners, err = l.facts(ctx, merge(facts)); err != nil {
+	a, err := q.answer(ctx, subs, ownerAsk, at)
+	if err != nil {
 		return nil, err
 	}
+	a.LimitHit = hit
+	out := &Ownership{Answer: a}
 	if members {
-		if out.Teams, err = q.teams(ctx, l, out.Owners, at); err != nil {
+		if out.Teams, err = q.teams(ctx, q.currentLabeler(at), a.Claims, at); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
 }
 
-// teams lists the people on each owner that is not a person.
-func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.Time) ([]TeamMembers, error) {
+// teams lists the people on each owner cluster that is not a person.
+func (q *Querier) teams(ctx context.Context, l *labeler, owners []Claim, at time.Time) ([]TeamMembers, error) {
 	var out []TeamMembers
 	reg := q.Registry
 	person := func(kind string) bool { return reg.IsA(model.Kind(kind), model.KindPerson) }
-	for _, o := range owners {
-		if o.Object == nil || person(o.Object.Kind) {
+	seen := map[string]bool{}
+	for _, c := range owners {
+		o := c.Fact.Object
+		if o == nil || person(o.kind()) || seen[o.Cluster] {
 			continue
 		}
-		facts, err := q.Graph.Facts(ctx, graph.FactFilter{Predicate: "member_of", Object: graph.EntityID(o.Object.ID), At: at})
+		seen[o.Cluster] = true
+		facts, err := q.Graph.Facts(ctx, graph.FactFilter{Predicate: "member_of", Object: graph.EntityID(o.Cluster), At: at})
 		if err != nil {
-			return nil, fmt.Errorf("members of %s: %w", o.Object.ID, err)
+			return nil, fmt.Errorf("members of %s: %w", o.Cluster, err)
 		}
 		// Teams in teams are not people; skip them.
 		people := []Member{}
 		for _, f := range merge(facts) {
-			r, err := l.ref(ctx, graph.EntityID(f.Subject))
+			r, err := l.ref(ctx, f.Subject)
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +264,7 @@ func (q *Querier) teams(ctx context.Context, l *labeler, owners []Fact, at time.
 		slices.SortFunc(people, func(a, b Member) int {
 			return cmp.Or(cmp.Compare(rank(a.Role), rank(b.Role)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 		})
-		tm := TeamMembers{Team: *o.Object, Members: people}
+		tm := TeamMembers{Team: *o, Members: people}
 		if len(people) > MaxTeamMembers {
 			tm.Members, tm.Truncated = people[:MaxTeamMembers], true
 		}
@@ -304,111 +298,36 @@ func rank(role string) int {
 	return 1
 }
 
-// Related walks relations from the entity ref names: predicate alone, or every
-// relation when empty; direction "out" (subject to object, the default) or
-// "in"; up to depth hops (zero means 1, at most MaxDepth), at at.
-func (q *Querier) Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*Relations, error) {
-	dir := graph.Out
+// Related walks relations from the records ref names (ADR 11): predicate
+// alone, or every relation when empty; direction "out" (subject to object,
+// the default) or "in"; up to depth facts (zero means 1, at most MaxDepth),
+// at at. Each fact crossed is one claim, with its shortest path.
+func (q *Querier) Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*Related, error) {
+	a := ask{preds: [][]string{nil}, depth: max(depth, 1)}
 	switch direction {
 	case "", "out":
 		direction = "out"
 	case "in":
-		dir = graph.In
+		a.reverse = true
 	default:
 		return nil, fmt.Errorf("%w: direction must be out or in", ErrInvalidRequest)
 	}
 	if depth < 0 || depth > MaxDepth {
 		return nil, fmt.Errorf("%w: depth must be from 1 to %d", ErrInvalidRequest, MaxDepth)
 	}
-	e, err := q.entity(ctx, ref)
+	if predicate != "" {
+		a.preds = [][]string{{predicate}}
+	}
+	subs, hit, err := q.subjects(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	req := graph.WalkRequest{From: e.ID, Direction: dir, MaxDepth: max(depth, 1), At: at}
-	if predicate != "" {
-		req.Predicates = []string{predicate}
-	}
-	steps, err := q.Graph.Walk(ctx, req)
+	ans, err := q.answer(ctx, subs, a, at)
 	if err != nil {
-		return nil, fmt.Errorf("walk from %s: %w", e.ID, err)
+		return nil, err
 	}
-	l := q.currentLabeler(at)
-	out := &Relations{Subject: l.add(e), Direction: direction, Steps: []Step{}}
-	// One fact per statement at each depth.
-	for d, group := range groupBy(steps, func(s graph.Step) int { return s.Depth }) {
-		facts := make([]graph.Fact, len(group))
-		for i, s := range group {
-			facts[i] = s.Fact
-		}
-		fs, err := l.facts(ctx, merge(facts))
-		if err != nil {
-			return nil, err
-		}
-		for _, f := range fs {
-			out.Steps = append(out.Steps, Step{Depth: d, Fact: f})
-		}
-	}
-	return out, nil
-}
-
-// Changes returns the facts opened or closed in [since, until), about the
-// entity ref names or, when ref is empty, about anything. until defaults to
-// now and since to 24 hours before until; limit zero asks for the store's
-// default.
-func (q *Querier) Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*Changes, error) {
-	if limit < 0 || limit > MaxChangesLimit {
-		return nil, fmt.Errorf("%w: limit must be from 1 to %d", ErrInvalidRequest, MaxChangesLimit)
-	}
-	if until.IsZero() {
-		now := time.Now
-		if q.Now != nil {
-			now = q.Now
-		}
-		until = now().UTC()
-	}
-	if since.IsZero() {
-		since = until.Add(-defaultWindow)
-	}
-	if !since.Before(until) {
-		return nil, fmt.Errorf("%w: the window starts at or after its end", ErrInvalidRequest)
-	}
-	req := graph.ChangesRequest{Since: since, Until: until, Limit: limit}
-	if ref != "" {
-		e, err := q.entity(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-		req.Subject = e.ID
-	}
-	changes, err := q.Graph.Changes(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("changes: %w", err)
-	}
-	l := q.labeler()
-	out := &Changes{Since: since, Until: until, Changes: make([]Change, 0, len(changes))}
-	for _, c := range changes {
-		f, err := l.fact(ctx, c.Fact)
-		if err != nil {
-			return nil, err
-		}
-		out.Changes = append(out.Changes, Change{Kind: string(c.Kind), At: c.At, Fact: f})
-	}
-	// The store breaks ties at one instant on random IDs; order them by what
-	// they say so the same history always reads the same.
-	slices.SortStableFunc(out.Changes, func(a, b Change) int {
-		return cmp.Or(b.At.Compare(a.At), cmp.Compare(a.Kind, b.Kind),
-			cmp.Compare(a.Fact.Subject.Key, b.Fact.Subject.Key), cmp.Compare(a.Fact.Predicate, b.Fact.Predicate),
-			cmp.Compare(objectText(a.Fact), objectText(b.Fact)))
-	})
-	return out, nil
-}
-
-// objectText is what a fact says about its subject, for ordering.
-func objectText(f Fact) string {
-	if f.Object != nil {
-		return f.Object.Key
-	}
-	return fmt.Sprint(f.Value)
+	ans.LimitHit = hit
+	return &Related{Answer: ans, Direction: direction}, nil
 }
 
 // Find returns the entities whose name or keys resemble text, best first.
@@ -503,16 +422,22 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	if err != nil {
 		return Fact{}, err
 	}
-	out := Fact{
-		Subject: sub, Predicate: f.Predicate, Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status),
-		Confidence: f.Confidence, ValidFrom: f.ValidFrom, SourceCount: f.SourceCount, Sources: make([]Source, len(f.Sources)),
-	}
+	var obj *Ref
 	if f.Object != "" {
-		obj, err := l.ref(ctx, f.Object)
+		o, err := l.ref(ctx, f.Object)
 		if err != nil {
 			return Fact{}, err
 		}
-		out.Object = &obj
+		obj = &o
+	}
+	return l.build(f, sub, obj), nil
+}
+
+// build is f in an answer, named by sub and obj.
+func (l *labeler) build(f graph.Fact, sub Ref, obj *Ref) Fact {
+	out := Fact{
+		ID: f.ID, Subject: sub, Predicate: f.Predicate, Object: obj, Value: f.Value, Qualifiers: f.Qualifiers, Status: string(f.Status),
+		Confidence: f.Confidence, ValidFrom: f.ValidFrom, SourceCount: f.SourceCount, Sources: make([]Source, len(f.Sources)),
 	}
 	if !f.ValidTo.IsZero() {
 		out.ValidTo = &f.ValidTo
@@ -523,7 +448,7 @@ func (l *labeler) fact(ctx context.Context, f graph.Fact) (Fact, error) {
 	if t, ok := l.q.Registry.Retired(model.Kind(sub.Kind)); ok && l.current && (l.at.IsZero() || !l.at.Before(t)) {
 		out.AsOf = &t
 	}
-	return out, nil
+	return out
 }
 
 func (l *labeler) facts(ctx context.Context, fs []graph.Fact) ([]Fact, error) {

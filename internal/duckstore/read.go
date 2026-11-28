@@ -20,6 +20,9 @@ const (
 	factCols = `f.id, se.cluster_id, f.predicate, oe.cluster_id, CAST(f.value AS VARCHAR),
 	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
 	factFrom = `fact f JOIN entity se ON se.id = f.subject_id LEFT JOIN entity oe ON oe.id = f.object_id`
+	// recordCols are factCols with subject and object as record IDs (ADR 11).
+	recordCols = `f.id, f.subject_id, f.predicate, f.object_id, CAST(f.value AS VARCHAR),
+	f.status, f.confidence, f.valid_from, f.valid_to, CAST(f.qualifiers AS VARCHAR)`
 	// notSelfLoop hides a relation whose ends are in one cluster: an artifact
 	// of two records joining, not something a source said.
 	notSelfLoop = `(oe.cluster_id IS NULL OR oe.cluster_id <> se.cluster_id)`
@@ -171,7 +174,7 @@ func records(ctx context.Context, db querier, where string, args ...any) ([]grap
 
 // Find implements graph.Graph. Exact matches rank first, then substrings,
 // then names and keys at least 0.8 similar (Jaro-Winkler); a cluster ranks
-// by its best record.
+// by its best record, and lists each record that matched with its own score.
 func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit int) ([]graph.Match, error) {
 	return read(ctx, s, func(db querier) ([]graph.Match, error) {
 		if limit <= 0 {
@@ -180,42 +183,52 @@ func (s *Store) Find(ctx context.Context, query string, kind model.Kind, limit i
 		kinds := s.reg.Descendants(kind) // a kind includes its descendants
 		kp, kargs := placeholders(len(kinds)), anySlice(kinds)
 		// Every record yields one row for its name and one per key; the best
-		// row (lowest tier, highest score) stands for its cluster.
+		// row (lowest tier, highest score) stands for its record, and the best
+		// record for its cluster.
 		rows, err := db.QueryContext(ctx, `
 WITH cand AS (
-  SELECT cluster_id AS id, name AS txt FROM entity WHERE (? = '' OR kind IN (`+kp+`))
+  SELECT cluster_id AS id, id AS rec, name AS txt FROM entity WHERE (? = '' OR kind IN (`+kp+`))
   UNION ALL
-  SELECT e.cluster_id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
+  SELECT e.cluster_id, e.id, a.key FROM entity e JOIN alias a ON a.entity_id = e.id
   WHERE (? = '' OR e.kind IN (`+kp+`))
 ), scored AS (
-  SELECT id,
+  SELECT id, rec,
     CASE WHEN lower(txt) = lower(?) THEN 0 WHEN contains(lower(txt), lower(?)) THEN 1
          WHEN jaro_winkler_similarity(lower(txt), lower(?)) > 0.8 THEN 2 ELSE 3 END AS tier,
     CASE WHEN lower(txt) = lower(?) THEN 1.0
          WHEN contains(lower(txt), lower(?)) THEN greatest(0.9, jaro_winkler_similarity(lower(txt), lower(?)))
          ELSE jaro_winkler_similarity(lower(txt), lower(?)) END AS score
   FROM cand
+), recs AS (
+  SELECT id, rec, min(tier) AS tier, max(score) AS score FROM scored WHERE tier < 3 GROUP BY id, rec
+), best AS (
+  SELECT id, min(tier) AS tier, max(score) AS score FROM recs GROUP BY id
+  ORDER BY min(tier), max(score) DESC, id LIMIT ?
 )
-SELECT id, max(score) FROM scored WHERE tier < 3 GROUP BY id
-ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
+SELECT b.id, b.score, r.rec, r.score FROM best b JOIN recs r ON r.id = b.id
+ORDER BY b.tier, b.score DESC, b.id, r.tier, r.score DESC, r.rec`,
 			slices.Concat([]any{string(kind)}, kargs, []any{string(kind)}, kargs,
 				[]any{query, query, query, query, query, query, query, limit})...)
 		if err != nil {
 			return nil, fmt.Errorf("find %q: %w", query, err)
 		}
 		var ids []string
-		var scores []float64
-		for rows.Next() {
-			var id string
-			var score float64
-			if err := rows.Scan(&id, &score); err != nil {
-				_ = rows.Close()
-				return nil, fmt.Errorf("find %q: %w", query, err)
+		hits := map[string][]graph.RecordMatch{}
+		scores := map[string]float64{}
+		_, err = collect(rows, func(sc scanner) (struct{}, error) {
+			var id, rec string
+			var score, recScore float64
+			if err := sc.Scan(&id, &score, &rec, &recScore); err != nil {
+				return struct{}{}, err
 			}
-			ids = append(ids, id)
-			scores = append(scores, score)
-		}
-		if err := closeRows(rows); err != nil {
+			if _, ok := scores[id]; !ok {
+				ids = append(ids, id)
+				scores[id] = score
+			}
+			hits[id] = append(hits[id], graph.RecordMatch{ID: graph.EntityID(rec), Score: min(recScore, 1)})
+			return struct{}{}, nil
+		})
+		if err != nil {
 			return nil, fmt.Errorf("find %q: %w", query, err)
 		}
 		if len(ids) == 0 {
@@ -227,7 +240,7 @@ ORDER BY min(tier), max(score) DESC, id LIMIT ?`,
 		}
 		out := make([]graph.Match, len(ids))
 		for i, id := range ids {
-			out[i] = graph.Match{Entity: byID[id], Score: min(scores[i], 1)}
+			out[i] = graph.Match{Entity: byID[id], Score: min(scores[id], 1), Records: hits[id]}
 		}
 		return out, nil
 	})
@@ -256,8 +269,12 @@ func (s *Store) Facts(ctx context.Context, f graph.FactFilter) ([]graph.Fact, er
 			where += ` AND oe.cluster_id = ?`
 			args = append(args, string(f.Object))
 		}
+		cols := factCols
+		if f.Records {
+			cols = recordCols
+		}
 		rows, err := db.QueryContext(ctx,
-			`SELECT `+factCols+` FROM `+factFrom+` WHERE `+where+` ORDER BY se.cluster_id, f.predicate, f.valid_from, f.id`, args...)
+			`SELECT `+cols+` FROM `+factFrom+` WHERE `+where+` ORDER BY se.cluster_id, f.predicate, f.valid_from, f.id`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("facts: %w", err)
 		}
@@ -334,7 +351,7 @@ ORDER BY d.depth, f.id`, args...)
 }
 
 // Changes implements graph.Graph. A zero Since or Until leaves that end of
-// the window open. Only asserted facts are reported.
+// the window open. Only asserted facts are reported, per record (ADR 11).
 func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Change, error) {
 	return read(ctx, s, func(db querier) ([]graph.Change, error) {
 		if r.Limit <= 0 {
@@ -365,7 +382,7 @@ func (s *Store) Changes(ctx context.Context, r graph.ChangesRequest) ([]graph.Ch
 		cw, ca := window("valid_to")
 		args := append(append(oa, ca...), r.Limit)
 		rows, err := db.QueryContext(ctx, `
-SELECT c.change_kind, c.changed_at, `+factCols+` FROM (
+SELECT c.change_kind, c.changed_at, `+recordCols+` FROM (
   SELECT 'opened' AS change_kind, f.valid_from AS changed_at, f.id FROM `+factFrom+` WHERE `+ow+`
   UNION ALL
   SELECT 'closed', f.valid_to, f.id FROM `+factFrom+` WHERE `+cw+`

@@ -222,7 +222,8 @@ credentials; the server never sends it any.
 - **C-OPS-5** An adapter that fails to start or answer is restarted with a pause
   that doubles from one second to one minute, so a broken adapter cannot spin.
 - **C-STORE-9** Reads that scan or walk many rows (`changes`, `find`,
-  `links`, and `related` deeper than one hop) share a per-caller cap and a
+  `links`, `owner` and `related` given a name, and `related` deeper than one
+  hop) share a per-caller cap and a
   shorter deadline. `links` scores at most the 5,000 links with the newest
   evidence.
 - **C-STORE-11** Trim removes only events that are not marked to keep and that
