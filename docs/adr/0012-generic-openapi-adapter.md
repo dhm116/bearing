@@ -66,6 +66,9 @@ found:
   spec, with suggested mappings to the core vocabulary (ADR 13). It guesses list and
   single-item routes, keys from routes or `id`, path-parameter sources,
   paging and references. Anything it can't guess is marked TODO.
+  [ADR 14](0014-adapter-authoring-golden-path.md) sets the file's format
+  and the directory `init` writes, adds `test`, and binds credentials to
+  the base URL's origin.
   **`bearing adapter check`** validates a mapping against its spec.
   **`bearing adapter sync`**, which exists already, runs it against a
   mock server or a real API.

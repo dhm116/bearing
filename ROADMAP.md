@@ -113,10 +113,12 @@ tag.
 - **Mapping packs** (`bearing vocab export|import`, ADR 13): when there's a
   second instance to move mappings to.
 - **Webhooks from the spec** in the generic adapter (ADR 12): when GitHub
-  moves to it.
+  moves to it. An adapter mapping can never weaken or turn off the
+  server's signature check.
 - **Adapter authoring extras** (ADR 14): `bearing adapter test --record`
   against a real API (it must keep every field the mapping or a middleware
-  reads, strip headers and use deterministic placeholders); a schema
+  reads, strip headers, use deterministic placeholders and pass
+  `AssertNoLeaks` against the fakes' canaries); a schema
   hosted on the docs site; a spec cache shared across adapters.
 - **The model-backed matcher** (ADR 7, step 3), which merges only through
   its own ADR, and embeddings for candidates.

@@ -426,3 +426,19 @@ Each entry:
 - **Example:** the operator removes rule `r-team` from the settings and reboots, so its facts close. Then the rule is put back and Bearing reboots again.
 - **Impact:** a fact reopens only when its subject is observed again, so Q3 shows a gap, and a webhook-only source never reopens it. That is correct for what the operator did, and it is rare.
 - **Proposed fix:** when a rule is asserted, rerun it over each matching subject's latest observation. This is the same backfill a newly enabled kind needs (ADR 10).
+
+## Fixtures pasted from real API output
+
+- **Found in:** [PR #336](https://github.com/dhm116/bearing/pull/336), security review
+- **Area:** adapter authoring (ADR 14)
+- **Example:** an adopter saves `curl` output as a fixture, and it holds a real token in `env[].value`.
+- **Impact:** the token is committed to the adopter's repo. The adapter never sends it, since the field is unticked, but the repo now holds a secret. This is likely for a first-time author.
+- **Proposed fix:** the authoring guide says to replace values. `check` warns about a fixture value at a secret-looking path. `test --record` (ROADMAP "Later") writes placeholders itself.
+
+## A remote generic adapter's mapping directory
+
+- **Found in:** [PR #336](https://github.com/dhm116/bearing/pull/336), ponytail referee
+- **Area:** adapter authoring (ADR 14), remote adapters (ADR 4)
+- **Example:** `bearing-adapter-openapi` runs on another host, and its adapter mapping directory lives there.
+- **Impact:** the server can't resolve the path or run C-OPS-3's check on it, so a writable directory on that host could widen what the adapter sends. This needs a remote generic adapter, which the MVP doesn't run.
+- **Proposed fix:** the remote adapter embeds its adapter mapping, as a middleware build already does, or checks the owner and mode of its own `--adapter-mapping` path at start.
