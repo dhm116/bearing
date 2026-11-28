@@ -8,23 +8,23 @@ import (
 func TestWithRetiredKeepsRetiredKindsValidAndMergesPredicateLists(t *testing.T) {
 	t.Parallel()
 	gone := time.Unix(50, 0).UTC()
-	base, err := Core().Extend([]KindDef{{Name: "k8s.Service", Parent: KindComponent}}, nil)
+	base, err := Core().Extend([]KindDef{{Name: "io.k8s:Service", Parent: KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	owned, _ := base.Predicate("owned_by")
-	owned.Domain = []Kind{KindComponent, "acme.Api"}
+	owned.Domain = []Kind{KindComponent, "com.acme:Api"}
 	r := base.WithRetired(
-		[]KindDef{{Name: "acme.Api", Parent: "k8s.Service", Retired: gone}, {Name: "k8s.Service", Retired: gone}},
+		[]KindDef{{Name: "com.acme:Api", Parent: "io.k8s:Service", Retired: gone}, {Name: "io.k8s:Service", Retired: gone}},
 		[]Predicate{owned, {Name: "old_attr", Cardinality: owned.Cardinality}},
 	)
-	if got, ok := r.Retired("acme.Api"); !ok || !got.Equal(gone) {
-		t.Fatalf("got Retired(acme.Api) = %v, %v, want %v, true", got, ok, gone)
+	if got, ok := r.Retired("com.acme:Api"); !ok || !got.Equal(gone) {
+		t.Fatalf("got Retired(com.acme:Api) = %v, %v, want %v, true", got, ok, gone)
 	}
-	if _, ok := r.Retired("k8s.Service"); ok {
+	if _, ok := r.Retired("io.k8s:Service"); ok {
 		t.Fatal("got an active kind retired by WithRetired")
 	}
-	if !r.Valid("acme.Api") || !r.IsA("acme.Api", KindComponent) {
+	if !r.Valid("com.acme:Api") || !r.IsA("com.acme:Api", KindComponent) {
 		t.Fatal("got a retired kind that is invalid or lost its parents")
 	}
 	if p, _ := r.Predicate("owned_by"); len(p.Domain) != 2 {
@@ -33,7 +33,7 @@ func TestWithRetiredKeepsRetiredKindsValidAndMergesPredicateLists(t *testing.T) 
 	if _, ok := r.Predicate("old_attr"); !ok {
 		t.Fatal("got no old_attr predicate")
 	}
-	if _, ok := base.Retired("acme.Api"); ok || base.Valid("acme.Api") {
+	if _, ok := base.Retired("com.acme:Api"); ok || base.Valid("com.acme:Api") {
 		t.Fatal("WithRetired changed its receiver")
 	}
 	if n := len(r.Predicates()); n != len(base.Predicates())+1 {

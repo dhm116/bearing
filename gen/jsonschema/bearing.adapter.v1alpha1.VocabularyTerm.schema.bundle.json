@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.VocabularyTerm.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "VocabularyTerm is one kind, relation or attribute.",
+      "patternProperties": {
+        "^(valueType)$": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type; unset for kinds and relations.",
+          "title": "Value Type"
+        }
+      },
+      "properties": {
+        "cardinality": {
+          "anyOf": [
+            {
+              "pattern": "^CARDINALITY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CARDINALITY_ONE",
+                "CARDINALITY_MANY"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "A predicate's cardinality; unset for kinds.",
+          "title": "Cardinality"
+        },
+        "conflict": {
+          "anyOf": [
+            {
+              "pattern": "^CONFLICT_POLICY_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "CONFLICT_POLICY_NONE",
+                "CONFLICT_POLICY_ONE",
+                "CONFLICT_POLICY_SET"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "A predicate's conflict policy; unset for kinds.",
+          "title": "Conflict Policy"
+        },
+        "domain": {
+          "description": "The kinds a predicate's subject may have, as full or core names. Empty:\n any kind.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "description": "The name within the namespace: \"Deployment\" for a kind, lowercase\n letters, digits and \"_\" for a predicate. Required.",
+          "type": "string"
+        },
+        "range": {
+          "description": "The kinds a relation's object may have. Empty: any kind.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "pattern": "^TERM_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "TERM_TYPE_KIND",
+                "TERM_TYPE_RELATION",
+                "TERM_TYPE_ATTRIBUTE"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "What the term names. Required.",
+          "title": "Term Type"
+        },
+        "value_type": {
+          "anyOf": [
+            {
+              "pattern": "^VALUE_TYPE_UNSPECIFIED$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "VALUE_TYPE_STRING",
+                "VALUE_TYPE_FLOAT",
+                "VALUE_TYPE_BOOL",
+                "VALUE_TYPE_TIME",
+                "VALUE_TYPE_JSON"
+              ],
+              "type": "string"
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            }
+          ],
+          "default": 0,
+          "description": "An attribute's value type; unset for kinds and relations.",
+          "title": "Value Type"
+        }
+      },
+      "title": "Vocabulary Term",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.VocabularyTerm.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.VocabularyTerm.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

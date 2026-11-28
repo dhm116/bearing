@@ -221,7 +221,7 @@ func (x *WebhookSignature) GetSignaturePrefix() string {
 // KindDeclaration declares one kind an adapter emits.
 type KindDeclaration struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A core kind, e.g. "Repository", or a configured one, e.g. "k8s.Service".
+	// A core kind, e.g. "Repository", or a configured one, e.g. "io.k8s:Service".
 	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
 	// The kind's key types.
 	Keys []*KeyTypeDeclaration `protobuf:"bytes,2,rep,name=keys,proto3" json:"keys,omitempty"`

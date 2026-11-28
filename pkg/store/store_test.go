@@ -78,7 +78,7 @@ func TestOpenedStoreTakesTheRegistryAndReadsDescendants(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	reg, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	reg, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,13 +88,13 @@ func TestOpenedStoreTakesTheRegistryAndReadsDescendants(t *testing.T) {
 	}
 	setter.SetRegistry(reg)
 	o := &eventv1alpha1.Observation{Id: "o1", Time: timestamppb.New(time.Unix(1, 0)), Data: &modelv1alpha1.ObservationData{
-		Entity: &modelv1alpha1.Entity{Kind: "k8s.Service", Key: "k:svc/a"},
+		Entity: &modelv1alpha1.Entity{Kind: "io.k8s:Service", Key: "k:svc/a"},
 	}}
 	if _, err := s.Graph().Ingest(t.Context(), graph.IngestRequest{Source: "k8s", Observations: []*eventv1alpha1.Observation{o}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Graph().Records(t.Context(), model.KindComponent)
-	if err != nil || len(got) != 1 || got[0].Kind != "k8s.Service" {
-		t.Fatalf("got %+v, %v, want the k8s.Service record under Component", got, err)
+	if err != nil || len(got) != 1 || got[0].Kind != "io.k8s:Service" {
+		t.Fatalf("got %+v, %v, want the io.k8s:Service record under Component", got, err)
 	}
 }

@@ -7,20 +7,28 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/store"
+	"bearing.example/pkg/vocab"
 )
 
-// SyncVocabulary writes the vocabulary the server booted with to the kind
-// tables, in one transaction (ADR 10). It refuses, wrapping
-// store.ErrVocabularyChanged and naming the kind or predicate, a configured
-// kind whose parent changed, a non-core predicate whose shape changed and one
-// whose domain or range narrowed. It inserts new rows, retires configured
-// kinds reg no longer has at now, and un-retires those it has again. Core
-// rows are rewritten freely, because a core change ships as a migration.
+const (
+	termKind      = "TERM_TYPE_KIND"
+	termRelation  = "TERM_TYPE_RELATION"
+	termAttribute = "TERM_TYPE_ATTRIBUTE"
+)
+
+// SyncVocabulary writes the vocabulary the server booted with to the prefix
+// and term tables, in one transaction (ADR 13). A term only grows: it
+// refuses, wrapping store.ErrVocabularyChanged and naming the term, a kind
+// whose parent changed, a predicate whose shape changed or whose domain or
+// range narrowed, and a core term the core module dropped. It inserts new
+// rows, retires configured kinds reg no longer has at now, and un-retires
+// those it has again.
 //
 // It returns the registry to read with: reg plus the retired kinds, with the
 // stored domains and ranges merged in, so facts of a retired kind still
@@ -37,11 +45,14 @@ func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now tim
 		return nil, fmt.Errorf("duckstore: sync vocabulary: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := syncCorePrefix(ctx, tx); err != nil {
+		return nil, fmt.Errorf("duckstore: sync vocabulary: %w", err)
+	}
 	retired, err := syncKinds(ctx, tx, reg, now.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: sync vocabulary: %w", err)
 	}
-	preds, err := syncPredicates(ctx, tx, reg)
+	preds, err := syncPredicates(ctx, tx, reg, now.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("duckstore: sync vocabulary: %w", err)
 	}
@@ -51,13 +62,42 @@ func (s *Store) SyncVocabulary(ctx context.Context, reg *model.Registry, now tim
 	return reg.WithRetired(retired, preds), nil
 }
 
+// syncCorePrefix records the core module this build carries.
+func syncCorePrefix(ctx context.Context, tx *sql.Tx) error {
+	m := vocab.Core()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO prefix (namespace, owner, version, repo, path, commit_sha, sha256, verified_by)
+		VALUES (?, 'core', ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), nullif(?, ''), 'build')
+		ON CONFLICT (namespace) DO UPDATE SET version = excluded.version, repo = excluded.repo, path = excluded.path,
+			commit_sha = excluded.commit_sha, sha256 = excluded.sha256, verified_by = excluded.verified_by`,
+		m.Namespace, m.Version, m.Source.Repo, m.Source.Path, m.Source.Commit, m.Source.SHA256); err != nil {
+		return fmt.Errorf("prefix %s: %w", m.Namespace, err)
+	}
+	return nil
+}
+
+// namespaceOf is a stored name's namespace; bare names are core terms.
+func namespaceOf(name string) string {
+	if ns, _, ok := strings.Cut(name, ":"); ok {
+		return ns
+	}
+	return vocab.CoreNamespace
+}
+
+// origin is "core" for a term of the core module, "configured" otherwise.
+func origin(core bool) string {
+	if core {
+		return "core"
+	}
+	return "configured"
+}
+
 // syncKinds returns every retired kind after the sync.
 func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Time) ([]model.KindDef, error) {
 	type row struct {
-		parent  string
-		retired sql.NullTime
+		origin, parent string
+		retired        sql.NullTime
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT name, coalesce(parent, ''), retired_at FROM kind WHERE origin = 'configured'`)
+	rows, err := tx.QueryContext(ctx, `SELECT name, origin, coalesce(parent, ''), retired_at FROM term WHERE type = ?`, termKind)
 	if err != nil {
 		return nil, fmt.Errorf("read kinds: %w", err)
 	}
@@ -65,7 +105,7 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 	for rows.Next() {
 		var name string
 		var r row
-		if err := rows.Scan(&name, &r.parent, &r.retired); err != nil {
+		if err := rows.Scan(&name, &r.origin, &r.parent, &r.retired); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read kinds: %w", err)
 		}
@@ -75,16 +115,13 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 		return nil, fmt.Errorf("read kinds: %w", err)
 	}
 	for _, k := range reg.Kinds() {
-		origin := "configured"
-		if model.Core().Valid(k) {
-			origin = "core"
-		} else if old, ok := stored[k]; ok && old.parent != string(reg.Parent(k)) {
-			return nil, fmt.Errorf("kind %s: %w: parent was %q, now %q: restore the parent, or define a new kind (configured kinds only grow)", k, store.ErrVocabularyChanged, model.Clip(old.parent), model.Clip(string(reg.Parent(k))))
+		if old, ok := stored[k]; ok && old.parent != string(reg.Parent(k)) {
+			return nil, fmt.Errorf("kind %s: %w: parent was %q, now %q: restore the parent, or define a new kind (a term only grows)", k, store.ErrVocabularyChanged, model.Clip(old.parent), model.Clip(string(reg.Parent(k))))
 		}
-		// Re-adding clears retired_at; the parent is unchanged for a configured kind.
-		if _, err := tx.ExecContext(ctx, `INSERT INTO kind (name, parent, origin, added_at) VALUES (?, nullif(?, ''), ?, ?)
-			ON CONFLICT (name) DO UPDATE SET parent = excluded.parent, origin = excluded.origin, retired_at = NULL`,
-			string(k), string(reg.Parent(k)), origin, now); err != nil {
+		// Re-adding clears retired_at; the parent is unchanged.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO term (name, namespace, type, origin, parent, added_at) VALUES (?, ?, ?, ?, nullif(?, ''), ?)
+			ON CONFLICT (name) DO UPDATE SET origin = excluded.origin, retired_at = NULL`,
+			string(k), namespaceOf(string(k)), termKind, origin(model.Core().Valid(k)), string(reg.Parent(k)), now); err != nil {
 			return nil, fmt.Errorf("kind %s: %w", k, err)
 		}
 	}
@@ -93,10 +130,13 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 		if reg.Valid(k) {
 			continue
 		}
+		if r.origin == "core" {
+			return nil, fmt.Errorf("kind %s: %w: the core module dropped it (a term only grows)", model.Clip(string(k)), store.ErrVocabularyChanged)
+		}
 		at := now
 		if r.retired.Valid {
 			at = r.retired.Time.UTC() // keep the first retirement time
-		} else if _, err := tx.ExecContext(ctx, `UPDATE kind SET retired_at = ? WHERE name = ?`, now, string(k)); err != nil {
+		} else if _, err := tx.ExecContext(ctx, `UPDATE term SET retired_at = ? WHERE name = ?`, now, string(k)); err != nil {
 			return nil, fmt.Errorf("retire kind %s: %w", k, err)
 		}
 		retired = append(retired, model.KindDef{Name: k, Parent: model.Kind(r.parent), Retired: at})
@@ -105,30 +145,32 @@ func syncKinds(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Ti
 	return retired, nil
 }
 
-// storedPredicate is a kind_predicate row; a nil domain or range is any kind.
+// storedPredicate is a relation or attribute row; a nil domain or range is
+// any kind.
 type storedPredicate struct {
+	origin                     string
 	relation                   bool
 	typ, cardinality, conflict string
 	domain, rng                []model.Kind
 }
 
-// syncPredicates returns the non-core predicates the table holds, with their
-// stored and booted domains and ranges merged.
-func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]model.Predicate, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT name, relation, coalesce(type, ''), cardinality, conflict, domain, range FROM kind_predicate`)
+// syncPredicates returns the configured predicates the table holds, with
+// their stored and booted domains and ranges merged.
+func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry, now time.Time) ([]model.Predicate, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name, origin, type, coalesce(value_type, ''), cardinality, conflict, domain, range FROM term WHERE type <> ?`, termKind)
 	if err != nil {
 		return nil, fmt.Errorf("read predicates: %w", err)
 	}
 	stored := map[string]storedPredicate{}
 	for rows.Next() {
-		var name string
+		var name, termType string
 		var p storedPredicate
 		var dom, rng any
-		if err := rows.Scan(&name, &p.relation, &p.typ, &p.cardinality, &p.conflict, &dom, &rng); err != nil {
+		if err := rows.Scan(&name, &p.origin, &termType, &p.typ, &p.cardinality, &p.conflict, &dom, &rng); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("read predicates: %w", err)
 		}
-		p.domain, p.rng = kindList(dom), kindList(rng)
+		p.relation, p.domain, p.rng = termType == termRelation, kindList(dom), kindList(rng)
 		stored[name] = p
 	}
 	if err := rows.Close(); err != nil {
@@ -138,9 +180,9 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 	for _, p := range reg.Predicates() {
 		_, isCore := model.Core().Predicate(p.Name)
 		out := p
-		if old, ok := stored[p.Name]; ok && !isCore {
+		if old, ok := stored[p.Name]; ok {
 			if old.relation != p.Relation || old.typ != typeName(p) || old.cardinality != p.Cardinality.String() || old.conflict != p.Conflict.String() {
-				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape: restore the shape, or use a new name", p.Name, store.ErrVocabularyChanged)
+				return nil, fmt.Errorf("predicate %s: %w: relation flag, type, cardinality or conflict policy differs from the stored shape: restore the shape, or use a new name (a term only grows)", p.Name, store.ErrVocabularyChanged)
 			}
 			var bad model.Kind
 			if out.Domain, bad = mergeKinds(reg, old.domain, p.Domain); bad != "" {
@@ -150,11 +192,15 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 				return nil, fmt.Errorf("predicate %s: %w: range no longer covers %s: add it back to the range of %s", p.Name, store.ErrVocabularyChanged, model.Clip(string(bad)), p.Name)
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO kind_predicate (name, relation, type, cardinality, conflict, domain, range)
-			VALUES (?, ?, nullif(?, ''), ?, ?, ?, ?)
-			ON CONFLICT (name) DO UPDATE SET relation = excluded.relation, type = excluded.type,
-				cardinality = excluded.cardinality, conflict = excluded.conflict, domain = excluded.domain, range = excluded.range`,
-			p.Name, p.Relation, typeName(p), p.Cardinality.String(), p.Conflict.String(), kindArg(out.Domain), kindArg(out.Range)); err != nil {
+		termType := termAttribute
+		if p.Relation {
+			termType = termRelation
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO term (name, namespace, type, origin, value_type, cardinality, conflict, domain, range, added_at)
+			VALUES (?, ?, ?, ?, nullif(?, ''), ?, ?, ?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET origin = excluded.origin, domain = excluded.domain, range = excluded.range`,
+			p.Name, namespaceOf(p.Name), termType, origin(isCore), typeName(p), p.Cardinality.String(), p.Conflict.String(),
+			kindArg(out.Domain), kindArg(out.Range), now); err != nil {
 			return nil, fmt.Errorf("predicate %s: %w", p.Name, err)
 		}
 		if !isCore {
@@ -162,19 +208,23 @@ func syncPredicates(ctx context.Context, tx *sql.Tx, reg *model.Registry) ([]mod
 		}
 	}
 	// A predicate the table holds and reg dropped (an adapter attribute) keeps
-	// its shape for reading old facts.
+	// its shape for reading old facts; the core module never drops one.
 	for name, old := range stored {
-		if _, ok := reg.Predicate(name); !ok {
-			vt, ok1 := modelv1alpha1.ValueType_value[old.typ]
-			card, ok2 := modelv1alpha1.Cardinality_value[old.cardinality]
-			conf, ok3 := modelv1alpha1.ConflictPolicy_value[old.conflict]
-			if !ok1 && old.typ != "" || !ok2 || !ok3 {
-				return nil, fmt.Errorf("predicate %s: stored shape (%q, %q, %q) names an unknown enum value", model.Clip(name), model.Clip(old.typ), model.Clip(old.cardinality), model.Clip(old.conflict))
-			}
-			merged[name] = model.Predicate{
-				Name: name, Relation: old.relation, Domain: old.domain, Range: old.rng,
-				Type: modelv1alpha1.ValueType(vt), Cardinality: modelv1alpha1.Cardinality(card), Conflict: modelv1alpha1.ConflictPolicy(conf),
-			}
+		if _, ok := reg.Predicate(name); ok {
+			continue
+		}
+		if old.origin == "core" {
+			return nil, fmt.Errorf("predicate %s: %w: the core module dropped it (a term only grows)", model.Clip(name), store.ErrVocabularyChanged)
+		}
+		vt, ok1 := modelv1alpha1.ValueType_value[old.typ]
+		card, ok2 := modelv1alpha1.Cardinality_value[old.cardinality]
+		conf, ok3 := modelv1alpha1.ConflictPolicy_value[old.conflict]
+		if !ok1 && old.typ != "" || !ok2 || !ok3 {
+			return nil, fmt.Errorf("predicate %s: stored shape (%q, %q, %q) names an unknown enum value", model.Clip(name), model.Clip(old.typ), model.Clip(old.cardinality), model.Clip(old.conflict))
+		}
+		merged[name] = model.Predicate{
+			Name: name, Relation: old.relation, Domain: old.domain, Range: old.rng,
+			Type: modelv1alpha1.ValueType(vt), Cardinality: modelv1alpha1.Cardinality(card), Conflict: modelv1alpha1.ConflictPolicy(conf),
 		}
 	}
 	out := make([]model.Predicate, 0, len(merged))

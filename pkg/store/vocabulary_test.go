@@ -56,11 +56,11 @@ func TestSyncVocabularyThroughTheWrapperKeepsErrVocabularyChanged(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	first, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	first, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindPackage}}, nil)
+	second, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindPackage}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

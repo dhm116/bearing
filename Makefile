@@ -86,14 +86,16 @@ generate: $(PROTO_TOOLS)
 	$(BUF) format -w
 	$(BUF) lint
 	$(BUF) generate
+	go generate ./pkg/vocab/
 
 # generate-check fails if proto/ isn't formatted or doesn't lint, or if gen/
-# differs from what buf generate writes.
+# or pkg/vocab/core_gen.go differs from what make generate writes.
 generate-check: $(PROTO_TOOLS)
 	$(BUF) format --diff --exit-code
 	$(BUF) lint
 	$(BUF) generate
-	@git diff --exit-code -- gen || { echo 'gen/ is stale: run make generate and commit the result'; exit 1; }
+	go generate ./pkg/vocab/
+	@git diff --exit-code -- gen pkg/vocab/core_gen.go || { echo 'gen/ or pkg/vocab/core_gen.go is stale: run make generate and commit the result'; exit 1; }
 	@test -z "$$(git status --porcelain --untracked-files=all -- gen)" || \
 		{ git status --porcelain --untracked-files=all -- gen; echo 'gen/ has uncommitted files: run make generate and commit the result'; exit 1; }
 

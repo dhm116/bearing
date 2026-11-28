@@ -343,7 +343,7 @@ Each entry:
 
 - **Found in:** [#310](https://github.com/dhm116/bearing/pull/310) review (`pkg/query`, `labeler.fact`)
 - **Area:** query
-- **Example:** a Vault `acme.Api` record (kind retired) shares a cluster with an active `k8s.Service` record through `same_as`; the cluster's kind is its deepest, so it reads as the retired one.
+- **Example:** a Vault `com.acme:Api` record (kind retired) shares a cluster with an active `io.k8s:Service` record through `same_as`; the cluster's kind is its deepest, so it reads as the retired one.
 - **Impact:** every fact of the cluster, including ones the active record's source keeps current, carries `as_of` the retirement time, which understates how fresh they are.
 - **Proposed fix:** label only facts whose sending record has a retired kind, not facts of the whole cluster.
 

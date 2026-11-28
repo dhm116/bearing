@@ -327,11 +327,13 @@ func (x *EntityKind) GetSpec() *EntityKindSpec {
 // EntityKindSpec is an EntityKind's content.
 type EntityKindSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The kind, "<namespace>.<Kind>" such as "k8s.Service". The namespace names
-	// the vocabulary that defines the kind; "bearing" is reserved. It is the
+	// The kind's full name, "<namespace>:<Kind>" such as "io.k8s:Service". The
+	// namespace is a reverse domain naming the vocabulary that defines the
+	// kind; the core's, "com.dougmccall.bearing.core", is reserved. It is the
 	// kind's identity in the store. Required.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// The parent kind, core or configured, such as "Component"; boot refuses
+	// The parent kind, core or configured, such as "Component" or
+	// "k8s:Service" (a short name, while one namespace ends in "k8s"); boot refuses
 	// an unknown parent or a cycle. Empty: none,
 	// so the kind answers Get, Related, Find and Changes but none of the MVP
 	// questions.

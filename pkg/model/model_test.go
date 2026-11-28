@@ -183,6 +183,7 @@ var invalidFixtures = map[string]modelv1alpha1.RejectionCode{
 	"undefined-enum.json":                       codeMalformed,
 	"bad-key.json":                              codeMalformed,
 	"bad-relation-key.json":                     codeMalformed,
+	"bad-module-version.json":                   codeMalformed,
 	"cardinality-mismatch.json":                 codeCardinality,
 	"confidence-out-of-range.json":              codeInvalidValue,
 	"confidence-zero.json":                      codeInvalidValue,
@@ -378,9 +379,19 @@ func TestCoreRegistryHoldsTheCoreVocabulary(t *testing.T) {
 	if _, ok := reg.Predicate(PredicateSameAs); ok || !IsCorePredicate(PredicateSameAs) {
 		t.Fatal("same_as must be a core predicate outside the registry")
 	}
-	for _, k := range coreKinds {
-		if !reg.Valid(k) {
-			t.Errorf("%s is not valid", k)
+	named := []Kind{
+		KindPerson, KindTeam, KindRepository, KindComponent, KindPackage, KindEnvironment,
+		KindCloudResource, KindChange, KindIncident, KindSchedule, KindDocument,
+	}
+	if got := reg.Kinds(); !slices.Equal(got, slices.Sorted(slices.Values(named))) {
+		t.Errorf("core kinds got %v, want the Kind constants %v", got, named)
+	}
+	for _, r := range []RelationType{
+		RelMemberOf, RelOwnedBy, RelApprovesChanges, RelDependsOn, RelPublishes, RelConsumes, RelDeployedTo,
+		RelRunsOn, RelOnCallFor, RelAffectedBy, RelDocuments, RelChangedBy, RelDefinedIn,
+	} {
+		if p, ok := reg.Predicate(string(r)); !ok || !p.Relation {
+			t.Errorf("%s is not a core relation", r)
 		}
 	}
 	if reg.Valid("Widget") {

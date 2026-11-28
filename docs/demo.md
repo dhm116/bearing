@@ -298,7 +298,8 @@ questions against a server started in-process from the same settings file.
 
 Put `entity_kinds` at the top level of the settings file, beside `sources`.
 Each `EntityKind` adds a kind to the core ones (`Person`, `Team`,
-`Component`, ...), named `<namespace>.<Kind>`. `extends` names a parent, so
+`Component`, ...), named `<namespace>:<Kind>` with a reverse-domain
+namespace. `extends` names a parent, so
 questions about `Component` include it. Attributes and relations are declared
 with their type, cardinality and conflict policy; a name has one shape across
 the whole vocabulary.
@@ -309,7 +310,7 @@ the whole vocabulary.
     "apiVersion": "bearing/v1alpha1", "kind": "EntityKind",
     "metadata": {"name": "k8s-service"},
     "spec": {
-      "name": "k8s.Service",
+      "name": "io.k8s:Service",
       "extends": "Component",
       "attributes": [{"name": "cluster_ip", "type": "VALUE_TYPE_STRING",
                       "cardinality": "CARDINALITY_ONE", "conflict": "CONFLICT_POLICY_NONE"}],
@@ -325,7 +326,7 @@ The adapter has to declare the kind too, in the declaration file the
 settings name. Add an entry to its `kinds`:
 
 ```json
-{"kind": "k8s.Service", "optional": true}
+{"kind": "io.k8s:Service", "optional": true}
 ```
 
 A declared kind the server does not hold is refused at start unless it is
@@ -334,7 +335,7 @@ A declared kind the server does not hold is refused at start unless it is
 stops with:
 
 ```
-boot: settings: adapters[0].declaration: ... kinds[3].kind: "k8s.Service" is not a registered kind: define it with an EntityKind in the settings, or mark it optional
+boot: settings: adapters[0].declaration: ... kinds[3].kind: "io.k8s:Service" is not a registered kind: define it with an EntityKind in the settings, or mark it optional
 ```
 
 An optional one is accepted and logged as inactive: its records are dropped

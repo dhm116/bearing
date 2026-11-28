@@ -48,7 +48,7 @@ func TestServerDropsAnOptionalKindWithoutFailingTheSyncOrWebhook(t *testing.T) {
 	kind := model.Kind(ok.GetData().GetEntity().GetKind())
 	foreign := validObservation(t)
 	foreign.Id = "foreign"
-	foreign.GetData().GetEntity().Kind = "vault.Group"
+	foreign.GetData().GetEntity().Kind = "io.vault:Group"
 	foreign.GetData().GetEntity().Key = "vault:group/x"
 	// A fresh copy per call: the host stamps the source on what it takes.
 	page := func() []*eventv1alpha1.Observation {
@@ -89,7 +89,7 @@ func TestServerDropsAnOptionalKindWithoutFailingTheSyncOrWebhook(t *testing.T) {
 	if _, err := h.mem.Entity(t.Context(), ok.GetData().GetEntity().GetKey()); err != nil {
 		t.Errorf("the active observation is not in the graph: %v", err)
 	}
-	// vault.Group is not in the registry, so it is labelled other.
+	// io.vault:Group is not in the registry, so it is labelled other.
 	key := testSource + "/other/inactive"
 	if got := droppedCounts(t)[key] - before[key]; got != 2 {
 		t.Errorf("dropped rose by %d, want 2 (sync and webhook)", got)

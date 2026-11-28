@@ -6,10 +6,10 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	modelv1alpha1 "bearing.example/gen/go/bearing/model/v1alpha1"
+	"bearing.example/pkg/vocab"
 )
 
 // Errors Extend returns, wrapped with the subject.
@@ -32,10 +32,8 @@ var (
 	ErrPredicateName = errors.New("invalid predicate name")
 )
 
-// ReservedNamespace is the namespace of the core kinds, which are spelled bare.
-const ReservedNamespace = "bearing"
-
-var configuredKind = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$`)
+// configuredKind is a configured kind's full name, <namespace>:<Kind>.
+var configuredKind = regexp.MustCompile(`^([^:]+):[A-Z][A-Za-z0-9]*$`)
 
 // KindDef is one kind of the vocabulary.
 type KindDef struct {
@@ -61,12 +59,6 @@ type Registry struct {
 	children map[Kind][]Kind
 }
 
-var coreKinds = []Kind{
-	KindPerson, KindTeam, KindRepository, KindComponent, KindPackage,
-	KindEnvironment, KindCloudResource, KindChange, KindIncident,
-	KindSchedule, KindDocument,
-}
-
 // Core returns the registry of the core kinds and predicates. A nil
 // *Registry reads as Core() everywhere.
 func Core() *Registry { return core }
@@ -79,34 +71,34 @@ func (r *Registry) self() *Registry {
 	return r
 }
 
+// buildCore builds the registry from pkg/vocab's core module.
 func buildCore() *Registry {
 	r := &Registry{kinds: map[Kind]KindDef{}, preds: map[string]Predicate{}}
-	for _, k := range coreKinds {
-		r.kinds[k] = KindDef{Name: k}
-	}
-	for _, p := range relations {
-		r.preds[p.Name] = p
-	}
-	exists := attributeShapes[PredicateExists]
-	exists.Name = PredicateExists
-	r.preds[PredicateExists] = exists
-	for _, k := range coreKinds {
-		for _, name := range kindAttributes[k] {
-			p, ok := r.preds[name]
-			if !ok {
-				p = attributeShapes[name]
-				if p.Type == modelv1alpha1.ValueType_VALUE_TYPE_UNSPECIFIED {
-					p = Predicate{Type: tString, Cardinality: one, Conflict: noneC}
-				}
-				p.Name = name
-				p.Domain = []Kind{}
-			}
-			p.Domain = append(p.Domain, k)
-			r.preds[name] = p
+	for _, t := range vocab.Core().Terms {
+		if t.Type == modelv1alpha1.TermType_TERM_TYPE_KIND {
+			r.kinds[Kind(t.Name)] = KindDef{Name: Kind(t.Name)}
+			continue
+		}
+		r.preds[t.Name] = Predicate{
+			Name: t.Name, Relation: t.Type == modelv1alpha1.TermType_TERM_TYPE_RELATION,
+			Domain: kindsOf(t.Domain), Range: kindsOf(t.Range),
+			Type: t.ValueType, Cardinality: t.Cardinality, Conflict: t.Conflict,
 		}
 	}
 	r.index()
 	return r
+}
+
+// kindsOf converts a term's domain or range; nil stays nil (any kind).
+func kindsOf(names []string) []Kind {
+	if names == nil {
+		return nil
+	}
+	out := make([]Kind, len(names))
+	for i, n := range names {
+		out[i] = Kind(n)
+	}
+	return out
 }
 
 func (r *Registry) index() {
@@ -126,12 +118,14 @@ func (r *Registry) Extend(kinds []KindDef, preds []Predicate) (*Registry, error)
 	r = r.self()
 	n := &Registry{kinds: maps.Clone(r.kinds), preds: maps.Clone(r.preds)}
 	for _, d := range kinds {
-		ns, _, _ := strings.Cut(string(d.Name), ".")
+		m := configuredKind.FindStringSubmatch(string(d.Name))
 		switch {
-		case !configuredKind.MatchString(string(d.Name)):
-			return nil, fmt.Errorf("kind %q: %w: want <namespace>.<Kind>", clip(string(d.Name)), ErrKindName)
-		case ns == ReservedNamespace:
-			return nil, fmt.Errorf("kind %q: %w: namespace %s is reserved", clip(string(d.Name)), ErrKindName, ReservedNamespace)
+		case m == nil:
+			return nil, fmt.Errorf("kind %q: %w: want <namespace>:<Kind>, such as io.k8s:Service", clip(string(d.Name)), ErrKindName)
+		case !vocab.ValidNamespace(m[1]):
+			return nil, fmt.Errorf("kind %q: %w: the namespace must be a reverse domain, such as io.k8s", clip(string(d.Name)), ErrKindName)
+		case m[1] == vocab.CoreNamespace:
+			return nil, fmt.Errorf("kind %q: %w: namespace %s is reserved", clip(string(d.Name)), ErrKindName, vocab.CoreNamespace)
 		}
 		if _, ok := n.kinds[d.Name]; ok {
 			return nil, fmt.Errorf("kind %q: %w", clip(string(d.Name)), ErrKindExists)

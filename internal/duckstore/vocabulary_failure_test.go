@@ -15,30 +15,28 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 		want  string
 	}{
 		{"no database", nil, "sync vocabulary: begin:"},
-		{"kind table missing", []string{`DROP TABLE kind`}, "read kinds"},
-		{"predicate table missing", []string{`DROP TABLE kind_predicate`}, "read predicates"},
+		{"prefix table missing", []string{`DROP TABLE prefix`}, "prefix com.dougmccall.bearing.core"},
+		{"term table missing", []string{`DROP TABLE term`}, "read kinds"},
 		{"unreadable kind row", []string{
-			`DROP TABLE kind`,
-			`CREATE TABLE kind (name VARCHAR PRIMARY KEY, parent VARCHAR, origin VARCHAR NOT NULL, added_at TIMESTAMPTZ NOT NULL, retired_at VARCHAR)`,
-			`INSERT INTO kind VALUES ('x.Old', NULL, 'configured', now(), 'not a time')`,
+			`DROP TABLE term`,
+			`CREATE TABLE term (name VARCHAR PRIMARY KEY, namespace VARCHAR NOT NULL, type VARCHAR NOT NULL, origin VARCHAR NOT NULL, parent VARCHAR, value_type VARCHAR, cardinality VARCHAR, conflict VARCHAR, domain VARCHAR[], range VARCHAR[], added_at TIMESTAMPTZ NOT NULL, retired_at VARCHAR)`,
+			`INSERT INTO term (name, namespace, type, origin, added_at, retired_at) VALUES ('x:Old', 'x', 'TERM_TYPE_KIND', 'configured', now(), 'not a time')`,
 		}, "read kinds"},
 		{"unreadable predicate row", []string{
-			`DROP TABLE kind_predicate`,
-			`CREATE TABLE kind_predicate (name VARCHAR PRIMARY KEY, relation VARCHAR NOT NULL, type VARCHAR, cardinality VARCHAR NOT NULL, conflict VARCHAR NOT NULL, domain VARCHAR[], range VARCHAR[])`,
-			`INSERT INTO kind_predicate VALUES ('p', 'maybe', NULL, 'CARDINALITY_ONE', 'CONFLICT_POLICY_ONE', NULL, NULL)`,
+			`INSERT INTO term (name, namespace, type, origin, added_at) VALUES ('p', 'x', 'TERM_TYPE_ATTRIBUTE', 'configured', now())`,
 		}, "read predicates"},
 		{"kind insert refused", []string{
-			`DROP TABLE kind`,
-			`CREATE TABLE kind (name VARCHAR PRIMARY KEY, parent VARCHAR, origin VARCHAR NOT NULL, added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (name = 'zzz'))`,
+			`DROP TABLE term`,
+			`CREATE TABLE term (name VARCHAR PRIMARY KEY, namespace VARCHAR NOT NULL, type VARCHAR NOT NULL, origin VARCHAR NOT NULL, parent VARCHAR, value_type VARCHAR, cardinality VARCHAR, conflict VARCHAR, domain VARCHAR[], range VARCHAR[], added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (name = 'zzz'))`,
 		}, "kind Change:"},
 		{"retirement refused", []string{
-			`DROP TABLE kind`,
-			`CREATE TABLE kind (name VARCHAR PRIMARY KEY, parent VARCHAR, origin VARCHAR NOT NULL, added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (retired_at IS NULL))`,
-			`INSERT INTO kind VALUES ('x.Old', NULL, 'configured', now(), NULL)`,
-		}, "retire kind x.Old"},
+			`DROP TABLE term`,
+			`CREATE TABLE term (name VARCHAR PRIMARY KEY, namespace VARCHAR NOT NULL, type VARCHAR NOT NULL, origin VARCHAR NOT NULL, parent VARCHAR, value_type VARCHAR, cardinality VARCHAR, conflict VARCHAR, domain VARCHAR[], range VARCHAR[], added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (retired_at IS NULL))`,
+			`INSERT INTO term (name, namespace, type, origin, added_at) VALUES ('x:Old', 'x', 'TERM_TYPE_KIND', 'configured', now())`,
+		}, "retire kind x:Old"},
 		{"predicate insert refused", []string{
-			`DROP TABLE kind_predicate`,
-			`CREATE TABLE kind_predicate (name VARCHAR PRIMARY KEY, relation BOOLEAN NOT NULL, type VARCHAR, cardinality VARCHAR NOT NULL, conflict VARCHAR NOT NULL, domain VARCHAR[], range VARCHAR[], CHECK (name = 'zzz'))`,
+			`DROP TABLE term`,
+			`CREATE TABLE term (name VARCHAR PRIMARY KEY, namespace VARCHAR NOT NULL, type VARCHAR NOT NULL, origin VARCHAR NOT NULL, parent VARCHAR, value_type VARCHAR, cardinality VARCHAR, conflict VARCHAR, domain VARCHAR[], range VARCHAR[], added_at TIMESTAMPTZ NOT NULL, retired_at TIMESTAMPTZ, CHECK (type = 'TERM_TYPE_KIND'))`,
 		}, "predicate account:"},
 	}
 	for _, tc := range tests {
@@ -66,12 +64,12 @@ func TestSyncVocabularyReportsAFailingStepAndReturnsNoRegistry(t *testing.T) {
 func TestSyncVocabularyNilRegistryReadsAsCoreAndRetiresEveryDroppedKind(t *testing.T) {
 	t.Parallel()
 	s := newStore(t, Config{})
-	syncOK(t, s, vocab(t, []model.KindDef{svc, api, unit}), 1)
+	syncOK(t, s, withKinds(t, []model.KindDef{svc, api, unit}), 1)
 	read, err := s.SyncVocabulary(t.Context(), nil, at(2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []model.Kind{"acme.Api", "k8s.Service", "systemd.Unit"} {
+	for _, k := range []model.Kind{"com.acme:Api", "io.k8s:Service", "io.systemd:Unit"} {
 		if got, ok := read.Retired(k); !ok || !got.Equal(at(2)) {
 			t.Errorf("got Retired(%s) = %v, %v, want %v, true", k, got, ok, at(2))
 		}

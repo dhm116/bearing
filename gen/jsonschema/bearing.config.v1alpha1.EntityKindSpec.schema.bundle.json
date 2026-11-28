@@ -101,12 +101,12 @@
         },
         "extends": {
           "default": "",
-          "description": "The parent kind, core or configured, such as \"Component\"; boot refuses\n an unknown parent or a cycle. Empty: none,\n so the kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
+          "description": "The parent kind, core or configured, such as \"Component\" or\n \"k8s:Service\" (a short name, while one namespace ends in \"k8s\"); boot refuses\n an unknown parent or a cycle. Empty: none,\n so the kind answers Get, Related, Find and Changes but none of the MVP\n questions.",
           "type": "string"
         },
         "name": {
           "default": "",
-          "description": "The kind, \"\u003cnamespace\u003e.\u003cKind\u003e\" such as \"k8s.Service\". The namespace names\n the vocabulary that defines the kind; \"bearing\" is reserved. It is the\n kind's identity in the store. Required.",
+          "description": "The kind's full name, \"\u003cnamespace\u003e:\u003cKind\u003e\" such as \"io.k8s:Service\". The\n namespace is a reverse domain naming the vocabulary that defines the\n kind; the core's, \"com.dougmccall.bearing.core\", is reserved. It is the\n kind's identity in the store. Required.",
           "type": "string"
         },
         "relations": {

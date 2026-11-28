@@ -47,7 +47,7 @@ compiler is required (DuckDB needs CGO).
 | `make test` | `go vet ./...` and `go test ./...`, no external services |
 | `make lint` | golangci-lint (pinned in `tools/go.mod`, config in `.golangci.yml`) |
 | `make fmt` | gofumpt and goimports |
-| `make generate` | After editing `proto/`: buf format, lint and generate into `gen/`. Commit the output |
+| `make generate` | After editing `proto/` or `pkg/vocab/core.yaml`: buf format, lint and generate into `gen/`, and write `pkg/vocab/core_gen.go`. Commit the output |
 | `make build` | Builds the binaries into `bin/` |
 
 Run `make check` before every commit. One package:
