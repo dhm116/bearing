@@ -475,6 +475,63 @@ func (ValueType) EnumDescriptor() ([]byte, []int) {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{7}
 }
 
+// TermType is what a vocabulary term names (ADR 13).
+type TermType int32
+
+const (
+	// Not set. Required in every term.
+	TermType_TERM_TYPE_UNSPECIFIED TermType = 0
+	// A kind of entity, such as "Component".
+	TermType_TERM_TYPE_KIND TermType = 1
+	// A relation predicate, whose objects are entities.
+	TermType_TERM_TYPE_RELATION TermType = 2
+	// An attribute predicate, whose objects are values.
+	TermType_TERM_TYPE_ATTRIBUTE TermType = 3
+)
+
+// Enum value maps for TermType.
+var (
+	TermType_name = map[int32]string{
+		0: "TERM_TYPE_UNSPECIFIED",
+		1: "TERM_TYPE_KIND",
+		2: "TERM_TYPE_RELATION",
+		3: "TERM_TYPE_ATTRIBUTE",
+	}
+	TermType_value = map[string]int32{
+		"TERM_TYPE_UNSPECIFIED": 0,
+		"TERM_TYPE_KIND":        1,
+		"TERM_TYPE_RELATION":    2,
+		"TERM_TYPE_ATTRIBUTE":   3,
+	}
+)
+
+func (x TermType) Enum() *TermType {
+	p := new(TermType)
+	*p = x
+	return p
+}
+
+func (x TermType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TermType) Descriptor() protoreflect.EnumDescriptor {
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[8].Descriptor()
+}
+
+func (TermType) Type() protoreflect.EnumType {
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[8]
+}
+
+func (x TermType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TermType.Descriptor instead.
+func (TermType) EnumDescriptor() ([]byte, []int) {
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{8}
+}
+
 // FactStatus is a fact's status at a valid and record time.
 type FactStatus int32
 
@@ -524,11 +581,11 @@ func (x FactStatus) String() string {
 }
 
 func (FactStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[8].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[9].Descriptor()
 }
 
 func (FactStatus) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[8]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[9]
 }
 
 func (x FactStatus) Number() protoreflect.EnumNumber {
@@ -537,7 +594,7 @@ func (x FactStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FactStatus.Descriptor instead.
 func (FactStatus) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{8}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{9}
 }
 
 // ConflictResolution is the rule that decided a disagreement.
@@ -585,11 +642,11 @@ func (x ConflictResolution) String() string {
 }
 
 func (ConflictResolution) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[9].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[10].Descriptor()
 }
 
 func (ConflictResolution) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[9]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[10]
 }
 
 func (x ConflictResolution) Number() protoreflect.EnumNumber {
@@ -598,7 +655,7 @@ func (x ConflictResolution) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConflictResolution.Descriptor instead.
 func (ConflictResolution) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{9}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{10}
 }
 
 // RejectionCode says why part of an event was rejected.
@@ -696,11 +753,11 @@ func (x RejectionCode) String() string {
 }
 
 func (RejectionCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[10].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[11].Descriptor()
 }
 
 func (RejectionCode) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[10]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[11]
 }
 
 func (x RejectionCode) Number() protoreflect.EnumNumber {
@@ -709,7 +766,7 @@ func (x RejectionCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RejectionCode.Descriptor instead.
 func (RejectionCode) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{10}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{11}
 }
 
 // WebhookScheme is how a source signs its webhook deliveries, so the host
@@ -750,11 +807,11 @@ func (x WebhookScheme) String() string {
 }
 
 func (WebhookScheme) Descriptor() protoreflect.EnumDescriptor {
-	return file_bearing_model_v1alpha1_enums_proto_enumTypes[11].Descriptor()
+	return file_bearing_model_v1alpha1_enums_proto_enumTypes[12].Descriptor()
 }
 
 func (WebhookScheme) Type() protoreflect.EnumType {
-	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[11]
+	return &file_bearing_model_v1alpha1_enums_proto_enumTypes[12]
 }
 
 func (x WebhookScheme) Number() protoreflect.EnumNumber {
@@ -763,7 +820,7 @@ func (x WebhookScheme) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WebhookScheme.Descriptor instead.
 func (WebhookScheme) EnumDescriptor() ([]byte, []int) {
-	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{11}
+	return file_bearing_model_v1alpha1_enums_proto_rawDescGZIP(), []int{12}
 }
 
 var File_bearing_model_v1alpha1_enums_proto protoreflect.FileDescriptor
@@ -809,7 +866,12 @@ const file_bearing_model_v1alpha1_enums_proto_rawDesc = "" +
 	"\x10VALUE_TYPE_FLOAT\x10\x02\x12\x13\n" +
 	"\x0fVALUE_TYPE_BOOL\x10\x03\x12\x13\n" +
 	"\x0fVALUE_TYPE_TIME\x10\x04\x12\x13\n" +
-	"\x0fVALUE_TYPE_JSON\x10\x05*\xac\x01\n" +
+	"\x0fVALUE_TYPE_JSON\x10\x05*j\n" +
+	"\bTermType\x12\x19\n" +
+	"\x15TERM_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eTERM_TYPE_KIND\x10\x01\x12\x16\n" +
+	"\x12TERM_TYPE_RELATION\x10\x02\x12\x17\n" +
+	"\x13TERM_TYPE_ATTRIBUTE\x10\x03*\xac\x01\n" +
 	"\n" +
 	"FactStatus\x12\x1b\n" +
 	"\x17FACT_STATUS_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -859,7 +921,7 @@ func file_bearing_model_v1alpha1_enums_proto_rawDescGZIP() []byte {
 	return file_bearing_model_v1alpha1_enums_proto_rawDescData
 }
 
-var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
+var file_bearing_model_v1alpha1_enums_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
 var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(KeyClass)(0),           // 0: bearing.model.v1alpha1.KeyClass
 	(PerSubject)(0),         // 1: bearing.model.v1alpha1.PerSubject
@@ -869,10 +931,11 @@ var file_bearing_model_v1alpha1_enums_proto_goTypes = []any{
 	(Cardinality)(0),        // 5: bearing.model.v1alpha1.Cardinality
 	(ConflictPolicy)(0),     // 6: bearing.model.v1alpha1.ConflictPolicy
 	(ValueType)(0),          // 7: bearing.model.v1alpha1.ValueType
-	(FactStatus)(0),         // 8: bearing.model.v1alpha1.FactStatus
-	(ConflictResolution)(0), // 9: bearing.model.v1alpha1.ConflictResolution
-	(RejectionCode)(0),      // 10: bearing.model.v1alpha1.RejectionCode
-	(WebhookScheme)(0),      // 11: bearing.model.v1alpha1.WebhookScheme
+	(TermType)(0),           // 8: bearing.model.v1alpha1.TermType
+	(FactStatus)(0),         // 9: bearing.model.v1alpha1.FactStatus
+	(ConflictResolution)(0), // 10: bearing.model.v1alpha1.ConflictResolution
+	(RejectionCode)(0),      // 11: bearing.model.v1alpha1.RejectionCode
+	(WebhookScheme)(0),      // 12: bearing.model.v1alpha1.WebhookScheme
 }
 var file_bearing_model_v1alpha1_enums_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -892,7 +955,7 @@ func file_bearing_model_v1alpha1_enums_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bearing_model_v1alpha1_enums_proto_rawDesc), len(file_bearing_model_v1alpha1_enums_proto_rawDesc)),
-			NumEnums:      12,
+			NumEnums:      13,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

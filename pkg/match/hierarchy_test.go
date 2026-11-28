@@ -11,9 +11,9 @@ import (
 func hierarchy(t *testing.T) *model.Registry {
 	t.Helper()
 	reg, err := model.Core().Extend([]model.KindDef{
-		{Name: "k8s.Service", Parent: model.KindComponent},
-		{Name: "systemd.Unit", Parent: model.KindComponent},
-		{Name: "acme.Api", Parent: "k8s.Service"},
+		{Name: "io.k8s:Service", Parent: model.KindComponent},
+		{Name: "io.systemd:Unit", Parent: model.KindComponent},
+		{Name: "com.acme:Api", Parent: "io.k8s:Service"},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -25,17 +25,17 @@ func TestCandidatesPairRecordsAlongOneLineOfDescent(t *testing.T) {
 	t.Parallel()
 	recs := []graph.Record{
 		rec("a-comp", "checkout", model.KindComponent),
-		rec("b-k8s", "checkout", "k8s.Service"),
-		rec("c-unit", "checkout", "systemd.Unit"),
-		rec("d-api", "checkout", "acme.Api"),
+		rec("b-k8s", "checkout", "io.k8s:Service"),
+		rec("c-unit", "checkout", "io.systemd:Unit"),
+		rec("d-api", "checkout", "com.acme:Api"),
 		rec("e-team", "checkout", model.KindTeam),
 	}
 	var got []string
 	for _, c := range Candidates(hierarchy(t), recs, nil, nil) {
 		got = append(got, string(c.A.ID)+"+"+string(c.B.ID))
 	}
-	// Component with each of its descendants, k8s.Service with acme.Api;
-	// never systemd.Unit with k8s.Service or acme.Api, nor anything with Team.
+	// Component with each of its descendants, io.k8s:Service with com.acme:Api;
+	// never io.systemd:Unit with io.k8s:Service or com.acme:Api, nor anything with Team.
 	want := []string{"a-comp+b-k8s", "a-comp+c-unit", "a-comp+d-api", "b-k8s+d-api"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -52,15 +52,15 @@ func TestHalfLifeFallsBackToTheNearestAncestorWithASetting(t *testing.T) {
 	reg := hierarchy(t)
 	cfg := Config{Registry: reg, HalfLife: map[model.Kind]time.Duration{
 		model.KindComponent: 5 * 24 * time.Hour,
-		"k8s.Service":       2 * 24 * time.Hour,
+		"io.k8s:Service":    2 * 24 * time.Hour,
 	}}
 	tests := []struct {
 		kind model.Kind
 		want time.Duration
 	}{
-		{"acme.Api", 2 * 24 * time.Hour},
-		{"k8s.Service", 2 * 24 * time.Hour},
-		{"systemd.Unit", 5 * 24 * time.Hour},
+		{"com.acme:Api", 2 * 24 * time.Hour},
+		{"io.k8s:Service", 2 * 24 * time.Hour},
+		{"io.systemd:Unit", 5 * 24 * time.Hour},
 		{model.KindComponent, 5 * 24 * time.Hour},
 		{model.KindTeam, defaultHalfLife},
 	}
@@ -69,7 +69,7 @@ func TestHalfLifeFallsBackToTheNearestAncestorWithASetting(t *testing.T) {
 			t.Errorf("HalfLifeOf(%s) got %v, want %v", tc.kind, got, tc.want)
 		}
 	}
-	if got := (Config{HalfLife: map[model.Kind]time.Duration{model.KindComponent: time.Hour}}).HalfLifeOf("k8s.Service"); got != defaultHalfLife {
+	if got := (Config{HalfLife: map[model.Kind]time.Duration{model.KindComponent: time.Hour}}).HalfLifeOf("io.k8s:Service"); got != defaultHalfLife {
 		t.Errorf("without the registry a configured kind got %v, want the default", got)
 	}
 }

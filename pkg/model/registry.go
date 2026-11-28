@@ -10,10 +10,11 @@ import (
 )
 
 // Kind is a subject kind. Kinds are strings on the wire and come only from
-// a Registry.
+// a Registry: core kinds bare (Component), others by full name
+// (io.k8s:Service).
 type Kind string
 
-// The registered subject kinds.
+// The core kinds, as pkg/vocab's core module names them.
 const (
 	KindPerson        Kind = "Person"
 	KindTeam          Kind = "Team"
@@ -31,7 +32,7 @@ const (
 // RelationType is a registered relation predicate.
 type RelationType string
 
-// The registered relation predicates.
+// The core relation predicates, as pkg/vocab's core module names them.
 const (
 	RelMemberOf        RelationType = "member_of"
 	RelOwnedBy         RelationType = "owned_by"
@@ -81,60 +82,6 @@ const (
 	tTime   = modelv1alpha1.ValueType_VALUE_TYPE_TIME
 	tJSON   = modelv1alpha1.ValueType_VALUE_TYPE_JSON
 )
-
-func rel(name RelationType, domain, rng []Kind, card modelv1alpha1.Cardinality, conflict modelv1alpha1.ConflictPolicy) Predicate {
-	return Predicate{Name: string(name), Relation: true, Domain: domain, Range: rng, Cardinality: card, Conflict: conflict}
-}
-
-// relations lists the relation types.
-var relations = []Predicate{
-	rel(RelMemberOf, []Kind{KindPerson, KindTeam}, []Kind{KindTeam}, many, noneC),
-	rel(RelOwnedBy, nil, []Kind{KindTeam, KindPerson}, many, setC),
-	rel(RelApprovesChanges, []Kind{KindRepository}, []Kind{KindTeam, KindPerson}, many, noneC),
-	rel(RelDependsOn, []Kind{KindComponent}, []Kind{KindComponent, KindCloudResource}, many, noneC),
-	rel(RelPublishes, []Kind{KindRepository, KindComponent}, []Kind{KindPackage}, many, noneC),
-	rel(RelConsumes, []Kind{KindComponent}, []Kind{KindPackage}, many, noneC),
-	rel(RelDeployedTo, []Kind{KindComponent, KindCloudResource}, []Kind{KindEnvironment}, many, noneC),
-	rel(RelRunsOn, []Kind{KindComponent}, []Kind{KindCloudResource}, many, noneC),
-	rel(RelOnCallFor, []Kind{KindSchedule, KindPerson}, []Kind{KindComponent, KindTeam}, many, noneC),
-	rel(RelAffectedBy, []Kind{KindComponent}, []Kind{KindIncident}, many, noneC),
-	rel(RelDocuments, []Kind{KindDocument}, nil, many, noneC),
-	rel(RelChangedBy, []Kind{KindChange}, []Kind{KindPerson}, many, noneC),
-	rel(RelDefinedIn, []Kind{KindComponent, KindDocument}, []Kind{KindRepository}, one, oneC),
-}
-
-// kindAttributes lists the registered attributes of each kind.
-var kindAttributes = map[Kind][]string{
-	KindPerson:        {"name", "email", "login", "verified_email", "commit_email"},
-	KindTeam:          {"name", "slug", "description"},
-	KindRepository:    {"name", "full_name", "url", "default_branch", "language", "topics", "archived", "description", "runtime"},
-	KindComponent:     {"type", "tier", "lifecycle", "runtime"},
-	KindPackage:       {"ecosystem", "name", "versions"},
-	KindEnvironment:   {"name", "account", "region"},
-	KindCloudResource: {"arn", "type", "tags"},
-	KindChange:        {"kind", "at", "url"},
-	KindIncident:      {"severity", "status", "started_at"},
-	KindSchedule:      {"name"},
-	KindDocument:      {"title", "url", "doc_type"},
-}
-
-// attributeShapes gives the shape of the attributes that are not plain
-// strings; every other registered
-// attribute is a string of cardinality one with conflict none.
-var attributeShapes = map[string]Predicate{
-	PredicateExists:  {Type: tBool, Cardinality: one, Conflict: noneC},
-	"default_branch": {Type: tString, Cardinality: one, Conflict: oneC},
-	"archived":       {Type: tBool, Cardinality: one, Conflict: oneC},
-	"email":          {Type: tString, Cardinality: many, Conflict: noneC},
-	"verified_email": {Type: tString, Cardinality: many, Conflict: noneC},
-	"commit_email":   {Type: tString, Cardinality: many, Conflict: noneC},
-	"topics":         {Type: tString, Cardinality: many, Conflict: noneC},
-	"runtime":        {Type: tJSON, Cardinality: many, Conflict: noneC},
-	"versions":       {Type: tString, Cardinality: many, Conflict: noneC},
-	"tags":           {Type: tJSON, Cardinality: one, Conflict: noneC},
-	"at":             {Type: tTime, Cardinality: one, Conflict: noneC},
-	"started_at":     {Type: tTime, Cardinality: one, Conflict: noneC},
-}
 
 // IsCorePredicate reports whether only the core may claim name.
 func IsCorePredicate(name string) bool {

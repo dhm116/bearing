@@ -15,7 +15,7 @@ import (
 )
 
 const k8sService = `{"apiVersion": "bearing/v1alpha1", "kind": "EntityKind", "metadata": {"name": "k8s-service"},
-  "spec": {"name": "k8s.Service", "extends": "Component",
+  "spec": {"name": "io.k8s:Service", "extends": "Component",
     "attributes": [{"name": "cluster_ip", "type": "VALUE_TYPE_STRING", "cardinality": "CARDINALITY_ONE", "conflict": "CONFLICT_POLICY_NONE"}],
     "relations": [{"name": "exposes", "range": ["Component"], "cardinality": "CARDINALITY_MANY", "conflict": "CONFLICT_POLICY_NONE"}]}}`
 
@@ -33,11 +33,11 @@ func TestSettingsRegistryBuildsConfiguredKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reg.Valid("k8s.Service") || !reg.IsA("k8s.Service", model.KindComponent) {
-		t.Fatalf("k8s.Service is not a Component in %v", reg.Kinds())
+	if !reg.Valid("io.k8s:Service") || !reg.IsA("io.k8s:Service", model.KindComponent) {
+		t.Fatalf("io.k8s:Service is not a Component in %v", reg.Kinds())
 	}
-	if p, ok := reg.Predicate("exposes"); !ok || !p.Relation || !reg.InDomain(p, "k8s.Service") || reg.InDomain(p, model.KindTeam) {
-		t.Errorf("exposes = %+v, %v, want a relation with k8s.Service in its domain", p, ok)
+	if p, ok := reg.Predicate("exposes"); !ok || !p.Relation || !reg.InDomain(p, "io.k8s:Service") || reg.InDomain(p, model.KindTeam) {
+		t.Errorf("exposes = %+v, %v, want a relation with io.k8s:Service in its domain", p, ok)
 	}
 	if reg, _ := kindsSettings().Registry(); reg != model.Core() {
 		t.Error("settings with no kinds should give the core registry itself")
@@ -55,8 +55,11 @@ func TestSettingsRegistryRefusesWithTheCause(t *testing.T) {
 		{"not an EntityKind", []string{edit(`"EntityKind"`, `"Source"`)}, "kind EntityKind are required"},
 		{"a bad resource name", []string{edit(`"k8s-service"`, `"K8s Service"`)}, "metadata.name"},
 		{"the same resource twice", []string{k8sService, k8sService}, "used twice"},
-		{"a bare name", []string{edit(`"k8s.Service"`, `"Service"`)}, "invalid kind name"},
-		{"the reserved namespace", []string{edit(`"k8s.Service"`, `"bearing.Service"`)}, "reserved"},
+		{"a bare name", []string{edit(`"io.k8s:Service"`, `"Service"`)}, "invalid kind name"},
+		{"a bare namespace", []string{edit(`"io.k8s:Service"`, `"k8s:Service"`)}, "reverse domain"},
+		{"an unknown short parent", []string{edit(`"Component"`, `"k8s:Missing"`)}, "unknown kind"},
+		{"a parent in no loaded namespace", []string{edit(`"Component"`, `"vault:Policy"`)}, `unknown namespace "vault"`},
+		{"the reserved namespace", []string{edit(`"io.k8s:Service"`, `"com.dougmccall.bearing.core:Service"`)}, "reserved"},
 		{"a missing parent", []string{edit(`"Component"`, `"Missing"`)}, "unknown kind"},
 		{"a relation without a range", []string{edit(`"range": ["Component"], `, ``)}, "needs a range"},
 		{"an attribute without a type", []string{edit(`"type": "VALUE_TYPE_STRING", `, ``)}, "incomplete predicate shape"},
@@ -75,10 +78,34 @@ func TestSettingsRegistryRefusesWithTheCause(t *testing.T) {
 
 func TestSettingsRegistryAllowsAParentDefinedLater(t *testing.T) {
 	t.Parallel()
-	child := strings.NewReplacer(`"k8s-service"`, `"k8s-pod"`, `"k8s.Service"`, `"k8s.Pod"`, `"Component"`, `"k8s.Service"`,
+	child := strings.NewReplacer(`"k8s-service"`, `"k8s-pod"`, `"io.k8s:Service"`, `"io.k8s:Pod"`, `"Component"`, `"io.k8s:Service"`,
 		`"cluster_ip"`, `"pod_ip"`, `"exposes"`, `"runs"`).Replace(k8sService)
 	if _, err := kindsSettings(child, k8sService).Registry(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSettingsRegistryResolvesShortAndCoreNames(t *testing.T) {
+	t.Parallel()
+	pod := strings.NewReplacer(`"k8s-service"`, `"k8s-pod"`, `"io.k8s:Service"`, `"io.k8s:Pod"`, `"extends": "Component"`, `"extends": "k8s:Service"`,
+		`"cluster_ip"`, `"pod_ip"`, `"exposes"`, `"runs"`, `"range": ["Component"]`, `"range": ["core:Component", "k8s:Service"]`).Replace(k8sService)
+	reg, err := kindsSettings(pod, k8sService).Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.Parent("io.k8s:Pod"); got != "io.k8s:Service" {
+		t.Errorf("io.k8s:Pod parent got %q, want io.k8s:Service", got)
+	}
+	if p, _ := reg.Predicate("runs"); !slices.Equal(p.Range, []model.Kind{model.KindComponent, "io.k8s:Service"}) {
+		t.Errorf("runs range got %v, want [Component io.k8s:Service]", p.Range)
+	}
+
+	// A second namespace ending in k8s makes the short name ambiguous.
+	other := strings.NewReplacer(`"k8s-service"`, `"other-k8s"`, `"io.k8s:Service"`, `"com.example.k8s:Node"`,
+		`"cluster_ip"`, `"node_ip"`, `"exposes"`, `"hosts"`).Replace(k8sService)
+	_, err = kindsSettings(pod, k8sService, other).Registry()
+	if err == nil || !strings.Contains(err.Error(), "com.example.k8s or io.k8s") {
+		t.Fatalf("got %v, want the short name k8s refused, naming both namespaces", err)
 	}
 }
 
@@ -94,7 +121,7 @@ func TestSettingsValidateChecksEntityKinds(t *testing.T) {
 	if err := with(strings.Replace(k8sService, `"Component"`, `"Missing"`, 1), "").Validate(); err == nil || !strings.Contains(err.Error(), "entity_kinds") {
 		t.Fatalf("got %v, want a refusal naming entity_kinds", err)
 	}
-	if err := with(k8sService, `"matching": {"half_life": {"k8s.Service": "P30D"}}, `).Validate(); err != nil {
+	if err := with(k8sService, `"matching": {"half_life": {"io.k8s:Service": "P30D"}}, `).Validate(); err != nil {
 		t.Fatalf("half_life for a configured kind: %v", err)
 	}
 }
@@ -148,7 +175,7 @@ func TestExtendDeclaredSkipsAttributesUnderKindsTheRegistryLacks(t *testing.T) {
 	s := &Settings{Adapters: []AdapterSettings{{Name: "a"}, {Name: "b"}}}
 	// a's zone is a float under an inactive kind; it must not clash with b's string.
 	reg, err := extendDeclared(model.Core(), s, map[string]*modelv1alpha1.AdapterDeclaration{
-		"a": zone("k8s.Service", modelv1alpha1.ValueType_VALUE_TYPE_FLOAT),
+		"a": zone("io.k8s:Service", modelv1alpha1.ValueType_VALUE_TYPE_FLOAT),
 		"b": zone("Team", modelv1alpha1.ValueType_VALUE_TYPE_STRING),
 	})
 	if err != nil {
@@ -196,10 +223,10 @@ func writeDecl(t *testing.T, w *world, mod func(*modelv1alpha1.AdapterDeclaratio
 	}
 }
 
-// svcDecl adds k8s.Service to the world's declaration.
+// svcDecl adds io.k8s:Service to the world's declaration.
 func svcDecl(optional bool) func(*modelv1alpha1.AdapterDeclaration) {
 	return func(d *modelv1alpha1.AdapterDeclaration) {
-		d.Kinds = append(d.Kinds, &modelv1alpha1.KindDeclaration{Kind: "k8s.Service", Optional: optional})
+		d.Kinds = append(d.Kinds, &modelv1alpha1.KindDeclaration{Kind: "io.k8s:Service", Optional: optional})
 	}
 }
 
@@ -216,12 +243,12 @@ func TestAssembleComputesActiveKindsPerSource(t *testing.T) {
 		ran     bool
 	}{
 		{"core kinds only", func(*modelv1alpha1.AdapterDeclaration) {}, nil, base, "", true},
-		{"a required kind that is not enabled", svc(false), nil, nil, `"k8s.Service" is not a registered kind: define it with an EntityKind`, false},
+		{"a required kind that is not enabled", svc(false), nil, nil, `"io.k8s:Service" is not a registered kind: define it with an EntityKind`, false},
 		{"an optional kind that is not enabled", svc(true), nil, base, "", true},
-		{"an optional kind that is enabled", svc(true), []string{k8sService}, append(slices.Clone(base), "k8s.Service"), "", true},
-		{"a required kind that is enabled", svc(false), []string{k8sService}, append(slices.Clone(base), "k8s.Service"), "", true},
+		{"an optional kind that is enabled", svc(true), []string{k8sService}, append(slices.Clone(base), "io.k8s:Service"), "", true},
+		{"a required kind that is enabled", svc(false), []string{k8sService}, append(slices.Clone(base), "io.k8s:Service"), "", true},
 		{"no active kinds", func(d *modelv1alpha1.AdapterDeclaration) {
-			d.Kinds = []*modelv1alpha1.KindDeclaration{{Kind: "k8s.Service", Optional: true}}
+			d.Kinds = []*modelv1alpha1.KindDeclaration{{Kind: "io.k8s:Service", Optional: true}}
 		}, nil, []model.Kind{}, "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -270,7 +297,7 @@ func TestCheckEmitsRefusesAKindTheDeclarationLacks(t *testing.T) {
 func TestAssembleRefusesAVocabularyThatChangesAStoredKind(t *testing.T) {
 	t.Parallel()
 	url := "duckdb://" + filepath.Join(t.TempDir(), "bearing.duckdb")
-	// The source's adapter declares k8s.Service, optional, in every boot.
+	// The source's adapter declares io.k8s:Service, optional, in every boot.
 	boot := func(kinds ...string) (active []model.Kind, err error) {
 		w := newWorld(t, func(s *Settings) {
 			s.Store.URL = url
@@ -285,22 +312,22 @@ func TestAssembleRefusesAVocabularyThatChangesAStoredKind(t *testing.T) {
 		return active, err
 	}
 	active, err := boot(k8sService)
-	if err != nil || !slices.Contains(active, "k8s.Service") {
-		t.Fatalf("first boot: got %v, %v, want k8s.Service active", active, err)
+	if err != nil || !slices.Contains(active, "io.k8s:Service") {
+		t.Fatalf("first boot: got %v, %v, want io.k8s:Service active", active, err)
 	}
 	if _, err := boot(k8sService); err != nil {
 		t.Fatalf("the same vocabulary again: got %v, want a start", err)
 	}
 	_, err = boot(strings.Replace(k8sService, `"extends": "Component"`, `"extends": "Repository"`, 1))
-	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "k8s.Service") {
-		t.Fatalf("got %v, want a refusal naming k8s.Service", err)
+	if !errors.Is(err, store.ErrVocabularyChanged) || !strings.Contains(err.Error(), "io.k8s:Service") {
+		t.Fatalf("got %v, want a refusal naming io.k8s:Service", err)
 	}
 	// Without the kind the start succeeds and the retired kind is not active.
 	active, err = boot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(active, "k8s.Service") {
-		t.Errorf("active kinds %v hold the retired k8s.Service", active)
+	if slices.Contains(active, "io.k8s:Service") {
+		t.Errorf("active kinds %v hold the retired io.k8s:Service", active)
 	}
 }

@@ -233,6 +233,11 @@ Each is a test that fails if the rule breaks.
     boot, naming both.
   - Term rows record repo, commit, checksum and the check that passed.
   - A pinned namespace lets its named adapter claim it.
+  - O adds the alias setting and gives `vocab.NewNames` its first real caller.
+  - `matching.half_life` keys resolve through `Names`.
+  - Every `term.namespace` has a `prefix` row.
+  - No configured row lives in the core namespace once EntityKind terms move to the operator module.
+  - `Extend` refuses a namespace whose last segment is `core`, or the operator module becomes the only source of kinds.
 - **A**
   - `Describe` returns each module, and suggestions are stored proposed.
   - A second adapter claiming a namespace is refused unless pinned.
@@ -241,6 +246,8 @@ Each is a test that fails if the rule breaks.
   - GitHub and authentik emit only their own terms.
   - The five questions still answer from the demo's mappings and rules,
     in `internal/e2e` and in the Compose demo.
+  - Adapter-declared predicates move from bare names in core to their adapter's namespace.
+  - The namespace ownership check doesn't trust `term.namespace` for bare rows.
 - **I**
   - `init` writes ADR 14's directory from trimmed Kubernetes and GitHub
     spec fixtures. Only identity fields are ticked, secret-looking ones are
@@ -272,6 +279,8 @@ Each is a test that fails if the rule breaks.
   - The generic adapter's five answers match the hand-written adapter's
     golden, recorded after A merges and before the switch.
   - The hand-written adapter is then deleted.
+- **docs**
+  - Say where short names resolve (`entity_kinds` until O, then wherever O's config takes them).
 
 ## 6. Decided, and left out
 

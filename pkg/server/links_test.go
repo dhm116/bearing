@@ -441,7 +441,7 @@ func TestAPIJoinChecksKindsAlongOneLineOfDescent(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t)
 	reg, err := model.Core().Extend([]model.KindDef{
-		{Name: "k8s.Service", Parent: model.KindComponent}, {Name: "systemd.Unit", Parent: model.KindComponent},
+		{Name: "io.k8s:Service", Parent: model.KindComponent}, {Name: "io.systemd:Unit", Parent: model.KindComponent},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -450,7 +450,7 @@ func TestAPIJoinChecksKindsAlongOneLineOfDescent(t *testing.T) {
 	w.s.cfg.Registry = reg
 	var obs []*eventv1alpha1.Observation
 	for _, k := range []struct{ kind, key string }{
-		{"Component", "catalog:svc/parent"}, {"k8s.Service", "catalog:svc/child"}, {"systemd.Unit", "catalog:svc/sibling"},
+		{"Component", "catalog:svc/parent"}, {"io.k8s:Service", "catalog:svc/child"}, {"io.systemd:Unit", "catalog:svc/sibling"},
 	} {
 		obs = append(obs, model.NewObservation("adapter/catalog-acme", w.clk.Now(), &modelv1alpha1.ObservationData{
 			Entity: &modelv1alpha1.Entity{Kind: k.kind, Key: k.key},
@@ -470,7 +470,7 @@ func TestAPIJoinChecksKindsAlongOneLineOfDescent(t *testing.T) {
 		t.Fatalf("the first join: got child %+v, %v, want one cluster with the parent %s", child, err, parent.ID)
 	}
 	// The parent alone lies on a line with the sibling, but the cluster it
-	// now belongs to holds k8s.Service, which does not.
+	// now belongs to holds io.k8s:Service, which does not.
 	rec := w.decide("admin", `{"decision":"join","a":"catalog:svc/parent","b":"catalog:svc/sibling"}`)
 	if rec.Code != http.StatusBadRequest || decodeError(t, rec).Code != "invalid_request" {
 		t.Errorf("sibling join: got %d %s, want 400", rec.Code, rec.Body.String())

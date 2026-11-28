@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -294,6 +295,9 @@ func ValidateAdapterObservation(reg *Registry, o *eventv1alpha1.Observation) err
 	return c.err()
 }
 
+// moduleVersion is an observation's module_version (ADR 13).
+var moduleVersion = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
+
 func (c *checker) observation(o *eventv1alpha1.Observation) {
 	c.enums("", o)
 	if o.GetSpecversion() != SpecVersion {
@@ -307,6 +311,9 @@ func (c *checker) observation(o *eventv1alpha1.Observation) {
 	}
 	if o.GetSource() == "" {
 		c.add(codeMalformed, "source", "is required")
+	}
+	if v := o.GetModuleVersion(); v != "" && !moduleVersion.MatchString(v) {
+		c.add(codeMalformed, "module_version", "must be a version such as 0.4.0: letters, digits, '.', '+' and '-', at most 64")
 	}
 	if o.GetTime() == nil {
 		c.add(codeMalformed, "time", "is required")

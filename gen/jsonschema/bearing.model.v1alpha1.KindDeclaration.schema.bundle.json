@@ -278,7 +278,7 @@
         },
         "kind": {
           "default": "",
-          "description": "A core kind, e.g. \"Repository\", or a configured one, e.g. \"k8s.Service\".",
+          "description": "A core kind, e.g. \"Repository\", or a configured one, e.g. \"io.k8s:Service\".",
           "type": "string"
         },
         "links": {

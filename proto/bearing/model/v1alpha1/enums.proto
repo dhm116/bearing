@@ -102,6 +102,18 @@ enum ValueType {
   VALUE_TYPE_JSON = 5;
 }
 
+// TermType is what a vocabulary term names (ADR 13).
+enum TermType {
+  // Not set. Required in every term.
+  TERM_TYPE_UNSPECIFIED = 0;
+  // A kind of entity, such as "Component".
+  TERM_TYPE_KIND = 1;
+  // A relation predicate, whose objects are entities.
+  TERM_TYPE_RELATION = 2;
+  // An attribute predicate, whose objects are values.
+  TERM_TYPE_ATTRIBUTE = 3;
+}
+
 // FactStatus is a fact's status at a valid and record time.
 enum FactStatus {
   // Not set. Required in every result.

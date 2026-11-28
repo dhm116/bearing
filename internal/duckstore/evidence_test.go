@@ -242,22 +242,22 @@ func TestEvidenceHasNoRelationForUnlinkedClosedOrJoinedEnds(t *testing.T) {
 func TestEvidenceAnswerKindTakesDescendantsRetiredKindsAndKindlessRangeMatches(t *testing.T) {
 	t.Parallel()
 	base, err := model.Core().Extend([]model.KindDef{
-		{Name: "k8s.Service", Parent: model.KindComponent},
-		{Name: "acme.Api", Parent: "k8s.Service"},
-		{Name: "systemd.Unit", Parent: model.KindComponent},
+		{Name: "io.k8s:Service", Parent: model.KindComponent},
+		{Name: "com.acme:Api", Parent: "io.k8s:Service"},
+		{Name: "io.systemd:Unit", Parent: model.KindComponent},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg := base.WithRetired([]model.KindDef{{Name: "old.Team", Parent: model.KindTeam, Retired: at(50)}}, nil)
+	reg := base.WithRetired([]model.KindDef{{Name: "com.example.old:Team", Parent: model.KindTeam, Retired: at(50)}}, nil)
 	s := newStore(t, Config{Registry: reg})
 	load(t, s, `
 INSERT INTO entity VALUES
  ('c-src', 'Component', 'src', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'c-src'),
- ('k-1', 'k8s.Service', 'k', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'k-1'),
- ('a-1', 'acme.Api', 'a', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'a-1'),
- ('u-1', 'systemd.Unit', 'u', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'u-1'),
- ('t-old', 'old.Team', 'gone', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-old'),
+ ('k-1', 'io.k8s:Service', 'k', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'k-1'),
+ ('a-1', 'com.acme:Api', 'a', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'a-1'),
+ ('u-1', 'io.systemd:Unit', 'u', TIMESTAMPTZ '2026-01-01 00:00:00+00', 'u-1'),
+ ('t-old', 'com.example.old:Team', 'gone', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-old'),
  ('t-none', '', 'placeholder', TIMESTAMPTZ '2026-01-01 00:00:00+00', 't-none');
 INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidence, valid_from, valid_to, source) VALUES
  ('d1', 'c-src', 'depends_on', 'k-1', NULL, 'asserted', 1, TIMESTAMPTZ '2026-01-01 00:00:00+00', NULL, 's'),
@@ -272,8 +272,8 @@ INSERT INTO fact (id, subject_id, predicate, object_id, value, status, confidenc
 		kind model.Kind
 		want []string
 	}{
-		{"a kind and its descendants", "depends_on", "k8s.Service", []string{"d1", "d2"}},
-		{"a leaf kind takes only itself", "depends_on", "acme.Api", []string{"d2"}},
+		{"a kind and its descendants", "depends_on", "io.k8s:Service", []string{"d1", "d2"}},
+		{"a leaf kind takes only itself", "depends_on", "com.acme:Api", []string{"d2"}},
 		{"a retired kind under the answer kind, and a kindless record whose range is Team", "member_of", model.KindTeam, []string{"m1", "m2"}},
 		{"a kindless record whose range is wider than the answer kind", "depends_on", model.KindComponent, []string{"d1", "d2", "d3"}},
 		{"a kindless record out of range", "member_of", model.KindPerson, nil},

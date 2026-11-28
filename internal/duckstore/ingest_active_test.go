@@ -78,13 +78,13 @@ func TestIngestCompleteOfAParentClosesItsActiveDescendants(t *testing.T) {
 		active []model.Kind
 		want   string
 	}{
-		{"the descendant is active", []model.Kind{"k8s.Service"}, `svc language "Go" [0,10) x1`},
+		{"the descendant is active", []model.Kind{"io.k8s:Service"}, `svc language "Go" [0,10) x1`},
 		{"only the parent is active", []model.Kind{model.KindComponent}, `svc language "Go" [0,open) x1`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := hierarchyStore(t)
-			ingestOK(t, s, "k8s", obs("o1", 0, "k8s.Service", "k:svc/svc", attrs("language", "Go")))
+			ingestOK(t, s, "k8s", obs("o1", 0, "io.k8s:Service", "k:svc/svc", attrs("language", "Go")))
 			ingestReq(t, s, graph.IngestRequest{
 				Source: "k8s", Complete: []model.Kind{model.KindComponent}, SyncStarted: at(10), Active: tt.active,
 			})
