@@ -2,6 +2,7 @@ package query
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"bearing.example/pkg/graph"
@@ -44,5 +45,26 @@ func TestClaimsFollowTheOrderRules(t *testing.T) {
 	}
 	if want := []string{"f4", "f5", "f1", "f0", "f6", "f7", "f8"}; !slices.Equal(ids, want) {
 		t.Errorf("got order %v, want %v", ids, want)
+	}
+}
+
+// TestClaimsRefuseARecordTheStoreDidNotReturn: every record on a path comes
+// with the evidence, so a missing one is a store bug, reported, not named
+// by a bare ID.
+func TestClaimsRefuseARecordTheStoreDidNotReturn(t *testing.T) {
+	t.Parallel()
+	recs := map[graph.EntityID]graph.Record{"s1": {ID: "s1", Cluster: "s1"}}
+	f := graph.Fact{ID: "f1", Subject: "s1", Object: "gone", Status: graph.Asserted}
+	for name, c := range map[string]graph.Claim{
+		"fact object": {Fact: f, Start: "s1"},
+		"path step":   {Fact: graph.Fact{ID: "f2", Subject: "s1", Object: "s1"}, Start: "s1", Path: []graph.PathStep{{From: "s1", To: "gone"}}},
+	} {
+		_, err := claims((&Querier{}).labeler(), graph.Evidence{Claims: []graph.Claim{c}}, []Subject{{Ref: Ref{ID: "s1"}}}, recs)
+		if err == nil || !strings.Contains(err.Error(), "record gone") {
+			t.Errorf("%s: got %v, want an error naming the missing record", name, err)
+		}
+	}
+	if _, err := claims((&Querier{}).labeler(), graph.Evidence{Claims: []graph.Claim{{Fact: f, Start: "other"}}}, []Subject{{Ref: Ref{ID: "s1"}}}, recs); err == nil {
+		t.Error("a claim starting at no subject: got no error")
 	}
 }

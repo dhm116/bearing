@@ -2,6 +2,7 @@ package query_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -155,6 +156,10 @@ func TestRelationsFollowTheFirstRuleThatApplies(t *testing.T) {
 			w.link("a:team/1", "b:team/2", graph.DistinctFrom, graph.Asserted, 3, nil)
 			w.link("a:team/1", "b:team/2", graph.SameAs, graph.Proposed, 4, nil)
 		}, query.RelationDistinct, "", []string{"asserted", "proposed"}},
+		{"proposals strongest first", func(w *recordWorld) {
+			w.link("a:team/1", "b:team/2", graph.DistinctFrom, graph.Proposed, 3, nil)
+			w.link("a:team/1", "b:team/2", graph.SameAs, graph.Proposed, 50, nil) // newer evidence, less decayed
+		}, query.RelationLikelySame, "", []string{"proposed", "proposed"}},
 		{"a refused same_as across a kind line", func(w *recordWorld) {
 			w.link("a:team/1", "b:person/2", graph.SameAs, graph.Asserted, 3, nil)
 		}, query.RelationAssertedNotJoined, query.ReasonKinds, []string{"asserted"}},
@@ -441,5 +446,40 @@ func TestChangesListJoinsAndSplitsOncePerDecision(t *testing.T) {
 	}
 	if j := c.Identity[2].Justification; j.Decision != "d-join" {
 		t.Errorf("got decision %q, want d-join", j.Decision)
+	}
+}
+
+// TestAnswersReportAStoreThatFails closes the store under each question:
+// the error comes back, and nothing is answered from half a read.
+func TestAnswersReportAStoreThatFails(t *testing.T) {
+	t.Parallel()
+	w := newRecordWorld(t)
+	w.ingest("g", ob("r1", 1, "Repository", payments, attr("name", "payments"), rel("owned_by", teamPay, false)))
+	if err := w.s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	for name, ask := range map[string]func() (any, error){
+		"owners by key":  func() (any, error) { return w.q.Owners(ctx, payments, time.Time{}, true) },
+		"owners by name": func() (any, error) { return w.q.Owners(ctx, "payments", time.Time{}, false) },
+		"related":        func() (any, error) { return w.q.Related(ctx, payments, "", "in", 2, at(5)) },
+		"changes":        func() (any, error) { return w.q.Changes(ctx, "", at(0), at(10), 0) },
+		"runtimes":       func() (any, error) { return w.q.Runtimes(ctx, query.RuntimesRequest{Language: "go"}) },
+		"links":          func() (any, error) { return w.q.Links(ctx, query.LinksRequest{}) },
+	} {
+		if _, err := ask(); err == nil || errors.Is(err, query.ErrNotFound) {
+			t.Errorf("%s on a closed store: got %v, want the store's error", name, err)
+		}
+	}
+}
+
+// TestSubjectsOfANameNothingResemblesAreNotFound: a name lookup that finds
+// nothing is not found, like an unknown key.
+func TestSubjectsOfANameNothingResemblesAreNotFound(t *testing.T) {
+	t.Parallel()
+	w := newRecordWorld(t)
+	w.ingest("g", ob("r1", 1, "Repository", payments, attr("name", "payments")))
+	if _, err := w.q.Owners(t.Context(), "zzqx", time.Time{}, false); !errors.Is(err, query.ErrNotFound) {
+		t.Errorf("got %v, want not found", err)
 	}
 }
