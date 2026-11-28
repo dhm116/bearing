@@ -68,6 +68,9 @@ is the API's ([Claims and relations](spec/api.md#claims-and-relations)); an
 agent words it itself, and should say "likely" for a proposal as the command
 line does. `owners` and the dependency tools also take a name as `ref`.
 
+These answers changed shape under ADR 11, as the API's did
+([Changed under ADR 11](spec/api.md#changed-under-adr-11)).
+
 An answer is the query layer's JSON. In `content[0].text` it is the JSON
 text itself, so every protocol version (2024-11-05, 2025-03-26 and
 2025-06-18) gets the data; `content[1].text` is a one-line count. Clients

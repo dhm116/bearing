@@ -5,6 +5,9 @@
         "confidence": 0.9,
         "object": {
           "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+          "keys": [
+            "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
+          ],
           "kind": "Component",
           "name": "postgres"
         },
@@ -26,6 +29,9 @@
         "status": "asserted",
         "subject": {
           "key": "kubernetes:workload/k3d-acme/billing/deployment/billing-api",
+          "keys": [
+            "kubernetes:workload/k3d-acme/billing/deployment/billing-api"
+          ],
           "kind": "Component",
           "name": "billing-api"
         },
@@ -36,12 +42,18 @@
         {
           "from": {
             "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+            "keys": [
+              "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
+            ],
             "kind": "Component",
             "name": "postgres"
           },
           "predicate": "depends_on",
           "to": {
             "key": "kubernetes:workload/k3d-acme/billing/deployment/billing-api",
+            "keys": [
+              "kubernetes:workload/k3d-acme/billing/deployment/billing-api"
+            ],
             "kind": "Component",
             "name": "billing-api"
           }
@@ -50,6 +62,9 @@
       "same_as": 0,
       "start": {
         "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+        "keys": [
+          "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
+        ],
         "kind": "Component",
         "match": "key",
         "name": "postgres",
@@ -62,6 +77,9 @@
   "subjects": [
     {
       "key": "kubernetes:workload/k3d-acme/billing/statefulset/postgres",
+      "keys": [
+        "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
+      ],
       "kind": "Component",
       "match": "key",
       "name": "postgres",

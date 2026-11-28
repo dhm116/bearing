@@ -7,7 +7,11 @@
         "id": "",
         "kind": "Repository",
         "name": "web",
-        "key": "github:repo/acme/web"
+        "key": "github:repo/acme/web",
+        "keys": [
+          "github:repo/acme/web",
+          "github:repo_node/R_kgDOH1a2dg"
+        ]
       },
       "declarations": [
         {
@@ -53,7 +57,11 @@
         "id": "",
         "kind": "Repository",
         "name": "handbook",
-        "key": "github:repo/acme/handbook"
+        "key": "github:repo/acme/handbook",
+        "keys": [
+          "github:repo/acme/handbook",
+          "github:repo_node/R_kgDOH1a2fg"
+        ]
       },
       "declarations": [
         {

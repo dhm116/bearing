@@ -209,9 +209,9 @@ github-acme says payments (Repository) approves_changes platform.
       evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
 ```
 
-Ask with `--as-of` a time before the move and the claim names payments,
-then says it closed and platform opened since, with the times Bearing
-recorded.
+Ask with `--as-of` a time before the move and the claim names payments and
+says when it closed; the answer then lists platform's claim, opened since,
+with the time it took effect.
 
 Question 3: what changed in the last few minutes?
 

@@ -227,12 +227,15 @@ func (o *out) answer(a query.Answer, at time.Time, showSubject bool) {
 			o.line(1, "path: %s", pathText(c.Path))
 		}
 		for _, ch := range c.ChangedSince {
-			if ch.Kind == "closed" {
-				o.line(1, "since then: this closed, recorded %s", stamp(ch.At))
-			} else {
-				o.line(1, "since then: %s, recorded %s", factSentence(ch.Fact), stamp(ch.At))
-			}
+			o.line(1, "since then: this %s at %s", ch.Kind, stamp(ch.At))
 		}
+	}
+	if len(a.ChangedSince) > 0 {
+		o.line(0, "")
+		o.line(0, "since then")
+	}
+	for _, ch := range a.ChangedSince {
+		o.line(1, "%s, %s at %s", factSentence(ch.Fact), ch.Kind, stamp(ch.At))
 	}
 	if len(a.Relations) > 0 {
 		o.line(0, "")
@@ -343,8 +346,8 @@ func clusterName(id string, claims []query.Claim) string {
 // refName is "payments-api (Repository)".
 func refName(r query.Ref) string {
 	name := cmp.Or(r.Name, r.Key, r.ID)
-	if r.Kind != "" {
-		name += " (" + r.Kind + ")"
+	if k := cmp.Or(r.Kind, r.ClusterKind); k != "" {
+		name += " (" + k + ")"
 	}
 	return name
 }

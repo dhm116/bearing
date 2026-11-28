@@ -159,7 +159,10 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	}
 	var all []found
 	for _, id := range order {
-		ref := refOf(recs, id)
+		ref, err := refOf(recs, id)
+		if err != nil {
+			return nil, fmt.Errorf("runtime facts: %w", err)
+		}
 		if req.Kind != "" && !reg.IsA(model.Kind(ref.Kind), model.Kind(req.Kind)) {
 			continue
 		}
@@ -170,7 +173,10 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 			if !ok || canonLanguage(str(v["language"])) != lang {
 				continue
 			}
-			lf := l.recordFact(f, recs)
+			lf, err := l.recordFact(f, recs)
+			if err != nil {
+				return nil, fmt.Errorf("runtime facts: %w", err)
+			}
 			text := str(v["version"])
 			d := Declaration{FactID: lf.ID, Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount, AsOf: lf.AsOf}
 			if low, ok := lowerBound(text); ok {

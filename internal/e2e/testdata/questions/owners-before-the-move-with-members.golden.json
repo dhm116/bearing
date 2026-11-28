@@ -1,4 +1,54 @@
 {
+  "changed_since": [
+    {
+      "at": "2026-10-02T08:30:00Z",
+      "fact": {
+        "confidence": 1,
+        "object": {
+          "cluster_kind": "Team",
+          "key": "github:team/acme/platform",
+          "keys": [
+            "github:team/acme/platform"
+          ],
+          "name": "platform"
+        },
+        "predicate": "approves_changes",
+        "qualifiers": {
+          "file": ".github/CODEOWNERS",
+          "line": 2,
+          "pattern": "*"
+        },
+        "source_count": 3,
+        "sources": [
+          {
+            "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-02T08:30:00.000000Z",
+            "observed_at": "2026-10-02T08:30:00Z",
+            "source": "github-acme",
+            "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
+          },
+          {
+            "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-05T15:00:00.000000Z",
+            "observed_at": "2026-10-05T15:00:00Z",
+            "source": "github-acme",
+            "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
+          }
+        ],
+        "status": "asserted",
+        "subject": {
+          "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
+          "kind": "Repository",
+          "name": "payments"
+        },
+        "valid_from": "2026-10-02T08:30:00Z"
+      },
+      "kind": "opened"
+    }
+  ],
   "claims": [
     {
       "changed_since": [
@@ -7,7 +57,11 @@
           "fact": {
             "confidence": 1,
             "object": {
+              "cluster_kind": "Team",
               "key": "github:team/acme/payments",
+              "keys": [
+                "github:team/acme/payments"
+              ],
               "name": "payments"
             },
             "predicate": "approves_changes",
@@ -34,6 +88,11 @@
             "status": "asserted",
             "subject": {
               "key": "github:repo/acme/payments",
+              "keys": [
+                "github:repo/acme/payments",
+                "github:repo/acme/payments-api",
+                "github:repo_node/R_kgDOH1a2bw"
+              ],
               "kind": "Repository",
               "name": "payments"
             },
@@ -41,51 +100,16 @@
             "valid_to": "2026-10-02T08:30:00Z"
           },
           "kind": "closed"
-        },
-        {
-          "at": "2026-10-02T08:30:00Z",
-          "fact": {
-            "confidence": 1,
-            "object": {
-              "key": "github:team/acme/platform",
-              "name": "platform"
-            },
-            "predicate": "approves_changes",
-            "qualifiers": {
-              "file": ".github/CODEOWNERS",
-              "line": 2,
-              "pattern": "*"
-            },
-            "source_count": 3,
-            "sources": [
-              {
-                "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-02T08:30:00.000000Z",
-                "observed_at": "2026-10-02T08:30:00Z",
-                "source": "github-acme",
-                "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
-              },
-              {
-                "observation_id": "github:repo_node/R_kgDOH1a2bw@2026-10-05T15:00:00.000000Z",
-                "observed_at": "2026-10-05T15:00:00Z",
-                "source": "github-acme",
-                "url": "https://github.com/acme/payments/blob/main/.github/CODEOWNERS"
-              }
-            ],
-            "status": "asserted",
-            "subject": {
-              "key": "github:repo/acme/payments",
-              "kind": "Repository",
-              "name": "payments"
-            },
-            "valid_from": "2026-10-02T08:30:00Z"
-          },
-          "kind": "opened"
         }
       ],
       "fact": {
         "confidence": 1,
         "object": {
+          "cluster_kind": "Team",
           "key": "github:team/acme/payments",
+          "keys": [
+            "github:team/acme/payments"
+          ],
           "name": "payments"
         },
         "predicate": "approves_changes",
@@ -112,6 +136,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -123,12 +152,21 @@
         {
           "from": {
             "key": "github:repo/acme/payments",
+            "keys": [
+              "github:repo/acme/payments",
+              "github:repo/acme/payments-api",
+              "github:repo_node/R_kgDOH1a2bw"
+            ],
             "kind": "Repository",
             "name": "payments"
           },
           "predicate": "approves_changes",
           "to": {
+            "cluster_kind": "Team",
             "key": "github:team/acme/payments",
+            "keys": [
+              "github:team/acme/payments"
+            ],
             "name": "payments"
           }
         }
@@ -136,6 +174,11 @@
       "same_as": 0,
       "start": {
         "key": "github:repo/acme/payments",
+        "keys": [
+          "github:repo/acme/payments",
+          "github:repo/acme/payments-api",
+          "github:repo_node/R_kgDOH1a2bw"
+        ],
         "kind": "Repository",
         "match": "key",
         "name": "payments",
@@ -147,6 +190,11 @@
   "subjects": [
     {
       "key": "github:repo/acme/payments",
+      "keys": [
+        "github:repo/acme/payments",
+        "github:repo/acme/payments-api",
+        "github:repo_node/R_kgDOH1a2bw"
+      ],
       "kind": "Repository",
       "match": "key",
       "name": "payments",
@@ -212,7 +260,11 @@
         }
       ],
       "team": {
+        "cluster_kind": "Team",
         "key": "github:team/acme/payments",
+        "keys": [
+          "github:team/acme/payments"
+        ],
         "name": "payments"
       }
     }

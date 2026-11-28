@@ -434,3 +434,27 @@ Each entry:
 - **Example:** `bearing-adapter-openapi` runs on another host, and its adapter mapping directory lives there.
 - **Impact:** the server can't resolve the path or run C-OPS-3's check on it, so a writable directory on that host could widen what the adapter sends. This needs a remote generic adapter, which the MVP doesn't run.
 - **Proposed fix:** the remote adapter embeds its adapter mapping, as a middleware build already does, or checks the owner and mode of its own `--adapter-mapping` path at start.
+
+## A name lookup caps entities, not records
+
+- **Found in:** ADR 11 answers review (`pkg/query/answer.go`, `subjects`)
+- **Area:** query
+- **Example:** `bearing owner payments` matches 20 entities, each with several records named `payments`.
+- **Impact:** `MaxSubjects` bounds the entities, so an answer can start from more than 20 records, and `limit_hit` says nothing about records.
+- **Proposed fix:** count records against the limit, or cap the records per entity, when a name ever matches that widely.
+
+## A name that looks like a key is never looked up
+
+- **Found in:** ADR 11 answers review (`pkg/query/answer.go`, `subjects`)
+- **Area:** query
+- **Example:** `bearing owner 'sre: oncall'` is read as a key (it has a `:`), finds nothing and answers not found, though a team is named that.
+- **Impact:** a name with a colon can be asked about only by its key or ID.
+- **Proposed fix:** fall back to a name lookup when a key-shaped ref names nothing and the namespace is not a known one.
+
+## An owner argument with a slash is read as a repository
+
+- **Found in:** ADR 11 answers review (`cmd/bearing/query.go`, `repoRef`)
+- **Area:** command line
+- **Example:** `bearing owner payments/api` asks for `github:repo/payments/api`, not for something named `payments/api`.
+- **Impact:** a name with a slash can't be looked up through `bearing owner`; the API and MCP take it as given.
+- **Proposed fix:** look the name up when the repository key names nothing, or take `--name` to say which is meant.

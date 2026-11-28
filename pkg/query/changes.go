@@ -136,7 +136,18 @@ func (q *Querier) Changes(ctx context.Context, ref string, since, until time.Tim
 	l := q.labeler()
 	out := &Changes{Since: since, Until: until, Changes: make([]Change, 0, len(changes))}
 	for _, c := range changes {
-		out.Changes = append(out.Changes, Change{Kind: string(c.Kind), At: c.At, Fact: l.recordFact(c.Fact, recs)})
+		f, err := l.recordFact(c.Fact, recs)
+		if err != nil {
+			return nil, fmt.Errorf("changes: %w", err)
+		}
+		out.Changes = append(out.Changes, Change{Kind: string(c.Kind), At: c.At, Fact: f})
+	}
+	var refs []*Ref
+	for i := range out.Changes {
+		refs = append(refs, factRefs(&out.Changes[i].Fact)...)
+	}
+	if err := q.clusterKinds(ctx, refs); err != nil {
+		return nil, fmt.Errorf("changes: %w", err)
 	}
 	// The store breaks ties at one instant on random IDs; order them by what
 	// they say so the same history always reads the same.

@@ -77,10 +77,19 @@ type Ref struct {
 	ID      string `json:"id"`
 	Cluster string `json:"cluster,omitempty"`
 	Kind    string `json:"kind,omitempty"`
-	Name    string `json:"name,omitempty"`
+	// ClusterKind is the cluster's kind, set when a record has none of its
+	// own (a relation target no source has described yet), so a placeholder
+	// still reads as the team or person its cluster is.
+	ClusterKind string `json:"cluster_kind,omitempty"`
+	Name        string `json:"name,omitempty"`
 	// Key is the first key, sorted.
 	Key string `json:"key,omitempty"`
+	// Keys are every key of a record, sorted; set in record references only.
+	Keys []string `json:"keys,omitempty"`
 }
+
+// kind is the record's kind, or its cluster's when it has none.
+func (r Ref) kind() string { return cmp.Or(r.Kind, r.ClusterKind) }
 
 // Source is one observation behind a fact.
 type Source struct {
@@ -228,7 +237,7 @@ func (q *Querier) teams(ctx context.Context, l *labeler, owners []Claim, at time
 	seen := map[string]bool{}
 	for _, c := range owners {
 		o := c.Fact.Object
-		if o == nil || person(o.Kind) || seen[o.Cluster] {
+		if o == nil || person(o.kind()) || seen[o.Cluster] {
 			continue
 		}
 		seen[o.Cluster] = true

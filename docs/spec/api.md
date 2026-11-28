@@ -74,8 +74,11 @@ is a 400. Times are RFC 3339. `find` and `runtimes` with a `kind` that is not a 
 
 `ref` is an entity ID or a key such as `github:repo/acme/payments`, at most
 1,024 bytes; `owner` and `related` also take a name. The answers are the JSON of the `pkg/query` types, the same ones
-the command line prints; their field names are the wire format, and within
-`/v1` fields are only added. `at` is an RFC 3339 time and asks what held
+the command line prints; their field names are the wire format. Within
+`/v1` fields are only added, with one exception: under
+[ADR 11](../adr/0011-answers-show-each-evidence-path.md) the `owner`,
+`related`, `changes` and `runtimes` answers changed shape (see
+[Changed under ADR 11](#changed-under-adr-11)). `at` is an RFC 3339 time and asks what held
 then; without it the answer is what holds now. With no `since`, `changes`
 asks about the last 24 hours. Every fact carries its sources: the
 observations behind it, each with its source, observed time and link:
@@ -168,14 +171,18 @@ shows where it came from and nothing picks a winner between sources:
 | --- | --- |
 | `subjects` | The records the question starts from, each a record reference (below) with `match` and `score`: `key` (the `ref` was its key or ID, score 1), `name` (its name, ignoring case, score 1) or `fuzzy` (its name or a key only resembles `ref`; the score, 0 to 1, says how closely). A `ref` shaped like a key (with a `:`) is never looked up by name |
 | `limit_hit` | `true` when the name lookup found more than 20 entities and only the best are subjects (absent otherwise) |
-| `claims` | One per asserted fact the subjects reach, never merged or chosen between (below) |
+| `claims` | One per asserted relation the subjects reach, never merged or chosen between (below); attributes are not claims |
+| `changed_since` | Only with `at`: `[{kind, at, fact}]`, the facts today's answer has that `opened` after `at`, each at its `valid_from` |
 | `relations` | How the clusters of the claims' objects relate, once per pair (below) |
 | `direction` | `related` only: `out` or `in` |
 | `teams` | `owner` with `members=true` only: as above, one per owning cluster; `team` is the first claim's object record |
 
 A **record reference** is `id` (the record's ID), `cluster` (its cluster's
-ID, which joins it to `relations`), and *omitempty* `kind`, `name` and `key`:
-the record's own name and first key, as its source described it.
+ID, which joins it to `relations`), and *omitempty* `kind`, `name`, `key`
+(the first key, sorted) and `keys` (all of them): the record's own, as its
+source described it. A record no source has described yet (a relation
+target, such as a CODEOWNERS team) has no `kind`; `cluster_kind` then gives
+its cluster's.
 
 A **claim** has:
 
@@ -185,7 +192,7 @@ A **claim** has:
 | `start` | The subject record the path starts at, with its `match` and `score` |
 | `path` | The steps from `start` to the fact's object: at most one `same_as` hop before each fact. A hop is `{from, to, links}`, `links` being the asserted `same_as` link IDs the store applied to join the two records. A fact step is `{from, to, fact_id, predicate}`; `to` is absent for an attribute |
 | `facts`, `same_as` | How many facts and hops the path crosses |
-| `changed_since` | Only on an answer with `at`, when today's answer differs: `[{kind, at, fact}]`, this fact `closed`, and the facts `opened` since from the same start with the same predicate, each at the time Bearing recorded it |
+| `changed_since` | Only on an answer with `at`, when this fact has closed since: `[{kind: "closed", at, fact}]`, `at` being its `valid_to` |
 
 Claims are ordered by fewer facts, then fewer hops, then the smallest source
 name among the fact's sources, the object record's first key, the subject
@@ -207,6 +214,20 @@ strongest first. The first `kind` that applies:
 
 Pairs with no open link have no relation. Objects in one cluster need none:
 their hops show the links that join them.
+
+### Changed under ADR 11
+
+| Answer | Removed or renamed | Now |
+| --- | --- | --- |
+| `owner` | `subject` | `subjects`, each with `match` and `score` |
+| `owner` | `owners` (facts) | `claims`, each `{fact, start, path, facts, same_as}`, and `relations` |
+| `owner` | `teams[].team` named the cluster | it names the first claim's object record |
+| `related` | `subject` | `subjects` |
+| `related` | `steps` (`{depth, fact}`) | `claims`; a claim's `facts` is the old `depth` |
+| `changes` | facts named clusters | facts name records; `identity` is new |
+| `runtimes` | `subject` named the cluster | it names the declaring record; declarations gain `fact_id` |
+| every record reference | (new) | `cluster`, `cluster_kind`, `keys` |
+| every fact | (new) | `id` |
 
 ### Changes answer
 

@@ -617,7 +617,7 @@ func TestAPICapsAndTimesTheChangesReadsOfOneCaller(t *testing.T) {
 	}
 }
 
-func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
+func TestAPICapsAndTimesFindNameLookupsAndDeepRelatedLikeChanges(t *testing.T) {
 	t.Parallel()
 	w := newAPIWorld(t, func(c *APIConfig) { c.ChangesTimeout = 200 * time.Millisecond })
 	w.graph.mu.Lock()
@@ -635,6 +635,12 @@ func TestAPICapsAndTimesFindAndDeepRelatedLikeChanges(t *testing.T) {
 	}
 	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=catalog:repo/payments&depth=2"); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("a deep related by the same caller: got %d, want 429", rec.Code)
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/owner?ref=payments"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("an owner by name, a name search, by the same caller: got %d, want 429", rec.Code)
+	}
+	if rec := w.do("reader", http.MethodGet, "/v1/related?ref=payments"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a related by name by the same caller: got %d, want 429", rec.Code)
 	}
 	for range 2 {
 		if rec := <-done; rec.Code != http.StatusGatewayTimeout {

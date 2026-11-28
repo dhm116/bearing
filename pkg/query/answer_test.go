@@ -256,34 +256,125 @@ func TestSubjectsSayHowTheyMatched(t *testing.T) {
 	}
 }
 
-// TestAPastAnswerShowsWhatChangedSince moves CODEOWNERS from payments to
-// platform at minute 10: an answer as of minute 5 names payments, and that
-// it closed and platform opened, at the times Bearing recorded.
+// changeTexts are changes as "kind time object".
+func changeTexts(cs []query.Change) []string {
+	var out []string
+	for _, ch := range cs {
+		out = append(out, fmt.Sprintf("%s %s %s", ch.Kind, ch.At.Format(time.TimeOnly), ch.Fact.Object.Key))
+	}
+	return out
+}
+
+// TestAPastAnswerShowsWhatChangedSince asks as of a past time: a claim that
+// closed since carries its closing, and the facts today's answer has that
+// opened since are the answer's, once each, even when the past answer was
+// empty or today's answer falls back to another predicate.
 func TestAPastAnswerShowsWhatChangedSince(t *testing.T) {
 	t.Parallel()
-	w := newRecordWorld(t)
-	w.ingest("g", ob("t1", 1, "Team", teamPay, attr("name", "Payments")), ob("t2", 1, "Team", teamPlat, attr("name", "Platform")),
-		ob("r1", 1, "Repository", payments, rel("approves_changes", teamPay, false)))
-	w.ingest("g", ob("r2", 10, "Repository", payments, rel("approves_changes", teamPay, true), rel("approves_changes", teamPlat, false)))
+	for _, tt := range []struct {
+		name       string
+		later      []*eventv1alpha1.Observation
+		wantClaims []string
+		wantClosed []string
+		wantOpened []string
+	}{
+		{
+			"CODEOWNERS moves to platform",
+			[]*eventv1alpha1.Observation{ob("r2", 10, "Repository", payments, rel("approves_changes", teamPay, true), rel("approves_changes", teamPlat, false))},
+			[]string{payments + ">" + payments + ">" + teamPay + " by [g] 0h"},
+			[]string{"closed 00:10:00 " + teamPay},
+			[]string{"opened 00:10:00 " + teamPlat},
+		},
+		{
+			"an owned_by appears where only CODEOWNERS answered",
+			[]*eventv1alpha1.Observation{ob("r2", 10, "Repository", payments, rel("owned_by", teamPlat, false))},
+			[]string{payments + ">" + payments + ">" + teamPay + " by [g] 0h"},
+			nil,
+			[]string{"opened 00:10:00 " + teamPlat},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := newRecordWorld(t)
+			w.ingest("g", ob("t1", 1, "Team", teamPay, attr("name", "Payments")), ob("t2", 1, "Team", teamPlat, attr("name", "Platform")),
+				ob("r1", 1, "Repository", payments, rel("approves_changes", teamPay, false)))
+			w.ingest("g", tt.later...)
+			o, err := w.q.Owners(t.Context(), payments, at(5), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := claimTexts(o.Claims); !slices.Equal(got, tt.wantClaims) {
+				t.Fatalf("got claims %q, want %q", got, tt.wantClaims)
+			}
+			if got := changeTexts(o.Claims[0].ChangedSince); !slices.Equal(got, tt.wantClosed) {
+				t.Errorf("got the claim's changes %q, want %q", got, tt.wantClosed)
+			}
+			if got := changeTexts(o.ChangedSince); !slices.Equal(got, tt.wantOpened) {
+				t.Errorf("got the answer's changes %q, want %q", got, tt.wantOpened)
+			}
+			now, err := w.q.Owners(t.Context(), payments, time.Time{}, false)
+			if err != nil || now.ChangedSince != nil || now.Claims[0].ChangedSince != nil {
+				t.Errorf("got %+v, %v, want today's answer to carry no changes", now, err)
+			}
+		})
+	}
+	t.Run("nothing owned it then", func(t *testing.T) {
+		t.Parallel()
+		w := newRecordWorld(t)
+		w.ingest("g", ob("t1", 1, "Team", teamPay), ob("r1", 1, "Repository", payments))
+		w.ingest("g", ob("r2", 10, "Repository", payments, rel("owned_by", teamPay, false)), ob("r3", 10, "Repository", billing, rel("owned_by", teamPay, false)))
+		o, err := w.q.Owners(t.Context(), payments, at(5), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(o.Claims) != 0 || !slices.Equal(changeTexts(o.ChangedSince), []string{"opened 00:10:00 " + teamPay}) {
+			t.Errorf("got claims %q and changes %q, want none then and payments' owner opened since, once", claimTexts(o.Claims), changeTexts(o.ChangedSince))
+		}
+	})
+}
 
-	o, err := w.q.Owners(t.Context(), payments, at(5), false)
+// TestAKindlessOwnerTakesItsClustersKind is CODEOWNERS naming @jdoe and
+// @payments by node keys no source has described: each owner is a
+// placeholder with no kind, joined to a Person and a Team. The person is never
+// listed as a team, and the team still reads as one.
+func TestAKindlessOwnerTakesItsClustersKind(t *testing.T) {
+	t.Parallel()
+	w := newRecordWorld(t)
+	// The person and team exist under their own keys before CODEOWNERS names
+	// their node keys, so when a later sync aliases the node keys, a link
+	// joins each placeholder and none is taken over.
+	const jdoe, team = "github:user_node/U1", "github:team_node/T1"
+	w.ingest("g", ob("p1", 1, "Person", "github:user/jdoe", attr("name", "Jane Doe")), ob("t1", 1, "Team", teamPay, attr("name", "Payments")))
+	w.ingest("g", ob("r1", 2, "Repository", payments, rel("approves_changes", jdoe, false), rel("approves_changes", team, false)))
+	w.ingest("g", ob("p2", 3, "Person", "github:user/jdoe", aliased(jdoe)), ob("t2", 3, "Team", teamPay, aliased(team)))
+	o, err := w.q.Owners(t.Context(), payments, time.Time{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Claims) != 1 || o.Claims[0].Fact.Object.Key != teamPay {
-		t.Fatalf("got claims %q, want payments", claimTexts(o.Claims))
+	kinds := map[string]string{}
+	for _, c := range o.Claims {
+		kinds[c.Fact.Object.Key] = c.Fact.Object.Kind + "/" + c.Fact.Object.ClusterKind
 	}
-	var got []string
-	for _, ch := range o.Claims[0].ChangedSince {
-		got = append(got, fmt.Sprintf("%s %s %s", ch.Kind, ch.At.Format(time.TimeOnly), ch.Fact.Object.Key))
+	if kinds[jdoe] != "/Person" || kinds[team] != "/Team" {
+		t.Fatalf("got object kinds %v, want the placeholders kindless with their clusters' kinds", kinds)
 	}
-	want := []string{"closed 00:10:00 " + teamPay, "opened 00:10:00 " + teamPlat}
-	if !slices.Equal(got, want) {
-		t.Errorf("got changed since %q, want %q", got, want)
+	if len(o.Teams) != 1 || o.Teams[0].Team.Key != team {
+		t.Errorf("got teams %+v, want only the payments team, never jdoe", o.Teams)
 	}
-	now, err := w.q.Owners(t.Context(), payments, time.Time{}, false)
-	if err != nil || len(now.Claims) != 1 || now.Claims[0].ChangedSince != nil {
-		t.Errorf("got %+v, %v, want today's answer to carry no changes", now, err)
+}
+
+// TestRelatedWithoutAPredicateGivesOnlyRelations: an attribute fact is no
+// claim of related.
+func TestRelatedWithoutAPredicateGivesOnlyRelations(t *testing.T) {
+	t.Parallel()
+	w := newRecordWorld(t)
+	w.ingest("g", ob("r1", 1, "Repository", payments, attr("language", "Go"), rel("depends_on", ledger, false)))
+	r, err := w.q.Related(t.Context(), payments, "", "out", 1, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := claimTexts(r.Claims); !slices.Equal(got, []string{payments + ">" + payments + ">" + ledger + " by [g] 0h"}) {
+		t.Errorf("got claims %q, want only depends_on ledger", got)
 	}
 }
 

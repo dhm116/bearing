@@ -4,7 +4,11 @@
       "fact": {
         "confidence": 1,
         "object": {
+          "cluster_kind": "Team",
           "key": "github:team/acme/platform",
+          "keys": [
+            "github:team/acme/platform"
+          ],
           "name": "platform"
         },
         "predicate": "approves_changes",
@@ -31,6 +35,11 @@
         "status": "asserted",
         "subject": {
           "key": "github:repo/acme/payments",
+          "keys": [
+            "github:repo/acme/payments",
+            "github:repo/acme/payments-api",
+            "github:repo_node/R_kgDOH1a2bw"
+          ],
           "kind": "Repository",
           "name": "payments"
         },
@@ -41,12 +50,21 @@
         {
           "from": {
             "key": "github:repo/acme/payments",
+            "keys": [
+              "github:repo/acme/payments",
+              "github:repo/acme/payments-api",
+              "github:repo_node/R_kgDOH1a2bw"
+            ],
             "kind": "Repository",
             "name": "payments"
           },
           "predicate": "approves_changes",
           "to": {
+            "cluster_kind": "Team",
             "key": "github:team/acme/platform",
+            "keys": [
+              "github:team/acme/platform"
+            ],
             "name": "platform"
           }
         }
@@ -54,6 +72,11 @@
       "same_as": 0,
       "start": {
         "key": "github:repo/acme/payments",
+        "keys": [
+          "github:repo/acme/payments",
+          "github:repo/acme/payments-api",
+          "github:repo_node/R_kgDOH1a2bw"
+        ],
         "kind": "Repository",
         "match": "key",
         "name": "payments",
@@ -65,6 +88,11 @@
   "subjects": [
     {
       "key": "github:repo/acme/payments",
+      "keys": [
+        "github:repo/acme/payments",
+        "github:repo/acme/payments-api",
+        "github:repo_node/R_kgDOH1a2bw"
+      ],
       "kind": "Repository",
       "match": "key",
       "name": "payments",

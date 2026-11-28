@@ -65,6 +65,10 @@ type Answer struct {
 	Subjects []Subject `json:"subjects"`
 	// Claims are never merged or chosen between; ADR 11 orders them.
 	Claims []Claim `json:"claims"`
+	// ChangedSince is set on an answer at a past time: the facts today's
+	// answer has that opened since, at their valid_from. A claim that closed
+	// since carries its own closing.
+	ChangedSince []Change `json:"changed_since,omitempty"`
 	// Relations are ordered by cluster.
 	Relations []Relation `json:"relations"`
 	// LimitHit says the name lookup found more than MaxSubjects entities,
@@ -84,9 +88,8 @@ type Claim struct {
 	// Facts and SameAs count the facts and hops on Path.
 	Facts  int `json:"facts"`
 	SameAs int `json:"same_as"`
-	// ChangedSince is set on an answer at a past time when today's answer
-	// differs: this fact closing, and the facts that opened since from the
-	// same start with the same predicate, at the times Bearing recorded.
+	// ChangedSince is set on an answer at a past time when this fact has
+	// closed since: one closed change, at its valid_to.
 	ChangedSince []Change `json:"changed_since,omitempty"`
 }
 
@@ -167,8 +170,11 @@ func (q *Querier) subjects(ctx context.Context, ref string) ([]Subject, bool, er
 // recordRef names a record and its cluster.
 func recordRef(r graph.Record) Ref {
 	out := Ref{ID: string(r.ID), Cluster: string(r.Cluster), Kind: string(r.Kind), Name: r.Name}
-	if len(r.Keys) > 0 {
-		out.Key = string(r.Keys[0])
+	for _, k := range r.Keys {
+		out.Keys = append(out.Keys, string(k))
+	}
+	if len(out.Keys) > 0 {
+		out.Key = out.Keys[0]
 	}
 	return out
 }
@@ -185,8 +191,9 @@ type ask struct {
 // no subject record reaches an owned_by fact.
 var ownerAsk = ask{preds: [][]string{{predOwnedBy}, {predApprovesChanges}}, depth: 1}
 
-// answer asks a at at from the subjects. At a past time it also asks today,
-// and each past claim carries what has changed since.
+// answer asks a at at from the subjects. At a past time it also asks today:
+// each past claim that closed since carries its closing, and the answer
+// carries the facts today's answer has that opened since.
 func (q *Querier) answer(ctx context.Context, subs []Subject, a ask, at time.Time) (Answer, error) {
 	out := Answer{Subjects: subs}
 	past, err := q.evidence(ctx, subs, a, at)
@@ -201,33 +208,84 @@ func (q *Querier) answer(ctx context.Context, subs []Subject, a ask, at time.Tim
 	if out.Relations, err = q.relations(past, recs, at); err != nil {
 		return out, err
 	}
-	if at.IsZero() {
-		return out, nil
-	}
-	today, err := q.evidence(ctx, subs, a, time.Time{})
-	if err != nil {
-		return out, err
-	}
-	then := map[string]bool{}
-	for _, c := range past.Claims {
-		then[c.Fact.ID] = true
-	}
-	todayRecs := recordsOf(today)
-	nl := q.currentLabeler(time.Time{})
-	for i := range out.Claims {
-		c := &out.Claims[i]
-		if c.Fact.ValidTo != nil {
-			c.ChangedSince = append(c.ChangedSince, Change{Kind: string(graph.Closed), At: *c.Fact.ValidTo, Fact: c.Fact})
+	refs := claimRefs(out.Claims)
+	if !at.IsZero() {
+		today, err := q.evidence(ctx, subs, a, time.Time{})
+		if err != nil {
+			return out, err
 		}
+		then := map[string]bool{}
+		for _, c := range past.Claims {
+			then[c.Fact.ID] = true
+		}
+		for i := range out.Claims {
+			if c := &out.Claims[i]; c.Fact.ValidTo != nil {
+				c.ChangedSince = []Change{{Kind: string(graph.Closed), At: *c.Fact.ValidTo, Fact: c.Fact}}
+			}
+		}
+		todayRecs := recordsOf(today)
+		nl := q.currentLabeler(time.Time{})
 		for _, n := range today.Claims {
-			if then[n.Fact.ID] || !n.Fact.ValidFrom.After(at) || string(n.Start) != c.Start.ID || n.Fact.Predicate != c.Fact.Predicate {
+			if then[n.Fact.ID] || !n.Fact.ValidFrom.After(at) {
 				continue
 			}
-			f := nl.recordFact(n.Fact, todayRecs)
-			c.ChangedSince = append(c.ChangedSince, Change{Kind: string(graph.Opened), At: f.ValidFrom, Fact: f})
+			f, err := nl.recordFact(n.Fact, todayRecs)
+			if err != nil {
+				return out, err
+			}
+			out.ChangedSince = append(out.ChangedSince, Change{Kind: string(graph.Opened), At: f.ValidFrom, Fact: f})
+		}
+		for i := range out.ChangedSince {
+			refs = append(refs, factRefs(&out.ChangedSince[i].Fact)...)
 		}
 	}
-	return out, nil
+	return out, q.clusterKinds(ctx, refs)
+}
+
+// claimRefs are the record references of claims, for clusterKinds.
+func claimRefs(cs []Claim) []*Ref {
+	var out []*Ref
+	for i := range cs {
+		c := &cs[i]
+		out = append(out, &c.Start.Ref)
+		out = append(out, factRefs(&c.Fact)...)
+		for j := range c.Path {
+			out = append(out, &c.Path[j].From)
+			if c.Path[j].To != nil {
+				out = append(out, c.Path[j].To)
+			}
+		}
+	}
+	return out
+}
+
+func factRefs(f *Fact) []*Ref {
+	if f.Object == nil {
+		return []*Ref{&f.Subject}
+	}
+	return []*Ref{&f.Subject, f.Object}
+}
+
+// clusterKinds sets ClusterKind on the kindless records among refs, one read
+// per cluster.
+func (q *Querier) clusterKinds(ctx context.Context, refs []*Ref) error {
+	kinds := map[string]string{}
+	for _, r := range refs {
+		if r.Kind != "" || r.Cluster == "" {
+			continue
+		}
+		k, ok := kinds[r.Cluster]
+		if !ok {
+			e, err := q.Graph.Entity(ctx, r.Cluster)
+			if err != nil {
+				return fmt.Errorf("cluster %s: %w", r.Cluster, err)
+			}
+			k = string(e.Kind)
+			kinds[r.Cluster] = k
+		}
+		r.ClusterKind = k
+	}
+	return nil
 }
 
 // evidence reads the claims of a, trying each predicate set in turn.
@@ -243,6 +301,8 @@ func (q *Querier) evidence(ctx context.Context, subs []Subject, a ask, at time.T
 		if err != nil {
 			return ev, fmt.Errorf("evidence: %w", err)
 		}
+		// Owners and related answer relations; an attribute is no claim.
+		ev.Claims = slices.DeleteFunc(ev.Claims, func(c graph.Claim) bool { return c.Fact.Object == "" })
 		if len(ev.Claims) > 0 {
 			break
 		}
@@ -266,18 +326,28 @@ func claims(l *labeler, ev graph.Evidence, subs []Subject, recs map[graph.Entity
 	for _, s := range subs {
 		start[s.ID] = s
 	}
-	ref := func(id graph.EntityID) Ref { return refOf(recs, id) }
 	out := make([]Claim, 0, len(ev.Claims))
 	for _, c := range ev.Claims {
 		s, ok := start[string(c.Start)]
 		if !ok {
 			return nil, fmt.Errorf("claim %s: starts at %s, which is no subject", c.Fact.ID, c.Start)
 		}
-		cl := Claim{Fact: l.recordFact(c.Fact, recs), Start: s, Facts: c.Facts, SameAs: c.SameAs, Path: make([]PathStep, len(c.Path))}
+		f, err := l.recordFact(c.Fact, recs)
+		if err != nil {
+			return nil, err
+		}
+		cl := Claim{Fact: f, Start: s, Facts: c.Facts, SameAs: c.SameAs, Path: make([]PathStep, len(c.Path))}
 		for i, p := range c.Path {
-			step := PathStep{From: ref(p.From), Links: p.Links}
+			from, err := refOf(recs, p.From)
+			if err != nil {
+				return nil, err
+			}
+			step := PathStep{From: from, Links: p.Links}
 			if p.To != "" {
-				to := ref(p.To)
+				to, err := refOf(recs, p.To)
+				if err != nil {
+					return nil, err
+				}
 				step.To = &to
 			}
 			if p.Fact != nil {
@@ -315,11 +385,13 @@ func objectKey(f Fact) string {
 	return f.Object.Key
 }
 
-func refOf(recs map[graph.EntityID]graph.Record, id graph.EntityID) Ref {
+// refOf names a record the store returned. A missing one is a store bug:
+// Evidence returns every record on its paths, and records are never deleted.
+func refOf(recs map[graph.EntityID]graph.Record, id graph.EntityID) (Ref, error) {
 	if r, ok := recs[id]; ok {
-		return recordRef(r)
+		return recordRef(r), nil
 	}
-	return Ref{ID: string(id)} // the store returns every record on a path; the ID is still usable
+	return Ref{}, fmt.Errorf("record %s: not returned by the store", id)
 }
 
 // relations words the store's relations: the strongest proposal decides
@@ -365,14 +437,20 @@ func (q *Querier) relations(ev graph.Evidence, recs map[graph.EntityID]graph.Rec
 }
 
 // recordFact is a fact whose subject and object name records.
-func (l *labeler) recordFact(f graph.Fact, recs map[graph.EntityID]graph.Record) Fact {
-	sub := refOf(recs, f.Subject)
+func (l *labeler) recordFact(f graph.Fact, recs map[graph.EntityID]graph.Record) (Fact, error) {
+	sub, err := refOf(recs, f.Subject)
+	if err != nil {
+		return Fact{}, fmt.Errorf("fact %s: %w", f.ID, err)
+	}
 	var obj *Ref
 	if f.Object != "" {
-		o := refOf(recs, f.Object)
+		o, err := refOf(recs, f.Object)
+		if err != nil {
+			return Fact{}, fmt.Errorf("fact %s: %w", f.ID, err)
+		}
 		obj = &o
 	}
-	return l.build(f, sub, obj)
+	return l.build(f, sub, obj), nil
 }
 
 // recordsByID loads the records with these IDs, for answers that name
