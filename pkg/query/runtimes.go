@@ -51,8 +51,10 @@ type RuntimesRequest struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-// Declaration is one version an entity declares, with the fact behind it.
+// Declaration is one version a record declares, with the fact behind it.
 type Declaration struct {
+	// FactID is the stored fact's; merged facts keep the first one's.
+	FactID string `json:"fact_id,omitempty"`
 	// Version is the declared text, such as ">=18".
 	Version string `json:"version"`
 	// File is the manifest that declares it.
@@ -71,8 +73,9 @@ type Declaration struct {
 	AsOf *time.Time `json:"as_of,omitempty"`
 }
 
-// RuntimeEntity is an entity with every declaration of the language.
+// RuntimeEntity is a record with every declaration of the language.
 type RuntimeEntity struct {
+	// Subject names the record that declares, and its cluster.
 	Subject      Ref           `json:"subject"`
 	Declarations []Declaration `json:"declarations"`
 }
@@ -118,7 +121,15 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 		limit = MaxRuntimesLimit
 	}
 
-	facts, err := q.Graph.Facts(ctx, graph.FactFilter{Predicate: predRuntime, At: req.At})
+	facts, err := q.Graph.Facts(ctx, graph.FactFilter{Predicate: predRuntime, At: req.At, Records: true})
+	if err != nil {
+		return nil, fmt.Errorf("runtime facts: %w", err)
+	}
+	ids := make([]graph.EntityID, len(facts))
+	for i, f := range facts {
+		ids[i] = f.Subject
+	}
+	recs, err := q.recordsByID(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("runtime facts: %w", err)
 	}
@@ -132,7 +143,8 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	} else {
 		out.Entities = []RuntimeEntity{}
 	}
-	// Group by entity, in the order the store returned them.
+	// Group by record, in the order the store returned them (ADR 11: one
+	// claim per runtime fact, at its own record).
 	bySubject := map[graph.EntityID][]graph.Fact{}
 	var order []graph.EntityID
 	for _, f := range merge(facts) {
@@ -147,10 +159,7 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 	}
 	var all []found
 	for _, id := range order {
-		ref, err := l.ref(ctx, id)
-		if err != nil {
-			return nil, err
-		}
+		ref := refOf(recs, id)
 		if req.Kind != "" && !reg.IsA(model.Kind(ref.Kind), model.Kind(req.Kind)) {
 			continue
 		}
@@ -161,12 +170,9 @@ func (q *Querier) Runtimes(ctx context.Context, req RuntimesRequest) (*Runtimes,
 			if !ok || canonLanguage(str(v["language"])) != lang {
 				continue
 			}
-			lf, err := l.fact(ctx, f)
-			if err != nil {
-				return nil, err
-			}
+			lf := l.recordFact(f, recs)
 			text := str(v["version"])
-			d := Declaration{Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount, AsOf: lf.AsOf}
+			d := Declaration{FactID: lf.ID, Version: text, File: str(v["file"]), ValidFrom: lf.ValidFrom, ValidTo: lf.ValidTo, Sources: lf.Sources, SourceCount: lf.SourceCount, AsOf: lf.AsOf}
 			if low, ok := lowerBound(text); ok {
 				d.Lower = low.String()
 				d.IsBelow = below != nil && low.compare(below) < 0

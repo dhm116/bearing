@@ -145,13 +145,13 @@ func TestOwnersPrefersOwnedByAndFallsBackToCodeowners(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(o.Owners) != 1 || o.Owners[0].Predicate != tt.wantPred || o.Owners[0].Object.Name != tt.wantOwner {
-				t.Fatalf("got owners %+v, want %s by %s", o.Owners, tt.wantPred, tt.wantOwner)
+			if len(o.Claims) != 1 || o.Claims[0].Fact.Predicate != tt.wantPred || o.Claims[0].Fact.Object.Name != tt.wantOwner {
+				t.Fatalf("got claims %+v, want %s by %s", o.Claims, tt.wantPred, tt.wantOwner)
 			}
 		})
 	}
 	o, err := q.Owners(t.Context(), db, time.Time{}, false)
-	if err != nil || len(o.Owners) != 0 {
+	if err != nil || len(o.Claims) != 0 {
 		t.Fatalf("got %+v, %v, want no owners", o, err)
 	}
 }
@@ -163,14 +163,14 @@ func TestRelatedWalksBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Steps) != 2 || r.Steps[0].Depth != 1 || r.Steps[0].Fact.Object.Key != ledger || r.Steps[1].Depth != 2 || r.Steps[1].Fact.Object.Key != db {
-		t.Fatalf("got steps %+v, want ledger then db", r.Steps)
+	if len(r.Claims) != 2 || r.Claims[0].Facts != 1 || r.Claims[0].Fact.Object.Key != ledger || r.Claims[1].Facts != 2 || r.Claims[1].Fact.Object.Key != db {
+		t.Fatalf("got claims %+v, want ledger then db", r.Claims)
 	}
 	r, err = q.Related(t.Context(), db, "", "in", 0, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Direction != "in" || len(r.Steps) != 1 || r.Steps[0].Fact.Subject.Key != ledger {
+	if r.Direction != "in" || len(r.Claims) != 1 || r.Claims[0].Fact.Subject.Key != ledger {
 		t.Fatalf("got %+v, want only ledger one hop in", r)
 	}
 }

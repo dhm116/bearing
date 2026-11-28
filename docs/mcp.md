@@ -59,6 +59,15 @@ link or to request a sync: only a person decides links
 A ref is an entity ID or a key such as `github:repo/acme/payments-api`; times
 are RFC 3339, a date, or a duration back from now (`72h`, `7d`).
 
+`owners`, `depends_on`, `depended_on_by` and `changes` answer per record
+([ADR 11](adr/0011-answers-show-each-evidence-path.md)): a claim per asserted
+fact, with the records on its path and how each subject record matched the
+ref (`key`, `name` or `fuzzy` with a score), and `relations` saying how the
+claims' objects relate (`likely_same` is a proposal, not a fact). The data
+is the API's ([Claims and relations](spec/api.md#claims-and-relations)); an
+agent words it itself, and should say "likely" for a proposal as the command
+line does. `owners` and the dependency tools also take a name as `ref`.
+
 An answer is the query layer's JSON. In `content[0].text` it is the JSON
 text itself, so every protocol version (2024-11-05, 2025-03-26 and
 2025-06-18) gets the data; `content[1].text` is a one-line count. Clients

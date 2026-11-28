@@ -68,9 +68,8 @@
       "fact": {
         "confidence": 1,
         "object": {
-          "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
-          "kind": "Team",
-          "name": "Payments"
+          "key": "github:team/acme/payments",
+          "name": "payments"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -109,9 +108,8 @@
       "fact": {
         "confidence": 1,
         "object": {
-          "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
-          "kind": "Team",
-          "name": "Platform"
+          "key": "github:team/acme/platform",
+          "name": "platform"
         },
         "predicate": "approves_changes",
         "qualifiers": {
@@ -151,7 +149,7 @@
         "object": {
           "key": "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
           "kind": "Team",
-          "name": "Engineering"
+          "name": "engineering"
         },
         "predicate": "member_of",
         "source_count": 1,
@@ -167,7 +165,7 @@
         "subject": {
           "key": "authentik:group/5b0e2c1d-3f4a-4b5c-8d6e-7f8091a2b3c4",
           "kind": "Team",
-          "name": "Payments"
+          "name": "payments"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -180,7 +178,7 @@
         "object": {
           "key": "authentik:group/2a7d9c10-4e3b-4f6a-9b21-0c5d8e7f6a13",
           "kind": "Team",
-          "name": "Engineering"
+          "name": "engineering"
         },
         "predicate": "member_of",
         "source_count": 1,
@@ -196,7 +194,7 @@
         "subject": {
           "key": "authentik:group/9c4e1f2a-6b7d-4e8f-a019-3b2c4d5e6f70",
           "kind": "Team",
-          "name": "Platform"
+          "name": "platform"
         },
         "valid_from": "2026-10-02T06:00:00Z"
       },
@@ -440,6 +438,101 @@
         "value": "https://github.com/acme/payments"
       },
       "kind": "opened"
+    }
+  ],
+  "identity": [
+    {
+      "a": {
+        "key": "github:user/meichen",
+        "kind": "Person",
+        "name": "Mei Chen",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d",
+        "kind": "Person",
+        "name": "Mei Chen",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
+    },
+    {
+      "a": {
+        "key": "github:user/rpatel",
+        "kind": "Person",
+        "name": "Raj Patel",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
+        "kind": "Person",
+        "name": "Raj Patel",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
+    },
+    {
+      "a": {
+        "key": "github:user_node/U_kgDOA1b2cw",
+        "kind": "Person",
+        "name": "Jane Doe",
+        "sources": [
+          "github-acme"
+        ]
+      },
+      "at": "2026-10-02T06:00:00Z",
+      "b": {
+        "key": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74",
+        "kind": "Person",
+        "name": "Jane Doe",
+        "sources": [
+          "directory"
+        ]
+      },
+      "justification": {
+        "observation_id": "authentik:user/7f3c2a9e-1b4d-4c8e-9a0f-2d6e8b1c5a74@2026-10-02T06:00:00.000000Z",
+        "rule": "linked_ids"
+      },
+      "kind": "joined",
+      "links": [
+        {
+          "change": "opened",
+          "effect": "joined",
+          "kind": "same_as"
+        }
+      ]
     }
   ],
   "since": "2026-10-01T11:00:00Z",

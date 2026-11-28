@@ -104,7 +104,7 @@ func TestOwnersTreatsADescendantOfPersonAsAPerson(t *testing.T) {
 	t.Parallel()
 	q := newServiceQuerier(t)
 	o, err := q.Owners(t.Context(), "kubernetes:service/acme/owned", time.Time{}, true)
-	if err != nil || len(o.Owners) != 1 {
+	if err != nil || len(o.Claims) != 1 {
 		t.Fatalf("got %+v, %v, want one owner", o, err)
 	}
 	if len(o.Teams) != 0 {

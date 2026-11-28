@@ -10,6 +10,7 @@ $ bearing get github:user/jdoe --json
   ],
   "facts": [
     {
+      "id": "e4",
       "subject": {
         "id": "e3",
         "kind": "Person",

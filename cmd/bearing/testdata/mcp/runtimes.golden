@@ -4,7 +4,7 @@
   "result": {
     "content": [
       {
-        "text": "{\"language\":\"go\",\"below_version\":\"1.22\",\"below\":[{\"subject\":{\"id\":\"e17\",\"kind\":\"Repository\",\"name\":\"old-tool\",\"key\":\"github:repo/acme/old-tool\"},\"declarations\":[{\"version\":\"1.21\",\"file\":\"go.mod\",\"lower\":\"1.21\",\"is_below\":true,\"is_unknown\":false,\"valid_from\":\"2026-10-01T00:02:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/old-tool@2026-10-01T00:02:00.000000Z\",\"observed_at\":\"2026-10-01T00:02:00Z\"}],\"source_count\":1}]}],\"unknown\":[{\"subject\":{\"id\":\"e21\",\"kind\":\"Repository\",\"name\":\"odd-tool\",\"key\":\"github:repo/acme/odd-tool\"},\"declarations\":[{\"version\":\"tip\",\"file\":\"go.mod\",\"is_below\":false,\"is_unknown\":true,\"valid_from\":\"2026-10-01T00:02:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/odd-tool@2026-10-01T00:02:00.000000Z\",\"observed_at\":\"2026-10-01T00:02:00Z\"}],\"source_count\":1}]}],\"at_or_above\":1}",
+        "text": "{\"language\":\"go\",\"below_version\":\"1.22\",\"below\":[{\"subject\":{\"id\":\"e17\",\"cluster\":\"e17\",\"kind\":\"Repository\",\"name\":\"old-tool\",\"key\":\"github:repo/acme/old-tool\"},\"declarations\":[{\"fact_id\":\"e18\",\"version\":\"1.21\",\"file\":\"go.mod\",\"lower\":\"1.21\",\"is_below\":true,\"is_unknown\":false,\"valid_from\":\"2026-10-01T00:02:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/old-tool@2026-10-01T00:02:00.000000Z\",\"observed_at\":\"2026-10-01T00:02:00Z\"}],\"source_count\":1}]}],\"unknown\":[{\"subject\":{\"id\":\"e21\",\"cluster\":\"e21\",\"kind\":\"Repository\",\"name\":\"odd-tool\",\"key\":\"github:repo/acme/odd-tool\"},\"declarations\":[{\"fact_id\":\"e22\",\"version\":\"tip\",\"file\":\"go.mod\",\"is_below\":false,\"is_unknown\":true,\"valid_from\":\"2026-10-01T00:02:00Z\",\"sources\":[{\"source\":\"github-acme\",\"observation_id\":\"github:repo/acme/odd-tool@2026-10-01T00:02:00.000000Z\",\"observed_at\":\"2026-10-01T00:02:00Z\"}],\"source_count\":1}]}],\"at_or_above\":1}",
         "type": "text"
       },
       {
@@ -19,12 +19,14 @@
         {
           "subject": {
             "id": "e17",
+            "cluster": "e17",
             "kind": "Repository",
             "name": "old-tool",
             "key": "github:repo/acme/old-tool"
           },
           "declarations": [
             {
+              "fact_id": "e18",
               "version": "1.21",
               "file": "go.mod",
               "lower": "1.21",
@@ -47,12 +49,14 @@
         {
           "subject": {
             "id": "e21",
+            "cluster": "e21",
             "kind": "Repository",
             "name": "odd-tool",
             "key": "github:repo/acme/odd-tool"
           },
           "declarations": [
             {
+              "fact_id": "e22",
               "version": "tip",
               "file": "go.mod",
               "is_below": false,

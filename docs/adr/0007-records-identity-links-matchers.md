@@ -1,6 +1,6 @@
 # 7. Records, identity links and matchers
 
-Date: 2026-10-21 · Status: accepted, superseded in part by ADR 10
+Date: 2026-10-21 · Status: accepted, superseded in part by ADR 10 and ADR 11
 
 ## Context
 

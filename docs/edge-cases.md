@@ -305,15 +305,7 @@ Each entry:
 - **Area:** store
 - **Example:** a cluster is named by its oldest record with a kind and a name; that source deletes the record, or the person is renamed there.
 - **Impact:** the cluster keeps the old name while any record of it remains, even if newer records carry the current name.
-- **Proposed fix:** name a cluster from records that still exist and are current, with source precedence (see the next entry).
-
-## Two sources name one thing differently
-
-- **Found in:** owner-people review (`internal/duckstore/read.go`, `entities`)
-- **Area:** identity
-- **Example:** GitHub calls a person "jdoe" and the directory calls the same person "Jane Doe".
-- **Impact:** the first ingested record with a kind and a name wins, so two stores synced in different orders can show different names for one entity.
-- **Proposed fix:** source precedence for display names (configured per source), with ingest order only as the tie-break.
+- **Proposed fix:** name a cluster from records that still exist and are current, with source precedence.
 
 ## As-of answers list sources observed after the as-of time
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -123,18 +124,27 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 		billing  = "kubernetes:workload/k3d-acme/billing/deployment/billing-api"
 		postgres = "kubernetes:workload/k3d-acme/billing/statefulset/postgres"
 	)
+	// claim is one claim exactly: its sources, its fact's records, and the
+	// path's same_as hops.
+	claim := func(cl query.Claim) string {
+		var srcs []string
+		for _, s := range cl.Fact.Sources {
+			if !slices.Contains(srcs, s.Source) {
+				srcs = append(srcs, s.Source)
+			}
+		}
+		return fmt.Sprintf("%s: %s %s %s (%s) %dh", strings.Join(srcs, "+"), cl.Fact.Subject.Key, cl.Fact.Predicate, cl.Fact.Object.Key, cl.Fact.Object.Name, cl.SameAs)
+	}
 	owner := func() string {
 		o, err := c.Owners(ctx, payments, time.Time{}, false)
 		if err != nil {
 			return err.Error()
 		}
-		var names []string
-		for _, f := range o.Owners {
-			if f.Object != nil && len(f.Sources) > 0 { // an answer with its evidence
-				names = append(names, teamName(f.Object.Name))
-			}
+		var claims []string
+		for _, cl := range o.Claims {
+			claims = append(claims, claim(cl))
 		}
-		return strings.Join(names, ",")
+		return strings.Join(claims, "; ")
 	}
 	targets := func(ref, dir string) string {
 		r, err := c.Related(ctx, ref, "depends_on", dir, 0, time.Time{})
@@ -142,10 +152,10 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 			return err.Error()
 		}
 		var names []string
-		for _, st := range r.Steps {
-			end := st.Fact.Object
+		for _, cl := range r.Claims {
+			end := cl.Fact.Object
 			if dir == "in" {
-				end = &st.Fact.Subject
+				end = &cl.Fact.Subject
 			}
 			names = append(names, end.Name)
 		}
@@ -155,7 +165,8 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 
 	syncAll()
 	// 1. Which team owns payments-api?
-	eventuallyEqual(t, "payments-api's owner", owner, "Payments")
+	eventuallyEqual(t, "payments-api's owner", owner,
+		"github-acme: github:repo/acme/payments-api approves_changes github:team/acme/payments (payments) 0h")
 	// 2. Which services use Go below 1.22?
 	eventually(t, "payments-api among the services on Go below 1.22", func() error {
 		rt, err := c.Runtimes(ctx, query.RuntimesRequest{Language: "go", Below: "1.22"})
@@ -177,8 +188,10 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 	before := time.Now()
 	advance()
 	syncAll()
-	// 1 again.
-	eventuallyEqual(t, "payments-api's owner after the move", owner, "Platform")
+	// 1 again. The move also renamed the repository, and a record is named
+	// by its first key, sorted.
+	eventuallyEqual(t, "payments-api's owner after the move", owner,
+		"github-acme: github:repo/acme/payments approves_changes github:team/acme/platform (platform) 0h")
 	// 3. What changed since then?
 	eventually(t, "payments-api's ownership change", func() error {
 		ch, err := c.Changes(ctx, payments, before, time.Time{}, 0)
@@ -188,31 +201,15 @@ func runFiveQuestions(ctx context.Context, t *testing.T, c *apiclient.Client, sy
 		var kinds []string
 		for _, x := range ch.Changes {
 			if x.Fact.Predicate == "approves_changes" {
-				kinds = append(kinds, x.Kind+" "+teamName(x.Fact.Object.Name))
+				kinds = append(kinds, x.Kind+" "+x.Fact.Object.Key)
 			}
 		}
 		slices.Sort(kinds)
-		if want := []string{"closed Payments", "opened Platform"}; !slices.Equal(kinds, want) {
+		if want := []string{"closed github:team/acme/payments", "opened github:team/acme/platform"}; !slices.Equal(kinds, want) {
 			return errors.New("approves_changes changes: " + strings.Join(kinds, ", "))
 		}
 		return nil
 	})
-}
-
-// teamName accepts either source's spelling of a joined team. GitHub says
-// "Payments" and the directory "payments"; the joined entity takes the name of
-// whichever record was stored first, which depends on which sync's page lands
-// first. shortcut: accepts both spellings until answers name the record on
-// each evidence path (ADR 11, dhm116/bearing#314); then the test asserts each
-// claim exactly.
-func teamName(name string) string {
-	switch name {
-	case "payments":
-		return "Payments"
-	case "platform":
-		return "Platform"
-	}
-	return name
 }
 
 func freeAddr(t *testing.T) string {

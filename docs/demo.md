@@ -70,14 +70,21 @@ bin/bearing owner github:repo/acme/payments-api --server-ca demo-ca.pem
 
 ```
 owners of payments-api [Repository …] github:repo/acme/payments-api
-approves_changes Payments [Team …] (file .github/CODEOWNERS, line 2, pattern *): asserted 100% valid from …
-  github-acme: observed …
-    evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
+as of now
+
+github-acme says payments-api (Repository) approves_changes payments.
+  approves_changes payments […] github:team/acme/payments (file .github/CODEOWNERS, line 2, pattern *): asserted 100% valid from …
+    github-acme: observed …
+      evidence https://github.com/acme/payments-api/blob/main/.github/CODEOWNERS
 ```
 
-The answer is a fact from CODEOWNERS, with the file, the line and the
-observation it came from. `payments` is a GitHub team the directory also
-knows as a group, joined by a rule in the settings.
+The answer is a claim: a fact from CODEOWNERS, with the file, the line and
+the observation it came from. It names GitHub's own record of the team,
+`github:team/acme/payments`, whatever another source calls it. The directory
+knows the team as a group, joined to GitHub's by a rule in the settings. When
+two sources name owners that may be the same team, the answer gives each
+source's claim and says how the owners relate, with "likely" for a match no
+one has confirmed.
 
 Add `--members` for the people to contact: the people on the owning team,
 with their role in it and where each fact came from.
@@ -87,7 +94,7 @@ bin/bearing owner github:repo/acme/payments-api --members --server-ca demo-ca.pe
 ```
 
 ```
-people on Payments [Team …] authentik:group/…
+people on payments […] github:team/acme/payments
   Jane Doe [Person …] authentik:user/…: maintainer, since 2026-03-01T00:00:00Z
     github-acme: observed …
     directory: observed …
@@ -131,11 +138,14 @@ bin/bearing related kubernetes:workload/k3d-acme/billing/deployment/billing-api 
 ```
 
 ```
-depth 1
-  billing-api … depends_on postgres … (postgres, port 5432, service billing/postgres, via env:DATABASE_URL): asserted 90%
+relations of billing-api [Component …] kubernetes:workload/k3d-acme/billing/deployment/billing-api
+direction out, as of now
+
+kubernetes-acme says billing-api (Component) depends_on ledger (Component).
+  billing-api … depends_on ledger … (http, port 8080, service billing/ledger, via env:LEDGER_URL): asserted 90% valid from …
     kubernetes-acme: observed …
-depth 1
-  billing-api … depends_on ledger … (http, port 8080, service billing/ledger, via env:LEDGER_URL): asserted 90%
+kubernetes-acme says billing-api (Component) depends_on postgres (Component).
+  billing-api … depends_on postgres … (postgres, port 5432, service billing/postgres, via env:DATABASE_URL): asserted 90% valid from …
     kubernetes-acme: observed …
 ```
 
@@ -151,8 +161,8 @@ bin/bearing related kubernetes:workload/k3d-acme/billing/statefulset/postgres \
 ```
 
 ```
-depth 1
-  billing-api … depends_on postgres … (postgres, port 5432, service billing/postgres, via env:DATABASE_URL): asserted 90%
+kubernetes-acme says billing-api (Component) depends_on postgres (Component).
+  billing-api … depends_on postgres … (postgres, port 5432, service billing/postgres, via env:DATABASE_URL): asserted 90% valid from …
 ```
 
 ## Change the org and ask again
@@ -191,10 +201,17 @@ bin/bearing owner github:repo/acme/payments-api --server-ca demo-ca.pem
 
 ```
 owners of payments [Repository …] github:repo/acme/payments
-approves_changes platform [Team …] (file .github/CODEOWNERS, line 2, pattern *): asserted 100% valid from …
-  github-acme: observed …
-    evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
+as of now
+
+github-acme says payments (Repository) approves_changes platform.
+  approves_changes platform […] github:team/acme/platform (file .github/CODEOWNERS, line 2, pattern *): asserted 100% valid from …
+    github-acme: observed …
+      evidence https://github.com/acme/payments/blob/main/.github/CODEOWNERS
 ```
+
+Ask with `--as-of` a time before the move and the claim names payments,
+then says it closed and platform opened since, with the times Bearing
+recorded.
 
 Question 3: what changed in the last few minutes?
 
@@ -206,9 +223,9 @@ bin/bearing changes --since 10m github:repo/acme/payments-api --server-ca demo-c
 changes of github:repo/acme/payments-api from … to …
 
 … closed
-  payments [Repository …] approves_changes payments [Team …] (file .github/CODEOWNERS, line 2, pattern *): … until …
+  payments [Repository …] approves_changes payments […] github:team/acme/payments (file .github/CODEOWNERS, line 2, pattern *): … until …
 … opened
-  payments [Repository …] approves_changes platform [Team …] (file .github/CODEOWNERS, line 2, pattern *): …
+  payments [Repository …] approves_changes platform […] github:team/acme/platform (file .github/CODEOWNERS, line 2, pattern *): …
 … closed
   payments [Repository …] url "https://github.com/acme/payments-api": …
 … opened
@@ -217,7 +234,9 @@ changes of github:repo/acme/payments-api from … to …
 
 The ownership change is one fact closed and one opened, each with the
 observation behind it; the rename shows as the repository's name and URL
-facts.
+facts. Without a ref, the answer also lists the joins and splits of entities in
+the window (a directory sync joining people to their GitHub logins, a
+person's decision), each with what justified it.
 
 ## Review an identity link
 

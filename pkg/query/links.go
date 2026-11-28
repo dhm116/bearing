@@ -115,59 +115,24 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 	if err != nil {
 		return nil, fmt.Errorf("links: %w", err)
 	}
-	now := time.Now
-	if q.Now != nil {
-		now = q.Now
-	}
-	halfLife := q.HalfLife
-	if halfLife == nil {
-		halfLife = match.Config{Registry: q.Registry}.HalfLifeOf
-	}
-	at := now()
-	reg := q.Registry
 	var ids []graph.EntityID
 	for _, l := range ls {
 		ids = append(ids, l.A, l.B)
 	}
-	slices.Sort(ids)
-	got, err := q.Graph.RecordsByID(ctx, slices.Compact(ids))
+	recs, err := q.recordsByID(ctx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("links: records: %w", err)
+		return nil, fmt.Errorf("links: %w", err)
 	}
-	recs := map[graph.EntityID]LinkRecord{}
-	cluster := map[graph.EntityID]graph.EntityID{}
-	for _, x := range got {
-		cluster[x.ID] = x.Cluster
-		r := LinkRecord{ID: string(x.ID), Kind: string(x.Kind), Name: x.Name, Sources: x.Sources}
-		if len(x.Keys) > 0 {
-			r.Key = string(x.Keys[0])
-		}
-		recs[x.ID] = r
-	}
-	record := func(id graph.EntityID) LinkRecord {
-		if r, ok := recs[id]; ok {
-			return r
-		}
-		return LinkRecord{ID: string(id)}
-	}
+	sc := q.scorer(time.Time{})
+	record := func(id graph.EntityID) LinkRecord { return linkRecord(recs, id) }
 	out := make([]Link, 0, len(ls))
 	for _, l := range ls {
 		// A proposal between records an asserted link already joined has
 		// nothing left to decide; it stays stored for when that link closes.
-		if l.Kind == graph.SameAs && l.Status == graph.Proposed && cluster[l.A] != "" && cluster[l.A] == cluster[l.B] {
+		if a, ok := recs[l.A]; ok && l.Kind == graph.SameAs && l.Status == graph.Proposed && a.Cluster == recs[l.B].Cluster {
 			continue
 		}
-		a, b := record(l.A), record(l.B)
-		s := match.ScoreOf(l.Deposits, at, halfLife(reg.Deeper(model.Kind(a.Kind), model.Kind(b.Kind))))
-		o := Link{
-			ID: l.ID, Kind: string(l.Kind), Status: string(l.Status), Rule: l.Rule, A: a, B: b, ValidFrom: l.ValidFrom,
-			Score:    LinkScore{Strength: s.Strength, Certainty: s.Certainty, Support: s.Support, Contrary: s.Contrary},
-			Deposits: make([]LinkDeposit, len(l.Deposits)),
-		}
-		for i, d := range l.Deposits {
-			o.Deposits[i] = LinkDeposit{At: d.At, Weight: d.Weight, Against: d.Against, ObservationID: d.ObservationID, Features: d.Features, Actor: d.Actor, Reason: d.Reason}
-		}
-		out = append(out, o)
+		out = append(out, sc.link(l, record))
 	}
 	slices.SortStableFunc(out, func(x, y Link) int { return -cmp.Compare(x.Score.Strength, y.Score.Strength) })
 	limit := req.Limit
@@ -175,4 +140,56 @@ func (q *Querier) Links(ctx context.Context, req LinksRequest) ([]Link, error) {
 		limit = DefaultLinksLimit
 	}
 	return out[:min(limit, len(out))], nil
+}
+
+// scorer scores links at one time, each with its kind's half-life.
+type scorer struct {
+	at       time.Time
+	halfLife func(model.Kind) time.Duration
+	reg      *model.Registry
+}
+
+// scorer scores at at; zero means the querier's now.
+func (q *Querier) scorer(at time.Time) scorer {
+	if at.IsZero() {
+		now := time.Now
+		if q.Now != nil {
+			now = q.Now
+		}
+		at = now()
+	}
+	halfLife := q.HalfLife
+	if halfLife == nil {
+		halfLife = match.Config{Registry: q.Registry}.HalfLifeOf
+	}
+	return scorer{at: at, halfLife: halfLife, reg: q.Registry}
+}
+
+// link is l as a person reviews it, with both records and its evidence.
+func (s scorer) link(l graph.Link, record func(graph.EntityID) LinkRecord) Link {
+	a, b := record(l.A), record(l.B)
+	sc := match.ScoreOf(l.Deposits, s.at, s.halfLife(s.reg.Deeper(model.Kind(a.Kind), model.Kind(b.Kind))))
+	o := Link{
+		ID: l.ID, Kind: string(l.Kind), Status: string(l.Status), Rule: l.Rule, A: a, B: b, ValidFrom: l.ValidFrom,
+		Score:    LinkScore{Strength: sc.Strength, Certainty: sc.Certainty, Support: sc.Support, Contrary: sc.Contrary},
+		Deposits: make([]LinkDeposit, len(l.Deposits)),
+	}
+	for i, d := range l.Deposits {
+		o.Deposits[i] = LinkDeposit{At: d.At, Weight: d.Weight, Against: d.Against, ObservationID: d.ObservationID, Features: d.Features, Actor: d.Actor, Reason: d.Reason}
+	}
+	return o
+}
+
+// linkRecord is a record as one end of a link; an ID with no record stays
+// usable.
+func linkRecord(recs map[graph.EntityID]graph.Record, id graph.EntityID) LinkRecord {
+	x, ok := recs[id]
+	if !ok {
+		return LinkRecord{ID: string(id)}
+	}
+	r := LinkRecord{ID: string(x.ID), Kind: string(x.Kind), Name: x.Name, Sources: x.Sources}
+	if len(x.Keys) > 0 {
+		r.Key = string(x.Keys[0])
+	}
+	return r
 }

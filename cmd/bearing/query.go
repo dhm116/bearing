@@ -64,7 +64,7 @@ const (
 type answerer interface {
 	Get(ctx context.Context, ref string, at time.Time) (*query.Entity, error)
 	Owners(ctx context.Context, ref string, at time.Time, members bool) (*query.Ownership, error)
-	Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error)
+	Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Related, error)
 	Changes(ctx context.Context, ref string, since, until time.Time, limit int) (*query.Changes, error)
 	Find(ctx context.Context, text, kind string, limit int) ([]query.Match, error)
 	Links(ctx context.Context, req query.LinksRequest) ([]query.Link, error)
@@ -159,7 +159,7 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	if err != nil {
 		return fmt.Errorf("%w: %w", err, errUsage)
 	}
-	wantArgs := map[string]string{"get": "a ref", "owner": "a repository", "related": "a ref", "find": "a name"}
+	wantArgs := map[string]string{"get": "a ref", "owner": "a repository, ref or name", "related": "a ref or name", "find": "a name"}
 	if want, ok := wantArgs[name]; ok && len(pos) != 1 {
 		return fmt.Errorf("%s takes %s: %w", name, want, errUsage)
 	}
@@ -219,12 +219,12 @@ func queryCmd(ctx context.Context, env queryEnv, name string, args []string, std
 	case "owner":
 		var o *query.Ownership
 		if o, err = q.Owners(ctx, repoRef(pos[0], namespace), at, members); err == nil {
-			answer, render = o, func(w io.Writer) error { return renderOwnership(w, o, at) }
+			answer, render = o, func(w io.Writer) error { return renderOwnership(w, o, at, pos[0]) }
 		}
 	case "related":
-		var r *query.Relations
+		var r *query.Related
 		if r, err = q.Related(ctx, pos[0], predicate, direction, depth, at); err == nil {
-			answer, render = r, func(w io.Writer) error { return renderRelations(w, r, at) }
+			answer, render = r, func(w io.Writer) error { return renderRelated(w, r, at, pos[0]) }
 		}
 	case "changes":
 		ref := ""

@@ -151,8 +151,8 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 	v := newVocabRun(t)
 	team := func(o *query.Ownership) []string {
 		var out []string
-		for _, f := range o.Owners {
-			out = append(out, f.Object.Key)
+		for _, c := range o.Claims {
+			out = append(out, c.Fact.Object.Key)
 		}
 		return out
 	}
@@ -160,11 +160,11 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 	v.boot(true)
 	v.fullSync()
 	o := v.owners()
-	if o.Subject.Kind != string(k8sService) {
-		t.Fatalf("payments-api is a %s, want %s", o.Subject.Kind, k8sService)
+	if o.Subjects[0].Kind != string(k8sService) {
+		t.Fatalf("payments-api is a %s, want %s", o.Subjects[0].Kind, k8sService)
 	}
-	if want := []string{"kubernetes:team/payments"}; !slices.Equal(team(o), want) || o.Owners[0].AsOf != nil {
-		t.Fatalf("question 1 through k8s.Service: got owners %v (as_of %v), want %v with no as_of", team(o), o.Owners[0].AsOf, want)
+	if want := []string{"kubernetes:team/payments"}; !slices.Equal(team(o), want) || o.Claims[0].Fact.AsOf != nil {
+		t.Fatalf("question 1 through k8s.Service: got owners %v (as_of %v), want %v with no as_of", team(o), o.Claims[0].Fact.AsOf, want)
 	}
 
 	// Reboot without the kind, some time later: the service observations are
@@ -188,7 +188,7 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 	if want := []string{"kubernetes:team/payments"}; !slices.Equal(team(o), want) {
 		t.Fatalf("after disabling: got owners %v, want %v still answered", team(o), want)
 	}
-	if got := o.Owners[0].AsOf; got == nil || !got.Equal(retiredAt) {
+	if got := o.Claims[0].Fact.AsOf; got == nil || !got.Equal(retiredAt) {
 		t.Fatalf("after disabling: got as_of %v, want the retirement %v", got, retiredAt)
 	}
 
@@ -200,8 +200,8 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 		t.Fatalf("after enabling: %d owned_by facts, want %d: the full sync should close the cleared label", got, len(before)-1)
 	}
 	o = v.owners()
-	if o.Owners[0].AsOf != nil || o.Subject.Kind != string(k8sService) {
-		t.Fatalf("after enabling: got kind %s, as_of %v, want %s and none", o.Subject.Kind, o.Owners[0].AsOf, k8sService)
+	if o.Claims[0].Fact.AsOf != nil || o.Subjects[0].Kind != string(k8sService) {
+		t.Fatalf("after enabling: got kind %s, as_of %v, want %s and none", o.Subjects[0].Kind, o.Claims[0].Fact.AsOf, k8sService)
 	}
 }
 

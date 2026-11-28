@@ -247,14 +247,14 @@ func (c *Client) Owners(ctx context.Context, ref string, at time.Time, members b
 }
 
 // Related is query.Querier.Related, asked of the server.
-func (c *Client) Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Relations, error) {
+func (c *Client) Related(ctx context.Context, ref, predicate, direction string, depth int, at time.Time) (*query.Related, error) {
 	v := refValues(ref, at)
 	set(v, "predicate", predicate)
 	set(v, "direction", direction)
 	if depth != 0 {
 		v.Set("depth", strconv.Itoa(depth))
 	}
-	var r query.Relations
+	var r query.Related
 	if err := c.get(ctx, "/v1/related", v, &r); err != nil {
 		return nil, notFoundAbout(err, ref)
 	}
