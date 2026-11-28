@@ -114,9 +114,9 @@ the only link between them.
     the URL's query or userinfo.
   - Redirects are never followed across origins.
 - **The adapter enforces read-only on every request it builds:** `GET`
-  and `QUERY` only, plus a `POST` the adapter mapping names. It needs no
-  spec at runtime for this. `check` validates the same rule against the
-  spec.
+  and `QUERY` only, plus a `POST` the adapter mapping names. The
+  read-only rule needs no spec at runtime. `check` validates the same rule
+  against the spec.
 - **Four commands:**
   - `init <name> --spec <source>` writes the directory. Beyond ADR 12's
     guesses, it ticks identity fields (names, IDs, key fields), leaves the

@@ -48,10 +48,10 @@ end-to-end test on the Acme fakes.
 | **Q** | ADR 11 answers: claims, record refs, match mode, ordering, past-time claims, Q3 joins and splits, CLI sentences, REST and MCP | — | `pkg/query/**`, `internal/duckstore/read.go`, `pkg/graph/graph.go` (record-level reads), `cmd/bearing/{query,mcp}*.go`, `pkg/server/api*` answer handlers, goldens, `docs/spec/api.md`, `docs/mcp.md` |
 | **M** | Mapping decisions: accept, reject and end through the event log; cluster recompute on `broader`; `broader` and `exact_match` read at query time; Q3 lists mapping decisions; `bearing vocab review\|accept\|reject` | F2, Q | `internal/duckstore/{mapping_decide,links}.go`, `read.go`, `pkg/graph`, `pkg/query` (after Q), `cmd/bearing/vocab*.go`, `pkg/server/api*vocab*` |
 | **D** | Derive rules at ingest, and closing their facts | F2 | `pkg/vocab/{derive,funcs}.go` + `SPRIG-LICENSE`; `internal/duckstore/derive*.go`; the derive hook in `ingest.go`; `CloseRuleFacts(rule, at)`, a store function M's decision path calls |
-| **G** | Generic OpenAPI adapter: the `AdapterMapping` proto and its YAML loader with line-numbered errors (ADR 14); engine; per-leaf field allow-list; read-only rule on built requests; credentials bound to the base URL's origin; spec-lock check at start; middleware; module from the adapter mapping; per-kind metrics; a threat-model control | F1 | `proto/bearing/config/v1alpha1/adapter_mapping.proto` + `gen/`; `adapters/openapi/**` (not `spec/`); `cmd/bearing-adapter-openapi/`; `docs/security/threat-model.md` (the new control) |
-| **O** | Operator module, pinned and verified; replaces the `EntityKind` resource; the namespace pin setting; `SourceSpec.adapter_mapping` (resolved, checked and passed to the adapter) | F2 | `pkg/vocab/operator.go`; every `pkg/server/boot/{settings,assemble}.go` change from wave 1 on; `proto/bearing/config/…/resources.proto` |
+| **G** | Generic OpenAPI adapter: the `AdapterMapping` proto and its YAML loader with line-numbered errors (ADR 14); engine; per-leaf field allow-list; read-only rule on built requests; credentials bound to the base URL's origin; spec-lock check at start; middleware; module from the adapter mapping; per-kind metrics; a threat-model control | F1 | `proto/bearing/config/v1alpha1/adapter_mapping.proto` + `gen/`; `adapters/openapi/**` (in `spec/`, only `lock.go`); `cmd/bearing-adapter-openapi/`; `docs/security/threat-model.md` (the new control, which cites C-OPS-3) |
+| **O** | Operator module, pinned and verified; replaces the `EntityKind` resource; the namespace pin setting; `SourceSpec.adapter_mapping` (resolved, checked and passed to the adapter) | F2 | `pkg/vocab/operator.go`; every `pkg/server/boot/{settings,assemble}.go` change from wave 1 on; `proto/bearing/config/…/resources.proto`; C-OPS-3's wording in `docs/security/threat-model.md` |
 | **A** | GitHub and authentik: adapter modules in `Describe`, namespaced emission, namespace ownership check | F2, M, D, O | `adapters/{github,authentik}/**`, `pkg/adapter` `Describe`, the ownership check in `internal/duckstore/vocabulary.go` (F1's file, edited after F1 merges), `demo/settings.json` with the Acme mappings and rules, `testdata/` goldens |
-| **I** | The authoring path (ADR 14): `init` writes the adapter directory; `check` offline against the committed, pinned spec; `test` replays fixtures against goldens, with `--explain` | G | `cmd/bearing/adapter_{init,check,test}.go`; `adapters/openapi/spec/` (spec reader and lock) |
+| **I** | The authoring path (ADR 14): `init` writes the adapter directory; `check` offline against the committed, pinned spec; `test` replays fixtures against goldens, with `--explain` | G | `cmd/bearing/adapter_{init,check,test}.go`; `adapters/openapi/spec/` (the spec reader; it extends G's `lock.go` after G merges) |
 | **K** | Kubernetes on the generic adapter, then delete the hand-written one | G, I, A, M, D | `adapters/kubernetes/` becomes an ADR 14 directory (`adapter_mapping.yaml`, `spec.lock`, trimmed `spec.json`, `fixtures/` recorded from the Acme fakes, `testdata/`, and `middleware.go` with the env-dependency middleware, embedding the three runtime files by name), replacing the hand-written code there; the e2e comparison; `cmd/bearing-adapter-kubernetes` becomes a small `main` importing that package; `demo/{Dockerfile,settings.json}`, `cmd/bearing-demo-fakes/five_questions_test.go`, `internal/e2e/dependencies_test.go`, `README.md`, `CONTRIBUTING.md`. `testdata/observations/valid/1[0-4]-kubernetes-*.json` stay: they test model validation, not the adapter |
 
 ### Why this cut
@@ -103,9 +103,10 @@ Wave 3   K        docs
   `SourceSpec.adapter_mapping`, G's tests pass the directory to the
   adapter directly. I starts when G merges, since `test` replays through
   G's engine.
-- The engine enforces read-only on the requests it builds, with no spec
-  at runtime. `check` (I) validates the same rule against the spec, so G
-  and I share no file.
+- The engine enforces read-only on the requests it builds; the read-only
+  rule needs no spec at runtime. `check` (I) validates the same rule
+  against the spec. G owns only `spec/lock.go`, which it reads at start,
+  and I owns the rest of `spec/`, so G and I share no file.
 
 ## 4. Team
 
@@ -206,8 +207,8 @@ Each is a test that fails if the rule breaks.
   - A `spec.json` that doesn't match `spec.lock`, or a missing or
     unreadable directory, fails at adapter start, naming the path.
   - The threat model gains a control for adapter mappings: the method
-    rule, the field check after middleware, the origin rule and the
-    directory checks.
+    rule, the field check after middleware and the origin rule. For the
+    directory checks it cites C-OPS-3, which O extends.
   - Only listed fields leave the process, checked after middleware.
   - No core term is emitted, and views merge into one kind.
   - The Acme secret canaries never appear (`testkit.AssertNoLeaks`).
@@ -222,8 +223,11 @@ Each is a test that fails if the rule breaks.
     prompt (`GIT_TERMINAL_PROMPT=0`) and a timeout applies.
   - `SourceSpec.adapter_mapping` is resolved against the settings file's
     directory, cleaned, and refused if it's a URL or not a directory.
-  - The directory and its three runtime files fail C-OPS-3's owner and
-    mode check, naming the path, when they're writable by others.
+  - The directory and each of its three runtime files, checked as opened
+    after symlinks are resolved, fail C-OPS-3's check when the owner isn't
+    the service user or root, or when group or others can write them. The
+    error names the path. O extends C-OPS-3's wording in the threat model
+    to cover adapter mapping directories.
   - A Source that sets `adapter_mapping` for an adapter whose `Describe`
     doesn't take one, or leaves it unset for one that does, is refused at
     boot, naming both.
@@ -245,14 +249,14 @@ Each is a test that fails if the rule breaks.
   - `check` runs with no network. It fails an adapter mapping that names a
     route or field the spec lacks. It also fails one that lacks a required
     `reason:` (a secret-looking field, a whole map or a named `POST`), or
-    whose `reason:` is empty or `TODO`. `init` never writes a `reason:`.
+    whose `reason:` is empty or `TODO`. A `spec.json` whose sha256 differs
+    from `spec.lock` fails, naming both. `init` never writes a `reason:`.
   - Secret-looking names match case-insensitively on each path segment,
     after splitting camelCase, `-` and `_`, so `apiKey`, `x-api-key` and
     `clientSecret` all hit.
   - `init --spec <url>` refuses a URL with userinfo or a query string, and
     takes auth from an env var named on the command line. The fetch uses
-    `otelhttp` with a timeout and a size limit. A `spec.json` whose sha256 differs from `spec.lock` fails,
-    naming both.
+    `otelhttp` with a timeout and a size limit.
   - `test` replays `fixtures/` with no network and diffs against
     `testdata/`; `-update` rewrites the golden.
   - `--explain` names each field's term and each dropped field, and its
