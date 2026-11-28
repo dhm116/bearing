@@ -237,6 +237,7 @@ Each is a test that fails if the rule breaks.
   - `matching.half_life` keys resolve through `Names`.
   - Every `term.namespace` has a `prefix` row.
   - No configured row lives in the core namespace once EntityKind terms move to the operator module.
+  - `Extend` refuses a namespace whose last segment is `core`, or the operator module becomes the only source of kinds.
 - **A**
   - `Describe` returns each module, and suggestions are stored proposed.
   - A second adapter claiming a namespace is refused unless pinned.

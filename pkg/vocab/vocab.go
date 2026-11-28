@@ -54,13 +54,24 @@ type Term struct {
 func Core() Module {
 	m := core
 	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range info.Settings {
-			if s.Key == "vcs.revision" {
-				m.Source.Commit = s.Value
-			}
-		}
+		m.Source.Commit = commitOf(info.Settings)
 	}
 	return m
+}
+
+// commitOf is the build's commit, or "" when the build has none or its tree
+// was modified, since then the commit doesn't name what was built.
+func commitOf(settings []debug.BuildSetting) string {
+	var rev string
+	for _, s := range settings {
+		switch {
+		case s.Key == "vcs.modified" && s.Value == "true":
+			return ""
+		case s.Key == "vcs.revision":
+			rev = s.Value
+		}
+	}
+	return rev
 }
 
 var reverseDomain = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?(\.[a-z]([a-z0-9-]*[a-z0-9])?)+$`)

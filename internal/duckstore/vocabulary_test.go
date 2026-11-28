@@ -294,12 +294,7 @@ func TestSyncVocabularyRecordsTheCoreModuleAndNamespacesEveryTerm(t *testing.T) 
 	}
 }
 
-// TestSyncVocabularyRefusesNarrowingACorePredicateAConfiguredKindWidened: a
-// configured kind added to a core relation's domain stays in it while the
-// kind is configured. A term only grows, now for core terms too, so dropping
-// the kind from the relation alone refuses the boot; dropping the kind with it
-// is a retirement, not a narrowing.
-func TestSyncVocabularyRefusesNarrowingACorePredicateAConfiguredKindWidened(t *testing.T) {
+func TestSyncVocabularyRefusesNarrowingACorePredicateWhileItsKindIsConfigured(t *testing.T) {
 	t.Parallel()
 	dep := model.Predicate{
 		Name: string(model.RelDependsOn), Relation: true, Domain: []model.Kind{"io.k8s:Service"},

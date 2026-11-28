@@ -2,6 +2,7 @@ package vocab
 
 import (
 	"errors"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
@@ -118,5 +119,26 @@ func TestCoreModuleHoldsTheCoreTermsWithTheirShapes(t *testing.T) {
 		a.Cardinality != modelv1alpha1.Cardinality_CARDINALITY_ONE || a.Conflict != modelv1alpha1.ConflictPolicy_CONFLICT_POLICY_ONE ||
 		!slices.Equal(a.Domain, []string{"Repository"}) {
 		t.Errorf("archived got %+v, want a bool attribute of Repository, cardinality one, conflict one", a)
+	}
+}
+
+func TestCommitOfNamesOnlyACleanBuildsRevision(t *testing.T) {
+	t.Parallel()
+	rev := debug.BuildSetting{Key: "vcs.revision", Value: "4207eb6"}
+	for _, tc := range []struct {
+		name     string
+		settings []debug.BuildSetting
+		want     string
+	}{
+		{"clean, with a revision", []debug.BuildSetting{rev, {Key: "vcs.modified", Value: "false"}}, "4207eb6"},
+		{"dirty", []debug.BuildSetting{rev, {Key: "vcs.modified", Value: "true"}}, ""},
+		{"no revision", []debug.BuildSetting{{Key: "GOOS", Value: "linux"}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := commitOf(tc.settings); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
