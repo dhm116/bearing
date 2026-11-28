@@ -292,6 +292,18 @@ func TestAPastAnswerShowsWhatChangedSince(t *testing.T) {
 			nil,
 			[]string{"opened 00:10:00 " + teamPlat},
 		},
+		{
+			// Within one observation platform's fact gets the smaller ID, and
+			// zeta sorts last by key: only the order rules put them as wanted.
+			"several owners open since, newest first, then by ADR 11's order",
+			[]*eventv1alpha1.Observation{
+				ob("r2", 10, "Repository", payments, rel("owned_by", teamPlat, false), rel("owned_by", teamPay, false)),
+				ob("r3", 20, "Repository", payments, rel("owned_by", "github:team/acme/zeta", false)),
+			},
+			[]string{payments + ">" + payments + ">" + teamPay + " by [g] 0h"},
+			nil,
+			[]string{"opened 00:20:00 github:team/acme/zeta", "opened 00:10:00 " + teamPay, "opened 00:10:00 " + teamPlat},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -360,6 +372,13 @@ func TestAKindlessOwnerTakesItsClustersKind(t *testing.T) {
 	}
 	if len(o.Teams) != 1 || o.Teams[0].Team.Key != team {
 		t.Errorf("got teams %+v, want only the payments team, never jdoe", o.Teams)
+	}
+	byPlaceholder, err := w.q.Owners(t.Context(), jdoe, time.Time{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := byPlaceholder.Subjects[0]; s.Key != jdoe || s.Kind != "" || s.ClusterKind != "Person" {
+		t.Errorf("asked by the placeholder's key: got subject %+v, want it kindless in a Person cluster", s.Ref)
 	}
 }
 

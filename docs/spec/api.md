@@ -172,7 +172,7 @@ shows where it came from and nothing picks a winner between sources:
 | `subjects` | The records the question starts from, each a record reference (below) with `match` and `score`: `key` (the `ref` was its key or ID, score 1), `name` (its name, ignoring case, score 1) or `fuzzy` (its name or a key only resembles `ref`; the score, 0 to 1, says how closely). A `ref` shaped like a key (with a `:`) is never looked up by name |
 | `limit_hit` | `true` when the name lookup found more than 20 entities and only the best are subjects (absent otherwise) |
 | `claims` | One per asserted relation the subjects reach, never merged or chosen between (below); attributes are not claims |
-| `changed_since` | Only with `at`: `[{kind, at, fact}]`, the facts today's answer has that `opened` after `at`, each at its `valid_from` |
+| `changed_since` | Only with `at`: `[{kind, at, fact}]`, the facts today's answer has that `opened` after `at`, each at its `valid_from`; newest first, then in the claims' order |
 | `relations` | How the clusters of the claims' objects relate, once per pair (below) |
 | `direction` | `related` only: `out` or `in` |
 | `teams` | `owner` with `members=true` only: as above, one per owning cluster; `team` is the first claim's object record |
@@ -224,6 +224,7 @@ their hops show the links that join them.
 | `owner` | `teams[].team` named the cluster | it names the first claim's object record |
 | `related` | `subject` | `subjects` |
 | `related` | `steps` (`{depth, fact}`) | `claims`; a claim's `facts` is the old `depth` |
+| `related` | (unchanged) | relations only: attribute facts are never claims |
 | `changes` | facts named clusters | facts name records; `identity` is new |
 | `runtimes` | `subject` named the cluster | it names the declaring record; declarations gain `fact_id` |
 | every record reference | (new) | `cluster`, `cluster_kind`, `keys` |

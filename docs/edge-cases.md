@@ -458,3 +458,11 @@ Each entry:
 - **Example:** `bearing owner payments/api` asks for `github:repo/payments/api`, not for something named `payments/api`.
 - **Impact:** a name with a slash can't be looked up through `bearing owner`; the API and MCP take it as given.
 - **Proposed fix:** look the name up when the repository key names nothing, or take `--name` to say which is meant.
+
+## A deeper fact newly reached is not listed as changed
+
+- **Found in:** ADR 11 answers review (`pkg/query/answer.go`, `answer`)
+- **Area:** query
+- **Example:** as of last week payments depended on ledger. Since then payments→cache opened, and cache→redis, valid since long before, is now reached at depth 2. The past answer's `changed_since` lists payments→cache but not cache→redis, which today's answer shows.
+- **Impact:** at depth > 1, today's answer can hold claims that neither the past answer nor `changed_since` mentions.
+- **Proposed fix:** list today's claims whose fact is not among the past claims, with kind `reached`.

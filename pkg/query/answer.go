@@ -208,7 +208,7 @@ func (q *Querier) answer(ctx context.Context, subs []Subject, a ask, at time.Tim
 	if out.Relations, err = q.relations(past, recs, at); err != nil {
 		return out, err
 	}
-	refs := claimRefs(out.Claims)
+	refs := claimRefs(out.Subjects, out.Claims)
 	if !at.IsZero() {
 		today, err := q.evidence(ctx, subs, a, time.Time{})
 		if err != nil {
@@ -235,6 +235,8 @@ func (q *Querier) answer(ctx context.Context, subs []Subject, a ask, at time.Tim
 			}
 			out.ChangedSince = append(out.ChangedSince, Change{Kind: string(graph.Opened), At: f.ValidFrom, Fact: f})
 		}
+		// Newest first, then as claims are ordered: the store's order is by fact ID.
+		slices.SortFunc(out.ChangedSince, func(x, y Change) int { return cmp.Or(y.At.Compare(x.At), factOrder(x.Fact, y.Fact)) })
 		for i := range out.ChangedSince {
 			refs = append(refs, factRefs(&out.ChangedSince[i].Fact)...)
 		}
@@ -242,9 +244,13 @@ func (q *Querier) answer(ctx context.Context, subs []Subject, a ask, at time.Tim
 	return out, q.clusterKinds(ctx, refs)
 }
 
-// claimRefs are the record references of claims, for clusterKinds.
-func claimRefs(cs []Claim) []*Ref {
+// claimRefs are the record references of subjects and claims, for
+// clusterKinds.
+func claimRefs(subs []Subject, cs []Claim) []*Ref {
 	var out []*Ref
+	for i := range subs {
+		out = append(out, &subs[i].Ref)
+	}
 	for i := range cs {
 		c := &cs[i]
 		out = append(out, &c.Start.Ref)
@@ -358,13 +364,18 @@ func claims(l *labeler, ev graph.Evidence, subs []Subject, recs map[graph.Entity
 		out = append(out, cl)
 	}
 	slices.SortStableFunc(out, func(a, b Claim) int {
-		return cmp.Or(cmp.Compare(a.Facts, b.Facts), cmp.Compare(a.SameAs, b.SameAs),
-			cmp.Compare(firstSource(a.Fact), firstSource(b.Fact)),
-			cmp.Compare(objectKey(a.Fact), objectKey(b.Fact)),
-			cmp.Compare(a.Fact.Subject.Key, b.Fact.Subject.Key),
-			cmp.Compare(a.Fact.ID, b.Fact.ID))
+		return cmp.Or(cmp.Compare(a.Facts, b.Facts), cmp.Compare(a.SameAs, b.SameAs), factOrder(a.Fact, b.Fact))
 	})
 	return out, nil
+}
+
+// factOrder is ADR 11's order rules 2 to 5: the smallest source name, the
+// object record's first key, the subject record's first key, then fact ID.
+func factOrder(a, b Fact) int {
+	return cmp.Or(cmp.Compare(firstSource(a), firstSource(b)),
+		cmp.Compare(objectKey(a), objectKey(b)),
+		cmp.Compare(a.Subject.Key, b.Subject.Key),
+		cmp.Compare(a.ID, b.ID))
 }
 
 // firstSource is the smallest name among a fact's sources.
