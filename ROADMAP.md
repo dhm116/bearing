@@ -62,6 +62,14 @@ evidence, on the Acme scenario, and Bearing runs in Docker Compose.
    `cmd/bearing-demo-fakes` test each question end to end. The Compose stack
    itself is tested only with `BEARING_TEST_COMPOSE=1`.
 
+8. **Vocabulary and the generic adapter.** Build [ADR 13](docs/adr/0013-vocabulary-as-data.md)
+   (vocabulary as data), [ADR 12](docs/adr/0012-generic-openapi-adapter.md)
+   (the generic OpenAPI adapter) with [ADR 14](docs/adr/0014-adapter-authoring-golden-path.md)'s
+   authoring path, and finish [ADR 11](docs/adr/0011-answers-show-each-evidence-path.md)
+   above the store (claims and evidence paths in the query layer, CLI,
+   REST and MCP). Streams, waves, team and acceptance checks are in
+   [`docs/plans/vocabulary-and-openapi.md`](docs/plans/vocabulary-and-openapi.md).
+
 ## Later
 
 Each idea keeps a line on why it waits. Pre-pivot designs for several of
@@ -99,3 +107,26 @@ tag.
 - **GraphQL API.**
 - **Caching.**
 - **More adapters:** AWS, PagerDuty.
+- **Vocabulary deprecation and proposed closes** (ADR 13: `replaced_by`,
+  `consider`, `fact_close`): when a source deprecates a term, or an adapter
+  emits evidence that closes another adapter's fact.
+- **Mapping packs** (`bearing vocab export|import`, ADR 13): when there's a
+  second instance to move mappings to.
+- **Webhooks from the spec** in the generic adapter (ADR 12): when GitHub
+  moves to it. An adapter mapping can never weaken or turn off the
+  server's signature check.
+- **Adapter authoring extras** (ADR 14): `bearing adapter test --record`
+  against a real API (it must keep every field the mapping or a middleware
+  reads, strip headers, use deterministic placeholders and pass
+  `AssertNoLeaks` against the fakes' canaries); a schema
+  hosted on the docs site; a spec cache shared across adapters.
+- **The model-backed matcher** (ADR 7, step 3), which merges only through
+  its own ADR, and embeddings for candidates.
+- **Scoring and decay for proposed facts** (ADR 7). ADR 13's guessing
+  rules write the first ones, stored and shown as proposed, without decay.
+- **Half-life per predicate** (ADR 7); today it is set per kind.
+- **A suggested config snippet** shipped with each adapter (ADR 10).
+- **An HTTP MCP endpoint** on the server, beside `bearing mcp` over stdio.
+- **What ADR 6 dropped for now:** a second time axis ("as recorded at"),
+  merge reviews, conflict and data-quality reports, and backup and
+  restore.
