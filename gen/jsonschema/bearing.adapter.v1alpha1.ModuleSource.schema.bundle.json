@@ -1,0 +1,36 @@
+{
+  "$defs": {
+    "bearing.adapter.v1alpha1.ModuleSource.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "ModuleSource is where a module came from, so a term row can say so.",
+      "properties": {
+        "commit": {
+          "default": "",
+          "description": "The full commit SHA the module was read or built at.",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "description": "The module's path in the repository.",
+          "type": "string"
+        },
+        "repo": {
+          "default": "",
+          "description": "The repository, such as \"https://github.com/acme/vocab\".",
+          "type": "string"
+        },
+        "sha256": {
+          "default": "",
+          "description": "The sha256 of the module file, hex; empty when not pinned.",
+          "type": "string"
+        }
+      },
+      "title": "Module Source",
+      "type": "object"
+    }
+  },
+  "$id": "bearing.adapter.v1alpha1.ModuleSource.schema.bundle.json",
+  "$ref": "#/$defs/bearing.adapter.v1alpha1.ModuleSource.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

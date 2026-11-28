@@ -102,13 +102,17 @@ Every record has a **kind** (`Person`, `Team`, `Repository`). The kinds, and
 the relations and attributes that go with them, are the **vocabulary**
 ([ADR 10](adr/0010-configured-namespaced-kinds.md)).
 
-- **Core kinds** live in code (`pkg/model`) and are written bare: `Person`.
+- **Core kinds** come from the core module, `pkg/vocab/core.yaml`
+  ([ADR 13](adr/0013-vocabulary-as-data.md)), and are stored bare:
+  `Person`. Config may also write them `core:Person`.
 - **Configured kinds** are added by an operator with an `EntityKind` in the
-  settings file, written `<namespace>.<Kind>`: `k8s.Service`. The namespace
-  names the vocabulary the kind comes from (Kubernetes, systemd); nothing
-  reads meaning from it.
+  settings file, written `<namespace>:<Kind>`: `io.k8s:Service`. The
+  namespace is a reverse domain naming the vocabulary the kind comes from
+  (Kubernetes, systemd); nothing reads meaning from it. Config may refer to a
+  kind by a short name, `k8s:Service`, while only one namespace ends in
+  `k8s`; once a second does, the short name is refused, naming both.
 - **A parent** (`extends`) says what a configured kind is a kind of: a
-  `k8s.Service` extending `Component` is a `Component`. A question about a
+  `io.k8s:Service` extending `Component` is a `Component`. A question about a
   kind also covers its descendants, so question 1 about components answers
   for services too. A kind with no parent works for lookups, search and
   history, but never answers the five MVP questions.
@@ -127,7 +131,7 @@ Where each rule is checked:
 | When | What | Where |
 | --- | --- | --- |
 | Start | `EntityKind` names, parents and shapes are valid; a required declared kind exists | `pkg/server/boot` |
-| Start | Config only grows the kinds the store remembers (a changed parent or a narrowed domain refuses the start) | `Store.SyncVocabulary`, `internal/duckstore/vocabulary.go` |
+| Start | A term only grows: a changed parent or shape, a narrowed domain or range, or a core term the core module dropped refuses the start, naming the term | `Store.SyncVocabulary`, `internal/duckstore/vocabulary.go` |
 | Each page | Observations of kinds the source does not keep are dropped | `adapter.DropInactive`, `server.StoreApplier` |
 | Each page | What is left is validated against the vocabulary | `pkg/model` |
 | Complete sync | Only active kinds close what the source stopped listing | `internal/duckstore/ingest.go` |

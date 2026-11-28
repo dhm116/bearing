@@ -15,7 +15,7 @@ func TestDropInactiveKeepsOnlyObservationsOfEnabledKinds(t *testing.T) {
 		return &eventv1alpha1.Observation{Id: id, Data: &modelv1alpha1.ObservationData{Entity: &modelv1alpha1.Entity{Kind: kind}}}
 	}
 	obs := []*eventv1alpha1.Observation{
-		of("repo", "Repository"), of("svc", "k8s.Service"), of("nokind", ""), of("team", "Team"), of("alien", "vault.Group"),
+		of("repo", "Repository"), of("svc", "io.k8s:Service"), of("nokind", ""), of("team", "Team"), of("alien", "io.vault:Group"),
 	}
 	tests := []struct {
 		name    string
@@ -25,7 +25,7 @@ func TestDropInactiveKeepsOnlyObservationsOfEnabledKinds(t *testing.T) {
 		{"no filter when none are enabled", nil, []string{"repo", "svc", "nokind", "team", "alien"}},
 		{"one kind", []model.Kind{"Repository"}, []string{"repo", "nokind"}},
 		{"several kinds, an unknown one dropped", []model.Kind{"Repository", "Team"}, []string{"repo", "nokind", "team"}},
-		{"a kind the registry lacks, when enabled", []model.Kind{"k8s.Service"}, []string{"svc", "nokind"}},
+		{"a kind the registry lacks, when enabled", []model.Kind{"io.k8s:Service"}, []string{"svc", "nokind"}},
 		{"a kind nothing uses", []model.Kind{"Person"}, []string{"nokind"}},
 	}
 	for _, tt := range tests {

@@ -45,6 +45,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "description": "Observation is a CloudEvents 1.0 event carrying one observation, in\n structured mode: its ProtoJSON is the CloudEvents JSON form.",
+      "patternProperties": {
+        "^(moduleVersion)$": {
+          "default": "",
+          "description": "The version of the adapter's vocabulary module the observation's terms\n come from, such as \"0.4.0\" (ADR 13). Outside data and the id, so it\n never changes deduplication. Empty for an adapter that publishes no\n module.",
+          "type": "string"
+        }
+      },
       "properties": {
         "bearingsource": {
           "default": "",
@@ -63,6 +70,11 @@
         "id": {
           "default": "",
           "description": "Stable for the same entity and time; part of the ordering key.",
+          "type": "string"
+        },
+        "module_version": {
+          "default": "",
+          "description": "The version of the adapter's vocabulary module the observation's terms\n come from, such as \"0.4.0\" (ADR 13). Outside data and the id, so it\n never changes deduplication. Empty for an adapter that publishes no\n module.",
           "type": "string"
         },
         "source": {

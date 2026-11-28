@@ -25,6 +25,7 @@ import (
 	"bearing.example/pkg/match"
 	"bearing.example/pkg/model"
 	"bearing.example/pkg/server"
+	"bearing.example/pkg/vocab"
 )
 
 // maxSettingsBytes bounds the settings file.
@@ -325,11 +326,23 @@ func (s *Settings) Registry() (*model.Registry, error) {
 	var defs []model.KindDef
 	var entries [][]model.Predicate
 	seen := map[string]bool{}
+	eks := make([]*configv1alpha1.EntityKind, len(s.EntityKinds))
+	var namespaces []string
 	for i, raw := range s.EntityKinds {
-		ek := &configv1alpha1.EntityKind{}
-		if err := model.DecodeJSON(raw, ek); err != nil {
+		eks[i] = &configv1alpha1.EntityKind{}
+		if err := model.DecodeJSON(raw, eks[i]); err != nil {
 			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
 		}
+		// A malformed name is refused by Extend, naming it.
+		if ns, _, ok := strings.Cut(eks[i].GetSpec().GetName(), ":"); ok && vocab.ValidNamespace(ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	names, err := vocab.NewNames(namespaces, nil)
+	if err != nil {
+		return nil, fmt.Errorf("boot: settings: entity_kinds: %w", err)
+	}
+	for i, ek := range eks {
 		name := ek.GetMetadata().GetName()
 		switch {
 		case ek.GetKind() != "EntityKind" || ek.GetApiVersion() != "bearing/v1alpha1":
@@ -341,11 +354,15 @@ func (s *Settings) Registry() (*model.Registry, error) {
 		}
 		seen[name] = true
 		kind := model.Kind(ek.GetSpec().GetName())
-		preds, err := kindPredicates(kind, ek.GetSpec())
+		preds, err := kindPredicates(names, kind, ek.GetSpec())
 		if err != nil {
 			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: %w", i, err)
 		}
-		defs = append(defs, model.KindDef{Name: kind, Parent: model.Kind(ek.GetSpec().GetExtends())})
+		parent, err := names.Resolve(ek.GetSpec().GetExtends())
+		if err != nil {
+			return nil, fmt.Errorf("boot: settings: entity_kinds[%d]: spec.extends: %w", i, err)
+		}
+		defs = append(defs, model.KindDef{Name: kind, Parent: model.Kind(parent)})
 		entries = append(entries, preds)
 	}
 	if len(defs) == 0 {
@@ -375,9 +392,22 @@ func kindIndex(defs []model.KindDef, err error) string {
 	return ""
 }
 
+// resolveKinds appends to out the stored names of kinds as config writes
+// them: bare or core: for a core kind, full, or short (k8s:Service).
+func resolveKinds(names *vocab.Names, out []model.Kind, written []string) ([]model.Kind, error) {
+	for _, w := range written {
+		k, err := names.Resolve(w)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, model.Kind(k))
+	}
+	return out, nil
+}
+
 // kindPredicates turns an EntityKind's attributes and relations into
 // predicates with the kind in their domain.
-func kindPredicates(kind model.Kind, spec *configv1alpha1.EntityKindSpec) ([]model.Predicate, error) {
+func kindPredicates(vn *vocab.Names, kind model.Kind, spec *configv1alpha1.EntityKindSpec) ([]model.Predicate, error) {
 	var preds []model.Predicate
 	names := map[string]bool{}
 	for _, a := range spec.GetAttributes() {
@@ -396,11 +426,12 @@ func kindPredicates(kind model.Kind, spec *configv1alpha1.EntityKindSpec) ([]mod
 			return nil, fmt.Errorf("spec: relation %q needs a range", model.Clip(r.GetName()))
 		}
 		p := model.Predicate{Name: r.GetName(), Relation: true, Cardinality: r.GetCardinality(), Conflict: r.GetConflict(), Domain: []model.Kind{kind}}
-		for _, k := range r.GetDomain() {
-			p.Domain = append(p.Domain, model.Kind(k))
+		var err error
+		if p.Domain, err = resolveKinds(vn, p.Domain, r.GetDomain()); err == nil {
+			p.Range, err = resolveKinds(vn, nil, r.GetRange())
 		}
-		for _, k := range r.GetRange() {
-			p.Range = append(p.Range, model.Kind(k))
+		if err != nil {
+			return nil, fmt.Errorf("spec: relation %q: %w", model.Clip(r.GetName()), err)
 		}
 		preds = append(preds, p)
 	}

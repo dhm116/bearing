@@ -15,15 +15,15 @@ import (
 	"bearing.example/pkg/query"
 )
 
-// newServiceQuerier holds a Component, a k8s.Service and an acme.Api (below
-// k8s.Service) that each declare Go 1.19, and a Team, under a registry where
-// k8s.Service extends Component.
+// newServiceQuerier holds a Component, a io.k8s:Service and an com.acme:Api (below
+// io.k8s:Service) that each declare Go 1.19, and a Team, under a registry where
+// io.k8s:Service extends Component.
 func newServiceQuerier(t *testing.T) *query.Querier {
 	t.Helper()
 	reg, err := model.Core().Extend([]model.KindDef{
-		{Name: "k8s.Service", Parent: model.KindComponent},
-		{Name: "acme.Api", Parent: "k8s.Service"},
-		{Name: "acme.Contractor", Parent: model.KindPerson},
+		{Name: "io.k8s:Service", Parent: model.KindComponent},
+		{Name: "com.acme:Api", Parent: "io.k8s:Service"},
+		{Name: "com.acme:Contractor", Parent: model.KindPerson},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -38,11 +38,11 @@ func newServiceQuerier(t *testing.T) *query.Querier {
 	old := attr("runtime", []any{runtimeVal("go", "1.19", "go.mod")})
 	obs := []*eventv1alpha1.Observation{
 		ob("s1", 1, "Component", "kubernetes:service/acme/job", attr("name", "checkout job"), old),
-		ob("s2", 1, "k8s.Service", "kubernetes:service/acme/checkout", attr("name", "checkout"), old),
-		ob("s3", 1, "acme.Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), old),
+		ob("s2", 1, "io.k8s:Service", "kubernetes:service/acme/checkout", attr("name", "checkout"), old),
+		ob("s3", 1, "com.acme:Api", "kubernetes:service/acme/checkout-api", attr("name", "checkout api"), old),
 		ob("s4", 1, "Team", "github:team/acme/checkout", attr("name", "checkout")),
 		ob("s5", 1, "Component", "kubernetes:service/acme/owned", rel("owned_by", "github:user/acme/ctr", false)),
-		ob("s6", 1, "acme.Contractor", "github:user/acme/ctr", attr("name", "ctr")),
+		ob("s6", 1, "com.acme:Contractor", "github:user/acme/ctr", attr("name", "ctr")),
 	}
 	if _, err := s.Ingest(context.Background(), graph.IngestRequest{Source: "k8s", Observations: obs}); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestFindByAKindIncludesItsDescendants(t *testing.T) {
 		want []string
 	}{
 		{"Component", []string{"kubernetes:service/acme/checkout", "kubernetes:service/acme/checkout-api", "kubernetes:service/acme/job"}},
-		{"k8s.Service", []string{"kubernetes:service/acme/checkout", "kubernetes:service/acme/checkout-api"}},
-		{"acme.Api", []string{"kubernetes:service/acme/checkout-api"}},
+		{"io.k8s:Service", []string{"kubernetes:service/acme/checkout", "kubernetes:service/acme/checkout-api"}},
+		{"com.acme:Api", []string{"kubernetes:service/acme/checkout-api"}},
 	}
 	for _, tc := range tests {
 		ms, err := q.Find(t.Context(), "checkout", tc.kind, 0)
@@ -92,9 +92,9 @@ func TestRuntimesByAKindIncludeItsDescendants(t *testing.T) {
 
 func TestQueriesRefuseAKindOnlyAConfiguredRegistryKnows(t *testing.T) {
 	t.Parallel()
-	_, err := (&query.Querier{Graph: newServiceQuerier(t).Graph}).Find(t.Context(), "x", "k8s.Service", 0)
+	_, err := (&query.Querier{Graph: newServiceQuerier(t).Graph}).Find(t.Context(), "x", "io.k8s:Service", 0)
 	if !errors.Is(err, query.ErrInvalidRequest) {
-		t.Fatalf("got %v, want the core registry to refuse k8s.Service", err)
+		t.Fatalf("got %v, want the core registry to refuse io.k8s:Service", err)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestOwnersTreatsADescendantOfPersonAsAPerson(t *testing.T) {
 		t.Fatalf("got %+v, %v, want one owner", o, err)
 	}
 	if len(o.Teams) != 0 {
-		t.Errorf("got teams %+v, want none: an acme.Contractor is a Person, not a team", o.Teams)
+		t.Errorf("got teams %+v, want none: an com.acme:Contractor is a Person, not a team", o.Teams)
 	}
 	core := &query.Querier{Graph: q.Graph}
 	if o, err = core.Owners(t.Context(), "kubernetes:service/acme/owned", time.Time{}, true); err != nil || len(o.Teams) != 1 {
@@ -133,14 +133,14 @@ func TestAClusterTakesItsDeepestKindForGetAndRuntimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	e, err := q.Get(t.Context(), "kubernetes:service/acme/job", time.Time{})
-	if err != nil || e.Kind != "k8s.Service" {
-		t.Fatalf("got kind %q, %v, want k8s.Service, not the oldest record's Component", e.Kind, err)
+	if err != nil || e.Kind != "io.k8s:Service" {
+		t.Fatalf("got kind %q, %v, want io.k8s:Service, not the oldest record's Component", e.Kind, err)
 	}
-	got, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22", Kind: "k8s.Service"})
+	got, err := q.Runtimes(t.Context(), query.RuntimesRequest{Language: "go", Below: "1.22", Kind: "io.k8s:Service"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if g := sorted(names(got.Below)); !slices.Contains(g, e.Key) {
-		t.Errorf("got %v below, want the joined cluster %s among the k8s.Service answers", g, e.Key)
+		t.Errorf("got %v below, want the joined cluster %s among the io.k8s:Service answers", g, e.Key)
 	}
 }

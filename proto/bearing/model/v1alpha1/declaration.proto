@@ -50,7 +50,7 @@ message WebhookSignature {
 
 // KindDeclaration declares one kind an adapter emits.
 message KindDeclaration {
-  // A core kind, e.g. "Repository", or a configured one, e.g. "k8s.Service".
+  // A core kind, e.g. "Repository", or a configured one, e.g. "io.k8s:Service".
   string kind = 1;
   // The kind's key types.
   repeated KeyTypeDeclaration keys = 2;

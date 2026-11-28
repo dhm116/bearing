@@ -16,7 +16,7 @@ import (
 
 func TestStoreApplierValidatesAgainstAConfiguredRegistry(t *testing.T) {
 	t.Parallel()
-	reg, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	reg, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestStoreApplierValidatesAgainstAConfiguredRegistry(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.Close() })
 	o := validObservation(t)
-	o.GetData().GetEntity().Kind = "k8s.Service"
+	o.GetData().GetEntity().Kind = "io.k8s:Service"
 	o.GetData().GetEntity().Attributes = nil
 	o.GetData().Relations = nil
 	page := []*eventv1alpha1.Observation{o}
@@ -36,8 +36,8 @@ func TestStoreApplierValidatesAgainstAConfiguredRegistry(t *testing.T) {
 	if err := (StoreApplier{Store: d, Registry: reg}).Apply(t.Context(), testSource, page, Completion{}); err != nil {
 		t.Fatalf("got %v, want the configured kind accepted", err)
 	}
-	if e, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err != nil || e.Kind != "k8s.Service" {
-		t.Errorf("got %+v, %v, want a k8s.Service record", e, err)
+	if e, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err != nil || e.Kind != "io.k8s:Service" {
+		t.Errorf("got %+v, %v, want a io.k8s:Service record", e, err)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestStoreApplierRefusesAnUndeclaredNameSentWithAnotherType(t *testing.T) {
 func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
 	// Not parallel: the counter is read from the shared test meter, keyed by a source of its own.
 	const src = "retired-source"
-	booted, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	booted, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,11 +122,11 @@ func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.SetRegistry(read)
-	if !read.Valid("k8s.Service") {
+	if !read.Valid("io.k8s:Service") {
 		t.Fatal("the read registry lost the retired kind")
 	}
 	o := validObservation(t)
-	o.GetData().GetEntity().Kind = "k8s.Service"
+	o.GetData().GetEntity().Kind = "io.k8s:Service"
 	o.GetData().GetEntity().Attributes = nil
 	o.GetData().Relations = nil
 	a := StoreApplier{Store: d, Registry: read, Active: map[string][]model.Kind{src: {model.KindComponent}}}
@@ -137,7 +137,7 @@ func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
 	if _, err := d.Entity(t.Context(), o.GetData().GetEntity().GetKey()); err == nil {
 		t.Error("an observation of a retired kind was ingested")
 	}
-	const label = src + "/k8s.Service/inactive"
+	const label = src + "/io.k8s:Service/inactive"
 	if got := droppedCounts(t)[label] - before[label]; got != 1 {
 		t.Errorf("dropped counter rose by %d, want 1", got)
 	}
@@ -147,7 +147,7 @@ func TestStoreApplierDropsAnObservationOfARetiredKind(t *testing.T) {
 // holds retired kinds, so an unlisted source must keep nothing.
 func TestStoreApplierDropsAPageOfAnUnconfiguredSource(t *testing.T) {
 	t.Parallel()
-	booted, err := model.Core().Extend([]model.KindDef{{Name: "k8s.Service", Parent: model.KindComponent}}, nil)
+	booted, err := model.Core().Extend([]model.KindDef{{Name: "io.k8s:Service", Parent: model.KindComponent}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestStoreApplierDropsAPageOfAnUnconfiguredSource(t *testing.T) {
 	}
 	d.SetRegistry(read)
 	o := validObservation(t)
-	o.GetData().GetEntity().Kind = "k8s.Service"
+	o.GetData().GetEntity().Kind = "io.k8s:Service"
 	o.GetData().GetEntity().Attributes = nil
 	o.GetData().Relations = nil
 	a := StoreApplier{Store: d, Registry: read, Active: map[string][]model.Kind{"another-source": {model.KindComponent}}}

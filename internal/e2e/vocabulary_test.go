@@ -16,11 +16,11 @@ import (
 	"bearing.example/pkg/server"
 )
 
-const k8sService = model.Kind("k8s.Service")
+const k8sService = model.Kind("io.k8s:Service")
 
 // vocabRun is the Kubernetes source of Acme booted the way pkg/server/boot
 // boots it, once per call to boot: the vocabulary (core, configured kinds and
-// the adapter's declared attributes) is written to the store's kind table,
+// the adapter's declared attributes) is written to the store's term table,
 // the registry it returns is what the store and the queries read with, and
 // the kinds the source keeps come from the booted vocabulary, not the read
 // one. The same store lives across boots.
@@ -34,8 +34,8 @@ type vocabRun struct {
 }
 
 // newVocabRun is a cluster whose adapter, as the e2e fixture has it, emits
-// its workloads as k8s.Service, a configured kind extending Component. The
-// declaration lists k8s.Service as optional beside the adapter's own kinds.
+// its workloads as io.k8s:Service, a configured kind extending Component. The
+// declaration lists io.k8s:Service as optional beside the adapter's own kinds.
 func newVocabRun(t *testing.T) *vocabRun {
 	t.Helper()
 	c := newCluster(t)
@@ -51,7 +51,7 @@ func newVocabRun(t *testing.T) *vocabRun {
 	return &vocabRun{cluster: c, decl: decl}
 }
 
-// boot syncs the vocabulary (with k8s.Service configured or not) and builds
+// boot syncs the vocabulary (with io.k8s:Service configured or not) and builds
 // the applier and the querier.
 func (v *vocabRun) boot(configured bool) {
 	v.t.Helper()
@@ -112,7 +112,7 @@ func (v *vocabRun) fullSync() {
 		v.t.Fatal("sync did not finish")
 	}
 	for _, o := range all {
-		// The fixture's adapter emits its workloads as k8s.Service.
+		// The fixture's adapter emits its workloads as io.k8s:Service.
 		if e := o.GetData().GetEntity(); e.GetKind() == string(model.KindComponent) {
 			e.Kind = string(k8sService)
 		}
@@ -164,7 +164,7 @@ func TestAcmeConfiguredKindAnswersQuestionOneAndSurvivesBeingDisabled(t *testing
 		t.Fatalf("payments-api is a %s, want %s", o.Subject.Kind, k8sService)
 	}
 	if want := []string{"kubernetes:team/payments"}; !slices.Equal(team(o), want) || o.Owners[0].AsOf != nil {
-		t.Fatalf("question 1 through k8s.Service: got owners %v (as_of %v), want %v with no as_of", team(o), o.Owners[0].AsOf, want)
+		t.Fatalf("question 1 through io.k8s:Service: got owners %v (as_of %v), want %v with no as_of", team(o), o.Owners[0].AsOf, want)
 	}
 
 	// Reboot without the kind, some time later: the service observations are

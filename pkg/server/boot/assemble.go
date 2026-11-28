@@ -289,7 +289,7 @@ func checkEmits(source string, emits []model.Kind, decl *modelv1alpha1.AdapterDe
 	return nil
 }
 
-// syncVocabulary writes the booted vocabulary to the store's kind table in a
+// syncVocabulary writes the booted vocabulary to the store's term table in a
 // span, and returns the registry to read with. A store that keeps no table
 // returns reg. A vocabulary the stored one forbids stops the start with the
 // store's message.
